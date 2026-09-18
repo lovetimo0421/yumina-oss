@@ -36,6 +36,23 @@ export function computeTransactionHash(fields: {
 }
 
 /**
+ * The most recent link of a wallet's chain: its hash and created_at.
+ * Returns null if no transactions exist (genesis case).
+ */
+export async function getLastChainLink(
+  walletId: string,
+  database: LedgerDatabase = db,
+): Promise<{ hash: string | null; createdAt: Date } | null> {
+  const [last] = await database
+    .select({ hash: creditTransactions.hash, createdAt: creditTransactions.createdAt })
+    .from(creditTransactions)
+    .where(eq(creditTransactions.walletId, walletId))
+    .orderBy(desc(creditTransactions.createdAt), desc(creditTransactions.id))
+    .limit(1);
+  return last ? { hash: last.hash ?? null, createdAt: last.createdAt } : null;
+}
+
+/**
  * Get the hash of the most recent transaction for a wallet.
  * Returns null if no transactions exist (genesis case).
  */
@@ -43,13 +60,7 @@ export async function getLastHash(
   walletId: string,
   database: LedgerDatabase = db,
 ): Promise<string | null> {
-  const [last] = await database
-    .select({ hash: creditTransactions.hash })
-    .from(creditTransactions)
-    .where(eq(creditTransactions.walletId, walletId))
-    .orderBy(desc(creditTransactions.createdAt))
-    .limit(1);
-  return last?.hash ?? null;
+  return (await getLastChainLink(walletId, database))?.hash ?? null;
 }
 
 /**
@@ -63,10 +74,22 @@ export async function insertHashedTransaction(values: {
   referenceId?: string | null;
   balanceAfter: number;
   description?: string | null;
-}, database: LedgerDatabase = db): Promise<{ id: string; hash: string }> {
-  const previousHash = await getLastHash(values.walletId, database);
+  /** Requested timestamp (tests). Still forced strictly after the previous link. */
+  createdAt?: Date;
+}, database: LedgerDatabase = db): Promise<{ id: string; hash: string; createdAt: Date }> {
+  // The chain is ordered by created_at. Several rows written inside one
+  // transaction (an upgrade settlement paying two drops and then the grant, a
+  // multi-drop release) can share a millisecond, and two rows with the same
+  // created_at would each claim the same previous link — a silent fork. Force
+  // every new link strictly after the last one. Callers hold the wallet row
+  // lock, so the last-link read is authoritative.
+  const last = await getLastChainLink(values.walletId, database);
+  const previousHash = last?.hash ?? null;
   const id = crypto.randomUUID();
-  const createdAt = new Date();
+  const requested = values.createdAt ?? new Date();
+  const createdAt = last && requested.getTime() <= last.createdAt.getTime()
+    ? new Date(last.createdAt.getTime() + 1)
+    : requested;
 
   const hash = computeTransactionHash({
     id,
@@ -94,5 +117,5 @@ export async function insertHashedTransaction(values: {
     })
     .returning();
 
-  return { id: row!.id, hash: row!.hash! };
+  return { id: row!.id, hash: row!.hash!, createdAt };
 }

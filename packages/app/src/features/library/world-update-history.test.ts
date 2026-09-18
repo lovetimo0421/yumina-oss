@@ -28,6 +28,16 @@ await testI18n.init({
           loadingOlderUpdates: "Loading older updates...",
           editUpdate: "Edit",
           editUpdateTitle: "Edit update record",
+          addUpdate: "Add record",
+          createUpdateTitle: "Add update record",
+          updateAdd: "Add",
+          updateAdding: "Adding…",
+          updateCreated: "Added.",
+          updateCreateError: "Could not add the record. Try again.",
+          updateMajorLabel: "Mark as a major update",
+          updateNotifyPlayers: "Notify players who favorited this world",
+          updateNotifyAfterPublish: "Publish the world to notify players.",
+          updateCreateBlocked: "Add records after the pending review is resolved.",
           updateTitleLabel: "Title",
           updateContentLabel: "Update details (optional)",
           updateContentPlaceholder: "Describe the changes...",
@@ -105,12 +115,12 @@ async function createHistoryHarness(fetcher: typeof fetch) {
   ]);
   let root: Root | null = createRoot(container);
 
-  const render = async (worldId: string, creatorName = "Mia", canEdit = false) => {
+  const render = async (worldId: string, creatorName = "Mia", canEdit = false, showCreateButton = false) => {
     await act(async () => {
       root?.render(createElement(
         I18nextProvider,
         { i18n: testI18n },
-        createElement(WorldUpdateHistory, { worldId, creatorName, canEdit }),
+        createElement(WorldUpdateHistory, { worldId, creatorName, canEdit, showCreateButton }),
       ));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -126,6 +136,13 @@ async function createHistoryHarness(fetcher: typeof fetch) {
     if (root) {
       await act(async () => root?.unmount());
       root = null;
+      // Radix FocusScope restores focus and dispatches its unmount event from a
+      // setTimeout(0) after the dialog unmounts. Let those timers fire while this
+      // realm's globals are still installed; otherwise they run after the test
+      // ended, dispatch a foreign-realm CustomEvent, and node:test fails the
+      // whole file ("generated asynchronous activity after the test ended").
+      await flush();
+      await flush();
     }
     dom.window.close();
     for (const key of globalKeys) {
@@ -173,6 +190,14 @@ function inputLabelled(document: Document, label: string): HTMLInputElement | HT
   return input as HTMLInputElement | HTMLTextAreaElement;
 }
 
+function checkboxLabelled(document: Document, label: string): HTMLInputElement {
+  const labelElement = Array.from(document.querySelectorAll("label"))
+    .find((candidate) => candidate.textContent?.trim() === label);
+  const checkbox = labelElement?.querySelector<HTMLInputElement>('input[type="checkbox"]');
+  assert.ok(checkbox, `Expected a checkbox labelled ${label}`);
+  return checkbox;
+}
+
 function update(id: string, title: string, overrides: Record<string, unknown> = {}) {
   return {
     id,
@@ -214,6 +239,8 @@ test("update history requests encoded paginated URLs and filters malformed rows"
   assert.equal(requestedInit?.credentials, "include");
   assert.deepEqual(page, {
     canEdit: false,
+    canCreate: false,
+    canNotify: false,
     items: [{
       id: "one",
       worldId: "world-a",
@@ -619,5 +646,346 @@ test("switching cards during a save closes the dialog and ignores its stale resp
     assert.doesNotMatch(harness.container.textContent ?? "", /Late correction/);
   } finally {
     await harness.cleanup();
+  }
+});
+
+test("Overview creates a quiet record, refreshes history, and then edits the same record", async () => {
+  let record: ReturnType<typeof update> | null = null;
+  let reads = 0;
+  const writes: Array<{ url: string; init: RequestInit }> = [];
+  const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    if (init?.method === "POST" || init?.method === "PATCH") {
+      writes.push({ url: String(input), init });
+      const body = JSON.parse(String(init.body));
+      record = init.method === "POST"
+        ? update("created", body.title, { content: body.content, isMajor: body.isMajor })
+        : { ...record!, title: body.title, content: body.content };
+      return new Response(JSON.stringify({ data: record }), { status: init.method === "POST" ? 201 : 200 });
+    }
+    reads += 1;
+    return new Response(JSON.stringify({
+      data: record ? [record] : [], canEdit: true, canCreate: true, canNotify: true,
+    }), { status: 200 });
+  }) as typeof fetch;
+  const harness = await createHistoryHarness(fetcher);
+  try {
+    await harness.render("world-a", "Mia", true, true);
+    assert.match(harness.container.textContent ?? "", /No update history yet/);
+    await harness.click(buttonNamed(harness.container, "Add record"));
+    const document = harness.dom.window.document;
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.ok(dialog);
+    assert.equal(document.getElementById(dialog.getAttribute("aria-labelledby") ?? "")?.textContent, "Add update record");
+    assert.equal(checkboxLabelled(document, "Mark as a major update").checked, false);
+    assert.equal(checkboxLabelled(document, "Notify players who favorited this world").checked, false);
+    await harness.enter(inputLabelled(document, "Title"), "New standalone record");
+    await harness.enter(inputLabelled(document, "Update details (optional)"), "Standalone details");
+    await harness.click(buttonNamed(dialog, "Add"));
+
+    assert.equal(reads, 2, "Successful creation must refresh the mounted list");
+    assert.equal(writes.length, 1);
+    assert.equal(writes[0]?.url, "/api/worlds/world-a/updates");
+    assert.equal(writes[0]?.init.credentials, "include");
+    assert.deepEqual(JSON.parse(String(writes[0]?.init.body)), {
+      title: "New standalone record", content: "Standalone details", isMajor: false, notifyPlayers: false,
+    });
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(harness.container.querySelectorAll("article").length, 1);
+    assert.match(harness.container.textContent ?? "", /New standalone record/);
+    assert.match(harness.container.textContent ?? "", /Added\./);
+    const publishedAt = harness.container.querySelector("time")?.dateTime;
+
+    await harness.click(buttonNamed(harness.container, "Edit"));
+    assert.equal(document.querySelectorAll('input[type="checkbox"]').length, 0, "Editing must not offer notification controls");
+    await harness.enter(inputLabelled(document, "Title"), "Corrected standalone record");
+    await harness.click(buttonNamed(document, "Save"));
+    assert.equal(writes.length, 2);
+    assert.equal(writes[1]?.url, "/api/worlds/world-a/updates/created");
+    assert.equal(writes[1]?.init.method, "PATCH");
+    assert.deepEqual(JSON.parse(String(writes[1]?.init.body)), {
+      title: "Corrected standalone record", content: "Standalone details",
+    });
+    assert.equal(harness.container.querySelectorAll("article").length, 1);
+    assert.equal(harness.container.querySelector("time")?.dateTime, publishedAt);
+    assert.match(harness.container.textContent ?? "", /Corrected standalone record/);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("authors can opt into notifications and a major update for a new record", async () => {
+  let submitted: Record<string, unknown> | undefined;
+  const created = update("major", "New chapter", { isMajor: true });
+  const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      submitted = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ data: created }), { status: 201 });
+    }
+    return new Response(JSON.stringify({
+      data: submitted ? [created] : [], canEdit: true, canCreate: true, canNotify: true,
+    }), { status: 200 });
+  }) as typeof fetch;
+  const harness = await createHistoryHarness(fetcher);
+  try {
+    await harness.render("world-a", "Mia", true, true);
+    await harness.click(buttonNamed(harness.container, "Add record"));
+    const document = harness.dom.window.document;
+    await harness.enter(inputLabelled(document, "Title"), "New chapter");
+    await harness.click(checkboxLabelled(document, "Mark as a major update"));
+    await harness.click(checkboxLabelled(document, "Notify players who favorited this world"));
+    await harness.click(buttonNamed(document, "Add"));
+    assert.deepEqual(submitted, { title: "New chapter", content: "", isMajor: true, notifyPlayers: true });
+    assert.match(harness.container.textContent ?? "", /Major update/);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("unpublished works can add records silently without notification controls", async () => {
+  let submitted: Record<string, unknown> | undefined;
+  const created = update("quiet", "Private correction");
+  const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      submitted = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ data: created }), { status: 201 });
+    }
+    return new Response(JSON.stringify({
+      data: submitted ? [created] : [], canEdit: true, canCreate: true, canNotify: false,
+    }), { status: 200 });
+  }) as typeof fetch;
+  const harness = await createHistoryHarness(fetcher);
+  try {
+    await harness.render("world-a", "Mia", true, true);
+    await harness.click(buttonNamed(harness.container, "Add record"));
+    const document = harness.dom.window.document;
+    const dialog = document.querySelector('[role="dialog"]');
+    assert.ok(dialog);
+    assert.equal(dialog.querySelectorAll('input[type="checkbox"]').length, 1);
+    assert.ok(checkboxLabelled(document, "Mark as a major update"));
+    assert.doesNotMatch(dialog.textContent ?? "", /Notify players who favorited/);
+    assert.match(dialog.textContent ?? "", /Publish the world to notify players/);
+    await harness.enter(inputLabelled(document, "Title"), "Private correction");
+    await harness.click(buttonNamed(dialog, "Add"));
+    assert.equal(submitted?.notifyPlayers, false);
+    assert.match(harness.container.textContent ?? "", /Private correction/);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("creation requires author and surface permission while review blocks only new records", async () => {
+  let posts = 0;
+  const fetcher = (async (input: URL | RequestInfo, init?: RequestInit) => {
+    if (init?.method === "POST") posts += 1;
+    const worldId = String(input).split("/")[3]!;
+    return new Response(JSON.stringify({
+      data: [update("existing", "Existing update", { worldId })],
+      canEdit: worldId !== "nonowner", canCreate: worldId !== "review", canNotify: true,
+    }), { status: 200 });
+  }) as typeof fetch;
+  const harness = await createHistoryHarness(fetcher);
+  try {
+    for (const [worldId, canEdit, showCreate] of [
+      ["nonowner", true, true], ["readonly", false, true], ["library", true, false],
+    ] as const) {
+      await harness.render(worldId, "Mia", canEdit, showCreate);
+      assert.equal(Array.from(harness.container.querySelectorAll("button"))
+        .some((button) => button.textContent?.trim() === "Add record"), false, worldId);
+    }
+    await harness.render("review", "Mia", true, true);
+    const addButton = buttonNamed(harness.container, "Add record");
+    assert.equal(addButton.disabled, true);
+    assert.match(harness.container.textContent ?? "", /pending review is resolved/);
+    await harness.click(addButton);
+    assert.equal(harness.dom.window.document.querySelector('[role="dialog"]'), null);
+    await harness.click(buttonNamed(harness.container, "Edit"));
+    assert.equal(inputLabelled(harness.dom.window.document, "Title").value, "Existing update");
+    assert.equal(posts, 0);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("failed creation retains the draft and a pending retry cannot create duplicates", async () => {
+  let attempts = 0;
+  let finishCreate: ((response: Response) => void) | undefined;
+  let created = false;
+  const record = update("retry", "Retained title", { content: "Retained details" });
+  const fetcher = ((_: URL | RequestInfo, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      attempts += 1;
+      if (attempts === 1) return Promise.resolve(new Response("{}", { status: 503 }));
+      return new Promise<Response>((resolve) => { finishCreate = resolve; });
+    }
+    return Promise.resolve(new Response(JSON.stringify({
+      data: created ? [record] : [], canEdit: true, canCreate: true, canNotify: true,
+    }), { status: 200 }));
+  }) as typeof fetch;
+  const harness = await createHistoryHarness(fetcher);
+  try {
+    await harness.render("world-a", "Mia", true, true);
+    await harness.click(buttonNamed(harness.container, "Add record"));
+    const document = harness.dom.window.document;
+    await harness.enter(inputLabelled(document, "Title"), "Retained title");
+    await harness.enter(inputLabelled(document, "Update details (optional)"), "Retained details");
+    await harness.click(buttonNamed(document, "Add"));
+    assert.equal(attempts, 1);
+    assert.match(document.querySelector('[role="alert"]')?.textContent ?? "", /Could not add the record/);
+    assert.equal(inputLabelled(document, "Title").value, "Retained title");
+    assert.equal(inputLabelled(document, "Update details (optional)").value, "Retained details");
+
+    await harness.click(buttonNamed(document, "Add"));
+    const addingButton = buttonNamed(document, "Adding…");
+    assert.equal(addingButton.disabled, true);
+    assert.equal(buttonNamed(document, "Cancel").disabled, true);
+    assert.equal(inputLabelled(document, "Title").disabled, true);
+    await harness.click(addingButton);
+    const form = document.querySelector("form");
+    assert.ok(form);
+    await act(async () => {
+      form.dispatchEvent(new harness.dom.window.Event("submit", { bubbles: true, cancelable: true }));
+      form.dispatchEvent(new harness.dom.window.KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true, cancelable: true }));
+    });
+    assert.equal(attempts, 2, "Repeated button, submit, and shortcut events must share one request");
+    assert.ok(finishCreate);
+    created = true;
+    finishCreate(new Response(JSON.stringify({ data: record }), { status: 201 }));
+    await harness.flush();
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(harness.container.querySelectorAll("article").length, 1);
+    assert.match(harness.container.textContent ?? "", /Retained details/);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("cancelled or blank new records never send a creation request", async () => {
+  let posts = 0;
+  const fetcher = (async (_input: URL | RequestInfo, init?: RequestInit) => {
+    if (init?.method === "POST") posts += 1;
+    return new Response(JSON.stringify({ data: [], canEdit: true, canCreate: true, canNotify: true }), { status: 200 });
+  }) as typeof fetch;
+  const harness = await createHistoryHarness(fetcher);
+  try {
+    await harness.render("world-a", "Mia", true, true);
+    await harness.click(buttonNamed(harness.container, "Add record"));
+    const document = harness.dom.window.document;
+    await harness.enter(inputLabelled(document, "Title"), "   ");
+    await harness.click(buttonNamed(document, "Add"));
+    assert.match(document.querySelector('[role="alert"]')?.textContent ?? "", /Enter a title/);
+    assert.equal(posts, 0);
+    await harness.enter(inputLabelled(document, "Title"), "Discard draft");
+    await harness.click(checkboxLabelled(document, "Notify players who favorited this world"));
+    await harness.click(buttonNamed(document, "Cancel"));
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    await harness.click(buttonNamed(harness.container, "Add record"));
+    assert.equal(inputLabelled(document, "Title").value, "");
+    assert.equal(checkboxLabelled(document, "Notify players who favorited this world").checked, false);
+    assert.equal(posts, 0);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("switching works aborts a pending creation and suppresses its stale result", async () => {
+  let finishCreate: ((response: Response) => void) | undefined;
+  let createSignal: AbortSignal | null | undefined;
+  let reads = 0;
+  const fetcher = ((input: URL | RequestInfo, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      createSignal = init.signal;
+      return new Promise<Response>((resolve) => { finishCreate = resolve; });
+    }
+    reads += 1;
+    return Promise.resolve(new Response(JSON.stringify({
+      data: String(input).includes("world-b") ? [update("b", "World B update", { worldId: "world-b" })] : [],
+      canEdit: true, canCreate: true, canNotify: true,
+    }), { status: 200 }));
+  }) as typeof fetch;
+  const harness = await createHistoryHarness(fetcher);
+  try {
+    await harness.render("world-a", "Mia", true, true);
+    await harness.click(buttonNamed(harness.container, "Add record"));
+    const document = harness.dom.window.document;
+    await harness.enter(inputLabelled(document, "Title"), "Stale created record");
+    await harness.click(buttonNamed(document, "Add"));
+    assert.ok(finishCreate);
+    await harness.render("world-b", "Mia", true, true);
+    assert.equal(createSignal?.aborted, true);
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.match(harness.container.textContent ?? "", /World B update/);
+    finishCreate(new Response(JSON.stringify({ data: update("stale", "Stale created record") }), { status: 201 }));
+    await harness.flush();
+    assert.equal(reads, 2, "A stale create must not emit a refresh for the new work");
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.doesNotMatch(harness.container.textContent ?? "", /Stale created record|Added\./);
+    assert.match(harness.container.textContent ?? "", /World B update/);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("a delayed creation refresh cannot overwrite a record edited before that refresh finishes", async () => {
+  for (const refreshFails of [false, true]) {
+    let reads = 0;
+    let edits = 0;
+    let finishRefresh: ((response: Response) => void) | undefined;
+    const created = update("created", "Original created title");
+    const corrected = { ...created, title: "Corrected before refresh", content: "Saved correction" };
+    const fetcher = ((_: URL | RequestInfo, init?: RequestInit) => {
+      if (init?.method === "POST") {
+        return Promise.resolve(new Response(JSON.stringify({ data: created }), { status: 201 }));
+      }
+      if (init?.method === "PATCH") {
+        edits += 1;
+        assert.deepEqual(JSON.parse(String(init.body)), {
+          title: corrected.title, content: corrected.content,
+        });
+        return Promise.resolve(new Response(JSON.stringify({ data: corrected }), { status: 200 }));
+      }
+      reads += 1;
+      if (reads === 1) {
+        return Promise.resolve(new Response(JSON.stringify({
+          data: [], canEdit: true, canCreate: true, canNotify: true,
+        }), { status: 200 }));
+      }
+      return new Promise<Response>((resolve) => { finishRefresh = resolve; });
+    }) as typeof fetch;
+    const harness = await createHistoryHarness(fetcher);
+    try {
+      await harness.render("world-a", "Mia", true, true);
+      await harness.click(buttonNamed(harness.container, "Add record"));
+      const document = harness.dom.window.document;
+      await harness.enter(inputLabelled(document, "Title"), created.title);
+      await harness.click(buttonNamed(document, "Add"));
+      assert.equal(reads, 2);
+      assert.ok(finishRefresh, "Creation must start a refresh that stays pending during the edit");
+      assert.match(harness.container.textContent ?? "", /Original created title/);
+
+      await harness.click(buttonNamed(harness.container, "Edit"));
+      await harness.enter(inputLabelled(document, "Title"), corrected.title);
+      await harness.enter(inputLabelled(document, "Update details (optional)"), corrected.content);
+      await harness.click(buttonNamed(document, "Save"));
+      assert.equal(edits, 1);
+      assert.match(harness.container.textContent ?? "", /Corrected before refresh/);
+      assert.match(harness.container.textContent ?? "", /Saved correction/);
+
+      finishRefresh(refreshFails
+        ? new Response("{}", { status: 503 })
+        : new Response(JSON.stringify({
+            data: [created], canEdit: true, canCreate: true, canNotify: true,
+          }), { status: 200 }));
+      await harness.flush();
+      assert.equal(reads, 2, "Protecting the saved edit should not require another history request");
+      assert.equal(harness.container.querySelectorAll("article").length, 1);
+      assert.match(harness.container.textContent ?? "", /Corrected before refresh/);
+      assert.match(harness.container.textContent ?? "", /Saved correction/);
+      assert.doesNotMatch(harness.container.textContent ?? "", /Original created title|Couldn't load update history/);
+      await harness.click(buttonNamed(harness.container, "Edit"));
+      assert.equal(inputLabelled(document, "Title").value, corrected.title);
+      assert.equal(inputLabelled(document, "Update details (optional)").value, corrected.content);
+    } finally {
+      await harness.cleanup();
+    }
   }
 });

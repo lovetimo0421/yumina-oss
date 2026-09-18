@@ -24,6 +24,8 @@ export interface WorldUpdateItem {
 export interface WorldUpdatePage {
   items: WorldUpdateItem[];
   canEdit: boolean;
+  canCreate: boolean;
+  canNotify: boolean;
   hasMore: boolean;
   nextOffset: number | null;
 }
@@ -33,6 +35,7 @@ export function normalizeWorldUpdate(value: unknown): WorldUpdateItem | null {
   const item = value as Record<string, unknown>;
   if (
     typeof item.id !== "string"
+    || !item.id.trim()
     || typeof item.title !== "string"
     || !item.title.trim()
     || typeof item.createdAt !== "string"
@@ -72,7 +75,14 @@ export async function fetchWorldUpdatePage({
   );
   if (!response.ok) throw new Error(`Update history request failed: ${response.status}`);
 
-  const body = await response.json() as { data?: unknown; canEdit?: unknown; hasMore?: unknown; nextOffset?: unknown };
+  const body = await response.json() as {
+    data?: unknown;
+    canEdit?: unknown;
+    canCreate?: unknown;
+    canNotify?: unknown;
+    hasMore?: unknown;
+    nextOffset?: unknown;
+  };
   const items = Array.isArray(body.data)
     ? body.data.map(normalizeWorldUpdate).filter((item): item is WorldUpdateItem => item !== null)
     : [];
@@ -80,7 +90,55 @@ export async function fetchWorldUpdatePage({
   const nextOffset = hasMore && typeof body.nextOffset === "number" && Number.isSafeInteger(body.nextOffset)
     ? body.nextOffset
     : null;
-  return { items, canEdit: body.canEdit === true, hasMore: hasMore && nextOffset !== null, nextOffset };
+  return {
+    items,
+    canEdit: body.canEdit === true,
+    canCreate: body.canCreate === true,
+    canNotify: body.canNotify === true,
+    hasMore: hasMore && nextOffset !== null,
+    nextOffset,
+  };
+}
+
+export async function createWorldUpdate({
+  worldId,
+  title,
+  content,
+  isMajor,
+  notifyPlayers,
+  signal,
+  fetcher = fetch,
+  baseUrl = apiBase,
+}: {
+  worldId: string;
+  title: string;
+  content: string | null;
+  isMajor: boolean;
+  notifyPlayers: boolean;
+  signal?: AbortSignal;
+  fetcher?: typeof fetch;
+  baseUrl?: string;
+}): Promise<WorldUpdateItem> {
+  if (typeof notifyPlayers !== "boolean") throw new Error("notifyPlayers must be a boolean");
+
+  const response = await fetcher(
+    `${baseUrl}/api/worlds/${encodeURIComponent(worldId)}/updates`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, content, isMajor, notifyPlayers }),
+      signal,
+    },
+  );
+  if (!response.ok) throw new Error(`Update creation request failed: ${response.status}`);
+
+  const body: unknown = await response.json();
+  const item = body && typeof body === "object" && !Array.isArray(body)
+    ? normalizeWorldUpdate((body as Record<string, unknown>).data)
+    : null;
+  if (!item || item.worldId !== worldId) throw new Error("Invalid update creation response");
+  return item;
 }
 
 export async function saveWorldUpdate({

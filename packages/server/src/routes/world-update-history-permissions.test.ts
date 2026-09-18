@@ -26,6 +26,7 @@ test("history read access does not grant update-edit permission", async (t) => {
         visibility TEXT NOT NULL, age_rating TEXT, language_group_id TEXT
       );
       CREATE TABLE follows (follower_id TEXT NOT NULL, following_id TEXT NOT NULL);
+      CREATE TABLE world_pending_edits (world_id TEXT PRIMARY KEY, status TEXT NOT NULL);
       CREATE TABLE world_updates (
         id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id),
         title TEXT NOT NULL, content TEXT, is_major BOOLEAN, created_at TIMESTAMP NOT NULL
@@ -35,14 +36,23 @@ test("history read access does not grant update-edit permission", async (t) => {
         ('public', 'author', 'published', 'public', 'all', null),
         ('restricted', 'author', 'published', 'followers', 'all', null),
         ('unpublished', 'author', 'unpublished', 'public', 'all', null),
-        ('empty-draft', 'author', 'draft', 'public', 'all', null);
+        ('empty-draft', 'author', 'draft', 'public', 'all', null),
+        ('rejected', 'author', 'rejected', 'public', 'all', null),
+        ('in-review', 'author', 'pending_review', 'public', 'all', null),
+        ('unknown-state', 'author', 'archived', 'public', 'all', null),
+        ('held-draft', 'author', 'published', 'public', 'all', null),
+        ('held-pending', 'author', 'published', 'public', 'all', null),
+        ('held-rejected', 'author', 'published', 'public', 'all', null);
+      INSERT INTO world_pending_edits VALUES
+        ('held-draft', 'draft'), ('held-pending', 'pending'), ('held-rejected', 'rejected');
       INSERT INTO follows VALUES ('follower', 'author');
       INSERT INTO world_updates VALUES
         ('public-note', 'public', 'Original typo', null, false, '2026-09-06 02:22:00'),
         ('restricted-note', 'restricted', 'Follower update', null, false, '2026-09-06 02:22:00'),
         ('old-note', 'unpublished', 'Old update', null, false, '2026-09-06 02:22:00');
     `);
-    const database = drizzle(client, { schema });
+    const queries: string[] = [];
+    const database = drizzle(client, { schema, logger: { logQuery: (query) => { queries.push(query); } } });
     const optionalAuthMiddleware = createMiddleware<AppEnv>(async (c, next) => {
       const id = c.req.header("X-Test-User");
       if (id) c.set("user", { id, name: id, role: id === "admin" ? "admin" : "user" } as SessionUser);
@@ -62,6 +72,7 @@ test("history read access does not grant update-edit permission", async (t) => {
       readOwn: async () => database,
       readDb: async () => database,
       worlds: schema.worlds, follows: schema.follows, worldUpdates: schema.worldUpdates, user: schema.user,
+      worldPendingEdits: schema.worldPendingEdits,
       and, desc, eq, sql,
       canReadWorldUpdateHistory, hasMoreWorldUpdates, normalizeWorldUpdateOffset, WORLD_UPDATE_PAGE_SIZE,
     };
@@ -75,11 +86,28 @@ test("history read access does not grant update-edit permission", async (t) => {
       for (const worldId of ["public", "restricted", "unpublished", "empty-draft"]) {
         const response = await call(worldId, "author");
         assert.equal(response.status, 200, worldId);
-        const body = await response.json() as { canEdit: boolean; data: unknown[] };
+        const body = await response.json() as { canEdit: boolean; canCreate: boolean; canNotify: boolean; data: unknown[] };
         assert.equal(body.canEdit, true, worldId);
+        assert.equal(body.canCreate, true, worldId);
+        assert.equal(body.canNotify, ["public", "restricted"].includes(worldId), worldId);
         assert.equal(body.data.length, worldId === "empty-draft" ? 0 : 1, worldId);
         assert.equal(response.headers.get("Cache-Control"), "private, no-store");
         assert.equal(response.headers.get("Vary"), "Cookie");
+      }
+    });
+
+    await t.test("creation and notification capabilities respect review state while existing records stay editable", async () => {
+      const cases: Array<[string, boolean]> = [
+        ["rejected", true], ["in-review", false], ["unknown-state", false],
+        ["held-draft", false], ["held-pending", false], ["held-rejected", false],
+      ];
+      for (const [worldId, canCreate] of cases) {
+        const response = await call(worldId, "author");
+        assert.equal(response.status, 200, worldId);
+        const body = await response.json() as { canEdit: boolean; canCreate: boolean; canNotify: boolean };
+        assert.equal(body.canEdit, true, worldId);
+        assert.equal(body.canCreate, canCreate, worldId);
+        assert.equal(body.canNotify, false, worldId);
       }
     });
 
@@ -89,10 +117,15 @@ test("history read access does not grant update-edit permission", async (t) => {
         ["restricted", "follower"], ["restricted", "admin"], ["unpublished", "admin"],
       ];
       for (const [worldId, actor] of cases) {
+        queries.length = 0;
         const response = await call(worldId, actor);
         assert.equal(response.status, 200, `${worldId}:${actor}`);
-        const body = await response.json() as { canEdit: boolean; data: unknown[] };
+        const body = await response.json() as { canEdit: boolean; canCreate: boolean; canNotify: boolean; data: unknown[] };
         assert.equal(body.canEdit, false, `${worldId}:${actor}`);
+        assert.equal(body.canCreate, false, `${worldId}:${actor}`);
+        assert.equal(body.canNotify, false, `${worldId}:${actor}`);
+        assert.equal(queries.some((query) => query.includes('from "world_pending_edits"')), false,
+          "Non-authors must not query held edits to read history");
         assert.equal(body.data.length, 1);
         if (actor) assert.equal(response.headers.get("Cache-Control"), "private, no-store");
         assert.equal(response.headers.get("Vary"), "Cookie");

@@ -8,9 +8,17 @@
 // plan benefits granted with $0 collected. Minting must follow money:
 // only an active sub whose current cycle invoice is PAID gets the grant.
 
+export interface RenewalInvoiceLine {
+  /** Current API shape: the price the line was billed at (id, or the object when expanded). */
+  pricing?: { price_details?: { price?: string | { id: string } | null } | null } | null;
+  /** Legacy (pre-basil) line shape. */
+  price?: { id: string } | null;
+}
+
 export interface RenewalInvoice {
   status: string | null;
   billing_reason?: string | null;
+  lines?: { data: RenewalInvoiceLine[] } | null;
 }
 
 export interface RenewalSubscription {
@@ -63,5 +71,14 @@ export function paidRenewalPeriod(
   const periodEnd = new Date(item.current_period_end * 1000);
   if (periodEnd.getTime() <= now.getTime()) return null;
 
-  return { periodStart, periodEnd, priceId: item.price.id };
+  // The price the customer actually PAID comes from the invoice line, never
+  // from the live subscription item. A scheduled downgrade that has already
+  // billed the lower price, followed by /cancel-pending (which reverts the item
+  // with no charge), would otherwise mint the higher plan's month against the
+  // cheap invoice (found in review 2026-09-17).
+  const line = inv.lines?.data?.[0];
+  const linePrice = line?.pricing?.price_details?.price ?? null;
+  const linePriceId = (typeof linePrice === "string" ? linePrice : linePrice?.id) ?? line?.price?.id ?? null;
+
+  return { periodStart, periodEnd, priceId: linePriceId ?? item.price.id };
 }

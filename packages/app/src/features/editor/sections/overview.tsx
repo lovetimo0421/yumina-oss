@@ -40,6 +40,7 @@ export function OverviewSection() {
   const serverWorldId = useEditorStore(s => s.serverWorldId);
   const readOnlyInspect = useEditorStore(s => s.readOnlyInspect);
   const guestMode = useEditorStore(s => s.guestMode);
+  const historyState = useEditorStore(s => `${s.worldStatus}:${s.pendingEdit?.status ?? ""}`);
   const saveDraft = useEditorStore(s => s.saveDraft);
   const setField = useEditorStore(s => s.setField);
   const loadWorldDefinition = useEditorStore(s => s.loadWorldDefinition);
@@ -385,14 +386,27 @@ export function OverviewSection() {
         </div>
 
         <section className="rounded-lg border border-border bg-background p-5" aria-labelledby="overview-update-history-title">
-          <h3 id="overview-update-history-title" className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
-            <History className="h-4 w-4 text-primary" aria-hidden="true" />
-            {tLibrary("detail.updateHistory")}
-          </h3>
           {serverWorldId ? (
-            <WorldUpdateHistory worldId={serverWorldId} canEdit={!readOnlyInspect && !guestMode} />
+            <WorldUpdateHistory
+              key={`${serverWorldId}:${historyState}`}
+              worldId={serverWorldId}
+              canEdit={!readOnlyInspect && !guestMode}
+              showCreateButton
+              heading={(
+                <h3 id="overview-update-history-title" className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                  <History className="h-4 w-4 text-primary" aria-hidden="true" />
+                  {tLibrary("detail.updateHistory")}
+                </h3>
+              )}
+            />
           ) : (
+            <>
+            <h3 id="overview-update-history-title" className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
+              <History className="h-4 w-4 text-primary" aria-hidden="true" />
+              {tLibrary("detail.updateHistory")}
+            </h3>
             <p className="py-6 text-center text-sm text-muted-foreground">{tLibrary("detail.updateHistorySaveFirst")}</p>
+            </>
           )}
         </section>
 

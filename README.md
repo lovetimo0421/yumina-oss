@@ -1,8 +1,10 @@
 # Yumina
 
-An open-source engine for AI-native interactive fiction. A Yumina world is not a character card with a prompt; it is a small game. The model writes the story, and the engine gives it typed state, rules that fire on that state, a lorebook that activates by keyword and condition, a custom interface, sound, and, if the creator wants it, a 3D scene. You run it on your own machine with your own model keys.
+An open-source engine for AI-native interactive fiction. Yumina is a toolset that allows creators to use AI as a gameplay itself and integrate it into all entertainment mediums including but not limited to games, books, visual novels, and movies.
 
-Yumina began as a SillyTavern fork. It imports SillyTavern V2 and V3 cards and worldbooks, so existing collections carry over. The hosted service at [yumina.io](https://yumina.io) runs this same engine and adds discovery, a creator revenue share, and community. This repository is the engine, the editor, and the player. Why both exist is in the [vision](https://docs.yumina.io/vision/).
+Yumina started as a personal project - a fork of [SillyTavern](https://github.com/SillyTavern/SillyTavern), integrated with the Godot game engine, that let AI control not just text, but also 2d/3d visuals, variables, and even sound. But SillyTavern’s original architecture was built in the era of pure text simulation. Despite the countless open-source contributors who built plugins over the years, its foundational structure was always going to limit how far it could evolve toward AI-native games and interactive cinema. Today, Yumina has its own independent AI-native game engine, multiplayer support, and multi-agent worlds. Just as SillyTavern’s greatest extensions came from its open-source community, we believe Yumina belongs to the community too, and only the community can make it better.
+
+This is Yumina's open-source version where your local service handles everything. The hosted service at [yumina.io](https://yumina.io) runs this same engine and adds discovery, a creator revenue share, and community. This repository is the engine, the editor, and the player. Why both exist is in the [vision](https://docs.yumina.io/vision/).
 
 ## What the engine controls
 
@@ -59,7 +61,7 @@ Keys are added in the app, not in config files. Supported: OpenRouter, Anthropic
 
 ### Cards
 
-Import: Yumina `.png` or `.json` cards, SillyTavern V2 and V3 character cards, SillyTavern worldbooks. Export: any world as a Yumina PNG card (JSON embedded in a `tEXt` chunk) or plain JSON.
+Import: Yumina `.png` or `.json` cards, plus character cards and worldbooks in the community [V2](https://github.com/malfoyslastname/character-card-spec-v2) and [V3](https://github.com/kwaroran/character-card-spec-v3) formats. Export: any world as a Yumina PNG card (JSON embedded in a `tEXt` chunk) or plain JSON.
 
 ### Environment
 
@@ -95,12 +97,6 @@ pnpm build
 ```
 
 Rules that keep the engine portable: `packages/engine` never imports React or the server; the model never executes code, it only emits directives the engine applies from structured data. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
-## This repository and yumina.io
-
-This tree is generated from Yumina's private monorepo on every release. The engine, editor, player, providers, and import/export are the same files the hosted service runs, so improvements there land here. What is not here: the discovery feed and recommendations, community, billing and credits, platform-paid models, publishing review, and the creator dashboard. Those are yumina.io's job, and the [vision](https://docs.yumina.io/vision/) explains why they stay centralised while the engine is open.
-
-Issues and pull requests are welcome here. Accepted changes are ported into the private monorepo with authorship preserved and come back in the next release.
 
 ## Documentation
 

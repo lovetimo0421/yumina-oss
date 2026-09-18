@@ -5,25 +5,38 @@ import { MAX_WORLD_UPDATE_CONTENT, MAX_WORLD_UPDATE_TITLE } from "@yumina/shared
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { saveWorldUpdate, type WorldUpdateItem } from "./world-update-history-data";
+import { createWorldUpdate, saveWorldUpdate, type WorldUpdateItem } from "./world-update-history-data";
 
-export function WorldUpdateEditDialog({
-  update,
-  trigger,
-  onClose,
-  onSaved,
-}: {
-  update: WorldUpdateItem;
+interface UpdateDialogCallbacks {
   trigger: HTMLButtonElement;
   onClose: () => void;
   onSaved: (update: WorldUpdateItem) => void;
-}) {
+}
+
+type EditDialogProps = UpdateDialogCallbacks & { update: WorldUpdateItem };
+type CreateDialogProps = UpdateDialogCallbacks & { worldId: string; canNotify: boolean };
+
+export function WorldUpdateEditDialog(props: EditDialogProps) {
+  return <WorldUpdateDialog {...props} mode="edit" />;
+}
+
+export function WorldUpdateCreateDialog(props: CreateDialogProps) {
+  return <WorldUpdateDialog {...props} mode="create" />;
+}
+
+function WorldUpdateDialog(props: (EditDialogProps & { mode: "edit" }) | (CreateDialogProps & { mode: "create" })) {
+  const { trigger, onClose, onSaved } = props;
+  const creating = props.mode === "create";
+  const update = props.mode === "edit" ? props.update : null;
+  const worldId = props.mode === "create" ? props.worldId : props.update.worldId;
   const { t } = useTranslation("library");
   const id = useId();
   const titleRef = useRef<HTMLInputElement>(null);
   const requestRef = useRef<AbortController | null>(null);
-  const [title, setTitle] = useState(update.title);
-  const [content, setContent] = useState(update.content ?? "");
+  const [title, setTitle] = useState(update?.title ?? "");
+  const [content, setContent] = useState(update?.content ?? "");
+  const [isMajor, setIsMajor] = useState(false);
+  const [notifyPlayers, setNotifyPlayers] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<"required" | "save" | null>(null);
 
@@ -34,7 +47,7 @@ export function WorldUpdateEditDialog({
   };
 
   const save = async () => {
-    if (requestRef.current || !update.worldId) return;
+    if (requestRef.current || !worldId) return;
     if (!title.trim()) {
       setError("required");
       titleRef.current?.focus();
@@ -45,13 +58,15 @@ export function WorldUpdateEditDialog({
     setSaving(true);
     setError(null);
     try {
-      const saved = await saveWorldUpdate({
-        worldId: update.worldId,
-        updateId: update.id,
+      const fields = {
+        worldId,
         title,
         content,
         signal: controller.signal,
-      });
+      };
+      const saved = props.mode === "create"
+        ? await createWorldUpdate({ ...fields, isMajor, notifyPlayers: props.canNotify && notifyPlayers })
+        : await saveWorldUpdate({ ...fields, updateId: props.update.id });
       if (!controller.signal.aborted) onSaved(saved);
     } catch {
       if (!controller.signal.aborted) setError("save");
@@ -89,7 +104,7 @@ export function WorldUpdateEditDialog({
         onInteractOutside={(event) => { if (requestRef.current) event.preventDefault(); }}
       >
         <DialogHeader className="text-left">
-          <DialogTitle className="pr-6 text-base">{t("detail.editUpdateTitle")}</DialogTitle>
+          <DialogTitle className="pr-6 text-base">{t(creating ? "detail.createUpdateTitle" : "detail.editUpdateTitle")}</DialogTitle>
         </DialogHeader>
         <form
           noValidate
@@ -130,9 +145,25 @@ export function WorldUpdateEditDialog({
               className="block min-h-28 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 text-base leading-relaxed placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
             />
           </div>
+          {props.mode === "create" && (
+            <div className="space-y-2">
+              <label className="flex min-h-11 items-center gap-2 text-sm">
+                <input type="checkbox" checked={isMajor} onChange={(event) => setIsMajor(event.target.checked)} disabled={saving} className="h-4 w-4 shrink-0 accent-primary" />
+                {t("detail.updateMajorLabel")}
+              </label>
+              {props.canNotify ? (
+                <label className="flex min-h-11 items-center gap-2 text-sm">
+                  <input type="checkbox" checked={notifyPlayers} onChange={(event) => setNotifyPlayers(event.target.checked)} disabled={saving} className="h-4 w-4 shrink-0 accent-primary" />
+                  {t("detail.updateNotifyPlayers")}
+                </label>
+              ) : (
+                <p className="text-sm text-muted-foreground">{t("detail.updateNotifyAfterPublish")}</p>
+              )}
+            </div>
+          )}
           {error && (
             <p id={`${id}-error`} role="alert" className="text-sm text-destructive">
-              {t(error === "required" ? "detail.updateTitleRequired" : "detail.updateSaveError")}
+              {t(error === "required" ? "detail.updateTitleRequired" : creating ? "detail.updateCreateError" : "detail.updateSaveError")}
             </p>
           )}
           <div className="flex flex-wrap justify-end gap-2">
@@ -141,7 +172,7 @@ export function WorldUpdateEditDialog({
             </Button>
             <Button type="submit" disabled={saving} className="min-h-11 rounded-lg">
               {saving && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
-              {t(saving ? "detail.updateSaving" : "detail.updateSave")}
+              {t(creating ? saving ? "detail.updateAdding" : "detail.updateAdd" : saving ? "detail.updateSaving" : "detail.updateSave")}
             </Button>
           </div>
         </form>

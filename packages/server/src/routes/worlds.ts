@@ -2771,7 +2771,7 @@ worldRoutes.get("/:id/friends-playing", authMiddleware, async (c) => {
   return c.json({ data: { users: result.rows } });
 });
 
-// POST /api/worlds/:id/updates — create update + notify library users
+// POST /api/worlds/:id/updates — create a record, optionally notify library users
 worldRoutes.post("/:id/updates", authMiddleware, rateLimitMiddleware("content-creation"), async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("id");
@@ -2786,6 +2786,13 @@ worldRoutes.post("/:id/updates", authMiddleware, rateLimitMiddleware("content-cr
   const parsed = parseWorldUpdateNoteBody(body);
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
   const note = parsed.data;
+  const requestedNotify = (body as Record<string, unknown>).notifyPlayers;
+  if (requestedNotify !== undefined && typeof requestedNotify !== "boolean") {
+    return c.json({ error: "notifyPlayers must be a boolean" }, 400);
+  }
+  // Preserve the existing notify-dialog contract for clients that omit this
+  // field. Independent history entries opt out explicitly.
+  const notifyPlayers = requestedNotify !== false;
 
   const creation = await db.transaction(async (tx) => {
     const [world] = await tx
@@ -2795,14 +2802,18 @@ worldRoutes.post("/:id/updates", authMiddleware, rateLimitMiddleware("content-cr
       .for("update")
       .limit(1);
     if (!world) return { kind: "not_found" as const };
-    if (world.status !== "published") return { kind: "not_published" as const };
-
     const [pending] = await tx
       .select({ worldId: worldPendingEdits.worldId })
       .from(worldPendingEdits)
       .where(eq(worldPendingEdits.worldId, worldId))
       .limit(1);
     if (pending) return { kind: "pending" as const };
+    if (!["published", "draft", "unpublished", "rejected"].includes(world.status)) {
+      return { kind: "unavailable" as const };
+    }
+    if (notifyPlayers && world.status !== "published") {
+      return { kind: "cannot_notify" as const };
+    }
 
     const [update] = await tx
       .insert(worldUpdates)
@@ -2817,8 +2828,11 @@ worldRoutes.post("/:id/updates", authMiddleware, rateLimitMiddleware("content-cr
   });
 
   if (creation.kind === "not_found") return c.json({ error: "World not found" }, 404);
-  if (creation.kind === "not_published") {
-    return c.json({ error: "Can only create updates for published worlds" }, 400);
+  if (creation.kind === "unavailable") {
+    return c.json({ error: "Update records cannot be added in this world state", code: "WORLD_UPDATE_UNAVAILABLE" }, 409);
+  }
+  if (creation.kind === "cannot_notify") {
+    return c.json({ error: "Only published worlds can notify players", code: "WORLD_UPDATE_NOTIFY_UNAVAILABLE" }, 400);
   }
   if (creation.kind === "pending") {
     return c.json({
@@ -2831,29 +2845,31 @@ worldRoutes.post("/:id/updates", authMiddleware, rateLimitMiddleware("content-cr
   // Fan out notifications. History is already durable, so every failure after
   // this point is best-effort; returning an error would invite a duplicate
   // update when the author retries the preserved dialog input.
-  try {
-    const libraryUsers = await db
-      .select({ userId: userLibrary.userId })
-      .from(userLibrary)
-      .where(eq(userLibrary.worldId, worldId));
+  if (notifyPlayers) {
+    try {
+      const libraryUsers = await db
+        .select({ userId: userLibrary.userId })
+        .from(userLibrary)
+        .where(eq(userLibrary.worldId, worldId));
 
-    if (libraryUsers.length > 0) {
-      await notifyMany(
-        libraryUsers.map((lu) => lu.userId).filter((uid) => uid !== currentUser.id),
-        "world_update",
-        {
-          worldId,
-          worldName: world.name,
-          updateId: update.id,
-          title: note.title,
-          isMajor: note.isMajor,
-          creatorUserId: currentUser.id,
-        },
-        { actorUserId: currentUser.id },
-      );
+      if (libraryUsers.length > 0) {
+        await notifyMany(
+          libraryUsers.map((lu) => lu.userId).filter((uid) => uid !== currentUser.id),
+          "world_update",
+          {
+            worldId,
+            worldName: world.name,
+            updateId: update.id,
+            title: note.title,
+            isMajor: note.isMajor,
+            creatorUserId: currentUser.id,
+          },
+          { actorUserId: currentUser.id },
+        );
+      }
+    } catch (error) {
+      console.error("World update notification fan-out failed", { worldId, updateId: update.id, error });
     }
-  } catch (error) {
-    console.error("World update notification fan-out failed", { worldId, updateId: update.id, error });
   }
 
   return c.json({ data: update }, 201);
@@ -2904,6 +2920,16 @@ worldRoutes.get("/:id/updates", optionalAuthMiddleware, async (c) => {
     return c.json({ error: "World not found" }, 404);
   }
 
+  let canCreate = false;
+  if (isOwner && ["published", "draft", "unpublished", "rejected"].includes(world.status)) {
+    const [pending] = await rd
+      .select({ worldId: worldPendingEdits.worldId })
+      .from(worldPendingEdits)
+      .where(eq(worldPendingEdits.worldId, worldId))
+      .limit(1);
+    canCreate = !pending;
+  }
+
   const rows = await rd
     .select({
       id: worldUpdates.id,
@@ -2940,6 +2966,8 @@ worldRoutes.get("/:id/updates", optionalAuthMiddleware, async (c) => {
   return c.json({
     data: items,
     canEdit: isOwner,
+    canCreate,
+    canNotify: canCreate && world.status === "published",
     hasMore,
     nextOffset: hasMore ? offset + items.length : null,
   });

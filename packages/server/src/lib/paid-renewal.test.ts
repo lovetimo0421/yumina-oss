@@ -82,3 +82,25 @@ test("missing item period or price fails closed", () => {
   });
   assert.equal(paidRenewalPeriod(noPrice, now), null);
 });
+
+test("the paid price comes from the invoice line, not the live item (downgrade billed, then reverted for free)", () => {
+  // Diamond → Gold scheduled; the renewal billed Gold ($5). /cancel-pending
+  // then put the Diamond price back on the item with no charge. The live item
+  // says Diamond, the paid invoice says Gold — the mint must follow the money.
+  const s = sub({
+    latest_invoice: {
+      status: "paid",
+      billing_reason: "subscription_cycle",
+      lines: { data: [{ pricing: { price_details: { price: "price_go" } } }] },
+    },
+    items: { data: [{ current_period_start: periodStart, current_period_end: periodEnd, price: { id: "price_pro" } }] },
+  });
+  assert.equal(paidRenewalPeriod(s, now)?.priceId, "price_go");
+  // Legacy line shape and an expanded price object are read the same way.
+  const legacy = sub({ latest_invoice: { status: "paid", billing_reason: "subscription_cycle", lines: { data: [{ price: { id: "price_plus" } }] } } });
+  assert.equal(paidRenewalPeriod(legacy, now)?.priceId, "price_plus");
+  const expanded = sub({ latest_invoice: { status: "paid", billing_reason: "subscription_cycle", lines: { data: [{ pricing: { price_details: { price: { id: "price_ultra" } } } }] } } });
+  assert.equal(paidRenewalPeriod(expanded, now)?.priceId, "price_ultra");
+  // No line at all falls back to the item.
+  assert.equal(paidRenewalPeriod(sub(), now)?.priceId, "price_go");
+});

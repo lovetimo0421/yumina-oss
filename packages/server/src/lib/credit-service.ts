@@ -24,7 +24,7 @@ import {
 
 import { bonusCompatibilityEnabled, cyclePlanConfig, expireWalletBonus, prepareWalletSpend, recordSpendAllocation, recordCyclePolicy } from "./free-credit-policy.js";
 import { isV2Signup, shouldMigrateToV2 } from "./plan-config-v2.js";
-import { hasDropWork, initialDropAmount, releaseDueDrops, startDropCycle } from "./plan-drops.js";
+import { hasDropWork, initialDropAmount, releaseDueDrops, settleUndeliveredDrops, startDropCycle } from "./plan-drops.js";
 import { getAvailableCredits, heldCreditsForWallet, studioCreditReservationsEnabled } from "./credit-reservations.js";
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -901,11 +901,25 @@ export async function syncPlan(
   newPlan: PlanId,
   options?: { additive?: boolean; grantFraction?: number; periodStart?: Date; periodEnd?: Date; referenceId?: string;
     /** The billing source the caller is about to record (the WeChat path sets it after this call). */
-    source?: "wechat" | "stripe" | "comp" },
+    source?: "wechat" | "stripe" | "comp";
+    /**
+     * A paid upgrade that RESTARTS the billing cycle (in-app plan change, owner
+     * 2026-09-17): the user paid a full month of `newPlan` today, keeps every
+     * mushie held, and the wallet period becomes the new Stripe period passed
+     * in periodStart/periodEnd. Additive only; the grant is never prorated. On a
+     * version-2 wallet the drops of the plan being left that have not landed
+     * yet are paid out first (settleUndeliveredDrops) — they were bought with
+     * the previous month's price and the cycle restart would otherwise drop them.
+     */
+    cycleReset?: boolean },
 ): Promise<CreditWallet> {
   const wallet = await ensureWallet(userId);
   const now = new Date();
   const additive = options?.additive ?? false;
+  const cycleReset = additive && options?.cycleReset === true;
+  if (cycleReset && (!options?.periodStart || !options?.periodEnd)) {
+    throw new Error("syncPlan: cycleReset requires the new billing period");
+  }
   // Wallets not on a real Stripe subscription join the version-2 lineup when a new
   // cycle starts for them here: a downgrade or expiry to free, or a WeChat purchase
   // (that path grants additively but passes source: "wechat"). Prorated Stripe
@@ -919,9 +933,10 @@ export async function syncPlan(
   // drops of the new cycle follow through releaseDueDrops.
   const cycleGrant = isV2 ? initialDropAmount(newPlan) : config.monthlyCredits;
   // Clamp to [0,1]; a non-finite fraction (NaN/Infinity from a future caller)
-  // falls back to a full grant so a paying upgrader is never shortchanged.
+  // falls back to a full grant so a paying upgrader is never shortchanged. A
+  // cycle-reset upgrade paid a full month, so it is never prorated.
   const rawFraction = options?.grantFraction ?? 1;
-  const grantFraction = additive && Number.isFinite(rawFraction)
+  const grantFraction = additive && !cycleReset && Number.isFinite(rawFraction)
     ? Math.min(Math.max(rawFraction, 0), 1)
     : 1;
   const grantAmount = Math.round(cycleGrant * grantFraction);
@@ -929,7 +944,8 @@ export async function syncPlan(
   const periodEnd = options?.periodEnd ?? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
   return db.transaction(async (tx) => {
-  await tx.execute(sql`SELECT id FROM credit_wallets WHERE id=${wallet.id} FOR UPDATE`);
+  const [locked] = await tx.select().from(creditWallets).where(eq(creditWallets.id, wallet.id)).for("update");
+  if (!locked) throw new Error(`syncPlan: wallet ${wallet.id} disappeared`);
   // Idempotency: if a referenceId is given (typically session.id from a webhook)
   // and we already booked a plan_grant against it for this wallet, skip.
   if (options?.referenceId) {
@@ -946,6 +962,22 @@ export async function syncPlan(
     if (existing) {
       return wallet; // Already processed
     }
+  }
+
+  if (cycleReset) {
+    // The grant was sized from the pre-lock snapshot; a wallet that changed
+    // plan or lineup in between (a concurrent renewal or migration) must not
+    // be settled against stale numbers — the caller retries.
+    if ((locked.planVersion ?? 1) !== wallet.planVersion || normalizePlan(locked.plan) !== wallet.plan) {
+      throw new Error("syncPlan: wallet changed during the upgrade; retry");
+    }
+    await settleUndeliveredDrops(tx, {
+      id: locked.id,
+      plan: locked.plan,
+      planVersion: locked.planVersion ?? 1,
+      periodStart: locked.periodStart,
+      balance: locked.balance,
+    }, now);
   }
 
   const balanceExpr = additive
@@ -973,9 +1005,15 @@ export async function syncPlan(
     .returning();
 
   if (newPlan === "free" && !isV2) await recordCyclePolicy(tx, wallet.id, periodStart, config.monthlyCredits);
-  if (isV2) await startDropCycle(tx, wallet.id, periodStart);
+  // Drop ledger: a fresh cycle (purchase, renewal, cycle-reset upgrade, WeChat
+  // re-buy) starts at drop 0. A legacy additive change that keeps the period
+  // (a price change made in the Stripe dashboard) leaves the released count
+  // alone, so the cycle's remaining drops are not re-armed at the new plan's
+  // size — that re-arm paid a day-25 upgrader half the new pile for pennies.
+  const periodChanged = locked.periodStart.getTime() !== periodStart.getTime();
+  if (isV2 && (!additive || cycleReset || periodChanged)) await startDropCycle(tx, wallet.id, periodStart);
   const description = additive
-    ? `Upgrade to ${newPlan} — +${grantAmount} mushies${grantFraction < 1 ? " (prorated for remaining cycle)" : ""}${isV2 ? " (drop 1)" : ""}`
+    ? `Upgrade to ${newPlan} — +${grantAmount} mushies${cycleReset ? " (new billing cycle)" : grantFraction < 1 ? " (prorated for remaining cycle)" : ""}${isV2 ? " (drop 1)" : ""}`
     : isV2 ? `${newPlan} plan — ${cycleGrant} of ${config.monthlyCredits} monthly mushies (drop 1)${migrate ? " — moved to the 2026-09 lineup" : ""}` : `${newPlan} plan — ${config.monthlyCredits} monthly mushies`;
 
   // A zero-amount additive grant (delta-only admin flip to the same or a lower
