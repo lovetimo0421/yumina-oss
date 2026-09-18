@@ -111,7 +111,9 @@ import {
 
 const messageRoutes = new Hono<AppEnv>();
 
-messageRoutes.use("/*", authMiddleware);
+messageRoutes.use("/sessions/*", authMiddleware);
+messageRoutes.use("/messages/*", authMiddleware);
+messageRoutes.use("/models", authMiddleware);
 
 /** Honor the user's explicit model choice. We used to swap any model
  *  not in `model_prices` to a fallback, but that broke BYOK users whose

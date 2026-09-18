@@ -863,7 +863,11 @@ export function LibraryDetailPanelMobile({
                   <History className="h-5 w-5 text-primary" aria-hidden="true" />
                   {t("detail.updateHistory")}
                 </h2>
-                <WorldUpdateHistory worldId={selectedItem.id} creatorName={selectedItem.creatorName} />
+                <WorldUpdateHistory
+                  worldId={selectedItem.id}
+                  creatorName={selectedItem.creatorName}
+                  canEdit={!!userId && selectedItem.creatorId === userId}
+                />
               </section>
             )}
 

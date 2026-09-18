@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { X, Plus, ImageIcon, Loader2, Camera, FolderOpen, Upload, Globe, Type } from "lucide-react";
+import { X, Plus, ImageIcon, Loader2, Camera, FolderOpen, Upload, Globe, Type, History } from "lucide-react";
 import { FieldError } from "@/components/ui/field-error";
+import { WorldUpdateHistory } from "@/features/library/world-update-history";
 import { MAX_WORLD_DESCRIPTION, MAX_WORLD_NAME } from "@yumina/shared";
 import { parseImportedFile } from "@/lib/import-world";
 import {
@@ -34,8 +35,11 @@ function fetchWithTimeout(input: RequestInfo, init: RequestInit, timeoutMs: numb
 
 export function OverviewSection() {
   const { t } = useTranslation("editor");
+  const { t: tLibrary } = useTranslation("library");
   const worldDraft = useEditorStore(s => s.worldDraft);
   const serverWorldId = useEditorStore(s => s.serverWorldId);
+  const readOnlyInspect = useEditorStore(s => s.readOnlyInspect);
+  const guestMode = useEditorStore(s => s.guestMode);
   const saveDraft = useEditorStore(s => s.saveDraft);
   const setField = useEditorStore(s => s.setField);
   const loadWorldDefinition = useEditorStore(s => s.loadWorldDefinition);
@@ -379,6 +383,18 @@ export function OverviewSection() {
             />
           </div>
         </div>
+
+        <section className="rounded-lg border border-border bg-background p-5" aria-labelledby="overview-update-history-title">
+          <h3 id="overview-update-history-title" className="mb-4 flex items-center gap-2 text-sm font-semibold text-foreground">
+            <History className="h-4 w-4 text-primary" aria-hidden="true" />
+            {tLibrary("detail.updateHistory")}
+          </h3>
+          {serverWorldId ? (
+            <WorldUpdateHistory worldId={serverWorldId} canEdit={!readOnlyInspect && !guestMode} />
+          ) : (
+            <p className="py-6 text-center text-sm text-muted-foreground">{tLibrary("detail.updateHistorySaveFirst")}</p>
+          )}
+        </section>
 
         <div className="rounded-lg border border-border bg-background p-5">
           <div className="mb-3">

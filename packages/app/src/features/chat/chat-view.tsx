@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { useRouter } from "@tanstack/react-router";
-import { ArrowLeft, Brain, ChevronDown, Cpu, Maximize, Minimize } from "lucide-react";
+import { ChevronDown, Maximize, Minimize } from "lucide-react";
 import { useChatStore } from "@/stores/chat";
 import { useConfigStore } from "@/stores/config";
 import { useCreditStore } from "@/edition/slots.state";
@@ -37,6 +37,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ModelBrowser } from "./model-browser";
+import {
+  FullscreenFloatingControls,
+  shouldPauseFloatingBarAutoHide,
+} from "./fullscreen-floating-controls";
 import { useModelsStore } from "@/stores/models";
 import {
   DISPLAY_MODE_CONFIRM_TIMEOUT_MS,
@@ -1061,12 +1065,13 @@ function FullscreenFloatingBar({
   // auto-hide underneath a user who is hovering it, and the bar would vanish
   // mid-reach.
   const hoverHoldRef = useRef(false);
+  const menuOpenRef = useRef(false);
 
   // Touch gets the longer window: there is no hover to hold the bar open, and
   // ~2.5s minus the slide-in left barely a beat to read it and land a tap.
   const scheduleHide = useCallback(() => {
     clearTimeout(timerRef.current);
-    if (hoverHoldRef.current) return;
+    if (shouldPauseFloatingBarAutoHide(hoverHoldRef.current, menuOpenRef.current)) return;
     timerRef.current = setTimeout(() => setVisible(false), isTouch ? 5000 : 3000);
   }, [isTouch]);
 
@@ -1192,7 +1197,7 @@ function FullscreenFloatingBar({
       )}
       <div
         data-admin-review-preview={moderationGroupKey ? "true" : undefined}
-        className={`animate-float-bar-in fixed left-1/2 z-50 flex max-w-[calc(100vw-2rem)] items-center gap-4 rounded-2xl border border-white/15 bg-black/75 px-5 py-3 shadow-2xl backdrop-blur-lg transition-[top,opacity] duration-500 ${
+        className={`animate-float-bar-in fixed left-1/2 z-50 flex max-w-[calc(100vw-1rem)] items-center gap-1.5 rounded-2xl border border-gold/25 bg-[#14151a]/88 p-1.5 shadow-[0_18px_45px_rgba(0,0,0,0.42),0_0_28px_rgba(201,162,94,0.08)] backdrop-blur-xl transition-[top,opacity] duration-500 ${
           visible
             ? "top-[max(1rem,env(safe-area-inset-top))] opacity-100"
             : "pointer-events-none -top-32 opacity-0"
@@ -1200,56 +1205,33 @@ function FullscreenFloatingBar({
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
-        <button
-          onClick={onBack}
-          className="flex items-center gap-2 rounded-lg px-3 py-2 text-[0.9rem] text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          {reviewGroupKey ? t("view.backToReview", "返回审核") : t("view.backToLibrary")}
-        </button>
-        {!(isTouch && reviewGroupKey) && (
-          <>
-            <div className="h-6 w-px bg-white/20" />
-            <button
-              onPointerDown={() => clearTimeout(timerRef.current)}
-              onClick={() => setModelBrowserOpen(true)}
-              className="flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-[0.9rem] text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-              title={t("view.switchModel")}
-            >
-              <Cpu className="h-4 w-4" />
-              {t("view.switchModel")}
-            </button>
-            {memorySummaryEnabled && (
-              <button
-                onPointerDown={() => clearTimeout(timerRef.current)}
-                onClick={() => {
-                  // Handled by WorldRenderer → bridge → sandbox host mount.
-                  window.dispatchEvent(new CustomEvent("yumina:request-memory-panel"));
-                  setVisible(false);
-                }}
-                className="flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-[0.9rem] text-white/70 transition-colors hover:bg-white/10 hover:text-white"
-                title={t("view.memoryPanel")}
-              >
-                <Brain className="h-4 w-4" />
-                {t("view.memoryPanel")}
-              </button>
-            )}
-            <div className="h-6 w-px bg-white/20" />
-            <button
-              onPointerDown={() => clearTimeout(timerRef.current)}
-              onClick={toggle}
-              className="flex items-center gap-2 rounded-lg bg-white/10 px-4 py-2 text-[0.9rem] text-white/80 transition-colors hover:bg-white/20 hover:text-white"
-            >
-              <Maximize className="h-4 w-4" />
-              {t("view.returnToFullscreen")}
-              {!isTouch && (
-                <kbd className="ml-1 rounded-md border border-white/25 bg-white/10 px-1.5 py-0.5 text-[11px] font-medium text-white/50">
-                  F11
-                </kbd>
-              )}
-            </button>
-          </>
-        )}
+        <FullscreenFloatingControls
+          backLabel={
+            reviewGroupKey ? t("view.backToReview", "返回审核") : t("view.backToLibrary")
+          }
+          moreLabel={t("header.moreActions")}
+          modelLabel={t("view.switchModel")}
+          memoryLabel={memorySummaryEnabled ? t("view.memoryPanel") : undefined}
+          fullscreenLabel={t("view.returnToFullscreen")}
+          showActions={!(isTouch && reviewGroupKey)}
+          onBack={onBack}
+          onModel={() => {
+            setModelBrowserOpen(true);
+            setVisible(false);
+          }}
+          onMemory={() => {
+            // Handled by WorldRenderer → bridge → sandbox host mount.
+            window.dispatchEvent(new CustomEvent("yumina:request-memory-panel"));
+            setVisible(false);
+          }}
+          onFullscreen={toggle}
+          onInteractionStart={() => clearTimeout(timerRef.current)}
+          onMenuOpenChange={(open) => {
+            menuOpenRef.current = open;
+            clearTimeout(timerRef.current);
+            if (!open) scheduleHide();
+          }}
+        />
       </div>
       <ChatModelBrowser
         open={modelBrowserOpen}

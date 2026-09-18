@@ -8,7 +8,7 @@ test("account deletion link uses the configured production origin", () => {
       "https://yumina.io",
       "0123456789abcdef",
     ),
-    "https://yumina.io/delete-account#token=0123456789abcdef",
+    "https://yumina.io/delete-account#token=0123456789abcdef", // gitleaks:allow (fixture, not a credential)
   );
 });
 

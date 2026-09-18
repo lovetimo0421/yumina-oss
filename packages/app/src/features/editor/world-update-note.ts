@@ -1,3 +1,5 @@
+import { notifyPublishedWorldUpdate } from "../library/world-update-history-data";
+
 export interface PostWorldUpdateNoteOptions {
   worldId: string;
   title: string;
@@ -37,4 +39,5 @@ export async function postWorldUpdateNote({
   if (!response.ok) {
     throw new Error(`Update note request failed: ${response.status}`);
   }
+  if (!held) notifyPublishedWorldUpdate();
 }

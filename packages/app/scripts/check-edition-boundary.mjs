@@ -113,6 +113,11 @@ export const HOSTED_FILES = [
  * Tests that live in core directories but exercise hosted behaviour (wallet
  * recovery, hub return state, PvZ picker...). The export drops them with the
  * features they cover, so they may import hosted modules.
+ *
+ * This list is no longer required for new tests: `checkBoundary()` treats any
+ * `*.test.*` file that imports a hosted module as hosted, which is exactly what
+ * the export does (it prunes tests whose imports no longer resolve). Entries
+ * here remain for tests that reach hosted code only indirectly.
  */
 export const HOSTED_TEST_FILES = [
   "lib/story-return.test",
@@ -271,14 +276,21 @@ export function checkBoundary() {
     while ((nsMatch = nsRe.exec(source))) {
       offenders.push({ file: rel, specifier: 'useTranslation("' + nsMatch[1] + '")', target: "locales/*/" + nsMatch[1] + ".json" });
     }
+    const fileOffenders = [];
     for (const spec of importSpecifiers(source)) {
       const target = resolveSpecifier(spec, file);
       if (!target) continue;
       const resolved = withExtension(target);
       if (isHostedPath(resolved) || isHostedPath(target)) {
-        offenders.push({ file: rel, specifier: spec, target: resolved });
+        fileOffenders.push({ file: rel, specifier: spec, target: resolved });
       }
     }
+    // A test that imports a hosted module tests hosted behaviour: the export
+    // drops it together with that module (see scripts/oss-export.mjs, "prune
+    // tests of removed modules"), so it can never break the exported tree.
+    // Only production code must stay on the core side of the seam.
+    if (fileOffenders.length > 0 && /\.test\.(tsx?|jsx?|mjs)$/.test(rel)) continue;
+    offenders.push(...fileOffenders);
   }
   return offenders;
 }

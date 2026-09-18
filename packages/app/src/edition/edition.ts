@@ -136,9 +136,21 @@ export const useEditionStore = create<EditionState>()((set, get) => ({
   },
 }));
 
-/** Resolve the edition once (cached). Safe to call from route loaders. */
+/**
+ * Resolve the edition once (cached). Safe to call from route loaders.
+ *
+ * Hosted builds return the build-time defaults at once and refresh from
+ * /api/edition in the background: a landing redirect must not pay a round
+ * trip, and a hosted client is hosted. Local builds wait, because single-user
+ * sign-in and the landing route depend on what the server says.
+ */
 export function ensureEditionLoaded(): Promise<EditionInfo> {
-  return useEditionStore.getState().load();
+  const store = useEditionStore.getState();
+  if (!IS_LOCAL_BUILD) {
+    if (store.status === "idle") void store.load();
+    return Promise.resolve(store.info);
+  }
+  return store.load();
 }
 
 /** Non-hook read for stores and helpers. */

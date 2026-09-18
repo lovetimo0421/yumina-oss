@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2 } from "lucide-react";
-import { fetchWorldUpdatePage, type WorldUpdateItem } from "./world-update-history-data";
+import { Loader2, Pencil } from "lucide-react";
+import { fetchWorldUpdatePage, subscribeToPublishedWorldUpdates, type WorldUpdateItem } from "./world-update-history-data";
+import { WorldUpdateEditDialog } from "./world-update-edit-dialog";
 
 interface UpdateHistoryState {
   worldId: string;
@@ -11,6 +12,7 @@ interface UpdateHistoryState {
   nextOffset: number | null;
   loadingMore: boolean;
   loadMoreFailed: boolean;
+  canEdit: boolean;
 }
 
 function emptyState(worldId: string): UpdateHistoryState {
@@ -22,6 +24,7 @@ function emptyState(worldId: string): UpdateHistoryState {
     nextOffset: null,
     loadingMore: false,
     loadMoreFailed: false,
+    canEdit: false,
   };
 }
 
@@ -32,14 +35,32 @@ function isAbortError(error: unknown): boolean {
 export function WorldUpdateHistory({
   worldId,
   creatorName,
+  canEdit = false,
 }: {
   worldId: string;
   creatorName?: string | null;
+  canEdit?: boolean;
 }) {
   const { t, i18n } = useTranslation("library");
   const [result, setResult] = useState<UpdateHistoryState>(() => emptyState(worldId));
   const [requestVersion, setRequestVersion] = useState(0);
+  const [editing, setEditing] = useState<{
+    worldId: string;
+    update: WorldUpdateItem;
+    trigger: HTMLButtonElement;
+  } | null>(null);
+  const [savedWorldId, setSavedWorldId] = useState<string | null>(null);
   const loadMoreControllerRef = useRef<AbortController | null>(null);
+  const allowEdit = canEdit && result.worldId === worldId && result.canEdit;
+
+  useEffect(() => subscribeToPublishedWorldUpdates(() => {
+    setRequestVersion((version) => version + 1);
+  }), []);
+
+  useEffect(() => {
+    setEditing(null);
+    setSavedWorldId(null);
+  }, [worldId, allowEdit]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -57,6 +78,7 @@ export function WorldUpdateHistory({
             nextOffset: page.nextOffset,
             loadingMore: false,
             loadMoreFailed: false,
+            canEdit: page.canEdit,
           });
         }
       })
@@ -70,7 +92,7 @@ export function WorldUpdateHistory({
       controller.abort();
       loadMoreControllerRef.current?.abort();
     };
-  }, [requestVersion, worldId]);
+  }, [requestVersion, worldId, canEdit]);
 
   const updates = result.worldId === worldId ? result.updates : null;
   const failed = result.worldId === worldId && result.failed;
@@ -95,6 +117,7 @@ export function WorldUpdateHistory({
         offset: result.nextOffset,
         signal: controller.signal,
       });
+      if (controller.signal.aborted) return;
       setResult((current) => {
         if (current.worldId !== worldId || current.updates === null) return current;
         const knownIds = new Set(current.updates.map((update) => update.id));
@@ -106,6 +129,7 @@ export function WorldUpdateHistory({
           nextOffset: page.nextOffset,
           loadingMore: false,
           loadMoreFailed: false,
+          canEdit: page.canEdit,
         };
       });
     } catch (error: unknown) {
@@ -148,6 +172,7 @@ export function WorldUpdateHistory({
   const fallbackAuthor = creatorName?.trim() || t("detail.unknown");
 
   return (
+    <>
     <div
       role="region"
       aria-label={t("detail.updateHistoryListLabel")}
@@ -171,6 +196,19 @@ export function WorldUpdateHistory({
                     <span className="shrink-0 rounded-full border border-primary/25 bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-primary">
                       {t("detail.majorUpdate")}
                     </span>
+                  )}
+                  {allowEdit && update.worldId && (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        setSavedWorldId(null);
+                        setEditing({ worldId, update, trigger: event.currentTarget });
+                      }}
+                      className="-my-2 inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-md px-1 text-xs font-medium text-primary hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    >
+                      <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t("detail.editUpdate")}
+                    </button>
                   )}
                 </div>
                 {update.content && (
@@ -210,5 +248,27 @@ export function WorldUpdateHistory({
         </div>
       )}
     </div>
+    {savedWorldId === worldId && (
+      <p role="status" className="mt-3 text-center text-sm text-primary">{t("detail.updateSaved")}</p>
+    )}
+    {allowEdit && editing?.worldId === worldId && (
+      <WorldUpdateEditDialog
+        key={`${worldId}:${editing.update.id}`}
+        update={editing.update}
+        trigger={editing.trigger}
+        onClose={() => setEditing(null)}
+        onSaved={(saved) => {
+          setResult((current) => current.worldId === worldId && current.updates !== null
+            ? {
+                ...current,
+                updates: current.updates.map((update) => update.id === saved.id && update.worldId === saved.worldId ? saved : update),
+              }
+            : current);
+          setSavedWorldId(worldId);
+          setEditing(null);
+        }}
+      />
+    )}
+    </>
   );
 }

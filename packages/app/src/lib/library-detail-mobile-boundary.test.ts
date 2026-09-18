@@ -47,7 +47,8 @@ test("desktop Library keeps gallery composition, creator activity, and navigatio
     /<LibraryDetailActivityCard[\s\S]*layout="desktop"[\s\S]*showCreatorMetrics=\{canViewCreatorAnalytics\}[\s\S]*stats=\{activityStats\}/,
   );
   assert.match(desktopSource, /enabled: !isDraft && !isOrphanedFork/);
-  assert.doesNotMatch(desktopSource, /WorldUpdateHistory|library-detail-mobile-surface|max-h-\[32rem\]/);
+  assert.doesNotMatch(desktopSource, /library-detail-mobile-surface|max-h-\[32rem\]/);
+  assert.match(desktopSource, /<WorldUpdateHistory\s+worldId=\{selectedItem\.id\}/);
 });
 
 test("Overview crop editor uses responsive percentage crops at the real gallery hero ratio", () => {
@@ -75,7 +76,7 @@ test("mobile Library keeps the requested gallery, identity, activity, and bounde
   );
   assert.match(activitySource, /<dl className="grid grid-cols-3 pt-3">/);
   assert.doesNotMatch(activitySource, /<dl className="[^"]*(?:rounded|border|bg-)/);
-  assert.match(mobileSource, /<WorldUpdateHistory worldId=\{selectedItem\.id\}/);
+  assert.match(mobileSource, /<WorldUpdateHistory\s+worldId=\{selectedItem\.id\}/);
   assert.match(mobileSource, /max-h-\[32rem\][^"]*overflow-y-auto/);
   const historySource = readFileSync(
     new URL("../features/library/world-update-history.tsx", import.meta.url),

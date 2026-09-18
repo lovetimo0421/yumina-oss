@@ -22,6 +22,7 @@ import {
   GitFork,
   Lock,
   Check,
+  History,
 } from "lucide-react";
 import { feedback } from "@/lib/feedback";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
@@ -56,6 +57,7 @@ import { SharePlaythroughPicker } from "./share-playthrough-picker";
 import { SupportBadge } from "@/edition/slots";
 import { WorldReviewsSection } from "@/edition/slots";
 import { LibraryDetailActivityCard } from "./library-detail-activity-card";
+import { WorldUpdateHistory } from "./world-update-history";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
@@ -791,6 +793,22 @@ export function LibraryDetailPanelDesktop({
               showCreatorMetrics={canViewCreatorAnalytics}
               stats={activityStats}
             />
+
+            {selectedItem.isPublished && (
+              <section className="library-detail-card clouded-glass-panel clouded-glass-panel--soft relative mt-7 overflow-hidden rounded-xl p-6 md:p-7">
+                <div className="relative z-10">
+                  <h2 className="mb-5 flex items-center gap-2 border-b border-white/8 pb-5 text-lg font-bold text-foreground">
+                    <History size={18} className="text-primary" aria-hidden="true" />
+                    {t("detail.updateHistory")}
+                  </h2>
+                  <WorldUpdateHistory
+                    worldId={selectedItem.id}
+                    creatorName={selectedItem.creatorName}
+                    canEdit={!!userId && selectedItem.creatorId === userId}
+                  />
+                </div>
+              </section>
+            )}
 
             {/* Reviews — inline so players can read/leave comments without
                 going back out to Discover. Only for published cards that

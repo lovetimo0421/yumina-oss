@@ -244,6 +244,7 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
   const prevWorldIdRef = useRef<string | null>(null);
   const conversationLoadRef = useRef(0);
   const conversationLoadingRef = useRef(false);
+  const sendPendingRef = useRef<number | null>(null);
   const [isConversationLoading, setIsConversationLoading] = useState(false);
 
   const visibleCreditPause = creditPause?.worldId === serverWorldId
@@ -508,41 +509,53 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
 
   const handleSend = useCallback(async () => {
     const trimmed = input.trim();
-    if (!trimmed || isAgentWorking || !serverWorldId || conversationLoadingRef.current) return;
+    if (!trimmed || isAgentWorking || !serverWorldId || conversationLoadingRef.current
+      || sendPendingRef.current === conversationLoadRef.current) return;
     const requestedWorldId = serverWorldId;
-    ++conversationLoadRef.current;
+    const sendId = ++conversationLoadRef.current;
+    sendPendingRef.current = sendId;
+    const stillCurrent = () => isCurrentStudioWorld(requestedWorldId) && conversationLoadRef.current === sendId;
     setInput("");
 
-    let conversationIdForSend = activeConversationId;
+    try {
+      let conversationIdForSend = activeConversationId;
 
-    // Auto-create conversation if none active. If this fails we must NOT send —
-    // the turn would run against a null conversation and never get persisted.
-    if (!activeConversationId) {
-      try {
-        const res = await fetch(`${apiBase}/api/studio/${requestedWorldId}/conversations`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ title: trimmed.slice(0, 50) }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const { data } = await res.json();
-        if (!isCurrentStudioWorld(requestedWorldId)) return;
-        if (!data?.id) throw new Error("missing conversation id");
-        conversationIdForSend = data.id;
-        setActiveConversationId(data.id);
-        setConversations((prev) => [{ id: data.id, title: data.title ?? trimmed.slice(0, 50), updatedAt: new Date().toISOString() }, ...prev]);
-      } catch {
-        if (isCurrentStudioWorld(requestedWorldId)) {
-          feedback.error(t("studio.aiChat.createConvFailed"));
-          setInput(trimmed); // restore the user's text so Send is the retry
+      // Auto-create conversation if none active. If this fails we must NOT send —
+      // the turn would run against a null conversation and never get persisted.
+      if (!activeConversationId) {
+        try {
+          const res = await fetch(`${apiBase}/api/studio/${requestedWorldId}/conversations`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ title: trimmed.slice(0, 50) }),
+          });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const { data } = await res.json();
+          if (!stillCurrent()) return;
+          if (!data?.id) throw new Error("missing conversation id");
+          conversationIdForSend = data.id;
+          setActiveConversationId(data.id);
+          // Adopt the new conversation before the store checks the send's scope.
+          useStudioStore.setState({
+            chatWorldId: requestedWorldId,
+            chatConversationId: data.id,
+          });
+          setConversations((prev) => [{ id: data.id, title: data.title ?? trimmed.slice(0, 50), updatedAt: new Date().toISOString() }, ...prev]);
+        } catch {
+          if (stillCurrent()) {
+            feedback.error(t("studio.aiChat.createConvFailed"));
+            setInput(trimmed); // restore the user's text so Send is the retry
+          }
+          return;
         }
-        return;
       }
-    }
 
-    if (!isCurrentStudioWorld(requestedWorldId)) return;
-    sendChatMessage(requestedWorldId, trimmed, model, conversationIdForSend);
+      if (!stillCurrent()) return;
+      await sendChatMessage(requestedWorldId, trimmed, model, conversationIdForSend);
+    } finally {
+      if (sendPendingRef.current === sendId) sendPendingRef.current = null;
+    }
   }, [input, isAgentWorking, serverWorldId, model, sendChatMessage, activeConversationId, apiBase, t]);
 
   // IME-safe Enter-to-send: won't fire while composing a pinyin/CJK candidate,

@@ -15,7 +15,10 @@ it("bounds CPU work for long repeated tokens without under-budgeting them", () =
   expect(performance.now() - start).toBeLessThan(2_000);
 });
 
-it("preserves exact ordinary story counts and the model-specific CJK estimate", () => {
+// Exact cl100k BPE over ~180 KB: ~0.3 s on a dev CPU, but a shared CI runner
+// executing the server and app suites alongside this one has blown the 5 s
+// default. This is a correctness test, not a perf bound, so give it room.
+it("preserves exact ordinary story counts and the model-specific CJK estimate", { timeout: 60_000 }, () => {
   expect(estimateTokens("The plants waited as Dave entered the garden. ".repeat(2000))).toBe(18_001);
   expect(estimateTokens("戴夫走进院子，植物们做好了迎战僵尸的准备。".repeat(4000))).toBe(128_000);
   expect(estimateTokens("戴".repeat(20_000), "google/gemini-2.5-flash")).toBe(20_000);

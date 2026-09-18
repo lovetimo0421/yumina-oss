@@ -38,9 +38,10 @@ const envSchema = z.object({
   // Public origin of this deployment (cookies, CORS, links in emails, SEO).
   // Unset = derive from BETTER_AUTH_URL.
   PUBLIC_ORIGIN: z.preprocess(emptyToUndefined, z.string().url().optional()),
-  // Bind address. Local edition binds loopback only — single-user mode has no
-  // login, so exposing it on a LAN means everyone on that LAN is "you".
-  HOST: z.preprocess(emptyToUndefined, z.string().default(IS_LOCAL ? "127.0.0.1" : "0.0.0.0")),
+  // Bind address. Unset = Node's default (all interfaces, IPv6 included, which
+  // Railway's networking needs). The local edition defaults to loopback below:
+  // single-user mode has no login, so exposing it on a LAN makes everyone "you".
+  HOST: z.preprocess(emptyToUndefined, z.string().optional()),
   PGLITE_DATA_DIR: z.preprocess(
     emptyToUndefined,
     z.string().default(process.env.NODE_TEST_CONTEXT ? "memory://" : IS_LOCAL ? "./data/pglite" : "./dev.db"),
@@ -173,5 +174,7 @@ export const AUTH_MODE: "single-user" | "multi-user" =
   env.YUMINA_AUTH_MODE ?? (IS_LOCAL_EDITION ? "single-user" : "multi-user");
 /** Where on-disk assets live when S3 is not configured. */
 export const STORAGE_DIR = env.YUMINA_STORAGE_DIR ?? `${env.YUMINA_DATA_DIR.replace(/[\/]+$/, "")}/assets`;
+/** Bind address for the HTTP server; undefined keeps Node's dual-stack default. */
+export const BIND_HOST: string | undefined = env.HOST ?? (IS_LOCAL_EDITION ? "127.0.0.1" : undefined);
 /** Canonical public origin (no trailing slash). */
 export const PUBLIC_ORIGIN = (env.PUBLIC_ORIGIN ?? env.BETTER_AUTH_URL).replace(/\/+$/, "");

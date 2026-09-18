@@ -67,7 +67,7 @@ import { localAuthRoutes } from "./routes/local-auth.js";
 import { completionRoutes } from "./routes/completions.js";
 import { socialSimulatorRoutes } from "./routes/social-simulator.js";
 import { combatRoutes } from "./routes/combat.js";
-import { IS_DEV } from "./lib/env.js";
+import { BIND_HOST, IS_DEV } from "./lib/env.js";
 import { isTestingRequest } from "./lib/testing-origin.js";
 import { connectRedis, disconnectRedis } from "./lib/redis.js";
 import { posthog, captureServerError } from "./lib/posthog.js";
@@ -650,10 +650,10 @@ async function start() {
     {
       fetch: app.fetch,
       port: env.PORT,
-      hostname: env.HOST,
+      ...(BIND_HOST ? { hostname: BIND_HOST } : {}),
     },
     (info) => {
-      console.log(`Yumina server (${edition.name} edition) running on http://${env.HOST === "0.0.0.0" ? "localhost" : env.HOST}:${info.port}`);
+      console.log(`Yumina server (${edition.name} edition) running on http://${BIND_HOST ?? "localhost"}:${info.port}`);
       console.log(`[STARTUP] features: bundle-likes`);
       if (env.RUNTIME_CPU_PROFILE_SECONDS > 0) {
         void captureBoundedCpuProfile(env.RUNTIME_CPU_PROFILE_SECONDS * 1000)

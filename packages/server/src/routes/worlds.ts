@@ -76,6 +76,7 @@ import { hasWorldDmShareGrant } from "../lib/dm-world-grant.js";
 import { WORLD_STATUS_TAKEN_DOWN } from "../lib/fork-orphan.js";
 import { estimateWorldCopyTokens } from "../lib/world-copy-material.js";
 import { parseWorldUpdateNoteBody } from "../lib/world-update-note.js";
+import { createWorldUpdateEditRoutes } from "./world-update-edits.js";
 import {
   canReadWorldUpdateHistory,
   hasMoreWorldUpdates,
@@ -2858,6 +2859,8 @@ worldRoutes.post("/:id/updates", authMiddleware, rateLimitMiddleware("content-cr
   return c.json({ data: update }, 201);
 });
 
+worldRoutes.route("/", createWorldUpdateEditRoutes(db, authMiddleware, rateLimitMiddleware("content-creation")));
+
 // GET /api/worlds/:id/updates — list updates for a world
 worldRoutes.get("/:id/updates", optionalAuthMiddleware, async (c) => {
   const worldId = c.req.param("id");
@@ -2936,6 +2939,7 @@ worldRoutes.get("/:id/updates", optionalAuthMiddleware, async (c) => {
 
   return c.json({
     data: items,
+    canEdit: isOwner,
     hasMore,
     nextOffset: hasMore ? offset + items.length : null,
   });
