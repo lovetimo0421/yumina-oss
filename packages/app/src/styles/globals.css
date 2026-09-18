@@ -1,0 +1,5242 @@
+@import "tailwindcss";
+
+/* Self-hosted Inter (latin subset). The UI font stack has always led with
+   "Inter" but the face was never shipped — the only webfont we load is Nunito
+   Sans from Google Fonts, which is unreachable for CN users. Devices with a
+   custom system theme font (common on MIUI/ColorOS/vivo) remap Roboto and
+   sans-serif to the theme font, so without a real webfont the composer's
+   Latin text (model names, numbers) renders in whatever novelty font the user
+   themed their phone with. Latin-only on purpose: a CJK face would cost
+   megabytes; CJK text intentionally stays on the system font. */
+@import "@fontsource/inter/latin-400.css";
+@import "@fontsource/inter/latin-500.css";
+@import "@fontsource/inter/latin-600.css";
+@import "@fontsource/inter/latin-700.css";
+@import "./feedback.css";
+
+@custom-variant dark (&:is(.dark *));
+
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 30px #1A1A1C inset !important;
+  -webkit-text-fill-color: #E6E4DD !important;
+  caret-color: #E6E4DD;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+@theme {
+  /* ═══════════════════════════════════════════════════════════
+     Yumina Deep Canvas Theme (Impressionist / Dim Gallery Inspired)
+     Base:       #161517  (deep soft desaturated umber/charcoal)
+     Surface:    #1F1D21  (cards, panels, slightly elevated)
+     Elevated:   #2A272B  (popovers, modals, hovers, gradients)
+     Inset:      #0C0B0D  (input fields, completely recessed)
+     Primary:    #C9A25E  (muted antique gold for CTA & accents)
+     Foreground: #E8E2D2  (soft parchment/cream for body text)
+     ═══════════════════════════════════════════════════════════ */
+
+  /* ── Backgrounds ── */
+  --color-background: #121316;
+  --color-foreground: #E8E2D2;
+
+  --color-card: #17181D;
+  --color-card-foreground: #E8E2D2;
+  --color-popover: #1B1C22;
+  --color-popover-foreground: #E8E2D2;
+
+  /* ── Primary — muted antique gold ── */
+  --color-primary: #C9A25E;
+  --color-primary-foreground: #161517;
+  --color-gold: #C9A25E;
+
+  /* ── Primary action — warm parchment, distinct from premium gold ── */
+  --color-action-primary: #E9DDBB;
+  --color-action-primary-foreground: #201E19;
+  --color-action-primary-hover: #F1E7CB;
+
+  /* ── Secondary — surface-level button ── */
+  --color-secondary: #1B1C22;
+  --color-secondary-foreground: #E8E2D2;
+
+  /* ── Muted — subdued surfaces & text ── */
+  --color-muted: #14151A;
+  --color-muted-foreground: #D4CFC4;
+
+  /* ── Accent — warm hover state ── */
+  --color-accent: #1F2027;
+  --color-accent-foreground: #E8E2D2;
+
+  --color-destructive: #D3544B;
+  --color-destructive-foreground: #FFFFFF;
+
+  /* ── Borders & inputs ── */
+  --color-border: #262830;
+  --color-input: #1A1B21;
+  --color-ring: #C9A25E;
+
+  /* ── Sidebar ── */
+  --color-sidebar: #121316;
+  --color-sidebar-foreground: #E8E2D2;
+  --color-sidebar-border: #262830;
+
+  /* ── Semantic tokens ── */
+  --color-main: #E8E2D2;
+  --color-sub: #D4CFC4;
+  /* Named "page", NOT "base": a --color-base token turns Tailwind's
+     `text-base` into a color utility (killing its font-size meaning), which
+     silently blacked out text app-wide. See bg-page/border-page consumers. */
+  --color-page: #121316;
+
+  /* ── Text hierarchy ── */
+  --color-text-secondary: #E0DDD5;
+  --color-text-muted: #D4CFC4;
+  --color-text-disabled: #A39E93;
+
+  /* ── Button state tokens ── */
+  --color-primary-hover: #D8B26B;
+  --color-primary-pressed: #B7904E;
+  --color-primary-disabled-bg: #302A20;
+  --color-secondary-border: #3A3632;
+  --color-secondary-border-hover: #5A544E;
+
+  /* ── Inset (recessed input backgrounds) ── */
+  --color-inset: #0C0B0D;
+
+  --radius-sm: 0.125rem;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+
+  /* ── Font families — single sans-serif root ── */
+  --font-sans: var(--font-family-sans);
+  --font-serif: var(--font-family-sans);
+  --font-mono: var(--font-family-mono);
+  --font-chat: var(--font-family-sans);
+  --font-marketing: var(--font-family-sans);
+}
+
+html {
+  font-size: calc(var(--app-root-font-size) * var(--font-size-scale, 1));
+  /* Prevent double-tap-to-zoom and 300ms tap delay on mobile */
+  touch-action: manipulation;
+  /* Replace Android's default grey tap flash with a subtle brand-gold tint.
+     Kept translucent (not transparent) so elements without explicit :active
+     styles still give SOME press feedback on touch. */
+  -webkit-tap-highlight-color: rgba(201, 162, 94, 0.14);
+  /* Opt out of mobile WebView automatic font inflation ("font boosting").
+     Some Android WebViews — notably Tencent X5/TBS (WeChat's in-app browser)
+     and a few OEM browsers (MIUI/Huawei) common in our CN user base — inflate
+     text glyphs while leaving rem-based box metrics alone. In the play composer
+     that blows up the placeholder / model-pill text while the 1rem textarea
+     padding and px-3 toolbar padding stay put, so the text crowds the edges —
+     only on those engines, only at certain viewport ratios where the autosizer
+     fires. Tailwind preflight only ships the -webkit- prefix, which these
+     engines ignore here; emit the full set so the standard property (honored by
+     newer Blink/WebView builds over the deprecated alias) takes effect. 100% =
+     render at the authored size; still respects genuine user zoom. This html
+     rule is unlayered, so it wins over preflight's @layer base. */
+  -webkit-text-size-adjust: 100%;
+  -moz-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+html, body, #root {
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--font-family-sans);
+  /* Prevent pull-to-refresh and overscroll bounce on mobile */
+  overscroll-behavior: none;
+}
+
+.app-shell-root {
+  height: 100vh;
+  height: 100dvh; /* Modern mobile-safe viewport unit (fallback above) */
+  min-height: 0;
+}
+
+.app-shell-main {
+  min-height: 0;
+}
+
+:root {
+  /* ── Font stack (source of truth) — sans-serif only ──
+     "Inter" stays second in the stack: it's the self-hosted latin face (see the
+     @fontsource imports up top) that keeps Latin text stable when Google Fonts
+     (Nunito Sans) is unreachable (CN) or OEM themes hijack the system fonts. */
+  --font-family-sans:
+    "Nunito Sans",
+    "Inter",
+    ui-sans-serif,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    "Noto Sans SC",
+    "PingFang SC",
+    "Microsoft YaHei",
+    sans-serif;
+  --font-family-ui: var(--font-family-sans);
+  --font-family-display: var(--font-family-sans);
+  --font-family-chat: var(--font-family-sans);
+  --font-family-marketing: var(--font-family-sans);
+  --font-family-mono:
+    ui-monospace,
+    SFMono-Regular,
+    "SF Mono",
+    Menlo,
+    Consolas,
+    "Liberation Mono",
+    monospace;
+
+  --app-root-font-size: 16px;
+  --app-gutter: clamp(1.25rem, 0.9rem + 1vw, 2.5rem);
+  --mobile-gutter: 1rem;
+  --mobile-topbar-height: 4.5rem;
+  --mobile-bottom-nav-height: 4.75rem;
+  --mobile-touch-target: 2.75rem;
+  --mobile-safe-top: env(safe-area-inset-top, 0px);
+  --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Native sizing while idle; AppShell overrides only its own height/origin
+     during text entry. Document wrappers must never use a keyboard height.
+     --keyboard-inset is diagnostic, not another height subtraction. */
+  --keyboard-inset: 0px;
+  --mobile-viewport-top: 0px;
+  --mobile-vh: 100vh;
+  --mobile-vh: 100dvh;
+  --content-max: 84rem;
+  --play-page-gutter: clamp(1rem, 0.8rem + 0.8vw, 1.75rem);
+  --play-surface-max: 76rem;
+  --play-ui-scale: 1;
+  --play-response-scale: 1;
+  --play-header-min-height: 3.25rem;
+  --play-header-pad-y: 0.3rem;
+  --play-message-pad-x: 1rem;
+  --play-message-pad-y: 0.85rem;
+  --play-composer-pad-top: clamp(0.45rem, 0.35rem + 0.25vw, 0.75rem);
+  --play-composer-pad-bottom: clamp(0.75rem, 0.55rem + 0.45vw, 1.1rem);
+  /* em, not rem (≈0.75rem at the textarea's 14px type): Android WebViews apply
+     the OS font scale to text only (textZoom), never to rem/px box metrics, so
+     rem padding gets visually swallowed when text inflates. em resolves against
+     the textarea's own (scaled) font size, so the padding tracks the text. */
+  --play-composer-textarea-pad-y: 0.85em;
+  --library-page-gutter: clamp(1.25rem, 0.95rem + 0.9vw, 2.25rem);
+  --library-section-gap: clamp(1.75rem, 1.25rem + 0.9vw, 2.75rem);
+  --library-card-gap: clamp(0.75rem, 0.5rem + 0.5vw, 1rem);
+  --library-card-min: 9.5rem;
+  --library-asset-card-min: 11rem;
+  --library-bundle-card-min: 16rem;
+  --sidebar-width: 288px;
+  --sidebar-collapsed-width: 96px;
+  --sidebar-nav-item-size: 76px;
+  --sidebar-nav-icon-size: 22px;
+  --sidebar-nav-label-size: 0.625rem;
+  --sidebar-logo-size: 48px;
+  --desktop-sidebar-content-gap: clamp(0.5rem, 0.3rem + 0.25vw, 0.75rem);
+  --topbar-height: 4rem;
+  --topbar-search-max: 42rem;
+  --hero-height: 25rem;
+  --hero-title-size: clamp(3rem, 2.35rem + 1.7vw, 4.6rem);
+  --hero-copy-size: clamp(1.05rem, 0.95rem + 0.35vw, 1.25rem);
+  --hero-copy-max: 38rem;
+  --hero-side-offset: clamp(1.5rem, 0.95rem + 1.9vw, 3rem);
+  --hero-bottom-offset: clamp(1.75rem, 1rem + 2.1vw, 3rem);
+  --section-title-size: clamp(2.15rem, 1.7rem + 1vw, 2.9rem);
+  --section-gap: clamp(2.5rem, 2rem + 1vw, 3.75rem);
+  --controls-gap: clamp(0.75rem, 0.5rem + 0.6vw, 1.25rem);
+  --control-pill-height: clamp(2.5rem, 2.2rem + 0.7vw, 3rem);
+  --hub-subheader-size: clamp(1.05rem, 0.92rem + 0.4vw, 1.25rem);
+  --hub-section-gap: clamp(2.25rem, 1.75rem + 1vw, 3.25rem);
+  --hub-section-header-gap: clamp(0.7rem, 0.55rem + 0.35vw, 0.95rem);
+  --hub-browse-header-gap: clamp(0.55rem, 0.42rem + 0.3vw, 0.8rem);
+  --hub-browse-footer-pad: clamp(3rem, 2.25rem + 1.4vw, 4rem);
+  --hub-controlbar-pad-y: clamp(0.65rem, 0.5rem + 0.35vw, 0.9rem);
+  --hub-card-title-size: clamp(1rem, 0.88rem + 0.6cqi, 1.18rem);
+  --hub-card-meta-size: clamp(0.72rem, 0.66rem + 0.24cqi, 0.82rem);
+  --hub-card-creator-max: clamp(4.75rem, 32cqi, 7rem);
+  --hub-featured-card-min: 13.5rem;
+  --hub-standard-card-min: 11rem;
+  --hub-results-card-min: 12rem;
+  --cloudy-surface-rgb: 41, 43, 48;
+  --cloudy-input-rgb: 38, 38, 41;
+  --cloudy-surface-alpha: 0.58;
+  --cloudy-surface-soft-alpha: 0.5;
+  --cloudy-surface-strong-alpha: 0.66;
+  --cloudy-surface-border-alpha: 0.098;
+  --cloudy-surface-soft-border-alpha: 0.086;
+  --cloudy-surface-strong-border-alpha: 0.11;
+  --cloudy-surface-highlight-alpha: 0.13;
+  --cloudy-surface-soft-highlight-alpha: 0.11;
+  --cloudy-surface-strong-highlight-alpha: 0.14;
+  --cloudy-surface-shadow-alpha: 0.23;
+  --cloudy-surface-soft-shadow-alpha: 0.205;
+  --cloudy-surface-strong-shadow-alpha: 0.25;
+  --cloudy-surface-blur: 24px;
+  --cloudy-surface-soft-blur: 20px;
+  --cloudy-surface-strong-blur: 30px;
+  --cloudy-input-alpha: 0.93;
+  --clouded-panel-highlight-rgb: 255, 255, 255;
+  --clouded-panel-radial-a-rgb: 110, 118, 138;
+  --clouded-panel-radial-b-rgb: 84, 92, 110;
+  --clouded-panel-base-rgb: 20, 23, 29;
+  --clouded-highlight-top: 0.012;
+  --clouded-highlight-bottom: 0.004;
+  --clouded-panel-alpha: 0.2;
+  --clouded-panel-border-alpha: 0.058;
+  --clouded-panel-shadow-alpha: 0.055;
+  --clouded-panel-blur: 15px;
+  --clouded-soft-blur: 12px;
+  --clouded-strong-blur: 20px;
+  --clouded-inset-blur: 14px;
+  --clouded-library-shell-top-rgb: 74, 80, 96;
+  --clouded-library-shell-bottom-rgb: 42, 46, 56;
+  --clouded-library-shell-base-rgb: 24, 27, 33;
+  --clouded-library-surface-top-rgb: 68, 74, 88;
+  --clouded-library-surface-bottom-rgb: 38, 42, 50;
+  --clouded-library-surface-base-rgb: 22, 25, 31;
+  --clouded-library-shell-alpha: 0.23;
+  --clouded-library-shell-top-alpha: 0.125;
+  --clouded-library-shell-bottom-alpha: 0.085;
+  --clouded-library-shell-radial-a: 0.14;
+  --clouded-library-shell-radial-b: 0.11;
+  --clouded-library-shell-blur: 32px;
+  --clouded-library-surface-alpha: 0.22;
+  --clouded-library-surface-top-alpha: 0.115;
+  --clouded-library-surface-bottom-alpha: 0.08;
+  --clouded-library-surface-radial-a: 0.13;
+  --clouded-library-surface-radial-b: 0.095;
+  --clouded-library-surface-blur: 26px;
+  --clouded-library-border-alpha: 0.078;
+  --clouded-library-highlight-alpha: 0.085;
+  --clouded-library-shadow-alpha: 0.045;
+}
+
+
+.app-shell-root[data-clouded-glass-texture="lighter"] {
+  --clouded-panel-highlight-rgb: 255, 255, 255;
+  --clouded-panel-radial-a-rgb: 214, 222, 238;
+  --clouded-panel-radial-b-rgb: 182, 191, 208;
+  --clouded-panel-base-rgb: 42, 48, 58;
+  --clouded-highlight-top: 0.05;
+  --clouded-highlight-bottom: 0.016;
+  --clouded-panel-alpha: 0.085;
+  --clouded-panel-border-alpha: 0.09;
+  --clouded-panel-shadow-alpha: 0.026;
+  --clouded-panel-blur: 3px;
+  --clouded-soft-blur: 1px;
+  --clouded-strong-blur: 4px;
+  --clouded-inset-blur: 1px;
+  --clouded-library-shell-top-rgb: 72, 80, 96;
+  --clouded-library-shell-bottom-rgb: 40, 46, 56;
+  --clouded-library-shell-base-rgb: 28, 32, 39;
+  --clouded-library-surface-top-rgb: 68, 76, 92;
+  --clouded-library-surface-bottom-rgb: 38, 44, 54;
+  --clouded-library-surface-base-rgb: 26, 30, 37;
+  --clouded-library-shell-alpha: 0.095;
+  --clouded-library-shell-top-alpha: 0.056;
+  --clouded-library-shell-bottom-alpha: 0.03;
+  --clouded-library-shell-radial-a: 0.095;
+  --clouded-library-shell-radial-b: 0.06;
+  --clouded-library-shell-blur: 5px;
+  --clouded-library-surface-alpha: 0.088;
+  --clouded-library-surface-top-alpha: 0.05;
+  --clouded-library-surface-bottom-alpha: 0.026;
+  --clouded-library-surface-radial-a: 0.085;
+  --clouded-library-surface-radial-b: 0.055;
+  --clouded-library-surface-blur: 3px;
+  --clouded-library-border-alpha: 0.082;
+  --clouded-library-highlight-alpha: 0.072;
+  --clouded-library-shadow-alpha: 0.02;
+}
+
+.app-shell-root[data-clouded-glass-texture="darker"] {
+  --clouded-panel-highlight-rgb: 238, 242, 250;
+  --clouded-panel-radial-a-rgb: 104, 114, 132;
+  --clouded-panel-radial-b-rgb: 74, 84, 102;
+  --clouded-panel-base-rgb: 12, 15, 21;
+  --clouded-highlight-top: 0.018;
+  --clouded-highlight-bottom: 0.005;
+  --clouded-panel-alpha: 0.21;
+  --clouded-panel-border-alpha: 0.06;
+  --clouded-panel-shadow-alpha: 0.055;
+  --clouded-panel-blur: 4px;
+  --clouded-soft-blur: 2px;
+  --clouded-strong-blur: 6px;
+  --clouded-inset-blur: 2px;
+  --clouded-library-shell-top-rgb: 46, 52, 64;
+  --clouded-library-shell-bottom-rgb: 22, 26, 34;
+  --clouded-library-shell-base-rgb: 14, 17, 23;
+  --clouded-library-surface-top-rgb: 42, 48, 60;
+  --clouded-library-surface-bottom-rgb: 20, 24, 32;
+  --clouded-library-surface-base-rgb: 12, 15, 21;
+  --clouded-library-shell-alpha: 0.2;
+  --clouded-library-shell-top-alpha: 0.072;
+  --clouded-library-shell-bottom-alpha: 0.044;
+  --clouded-library-shell-radial-a: 0.11;
+  --clouded-library-shell-radial-b: 0.072;
+  --clouded-library-shell-blur: 7px;
+  --clouded-library-surface-alpha: 0.185;
+  --clouded-library-surface-top-alpha: 0.064;
+  --clouded-library-surface-bottom-alpha: 0.04;
+  --clouded-library-surface-radial-a: 0.10;
+  --clouded-library-surface-radial-b: 0.068;
+  --clouded-library-surface-blur: 5px;
+  --clouded-library-border-alpha: 0.064;
+  --clouded-library-highlight-alpha: 0.055;
+  --clouded-library-shadow-alpha: 0.036;
+}
+
+.app-shell-root[data-clouded-glass-texture="cloudy"] {
+  --clouded-panel-highlight-rgb: 230, 233, 240;
+  --clouded-panel-radial-a-rgb: 118, 126, 142;
+  --clouded-panel-radial-b-rgb: 92, 100, 118;
+  --clouded-panel-base-rgb: 30, 34, 41;
+  --clouded-highlight-top: 0.018;
+  --clouded-highlight-bottom: 0.006;
+  --clouded-panel-alpha: 0.24;
+  --clouded-panel-border-alpha: 0.058;
+  --clouded-panel-shadow-alpha: 0.058;
+  --clouded-panel-blur: 24px;
+  --clouded-soft-blur: 19px;
+  --clouded-strong-blur: 30px;
+  --clouded-inset-blur: 21px;
+  --clouded-library-shell-top-rgb: 88, 96, 112;
+  --clouded-library-shell-bottom-rgb: 52, 58, 70;
+  --clouded-library-shell-base-rgb: 28, 32, 39;
+  --clouded-library-surface-top-rgb: 82, 90, 106;
+  --clouded-library-surface-bottom-rgb: 46, 52, 63;
+  --clouded-library-surface-base-rgb: 26, 30, 37;
+  --clouded-library-shell-alpha: 0.26;
+  --clouded-library-shell-top-alpha: 0.11;
+  --clouded-library-shell-bottom-alpha: 0.08;
+  --clouded-library-shell-radial-a: 0.15;
+  --clouded-library-shell-radial-b: 0.12;
+  --clouded-library-shell-blur: 40px;
+  --clouded-library-surface-alpha: 0.25;
+  --clouded-library-surface-top-alpha: 0.102;
+  --clouded-library-surface-bottom-alpha: 0.074;
+  --clouded-library-surface-radial-a: 0.14;
+  --clouded-library-surface-radial-b: 0.108;
+  --clouded-library-surface-blur: 32px;
+  --clouded-library-border-alpha: 0.072;
+  --clouded-library-highlight-alpha: 0.082;
+  --clouded-library-shadow-alpha: 0.05;
+}
+
+@media (min-width: 1180px) and (max-width: 1439px) {
+  :root {
+    --app-root-font-size: 15.25px;
+    --app-gutter: clamp(1.25rem, 0.9rem + 0.85vw, 1.85rem);
+    --content-max: 76rem;
+    --play-page-gutter: 1rem;
+    --play-surface-max: 64rem;
+    --play-response-scale: 0.9;
+    --play-header-min-height: 3rem;
+    --play-header-pad-y: 0.25rem;
+    --play-message-pad-y: 0.75rem;
+    --library-page-gutter: 1.25rem;
+    --library-section-gap: 1.75rem;
+    --library-card-min: 8.75rem;
+    --library-asset-card-min: 10rem;
+    --library-bundle-card-min: 15rem;
+    --sidebar-collapsed-width: 88px;
+    --sidebar-nav-item-size: 70px;
+    --sidebar-nav-icon-size: 20px;
+    --sidebar-logo-size: 44px;
+    --topbar-search-max: 34rem;
+    --hero-height: 22.5rem;
+    --hero-title-size: clamp(2.75rem, 2.15rem + 1.15vw, 3.8rem);
+    --hero-copy-size: clamp(1rem, 0.94rem + 0.18vw, 1.1rem);
+    --hero-copy-max: 32rem;
+    --section-title-size: clamp(2rem, 1.55rem + 0.8vw, 2.45rem);
+    --section-gap: 2.5rem;
+    --controls-gap: 0.75rem;
+    --hub-featured-card-min: 12.25rem;
+    --hub-standard-card-min: 10rem;
+    --hub-results-card-min: 11rem;
+  }
+}
+
+@media (min-width: 1440px) and (max-width: 1679px) {
+  :root {
+    --app-root-font-size: 16px;
+    --app-gutter: clamp(1.5rem, 1rem + 0.9vw, 2.5rem);
+    --content-max: 84rem;
+    --play-page-gutter: clamp(1.1rem, 0.9rem + 0.55vw, 1.5rem);
+    --play-surface-max: 80rem;
+    --play-response-scale: 1;
+    --library-page-gutter: clamp(1.5rem, 1.1rem + 0.45vw, 2rem);
+    --library-card-min: 9.5rem;
+    --library-asset-card-min: 11rem;
+    --library-bundle-card-min: 16rem;
+    --sidebar-collapsed-width: 96px;
+    --sidebar-nav-item-size: 76px;
+    --topbar-search-max: 42rem;
+    --hero-height: 25rem;
+    --hero-copy-max: 38rem;
+    --hub-featured-card-min: 13.5rem;
+    --hub-standard-card-min: 11rem;
+    --hub-results-card-min: 12rem;
+  }
+}
+
+@media (min-width: 1680px) {
+  :root {
+    --app-root-font-size: 14.25px;
+    --app-gutter: clamp(1.55rem, 1rem + 0.75vw, 2.4rem);
+    --content-max: 90rem;
+    --play-page-gutter: clamp(1.1rem, 0.85rem + 0.45vw, 1.55rem);
+    --play-surface-max: 94rem;
+    --play-response-scale: 1;
+    --library-page-gutter: clamp(1.5rem, 1rem + 0.55vw, 2.15rem);
+    --library-section-gap: 2.25rem;
+    --library-card-gap: 0.95rem;
+    --library-card-min: 9.75rem;
+    --library-asset-card-min: 11.25rem;
+    --library-bundle-card-min: 16.5rem;
+    --sidebar-collapsed-width: 96px;
+    --sidebar-nav-item-size: 76px;
+    --sidebar-nav-icon-size: 20px;
+    --sidebar-logo-size: 46px;
+    --topbar-search-max: 42rem;
+    --hero-height: 26rem;
+    --hero-title-size: clamp(3rem, 2.45rem + 1vw, 4.2rem);
+    --hero-copy-size: clamp(1.02rem, 0.95rem + 0.18vw, 1.18rem);
+    --hero-copy-max: 39rem;
+    --section-title-size: clamp(2.2rem, 1.85rem + 0.65vw, 2.85rem);
+    --section-gap: 3rem;
+    --controls-gap: 0.95rem;
+    --hub-featured-card-min: 14rem;
+    --hub-standard-card-min: 11.5rem;
+    --hub-results-card-min: 12.25rem;
+  }
+}
+
+@media (min-width: 1024px) and (max-height: 860px) {
+  :root {
+    --app-root-font-size: 14.75px;
+    --play-page-gutter: 0.85rem;
+    --play-response-scale: 0.82;
+    --play-header-min-height: 2.8rem;
+    --play-header-pad-y: 0.15rem;
+    --play-message-pad-y: 0.6rem;
+    --play-composer-pad-top: 0.35rem;
+    --play-composer-pad-bottom: 0.8rem;
+    --play-composer-textarea-pad-y: 0.7em; /* ≈0.6rem at 14px type; em so it scales with textZoom */
+    --sidebar-collapsed-width: 82px;
+    --sidebar-nav-item-size: 64px;
+    --sidebar-nav-icon-size: 18px;
+    --sidebar-logo-size: 40px;
+    --topbar-height: 3.5rem;
+    --library-page-gutter: 1rem;
+    --library-section-gap: 1.5rem;
+  }
+}
+
+body {
+  font-family: var(--font-family-ui);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Repeated from html{} — some OEM WebView builds only honor the opt-out on
+     body. See the html rule above for the full story. */
+  -webkit-text-size-adjust: 100%;
+  -moz-text-size-adjust: 100%;
+  -ms-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.app-shell-grid {
+  grid-template-columns: var(--sidebar-collapsed-width) 1fr;
+}
+
+.app-shell-content {
+  padding-left: var(--desktop-sidebar-offset);
+  padding-bottom: var(--mobile-bottom-offset, 0px);
+}
+
+.topbar-shell {
+  min-height: var(--topbar-height);
+  height: auto;
+  padding-block: clamp(0.75rem, 0.55rem + 0.45vw, 1.125rem);
+}
+
+.topbar-inner {
+  width: 100%;
+}
+
+.topbar-row {
+  display: grid;
+  /* Side tracks floor at their content width (mobile trigger / account
+     controls) so squeezing the window shrinks the SEARCH track instead of
+     sliding it underneath the buttons. */
+  grid-template-columns:
+    minmax(max-content, 1fr)
+    minmax(0, min(var(--topbar-search-max), 100%))
+    minmax(max-content, 1fr);
+  align-items: center;
+  gap: clamp(0.75rem, 0.5rem + 0.6vw, 1.25rem);
+}
+
+.topbar-start {
+  display: flex;
+  align-items: center;
+  justify-self: start;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.topbar-center {
+  width: 100%;
+  min-width: 0;
+  justify-self: center;
+}
+
+.topbar-end {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  justify-self: end;
+  min-width: 0;
+}
+
+.topbar-search-region {
+  width: 100%;
+  max-width: min(var(--topbar-search-max), 100%);
+}
+
+.topbar-search-input {
+  min-height: var(--control-pill-height);
+}
+
+.topbar-sign-in-button {
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(var(--cloudy-surface-rgb), 0.62);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.1),
+    0 8px 24px rgba(0, 0, 0, 0.22);
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.topbar-sign-in-button:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+  background: rgba(var(--cloudy-surface-rgb), 0.74);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 10px 28px rgba(0, 0, 0, 0.26);
+}
+
+.hub-container {
+  width: 100%;
+  max-width: 1400px;
+  margin-inline: auto;
+  padding-inline: var(--app-gutter);
+}
+
+.hub-layout-top-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hub-section-gap);
+  padding-top: clamp(2rem, 0.35rem + 0.4vw, 0.875rem);
+  margin-bottom: var(--hub-section-gap);
+}
+
+.hub-layout-top-section .hub-hero,
+.hub-featured-section {
+  margin-bottom: 0;
+}
+
+.hub-featured-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hub-section-header-gap);
+}
+
+.hub-featured-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0;
+}
+
+.hub-browse-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hub-browse-header-gap);
+  padding-bottom: var(--hub-browse-footer-pad);
+}
+
+.hub-browse-section--compact-top {
+  padding-top: clamp(1rem, 0.75rem + 0.5vw, 1.35rem);
+}
+
+.hub-controlbar-shell {
+  margin-top: 0;
+}
+
+.hub-controlbar-row {
+  padding-block: var(--hub-controlbar-pad-y);
+}
+
+.hub-controlbar-row--compact {
+  padding-top: 0;
+  padding-bottom: 0.85rem;
+}
+
+.hub-subheader {
+  font-family: var(--font-family-ui);
+  font-size: var(--hub-subheader-size);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  color: #FFF5D6;
+}
+
+.hub-featured-header-accent {
+  flex-shrink: 0;
+  width: 3px;
+  height: calc(var(--hub-subheader-size) * 1.2);
+  border-radius: 0;
+  background: linear-gradient(180deg, #FFF5D6 0%, #C9A25E 52%, #8C642A 100%);
+  box-shadow: 0 0 12px rgba(201, 162, 94, 0.3);
+}
+
+.hub-featured-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  height: clamp(17.5rem, 15.5rem + 4vw, 20rem);
+}
+
+.hub-feed-section {
+  padding-block: 0;
+}
+
+.hub-feed-search-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: var(--hub-section-header-gap);
+}
+
+/* Discover hub: float the top bar over scrolling hero/stories */
+@media (min-width: 768px) {
+  .app-shell-content:has(.topbar-shell--discover) {
+    position: relative;
+    --hub-topbar-overlay-height: calc(
+      var(--topbar-height) + clamp(1.5rem, 1.1rem + 0.9vw, 2.25rem)
+    );
+  }
+
+  .topbar-shell--discover {
+    position: absolute;
+    /* Full-bleed shell: the ::before scrim must run seamlessly across the
+       sidebar strip — starting it at the rail edge leaves a hard gradient
+       boundary that reads as a faint white line. The start padding is what
+       keeps the interactive row itself clear of the rail/logo at the
+       tightest pre-mobile widths, and aligns it with the hub content column
+       below. */
+    inset-inline: 0;
+    top: 0;
+    z-index: 50;
+    min-height: var(--hub-topbar-overlay-height);
+    padding-top: clamp(1rem, 0.75rem + 0.5vw, 1.35rem);
+    padding-bottom: clamp(0.85rem, 0.65rem + 0.4vw, 1.1rem);
+    padding-inline-start: var(--desktop-sidebar-offset, 0px);
+    background: transparent;
+    pointer-events: none;
+  }
+
+  .topbar-shell--discover::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 1;
+    background:
+      radial-gradient(
+        ellipse at 50% 0%,
+        rgba(255, 255, 255, 0.055),
+        transparent 58%
+      ),
+      linear-gradient(
+        180deg,
+        rgba(7, 6, 12, 0.76) 0%,
+        rgba(10, 9, 16, 0.52) 42%,
+        rgba(10, 9, 16, 0.16) 74%,
+        transparent 100%
+      );
+  }
+
+  .topbar-shell--discover > * {
+    position: relative;
+    z-index: 1;
+    pointer-events: auto;
+  }
+
+  .topbar-shell--discover .topbar-row {
+    align-items: center;
+  }
+
+  .app-shell-content:has(.topbar-shell--discover) .hub-layout-scroll {
+    padding-top: var(--hub-topbar-overlay-height);
+    padding-bottom: clamp(2.5rem, 2rem + 1vw, 3.5rem);
+    scroll-padding-top: var(--hub-topbar-overlay-height);
+  }
+
+  .topbar-shell--search .topbar-search-input--glass {
+    border-color: rgba(255, 255, 255, 0.14);
+    background: rgba(var(--cloudy-surface-rgb), 0.62);
+    backdrop-filter: blur(20px) saturate(140%);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.1),
+      0 8px 24px rgba(0, 0, 0, 0.22);
+    transition:
+      border-color 0.2s ease,
+      background-color 0.2s ease,
+      box-shadow 0.2s ease;
+  }
+
+  .topbar-shell--search .topbar-search-input--glass:focus {
+    border-color: rgba(255, 255, 255, 0.22);
+    background: rgba(var(--cloudy-surface-rgb), 0.78);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      0 10px 28px rgba(0, 0, 0, 0.26);
+  }
+}
+
+.topbar-nav-menu {
+  display: none;
+}
+
+.topbar-mobile-trigger {
+  display: none;
+}
+
+/* ── Desktop app sidebar rail ── */
+.desktop-sidebar-rail {
+  position: fixed;
+  inset-block: 0;
+  inset-inline-start: 0;
+  z-index: 30;
+  display: none;
+  width: var(--sidebar-collapsed-width);
+  border: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  pointer-events: auto;
+}
+
+@media (min-width: 768px) {
+  .desktop-sidebar-rail {
+    display: block;
+  }
+}
+
+.sidebar-logo-wrap {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  padding-block: clamp(0.35rem, 0.25rem + 0.25vw, 0.65rem)
+    clamp(0.5rem, 0.35rem + 0.35vw, 0.85rem);
+}
+
+.sidebar-shell {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  z-index: 1;
+  display: flex;
+  width: var(--sidebar-collapsed-width);
+  flex-direction: column;
+  align-items: center;
+  padding-block: clamp(0.85rem, 0.65rem + 0.45vw, 1.25rem)
+    clamp(0.75rem, 0.55rem + 0.4vw, 1.25rem);
+  border: 0;
+  background: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  pointer-events: auto;
+}
+
+.sidebar-logo-mark {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-logo-mark img {
+  width: var(--sidebar-logo-size);
+  height: var(--sidebar-logo-size);
+  object-fit: contain;
+  transition: transform 200ms ease-out;
+}
+
+.sidebar-logo-mark:hover img {
+  transform: scale(1.05);
+}
+
+.sidebar-logo-mark__glow {
+  position: absolute;
+  inset: -0.35rem;
+  border-radius: 9999px;
+  background: rgba(201, 162, 94, 0.18);
+  filter: blur(12px);
+  opacity: 0.35;
+  transition: opacity 200ms ease-out;
+}
+
+.sidebar-logo-mark:hover .sidebar-logo-mark__glow {
+  opacity: 0.85;
+}
+
+.sidebar-nav {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(0.35rem, 0.25rem + 0.25vw, 0.55rem);
+}
+
+.sidebar-nav-item {
+  position: relative;
+  display: flex;
+  width: calc(var(--sidebar-collapsed-width) - 0.5rem);
+  min-height: var(--sidebar-nav-item-size);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  border: 0;
+  border-radius: clamp(1rem, 0.85rem + 0.35vw, 1.25rem);
+  background: transparent;
+  color: rgba(212, 207, 196, 0.72);
+  text-decoration: none;
+  cursor: pointer;
+  overflow: visible;
+  isolation: isolate;
+  transition:
+    color 200ms ease-out,
+    background-color 200ms ease-out,
+    transform 160ms ease-out;
+}
+
+.sidebar-nav-item:hover:not(.sidebar-nav-item--active) {
+  color: rgba(232, 226, 210, 0.95);
+  background: transparent;
+}
+
+.sidebar-nav-item:hover:not(.sidebar-nav-item--active)::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline: -0.25rem 0;
+  z-index: -2;
+  border-radius: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(201, 162, 94, 0.1) 0%,
+    rgba(201, 162, 94, 0.04) 42%,
+    transparent 78%
+  );
+  pointer-events: none;
+  transition: opacity 220ms ease-out;
+}
+
+.sidebar-nav-item:active {
+  transform: scale(0.97);
+}
+
+.sidebar-nav-item--active {
+  color: #fff5d6;
+  background: transparent;
+  box-shadow: none;
+}
+
+.sidebar-nav-item--active::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  left: -0.25rem;
+  z-index: -1;
+  width: 3px;
+  border-radius: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(232, 210, 150, 0.98) 0%,
+    rgba(201, 162, 94, 0.92) 55%,
+    rgba(201, 162, 94, 0.72) 100%
+  );
+  box-shadow:
+    0 0 10px rgba(201, 162, 94, 0.65),
+    0 0 22px rgba(201, 162, 94, 0.35),
+    4px 0 18px rgba(201, 162, 94, 0.22);
+  transition:
+    box-shadow 220ms ease-out,
+    opacity 220ms ease-out;
+}
+
+.sidebar-nav-item--active::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline: -0.25rem 0;
+  z-index: -2;
+  border-radius: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(201, 162, 94, 0.22) 0%,
+    rgba(201, 162, 94, 0.08) 42%,
+    transparent 78%
+  );
+  pointer-events: none;
+  transition: opacity 220ms ease-out;
+}
+
+.sidebar-nav-item--active:hover {
+  background: transparent;
+}
+
+.sidebar-nav-item--active:hover::before {
+  box-shadow:
+    0 0 14px rgba(201, 162, 94, 0.75),
+    0 0 28px rgba(201, 162, 94, 0.42),
+    6px 0 24px rgba(201, 162, 94, 0.28);
+}
+
+.sidebar-nav-item--active:hover::after {
+  background: linear-gradient(
+    90deg,
+    rgba(201, 162, 94, 0.28) 0%,
+    rgba(201, 162, 94, 0.1) 42%,
+    transparent 78%
+  );
+}
+
+.sidebar-nav-icon {
+  width: var(--sidebar-nav-icon-size);
+  height: var(--sidebar-nav-icon-size);
+  flex-shrink: 0;
+  transition:
+    color 200ms ease-out,
+    transform 200ms ease-out,
+    filter 200ms ease-out;
+}
+
+.sidebar-nav-item--active .sidebar-nav-icon {
+  color: #c9a25e;
+  filter: drop-shadow(0 0 12px rgba(201, 162, 94, 0.4));
+  transform: scale(1.08);
+}
+
+.sidebar-nav-item:hover:not(.sidebar-nav-item--active) .sidebar-nav-icon {
+  color: rgba(232, 226, 210, 0.95);
+  transform: scale(1.04);
+}
+
+.sidebar-nav-label {
+  max-width: 100%;
+  padding-inline: 0.125rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--sidebar-nav-label-size);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  text-align: center;
+}
+
+.mobile-bottom-nav__item {
+  display: flex;
+  min-width: 0;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-height: var(--mobile-touch-target);
+  border-radius: 1rem;
+  padding: 0.45rem 0.25rem;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease;
+}
+
+.mobile-bottom-nav__item--active {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-foreground);
+}
+
+.mobile-bottom-nav__item--idle {
+  color: rgba(212, 207, 196, 0.72);
+}
+
+.mobile-bottom-nav__icon {
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
+.mobile-bottom-nav__label {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.discover-page-shell {
+  padding: var(--app-gutter);
+}
+
+.discover-page-inner {
+  max-width: var(--content-max);
+}
+
+.hub-hero,
+.hub-hero-banner {
+  height: var(--hero-height);
+  margin-bottom: 0;
+}
+
+.hub-hero {
+  --hero-accent: #F2C95B;
+  --hero-accent-soft: rgba(242, 201, 91, 0.16);
+}
+
+.hub-hero--announcement,
+.hub-hero--event,
+.hub-hero--world,
+.hub-hero--product {
+  --hero-accent: #F2C95B;
+  --hero-accent-soft: rgba(242, 201, 91, 0.16);
+}
+
+.hub-hero-eyebrow {
+  border-color: color-mix(in srgb, var(--hero-accent) 34%, transparent);
+  color: color-mix(in srgb, var(--hero-accent) 92%, white);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02)),
+    color-mix(in srgb, var(--hero-accent) 9%, rgba(0, 0, 0, 0.42));
+}
+
+.hub-hero-primary-cta {
+  box-sizing: border-box;
+  height: 2.75rem;
+  min-height: 2.75rem;
+  align-items: center;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hero-accent) 92%, white), var(--hero-accent));
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.hub-hero-image {
+  object-position: center 46%;
+}
+
+.hub-content-scroll {
+  padding: var(--app-gutter);
+}
+
+.hub-content-width {
+  max-width: var(--content-max);
+}
+
+.hub-hero-copy {
+  --hero-tag-offset: clamp(14.25rem, 13.05rem + 1.65vw, 16.25rem);
+  --hero-cta-offset: clamp(17.05rem, 15.75rem + 1.95vw, 19.05rem);
+  left: var(--hero-side-offset);
+  top: clamp(2.4rem, 12%, 4.75rem);
+  bottom: auto;
+  max-width: min(var(--hero-copy-max), calc(100% - (var(--hero-side-offset) * 2)));
+}
+
+.hub-hero--announcement .hub-hero-copy {
+  max-width: min(46rem, calc(100% - (var(--hero-side-offset) * 2)));
+}
+
+.hub-hero-title {
+  font-size: var(--hero-title-size);
+  font-family: var(--font-family-ui);
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 1.02;
+  max-width: min(var(--hero-copy-max), 100%);
+  text-wrap: balance;
+}
+
+.hub-hero--announcement .hub-hero-title {
+  max-width: min(46rem, 100%);
+  overflow-wrap: normal;
+  word-break: keep-all;
+}
+
+.hub-hero-title--event {
+  font-size: min(var(--hero-title-size), 3.1rem);
+  line-height: 1.08;
+}
+
+.hub-hero--world .hub-hero-title {
+  font-size: min(var(--hero-title-size), 3.45rem);
+  font-family: var(--font-family-sans);
+  font-weight: 800;
+  line-height: 1.04;
+}
+
+.hub-hero-subtitle {
+  font-size: var(--hero-copy-size);
+  line-height: 1.55;
+  max-width: min(var(--hero-copy-max), 100%);
+}
+
+html:lang(zh) .hub-hero--event .hub-hero-copy,
+html:lang(zh) .hub-hero--world .hub-hero-copy {
+  --hero-tag-offset: clamp(13.9rem, 12.7rem + 1.65vw, 15.9rem);
+  --hero-cta-offset: clamp(16.7rem, 15.4rem + 1.95vw, 18.7rem);
+}
+
+html:lang(zh) .hub-hero--event .hub-hero-subtitle,
+html:lang(zh) .hub-hero--world .hub-hero-subtitle {
+  margin-top: clamp(0.16rem, 0.08rem + 0.18vw, 0.3rem);
+}
+
+.hub-hero-world-tags {
+  position: absolute;
+  left: 0;
+  top: var(--hero-tag-offset);
+  max-width: min(32rem, 100%);
+}
+
+.hub-hero-world-tags--empty {
+  visibility: hidden;
+}
+
+.hub-hero-world-tag {
+  display: inline-flex;
+  height: 1.65rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid color-mix(in srgb, var(--hero-accent) 34%, transparent);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
+    color-mix(in srgb, var(--hero-accent) 14%, rgba(0, 0, 0, 0.36));
+  color: #FFF2C2;
+  padding: 0 0.72rem;
+  font-size: 0.73rem;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.hub-hero-cta-row {
+  position: absolute;
+  left: 0;
+  top: var(--hero-cta-offset);
+  min-height: 2.75rem;
+  align-items: center;
+}
+
+.hub-hero-dots {
+  right: var(--hero-side-offset);
+  bottom: clamp(0.9rem, 0.75rem + 0.35vw, 1.5rem);
+}
+
+.hub-hero-nav {
+  left: 0;
+  right: 0;
+  top: 50%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0;
+  padding: 0 clamp(0.05rem, 0.28vw, 0.35rem);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.hub-hero-nav-button {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  height: clamp(3.45rem, 4.9vw, 4.2rem);
+  width: clamp(2.65rem, 3.15vw, 3rem);
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  color: #F2C95B;
+  opacity: 0;
+  pointer-events: none;
+  filter:
+    drop-shadow(0 2px 4px rgba(0, 0, 0, 0.78))
+    drop-shadow(0 0 8px rgba(242, 201, 91, 0.52))
+    drop-shadow(0 0 22px rgba(242, 201, 91, 0.28));
+  transform: translateY(6px) scale(0.92);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease,
+    color 180ms ease,
+    filter 180ms ease;
+}
+
+.hub-hero-nav-button::before {
+  content: "";
+  position: absolute;
+  inset: -0.8rem -0.65rem;
+  z-index: -1;
+  border-radius: inherit;
+  background: radial-gradient(circle, rgba(242, 201, 91, 0.18), transparent 68%);
+  opacity: 0;
+  filter: blur(10px);
+  transition: opacity 180ms ease;
+}
+
+.hub-hero-nav-button::after {
+  content: none;
+}
+
+.hub-hero-nav-button svg {
+  height: clamp(2.25rem, 3.25vw, 2.8rem);
+  width: clamp(2.25rem, 3.25vw, 2.8rem);
+  stroke-width: 1.9;
+  transition: transform 180ms ease;
+}
+
+.hub-hero:hover .hub-hero-nav-button,
+.hub-hero-nav-button:focus-visible {
+  opacity: 0.66;
+  pointer-events: auto;
+  transform: translateY(0) scale(1);
+}
+
+.hub-hero-nav-button:hover {
+  opacity: 0.86;
+  color: #FFF2B2;
+  filter:
+    drop-shadow(0 2px 4px rgba(0, 0, 0, 0.84))
+    drop-shadow(0 0 10px rgba(242, 201, 91, 0.62))
+    drop-shadow(0 0 26px rgba(242, 201, 91, 0.36));
+}
+
+.hub-hero-nav-button:hover::before {
+  opacity: 1;
+}
+
+.hub-hero-nav-button--previous:hover {
+  transform: translateX(-2px) scale(1);
+}
+
+.hub-hero-nav-button--next:hover {
+  transform: translateX(2px) scale(1);
+}
+
+.hub-hero-nav-button--previous:hover svg {
+  transform: translateX(-1px);
+}
+
+.hub-hero-nav-button--next:hover svg {
+  transform: translateX(1px);
+}
+
+.hub-hero-nav-button:focus-visible {
+  outline: 2px solid var(--hero-accent);
+  outline-offset: 3px;
+}
+
+.hub-hero-world-meta {
+  right: var(--hero-side-offset);
+  bottom: clamp(3rem, 2.35rem + 1.1vw, 4.5rem);
+  align-items: center;
+  gap: 0.45rem;
+  pointer-events: none;
+}
+
+.hub-hero-world-stat {
+  display: inline-flex;
+  min-width: 4.25rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  padding: 0.45rem 0.65rem;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.045)),
+    rgba(0, 0, 0, 0.32);
+  color: rgba(255, 247, 229, 0.84);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(14px);
+}
+
+.hub-hero-world-stat svg {
+  color: var(--hero-accent);
+}
+
+.discover-controls {
+  gap: var(--controls-gap);
+  margin-bottom: var(--section-gap);
+}
+
+.discover-controls__left {
+  min-width: 0;
+}
+
+.discover-control-group {
+  gap: var(--controls-gap);
+}
+
+.discover-control-pill {
+  min-height: var(--control-pill-height);
+}
+
+.discover-filter-panel__row {
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1439px) {
+  .discover-controls {
+    flex-wrap: wrap;
+  }
+
+  .discover-controls__left {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .discover-controls__publish {
+    margin-left: auto;
+  }
+}
+
+@media (min-width: 1440px) {
+  .discover-controls {
+    flex-wrap: nowrap;
+  }
+
+  .discover-controls__left {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+  }
+
+  .discover-controls__publish {
+    flex-shrink: 0;
+  }
+}
+
+.category-row {
+  margin-bottom: var(--section-gap);
+}
+
+.category-row__header {
+  margin-bottom: clamp(1.25rem, 0.9rem + 1vw, 2rem);
+}
+
+.category-row__title {
+  font-size: var(--section-title-size);
+  line-height: 0.95;
+}
+
+.category-row__view-more {
+  font-size: clamp(0.9rem, 0.82rem + 0.18vw, 1rem);
+}
+
+.hub-grid-featured,
+.hub-grid-standard,
+.hub-grid-results {
+  display: grid;
+}
+
+.hub-grid-featured {
+  gap: clamp(1rem, 0.65rem + 0.9vw, 1.5rem);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.hub-grid-standard {
+  gap: clamp(1rem, 0.75rem + 0.8vw, 1.5rem);
+  grid-template-columns: 1fr;
+}
+
+.hub-grid-results {
+  gap: clamp(1.25rem, 0.95rem + 0.9vw, 2rem);
+  grid-template-columns: 1fr;
+}
+
+.hub-card {
+  container-type: inline-size;
+}
+
+.hub-card__body {
+  gap: clamp(0.4rem, 0.3rem + 0.25cqi, 0.75rem);
+}
+
+.hub-card__title {
+  font-size: var(--hub-card-title-size);
+}
+
+.hub-card__meta {
+  font-size: var(--hub-card-meta-size);
+}
+
+.hub-card__creator-name {
+  max-width: var(--hub-card-creator-max);
+}
+
+@media (min-width: 640px) {
+  .hub-grid-featured {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .hub-grid-standard,
+  .hub-grid-results {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1180px) {
+  .hub-grid-featured {
+    grid-template-columns: repeat(auto-fit, minmax(var(--hub-featured-card-min), 1fr));
+  }
+
+  .hub-grid-standard {
+    grid-template-columns: repeat(auto-fit, minmax(var(--hub-standard-card-min), 1fr));
+  }
+
+  .hub-grid-results {
+    grid-template-columns: repeat(auto-fit, minmax(var(--hub-results-card-min), 1fr));
+  }
+}
+
+/* ═══ Scrollbar ═══ */
+.play-header-shell {
+  padding-inline: var(--play-page-gutter);
+  padding-block: var(--play-header-pad-y);
+}
+
+.play-header-inner {
+  width: min(calc(100% / var(--play-ui-scale)), calc(var(--play-surface-max) / var(--play-ui-scale)));
+  min-height: var(--play-header-min-height);
+  margin-inline: auto;
+  transform-origin: top center;
+}
+
+.play-session-header,
+.play-preview-header {
+  display: grid;
+  align-items: center;
+  column-gap: clamp(0.75rem, 0.55rem + 0.35vw, 1rem);
+}
+
+.play-session-header {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.play-preview-header {
+  grid-template-columns: minmax(0, 1fr) auto;
+  width: 100%;
+}
+
+/* Replay headers have a wider primary action than normal play headers. Keep
+   the title and controls as two atomic groups; when laptop sidebars, browser
+   scaling, or Play UI zoom leave too little room, the controls wrap together
+   instead of letting the Continue button get clipped by the play surface. */
+.play-replay-header {
+  display: flex;
+  flex-wrap: wrap;
+  width: min(100%, var(--play-surface-max));
+  max-width: 100%;
+  box-sizing: border-box;
+  align-items: center;
+  column-gap: 0.625rem;
+  row-gap: 0.45rem;
+}
+
+.play-replay-header-leading {
+  display: flex;
+  min-width: min(100%, 44rem);
+  flex: 1 0 min(100%, 44rem);
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.play-replay-header-actions {
+  margin-left: auto;
+  display: flex;
+  max-width: 100%;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+}
+
+.play-header-leading {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: clamp(0.75rem, 0.55rem + 0.35vw, 1rem);
+}
+
+.play-header-title-group {
+  min-width: 0;
+}
+
+.play-header-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-self: end;
+  gap: 0.375rem;
+}
+
+.play-header-account {
+  justify-self: end;
+}
+
+.play-header-mobile-trailing {
+  display: none;
+}
+
+.play-header-icon-button,
+.play-header-action-button {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+}
+
+.play-header-timer {
+  margin-right: 0.125rem;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.play-message-scroll {
+  padding-inline: var(--play-page-gutter);
+  padding-block: 0.25rem;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.play-message-stack {
+  width: min(calc(100% / var(--play-ui-scale)), calc(var(--play-surface-max) / var(--play-ui-scale)));
+  margin-inline: auto;
+  transform-origin: top center;
+}
+
+.play-message-row {
+  display: flow-root;
+  position: relative;
+  /* Skip layout/paint for off-screen rows — restores the perf win that
+     c7f83e05 removed (its absence let a single composer reflow re-lay-out
+     every message, freezing long sessions while typing).
+
+     c7f83e05's overlap was caused by the old intrinsic fallback (auto 80px)
+     reserving far too little height for tall rich bubbles. Two changes make
+     the re-add safe:
+       1. `auto` keyword: once a row has painted, the browser remembers its
+          REAL height and reserves that exact amount when it later scrolls off,
+          so steady-state reservation is always correct.
+       2. 480px fallback (vs 80px): generous enough that a not-yet-painted row
+          never under-reserves badly. The stack is pure block flow with padding
+          (no absolute/negative-margin children), so the worst case is a minor
+          scroll-position shift, never a true overlap. On-screen rows (where
+          sends happen) are never skipped, so a just-sent bubble can't overlap.
+     MessageActions popovers are portaled to <body> (c7f83e05), so the layout
+     containment here no longer traps their fixed positioning. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 480px;
+}
+
+.play-composer-shell {
+  padding-inline: var(--play-page-gutter);
+  padding-top: var(--play-composer-pad-top);
+  padding-bottom: var(--play-composer-pad-bottom);
+}
+
+.play-page-root {
+  min-height: 0;
+}
+
+.play-composer-inner {
+  /* The composer is application chrome, not story content. Keep its controls at
+     viewport scale so play zoom cannot shrink touch targets or distort the
+     toolbar's responsive-width measurement. */
+  width: min(100%, var(--play-surface-max));
+  margin-inline: auto;
+}
+
+.play-composer-card {
+  width: 100%;
+  /* Override the bare .glass tint with a richer composer-specific surface so
+     the input box reads as a real interactive control, not a flat tint. */
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.022)),
+    rgba(var(--cloudy-surface-rgb), 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 18px 44px rgba(4, 6, 10, 0.32);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+.play-composer-card:hover {
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.play-composer-card:focus-within {
+  border-color: rgba(201, 162, 94, 0.55);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 0 0 3px rgba(201, 162, 94, 0.18),
+    0 18px 44px rgba(4, 6, 10, 0.36);
+}
+
+.play-composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+/* Old-WebView insurance: Tailwind's preflight (`font: inherit` on form
+   controls) ships inside @layer, which pre-Chromium-99 engines (X5/TBS, stale
+   system WebViews) drop wholesale — leaving the composer's buttons on the UA
+   default font. Unlayered so it survives; nothing in the composer sets a
+   per-button font, so this can't override an intended face. */
+.play-composer-card button,
+.play-composer-card textarea {
+  font-family: inherit;
+  letter-spacing: inherit;
+}
+
+.play-composer-actions {
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.play-composer-icon-button,
+.play-composer-send,
+.play-composer-stop {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+  min-width: 2.25rem;
+}
+
+.play-zoom-trigger {
+  min-height: 2.25rem;
+  min-width: 2.25rem;
+}
+
+.play-zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  height: 14px;
+  width: 14px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+  border: none;
+}
+
+.play-zoom-slider::-moz-range-thumb {
+  height: 14px;
+  width: 14px;
+  border-radius: 50%;
+  background: var(--color-primary);
+  cursor: pointer;
+  border: none;
+}
+
+@supports (zoom: 1) {
+  .play-page-root .play-header-inner,
+  .play-page-root .play-message-stack {
+    zoom: var(--play-ui-scale);
+  }
+
+  /* Replay controls are application chrome, not card content. Keeping this
+     header at real viewport scale prevents the inverse-width/zoom pairing
+     above from laying the right-side Continue action outside the visible area
+     on scaled 13-inch laptop displays. */
+  .play-page-root .play-header-inner.play-replay-header {
+    zoom: 1;
+  }
+}
+
+.play-custom-component-host {
+  width: 100%;
+  container-type: inline-size;
+  overflow-x: hidden;
+}
+
+.play-custom-component-shell {
+  width: 100%;
+  overflow: hidden;
+}
+
+.play-custom-component-scale {
+  margin-inline: auto;
+  transform-origin: top center;
+}
+
+@supports (zoom: 1) {
+  .play-custom-component-scale {
+    width: calc(100% / var(--play-response-scale));
+    max-width: none;
+    zoom: var(--play-response-scale);
+  }
+}
+
+.play-custom-component-host > * {
+  display: block;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0;
+}
+
+.play-custom-component-host :is(img, video, canvas, svg, iframe) {
+  max-width: 100%;
+}
+
+.play-message-block {
+  padding-inline: var(--play-message-pad-x);
+  padding-block: var(--play-message-pad-y);
+}
+
+.play-message-block--user {
+  padding-block: 0.65rem;
+}
+
+.play-system-message {
+  padding-inline: var(--play-message-pad-x);
+  padding-block: 0.5rem;
+}
+
+.play-compacted-toggle {
+  padding-inline: var(--play-message-pad-x);
+  padding-block: 0.625rem;
+}
+
+.play-message-error {
+  margin-inline: var(--play-message-pad-x);
+  margin-bottom: 0.5rem;
+}
+
+/* Root Components share the play iframe with platform-owned inline chat UI.
+   Creator <style> tags are unlayered, so broad resets such as
+   `* { margin: 0; padding: 0; }` outrank Tailwind's layered utilities and can
+   visually flatten these alerts. Keep the small set of layout-critical alert
+   properties platform-owned. `em` padding follows Android WebView textZoom;
+   `overflow-wrap:anywhere` handles provider URLs without breaking all prose.
+   Alert width follows the existing chat surface instead of introducing a
+   second, arbitrary content cap. */
+#sandbox-root :is(.play-turn-error, .play-message-error) {
+  box-sizing: border-box !important;
+  min-width: 0 !important;
+  border: 1px solid color-mix(in srgb, var(--color-destructive) 30%, transparent) !important;
+  border-radius: 0.5rem !important;
+  color: var(--color-destructive) !important;
+  font-size: 0.75rem !important;
+  line-height: 1rem !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+}
+
+#sandbox-root .play-turn-error {
+  align-self: stretch !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin-top: 0.667em !important;
+  padding: 0.667em 1em !important;
+  background-color: color-mix(in srgb, var(--color-destructive) 10%, transparent) !important;
+}
+
+#sandbox-root :is(.play-turn-error__text, .play-message-error__text) {
+  min-width: 0 !important;
+  margin: 0 !important;
+  color: inherit !important;
+  font: inherit !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+}
+
+#sandbox-root .play-turn-error__actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 0.667em !important;
+  margin-top: 0.667em !important;
+}
+
+#sandbox-root .play-turn-error__action {
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+  padding: 0.333em 0.833em !important;
+  border: 1px solid color-mix(in srgb, var(--color-destructive) 40%, transparent) !important;
+  border-radius: 0.375rem !important;
+  background-color: color-mix(in srgb, var(--color-destructive) 10%, transparent) !important;
+  color: inherit !important;
+  font: inherit !important;
+  font-weight: 500 !important;
+}
+
+#sandbox-root .play-turn-error__action:hover {
+  background-color: color-mix(in srgb, var(--color-destructive) 20%, transparent) !important;
+}
+
+#sandbox-root .play-message-error {
+  display: flex !important;
+  align-items: flex-start !important;
+  gap: 0.667em !important;
+  margin-inline: var(--play-message-pad-x) !important;
+  margin-top: 0.667em !important;
+  margin-bottom: 0.5rem !important;
+  padding: 0.667em 1em !important;
+  background-color: color-mix(in srgb, var(--color-destructive) 5%, transparent) !important;
+}
+
+#sandbox-root .play-message-error__text {
+  flex: 1 1 0% !important;
+}
+
+#sandbox-root .play-message-error__dismiss {
+  flex: 0 0 auto !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  color: color-mix(in srgb, var(--color-destructive) 60%, transparent) !important;
+  font: inherit !important;
+}
+
+#sandbox-root .play-message-error__dismiss:hover {
+  color: var(--color-destructive) !important;
+}
+
+.play-message-content {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+/* Chat prose must be directly selectable/copyable (community feedback
+   2026-08-05): the sandbox document disables selection globally
+   (sandbox/index.html user-select:none on html/body/#sandbox-root), which
+   forced readers through the edit flow just to copy a passage. Opt message
+   text back in; keep buttons and choice chips unselectable so taps don't
+   start a selection. */
+.play-message-content,
+.play-message-content * {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.play-message-content button,
+.play-message-content button *,
+.play-message-content [data-yumina-choice],
+.play-message-content [data-yumina-choice] * {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.play-user-message-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.play-user-message-shell .play-message-role {
+  width: min(72%, 46rem);
+  max-width: 100%;
+  margin-left: auto;
+  text-align: right;
+}
+
+.play-user-message-content {
+  width: min(72%, 46rem);
+  max-width: 100%;
+  margin-left: auto;
+  color: rgba(242, 248, 244, 0.92);
+  font-family: var(--font-family-chat);
+  font-size: 1rem;
+  font-weight: 500;
+  line-height: 1.72;
+  text-align: right;
+}
+
+.play-message-content iframe,
+.play-message-content img,
+.play-message-content video,
+.play-message-content canvas,
+.play-message-content svg {
+  display: block;
+  max-width: 100% !important;
+}
+
+.play-message-content pre,
+.play-message-content table {
+  max-width: 100%;
+}
+
+.play-composer-textarea {
+  padding-block: var(--play-composer-textarea-pad-y);
+}
+
+/* Composer auto-grow — CSS only, no per-keystroke JS measurement.
+   The textarea and a hidden ::after replica share one grid cell; the replica
+   mirrors the composer text (data-replicated-value) so the cell sizes to the
+   content. This replaces a JS effect that set style.height + read scrollHeight
+   on every keystroke — a synchronous forced reflow that, once off-screen paint-
+   skipping was removed (c7f83e05), re-laid-out every message row each keypress
+   and froze long sessions while typing. Both children MUST share identical box
+   metrics (padding, font, wrapping, width) or the two measurements diverge. */
+.play-composer-grow {
+  display: grid;
+}
+.play-composer-grow::after {
+  content: attr(data-replicated-value) " ";
+  visibility: hidden;
+  max-height: 200px;
+  overflow: hidden;
+}
+.play-composer-grow > .play-composer-textarea {
+  overflow-y: auto;
+  max-height: 200px;
+}
+.play-composer-grow > .play-composer-textarea,
+.play-composer-grow::after {
+  grid-area: 1 / 1 / 2 / 2;
+  box-sizing: border-box;
+  width: 100%;
+  padding-inline: 1.15em; /* ≈ the old px-4 at 14px type; em so it scales with textZoom */
+  padding-block: var(--play-composer-textarea-pad-y);
+  font: inherit;
+  font-size: 0.875rem; /* text-sm */
+  line-height: 1.25rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.play-attachment-thumb {
+  height: 4rem;
+  width: 4rem;
+}
+
+.play-zoom-slider::-webkit-slider-runnable-track {
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: transparent;
+}
+
+.play-zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 0.9rem;
+  height: 0.9rem;
+  margin-top: -0.2rem;
+  border-radius: 9999px;
+  border: 2px solid rgba(12, 11, 13, 0.9);
+  background: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+
+.play-zoom-slider::-moz-range-track {
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.play-zoom-slider::-moz-range-progress {
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--color-primary);
+}
+
+.play-zoom-slider::-moz-range-thumb {
+  width: 0.9rem;
+  height: 0.9rem;
+  border: 2px solid rgba(12, 11, 13, 0.9);
+  border-radius: 9999px;
+  background: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+
+.library-page-shell {
+  padding: 0 var(--library-page-gutter) var(--library-page-gutter);
+}
+
+.library-header-shell {
+  margin-bottom: var(--library-section-gap);
+  padding-top: clamp(0.25rem, 0.15rem + 0.2vw, 0.45rem);
+  padding-bottom: clamp(1rem, 0.8rem + 0.35vw, 1.5rem);
+}
+
+.library-header-top {
+  gap: clamp(1rem, 0.8rem + 0.35vw, 1.4rem);
+}
+
+.library-header-search {
+  display: none;
+}
+
+.library-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 2.5rem;
+}
+
+.library-section-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--library-section-gap);
+}
+
+.library-section-header {
+  margin-bottom: clamp(0.9rem, 0.7rem + 0.35vw, 1.25rem);
+}
+
+.library-card-grid,
+.library-asset-grid,
+.library-bundle-grid {
+  display: grid;
+  align-items: start;
+}
+
+.library-card-grid {
+  gap: var(--library-card-gap);
+  grid-template-columns: repeat(auto-fill, minmax(var(--library-card-min), 1fr));
+}
+
+.library-asset-grid {
+  gap: clamp(0.75rem, 0.5rem + 0.45vw, 1rem);
+  grid-template-columns: repeat(auto-fill, minmax(var(--library-asset-card-min), 1fr));
+}
+
+.library-bundle-grid {
+  gap: clamp(0.9rem, 0.65rem + 0.45vw, 1.25rem);
+  grid-template-columns: repeat(auto-fill, minmax(var(--library-bundle-card-min), 1fr));
+}
+
+.library-asset-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(0.75rem, 0.55rem + 0.4vw, 1rem);
+  margin-bottom: clamp(0.9rem, 0.7rem + 0.35vw, 1.25rem);
+}
+
+.library-asset-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+@supports (-webkit-touch-callout: none) {
+  @media (hover: none) and (pointer: coarse) {
+    /* iOS Safari zooms focused text controls when their computed font is below 16px. */
+    input:not([type="button"]):not([type="submit"]):not([type="reset"]):not([type="range"]):not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([type="color"]):not(.sr-only),
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+}
+
+/* Applied only for the lifetime of a DM touch/long-press gesture. Locking the
+   whole document prevents iOS from promoting an unselectable bubble selection
+   to body (which otherwise produces the full-page selection shown by users). */
+html.dm-mobile-selection-locked,
+html.dm-mobile-selection-locked body,
+html.dm-mobile-selection-locked body * {
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --app-root-font-size: 15px;
+    --app-gutter: var(--mobile-gutter);
+    --topbar-height: var(--mobile-topbar-height);
+    --play-page-gutter: 0.75rem;
+    --play-surface-max: 100%;
+    --play-message-pad-x: 0.875rem;
+    --play-message-pad-y: 0.7rem;
+    --play-composer-pad-top: 0.35rem;
+    --play-composer-pad-bottom: calc(0.5rem + var(--mobile-safe-bottom));
+    --play-composer-textarea-pad-y: 0.75em; /* ≈0.65rem at 14px type; em so it scales with textZoom */
+    --library-page-gutter: 0.9rem;
+    --library-section-gap: 1.25rem;
+    --library-card-gap: 0.75rem;
+    --library-card-min: 9rem;
+    --library-asset-card-min: 9rem;
+    --library-bundle-card-min: 14rem;
+    --hero-height: 16.75rem;
+    --hero-title-size: 1.55rem;
+    --hero-copy-size: 0.78rem;
+    --hero-copy-max: 100%;
+    --hero-side-offset: 1rem;
+    --hero-bottom-offset: 1rem;
+    --section-title-size: 1.85rem;
+    --section-gap: 1.75rem;
+    --controls-gap: 0.65rem;
+    --control-pill-height: 2.65rem;
+    --hub-section-gap: 1.5rem;
+    --hub-section-header-gap: 0.6rem;
+    --hub-browse-header-gap: 0.5rem;
+    --hub-browse-footer-pad: 2.5rem;
+    --hub-controlbar-pad-y: 0.55rem;
+    --hub-subheader-size: 0.92rem;
+  }
+
+  .hub-container {
+    padding-inline: var(--mobile-gutter);
+  }
+
+  .hub-featured-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto;
+    gap: 0.6rem;
+    height: auto;
+  }
+
+  /* Phones: the bento collapses — every card becomes one compact row. The
+     lead card keeps full width but drops its double-height row span, so the
+     section reads as banner + 2x2 grid instead of a wall of tall tiles. */
+  .hub-featured-grid > * {
+    grid-row: auto;
+    min-height: 7.75rem;
+  }
+
+  .hub-featured-grid > *:first-child {
+    min-height: 10rem;
+  }
+
+  html[data-mobile-viewport]:not([data-mobile-page-scroll]) body {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+  }
+
+  .app-shell-root {
+    position: fixed;
+    top: var(--mobile-viewport-top);
+    inset-inline: 0;
+    height: var(--mobile-vh);
+  }
+
+  /* hidden still allows focus/scrollIntoView to pan these wrappers. clip
+     prevents that at the source; actual page/chat scrollers stay scrollable.
+     Keep hidden as the existing fallback for older engines. */
+  @supports (overflow: clip) {
+    html[data-mobile-viewport]:not([data-mobile-page-scroll]),
+    html[data-mobile-viewport]:not([data-mobile-page-scroll]) body,
+    html[data-mobile-viewport]:not([data-mobile-page-scroll]) #root,
+    .app-shell-root,
+    .app-shell-content {
+      overflow: clip;
+    }
+  }
+
+  .app-shell-main-mobile-scrollable {
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+
+  .app-shell-content {
+    padding-left: 0 !important;
+  }
+
+  /* ── Play pages: allow content to scroll on mobile ── */
+  .play-page-root {
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-y: contain;
+  }
+
+  .topbar-shell {
+    height: auto;
+    min-height: var(--mobile-topbar-height);
+    padding-block: calc(0.2rem + var(--mobile-safe-top)) 0.65rem;
+  }
+
+  .topbar-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+  }
+
+  .topbar-start,
+  .topbar-end {
+    flex: 0 0 auto;
+  }
+
+  .topbar-end {
+    order: 1;
+    margin-left: auto;
+  }
+
+  .topbar-start {
+    order: 1;
+  }
+
+  .topbar-center {
+    order: 2;
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .topbar-shell--discover,
+  .topbar-shell--library,
+  .topbar-shell--community {
+    padding-bottom: 0.5rem;
+  }
+
+  .topbar-shell--library {
+    height: auto;
+    min-height: 0;
+    justify-content: flex-end;
+    padding-top: calc(0.2rem + var(--mobile-safe-top));
+  }
+
+  .topbar-shell--community {
+    min-height: 0;
+    padding-top: calc(0.2rem + var(--mobile-safe-top));
+  }
+
+  /* Library keeps its own in-page search on mobile; hide the topbar one so
+     the page doesn't show two search fields. */
+  .topbar-shell--library .topbar-search-region {
+    display: none;
+  }
+
+  .topbar-shell--create-picker {
+    padding-bottom: 0.25rem;
+  }
+
+  /* The create picker has no search: an empty full-width flex item would
+     still reserve a second row gap below the account controls. */
+  .topbar-shell--create-picker .topbar-search-region:empty {
+    display: none;
+  }
+
+  .topbar-shell--profile {
+    display: none;
+  }
+
+  .topbar-mobile-trigger {
+    display: inline-flex;
+    order: 1;
+    align-items: center;
+    justify-content: center;
+    height: var(--mobile-touch-target);
+    width: var(--mobile-touch-target);
+    flex: 0 0 auto;
+  }
+
+  .topbar-search-region {
+    min-width: 100%;
+    max-width: 100%;
+  }
+
+  .topbar-account-controls {
+    margin-left: 0;
+  }
+
+  .topbar-nav-menu {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: var(--mobile-touch-target);
+    width: var(--mobile-touch-target);
+  }
+
+  .mobile-nav-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    background: rgba(5, 5, 8, 0.62);
+    /* This decorative button fills the viewport: inherited tap highlights or
+       a native focus outline would paint across the whole menu/status edge. */
+    -webkit-tap-highlight-color: transparent;
+    appearance: none;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    outline: none;
+    /* Avoid Safari's ambiguous filtered-overlay color sampling when opening
+       navigation. A simple dimmer also needs less full-screen compositing. */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    transition: opacity 180ms ease;
+  }
+
+  .mobile-nav-backdrop--open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-nav-backdrop--closed {
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .mobile-nav-drawer {
+    position: fixed;
+    top: calc(0.45rem + var(--mobile-safe-top));
+    bottom: calc(0.45rem + var(--mobile-safe-bottom));
+    left: 0;
+    z-index: 50;
+    display: flex;
+    min-height: 0;
+    height: auto;
+    width: min(22rem, calc(100vw - 1rem));
+    flex-direction: column;
+    gap: 0.85rem;
+    overflow: hidden;
+    overscroll-behavior: contain;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-right-color: rgba(255, 255, 255, 0.1);
+    border-radius: 1.5rem;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.03)),
+      rgba(17, 17, 22, 0.9);
+    /* The final menu surface below is opaque; filtering behind it adds no
+       visible detail and needlessly changes Safari's edge-color sampling. */
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    padding: 0.95rem 0.95rem 1rem;
+    box-shadow:
+      0 32px 96px rgba(0, 0, 0, 0.58),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    transition: transform 180ms ease, opacity 180ms ease;
+  }
+
+  .mobile-nav-drawer--open {
+    transform: translateX(0);
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-nav-drawer--closed {
+    visibility: hidden;
+    transform: translateX(-105%);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .mobile-nav-drawer button {
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-nav-drawer__header {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding-bottom: 0.7rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .mobile-nav-drawer__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 2.5rem;
+    width: 2.5rem;
+    flex: 0 0 auto;
+    border-radius: 9999px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.03);
+    color: rgba(212, 207, 196, 0.72);
+    transition:
+      background-color 150ms ease,
+      color 150ms ease,
+      border-color 150ms ease,
+      transform 150ms ease;
+  }
+
+  .mobile-nav-drawer__close:active {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--color-foreground);
+    transform: scale(0.96);
+  }
+
+  .mobile-nav-drawer__section-label {
+    padding-inline: 0.35rem;
+    color: rgba(212, 207, 196, 0.52);
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .mobile-nav-drawer__list {
+    display: flex;
+    flex: 0 0 auto;
+    flex-direction: column;
+    gap: 0.55rem;
+  }
+
+  .mobile-nav-drawer__recent {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.55rem;
+    overflow: hidden;
+    padding-top: 0.15rem;
+  }
+
+  .mobile-nav-drawer__recent-header {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 0.5rem;
+    color: rgba(232, 226, 210, 0.82);
+    font-size: 0.8rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+  }
+
+  .mobile-nav-drawer__recent-list {
+    display: flex;
+    min-height: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.45rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 0.15rem;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mobile-nav-drawer__recent-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.65rem;
+    border-radius: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.024)),
+      rgba(255, 255, 255, 0.045);
+    padding: 0.45rem;
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    transition:
+      background-color 150ms ease,
+      transform 150ms ease,
+      border-color 150ms ease;
+  }
+
+  .mobile-nav-drawer__recent-item:active {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.08);
+    transform: scale(0.99);
+  }
+
+  .mobile-nav-drawer__recent-thumb {
+    height: 2.9rem;
+    width: 2.9rem;
+    flex-shrink: 0;
+    overflow: hidden;
+    border-radius: 0.85rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .mobile-nav-drawer__recent-copy {
+    min-width: 0;
+    flex: 1;
+    text-align: left;
+  }
+
+  .mobile-nav-drawer__recent-open {
+    min-height: var(--mobile-nav-touch-target);
+  }
+
+  .mobile-nav-drawer__recent-remove {
+    height: var(--mobile-nav-touch-target);
+    width: var(--mobile-nav-touch-target);
+  }
+
+  .mobile-nav-drawer__recent-arrow {
+    height: 1rem;
+    width: 1rem;
+    flex: 0 0 auto;
+    color: rgba(212, 207, 196, 0.3);
+  }
+
+  .mobile-nav-drawer__recent-empty {
+    color: rgba(232, 226, 210, 0.46);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    padding: 0.35rem;
+  }
+
+  .mobile-nav-drawer__item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 0;
+    padding: 0.65rem 0.75rem;
+    border-radius: 1.05rem;
+    border: 1px solid transparent;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.024)),
+      rgba(255, 255, 255, 0.045);
+    backdrop-filter: blur(18px);
+    -webkit-backdrop-filter: blur(18px);
+    color: rgba(232, 226, 210, 0.92);
+    font-size: 0.92rem;
+    font-weight: 700;
+    text-align: left;
+    transition:
+      background-color 150ms ease,
+      color 150ms ease,
+      border-color 150ms ease,
+      transform 150ms ease;
+  }
+
+  .mobile-nav-drawer__item:active {
+    background: rgba(255, 255, 255, 0.085);
+    border-color: rgba(255, 255, 255, 0.07);
+    color: var(--color-foreground);
+    transform: scale(0.98);
+  }
+
+  .mobile-nav-drawer__item--active {
+    background: rgba(255, 255, 255, 0.11);
+    border-color: rgba(201, 162, 94, 0.26);
+    color: var(--color-foreground);
+    box-shadow:
+      0 10px 28px rgba(0, 0, 0, 0.2),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .mobile-nav-drawer__item-icon {
+    display: inline-flex;
+    height: 2.25rem;
+    width: 2.25rem;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.6rem;
+    border: 0;
+    background: rgba(255, 255, 255, 0.035);
+    color: rgba(232, 226, 210, 0.68);
+    transition: color 150ms ease, border-color 150ms ease, background-color 150ms ease;
+  }
+
+  .mobile-nav-drawer__item--active .mobile-nav-drawer__item-icon {
+    border-color: rgba(201, 162, 94, 0.22);
+    background: rgba(201, 162, 94, 0.12);
+    color: var(--color-primary);
+  }
+
+  .mobile-nav-drawer__item-copy {
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.1rem;
+  }
+
+  .mobile-nav-drawer__item-label {
+    color: inherit;
+    font-size: 0.94rem;
+    font-weight: 700;
+  }
+
+  .mobile-nav-drawer__item-meta {
+    color: rgba(232, 226, 210, 0.66);
+    font-size: 0.72rem;
+    font-weight: 500;
+    line-height: 1.3;
+  }
+
+  .mobile-nav-drawer__item-arrow {
+    height: 1rem;
+    width: 1rem;
+    flex: 0 0 auto;
+    color: rgba(212, 207, 196, 0.3);
+  }
+
+  .mobile-nav-drawer__item--active .mobile-nav-drawer__item-arrow {
+    color: rgba(201, 162, 94, 0.72);
+  }
+
+  .mobile-nav-drawer__utilities {
+    display: grid;
+    flex: 0 0 auto;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.25rem;
+    margin-top: auto;
+    padding-top: 0.7rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .mobile-nav-drawer__utility {
+    display: flex;
+    min-width: 0;
+    min-height: 3rem;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    border-radius: 0.65rem;
+    border: 0;
+    background: transparent;
+    color: rgba(212, 207, 196, 0.6);
+    font-size: 0.68rem;
+    font-weight: 650;
+    text-align: center;
+    transition:
+      background-color 150ms ease,
+      color 150ms ease,
+      border-color 150ms ease,
+      transform 120ms ease;
+  }
+
+  .mobile-nav-drawer__utility:active {
+    background: rgba(255, 255, 255, 0.045);
+    color: var(--color-foreground);
+    transform: scale(0.97);
+  }
+
+  /* Mobile menu — restrained Yumina navigation with gold used only as an accent. */
+  .mobile-nav-drawer {
+    --mobile-nav-touch-target: 44px;
+    width: min(19rem, 82vw);
+    gap: 0;
+    border-right-color: rgba(255, 255, 255, 0.08);
+    background: #111114;
+    padding: 0.65rem 0.75rem 0.6rem;
+    box-shadow: 18px 0 70px rgba(0, 0, 0, 0.58);
+  }
+
+  .mobile-nav-drawer__header {
+    padding: 0 0.1rem 0.55rem;
+    border-bottom: 0;
+  }
+
+  .mobile-nav-drawer__identity {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .mobile-nav-drawer__avatar {
+    display: grid;
+    height: 2.6rem;
+    width: 2.6rem;
+    flex: 0 0 auto;
+    overflow: hidden;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 0.95rem;
+    background: #1a1a1e;
+  }
+
+  .mobile-nav-drawer__avatar img {
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+  }
+
+  .mobile-nav-drawer__brand-logo {
+    display: block;
+    height: 2.6rem;
+    width: 2.6rem;
+    flex: 0 0 2.6rem;
+    object-fit: contain;
+  }
+
+  .mobile-nav-drawer__identity-name {
+    overflow: hidden;
+    color: var(--color-foreground);
+    font-size: 1rem;
+    font-weight: 700;
+    line-height: 1.2;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-nav-drawer__identity-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.15rem;
+    color: rgba(212, 207, 196, 0.56);
+    font-size: 0.72rem;
+    font-weight: 750;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  .mobile-nav-drawer__identity-meta svg {
+    height: 0.85rem;
+    width: 0.85rem;
+  }
+
+  .mobile-nav-drawer__close {
+    height: var(--mobile-nav-touch-target);
+    width: var(--mobile-nav-touch-target);
+    border-radius: 0.75rem;
+    border-color: rgba(255, 255, 255, 0.07);
+  }
+
+  .mobile-nav-drawer__welcome {
+    flex: 0 0 auto;
+    margin-bottom: 0.1rem;
+    padding: 0.08rem 0.55rem 0.12rem;
+  }
+
+  .mobile-nav-drawer__welcome span {
+    color: rgba(201, 162, 94, 0.72);
+    font-size: 0.62rem;
+    font-weight: 850;
+    letter-spacing: 0.17em;
+    text-transform: uppercase;
+  }
+
+  .mobile-nav-drawer__section-label {
+    display: none;
+  }
+
+  .mobile-nav-drawer__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.14rem;
+  }
+
+  .mobile-nav-drawer__item {
+    position: relative;
+    min-height: 3.55rem;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.8rem;
+    padding: 0.55rem 0.7rem;
+    border: 1px solid transparent;
+    border-radius: 0.75rem;
+    background: transparent;
+  }
+
+  .mobile-nav-drawer__item:active {
+    border-color: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.04);
+    transform: scale(0.98);
+  }
+
+  .mobile-nav-drawer__item--active {
+    border-color: rgba(201, 162, 94, 0.22);
+    background: rgba(201, 162, 94, 0.08);
+    box-shadow: inset 3px 0 0 #c9a25e;
+  }
+
+  .mobile-nav-drawer__item--create {
+    min-height: 3.55rem;
+    border-color: transparent;
+    background: transparent;
+  }
+
+  .mobile-nav-drawer__item-icon {
+    display: grid;
+    height: 2.35rem;
+    width: 2.35rem;
+    flex: 0 0 2.35rem;
+    place-items: center;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    background: rgba(255, 255, 255, 0.035);
+    color: rgba(212, 207, 196, 0.68);
+  }
+
+  .mobile-nav-drawer__item-icon svg {
+    display: block;
+    height: 1.25rem;
+    width: 1.25rem;
+    margin: 0;
+    stroke-width: 1.8;
+    transform: none;
+  }
+
+  .mobile-nav-drawer__item-copy {
+    justify-content: center;
+  }
+
+  .mobile-nav-drawer__item-label {
+    overflow: hidden;
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-nav-drawer__item-arrow {
+    display: block;
+    height: 0.95rem;
+    width: 0.95rem;
+    margin-left: auto;
+    color: rgba(212, 207, 196, 0.28);
+    stroke-width: 1.8;
+  }
+
+  .mobile-nav-drawer__item--active .mobile-nav-drawer__item-arrow {
+    color: rgba(201, 162, 94, 0.68);
+  }
+
+  .mobile-nav-drawer__recent {
+    margin-top: 0.35rem;
+    padding-top: 0.45rem;
+    border-top-color: rgba(255, 255, 255, 0.07);
+  }
+
+  .mobile-nav-drawer__recent-header {
+    padding-inline: 0.45rem;
+    color: rgba(212, 207, 196, 0.58);
+    font-size: 0.66rem;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+  }
+
+  .mobile-nav-drawer__recent-item {
+    border: 1px solid transparent;
+    background: rgba(255, 255, 255, 0.025);
+    padding: 0.3rem 0.35rem;
+  }
+
+  .mobile-nav-drawer__recent-thumb {
+    height: 2.4rem;
+    width: 2.4rem;
+    border-radius: 0.7rem;
+  }
+
+  .mobile-nav-drawer__recent-copy p {
+    font-size: 0.88rem;
+    font-weight: 650;
+  }
+
+  .mobile-nav-drawer__utilities {
+    gap: 0.3rem;
+    padding-top: 0.45rem;
+    border-top-color: rgba(255, 255, 255, 0.07);
+  }
+
+  .mobile-nav-drawer__utility {
+    min-height: var(--mobile-nav-touch-target);
+    gap: 0.25rem;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 0.75rem;
+    background: rgba(255, 255, 255, 0.02);
+    font-size: 0.7rem;
+    line-height: 1.15;
+  }
+
+  .mobile-nav-drawer__utility svg {
+    height: 1rem;
+    width: 1rem;
+    stroke-width: 1.8;
+  }
+
+  .mobile-nav-drawer__utility span {
+    display: -webkit-box;
+    max-width: 100%;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .topbar-account-help,
+  .topbar-account-divider,
+  .topbar-profile-label {
+    display: none;
+  }
+
+  .topbar-profile-button {
+    padding-right: 0.25rem;
+  }
+
+  .library-page-header {
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .library-header-top {
+    gap: 0.85rem;
+  }
+
+  .library-page-shell,
+  .library-detail-root {
+    height: auto;
+    min-height: 100%;
+    overflow: visible;
+  }
+
+  .library-page-title {
+    margin-bottom: 0.75rem;
+    font-size: 2.15rem;
+    line-height: 0.95;
+  }
+
+  .library-header-search {
+    display: block;
+    width: 100%;
+  }
+
+  .library-tab-button {
+    min-height: var(--mobile-touch-target);
+    width: 100%;
+    justify-content: flex-start;
+    padding-inline: 0.85rem;
+    border-bottom-width: 0 !important;
+    border-radius: 0.95rem;
+    margin-right: 0;
+    margin-bottom: 0;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .library-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 0.5rem 0.75rem;
+    padding-bottom: 0.65rem;
+  }
+
+  .library-tab-button[data-active="true"] {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .library-tab-button[data-active="false"] {
+    border-color: transparent !important;
+  }
+
+  .library-list-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.85rem;
+    padding-inline: 0;
+  }
+
+  .library-list-title {
+    font-size: 1.65rem;
+    line-height: 1;
+  }
+
+  .library-asset-toolbar {
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+
+  .library-asset-toolbar > nav {
+    width: 100%;
+    order: 1;
+  }
+
+  .library-asset-filters {
+    order: 2;
+    width: 100%;
+  }
+
+  .library-asset-toolbar > button,
+  .library-asset-toolbar > input + button {
+    min-height: var(--mobile-touch-target);
+  }
+
+  .library-bundles-title {
+    font-size: 1.15rem;
+  }
+
+  .library-bundle-card {
+    padding: 1rem;
+  }
+
+  .library-detail-hero {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    padding-top: 0.25rem;
+  }
+
+  .library-detail-hero-media {
+    position: relative !important;
+    inset: auto !important;
+    height: 10rem;
+    margin: 0 0.25rem;
+    overflow: hidden;
+    border-radius: 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.24);
+  }
+
+  .library-detail-back-button {
+    left: 1rem;
+    top: calc(1rem + var(--mobile-safe-top));
+  }
+
+  .library-detail-hero-content {
+    position: relative;
+    left: auto;
+    right: auto;
+    bottom: auto;
+    z-index: 1;
+    margin-top: -1.4rem;
+    padding: 0 0.25rem 0;
+  }
+
+  .library-detail-hero-shell {
+    padding: 0.55rem 0.95rem 0.55rem;
+  }
+
+  .library-detail-hero-heading {
+    border-radius: 0;
+    padding: 0;
+  }
+
+  .library-detail-title {
+    margin-bottom: 0.85rem;
+    font-size: clamp(1.65rem, 1.35rem + 1vw, 2rem);
+  }
+
+  .library-detail-hero-bar {
+    transform: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.45rem;
+    margin-top: 1.625rem;
+    padding: 0;
+  }
+
+  .library-detail-hero-main {
+    width: 100%;
+    gap: 1rem;
+  }
+
+  .library-detail-hero-buttons {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .library-detail-primary-action,
+  .library-detail-secondary-action {
+    width: 100%;
+    justify-content: center;
+    padding-inline: 1rem;
+    font-size: 1rem;
+  }
+
+  .library-detail-hero-stats {
+    width: 100%;
+    border-left: 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-left: 0;
+    padding-top: 0.85rem;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.85rem;
+  }
+
+  .library-detail-hero-icons {
+    width: 100%;
+    justify-content: flex-end;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 0.85rem;
+  }
+
+  .library-detail-content {
+    flex-direction: column;
+    gap: 1rem;
+    padding: 1rem;
+  }
+
+  .library-detail-sidebar {
+    position: static;
+    top: auto;
+    width: 100%;
+  }
+
+  .library-detail-card {
+    padding: 1rem;
+  }
+
+  .hub-content-scroll {
+    padding: var(--mobile-gutter);
+  }
+
+  .hub-layout-top-section {
+    padding-top: 1.9rem !important;
+    margin-bottom: 1.35rem !important;
+  }
+
+  .hub-controlbar-shell {
+    position: static !important;
+    top: auto !important;
+    margin-top: 0 !important;
+    z-index: auto !important;
+  }
+
+  .hub-controlbar-inner {
+    padding-top: 0;
+  }
+
+  .hub-controlbar-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.7rem;
+    padding-block: 0.5rem;
+  }
+
+  .hub-controlbar-row--compact {
+    padding-bottom: 0.65rem;
+  }
+
+  .hub-controlbar-actions-wrap {
+    width: 100%;
+  }
+
+  .hub-controlbar-actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: stretch;
+    gap: 0.65rem;
+    width: 100%;
+  }
+
+  .hub-controlbar-filter-button,
+  .hub-controlbar-publish-button {
+    min-height: var(--mobile-touch-target);
+  }
+
+  .hub-controlbar-filter-button {
+    justify-content: center;
+  }
+
+  .hub-controlbar-publish-button {
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  .hub-controlbar-tabs-wrap {
+    width: 100%;
+  }
+
+  .hub-controlbar-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: stretch;
+    gap: 0.25rem;
+    width: 100%;
+  }
+
+  .hub-controlbar-tab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--mobile-touch-target);
+    padding-inline: 0.2rem;
+    text-align: center;
+    font-size: 0.84rem;
+  }
+
+  .hub-hero,
+  .hub-hero-banner {
+    aspect-ratio: auto;
+    height: var(--hero-height);
+    min-height: 15.5rem;
+    border-radius: 1.5rem;
+    margin-bottom: 0;
+    background: rgba(0, 0, 0, 0.22);
+  }
+
+  .hub-hero-copy {
+    --hero-tag-offset: 7.8rem;
+    --hero-cta-offset: 10.2rem;
+    left: 0.95rem;
+    top: 1rem;
+    bottom: auto;
+    max-width: min(18rem, calc(100% - 1.9rem));
+  }
+
+  .hub-hero--announcement .hub-hero-copy {
+    max-width: min(21rem, calc(100% - 1.9rem));
+  }
+
+  .hub-hero-image {
+    object-fit: cover !important;
+    object-position: center center !important;
+    background: rgba(0, 0, 0, 0.32);
+  }
+
+  .hub-hero-title {
+    font-size: var(--hero-title-size);
+    line-height: 1.08;
+    margin-bottom: 0.35rem;
+  }
+
+  .hub-hero--announcement .hub-hero-title {
+    line-height: 1.12;
+  }
+
+  .hub-hero-subtitle {
+    font-size: var(--hero-copy-size);
+    line-height: 1.45;
+  }
+
+  html:lang(zh) .hub-hero--event .hub-hero-copy,
+  html:lang(zh) .hub-hero--world .hub-hero-copy {
+    --hero-tag-offset: 7.65rem;
+    --hero-cta-offset: 10.02rem;
+  }
+
+  html:lang(zh) .hub-hero--event .hub-hero-subtitle,
+  html:lang(zh) .hub-hero--world .hub-hero-subtitle {
+    margin-top: 0.12rem;
+  }
+
+  .hub-hero-eyebrow {
+    margin-bottom: 0.5rem;
+    padding: 0.2rem 0.55rem;
+    font-size: 0.62rem;
+  }
+
+  .hub-hero-primary-cta {
+    height: 2.35rem;
+    min-height: 2.35rem;
+    padding: 0 0.95rem;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .hub-hero-world-tags {
+    gap: 0.35rem;
+  }
+
+  .hub-hero-world-tag {
+    height: 1.45rem;
+    padding: 0 0.52rem;
+    font-size: 0.62rem;
+  }
+
+  .hub-hero-cta-row {
+    min-height: 2.35rem;
+  }
+
+  .hub-hero-dots {
+    right: 1rem;
+    bottom: 0.75rem;
+  }
+
+  .hub-hero-nav {
+    left: 0;
+    right: 0;
+    top: 50%;
+    bottom: auto;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 0.08rem;
+    pointer-events: none;
+    transform: translateY(-50%);
+  }
+
+  .hub-hero-nav-button {
+    height: 2.75rem;
+    width: 2.25rem;
+  }
+
+  .hub-hero-nav-button::after {
+    content: none;
+  }
+
+  .hub-hero-nav-button:hover {
+    background: transparent;
+  }
+
+  .hub-hero-nav-button--previous:hover,
+  .hub-hero-nav-button--next:hover {
+    transform: none;
+  }
+
+  .hub-hero-world-meta {
+    display: none !important;
+  }
+
+  .hub-load-more-wrap {
+    padding-top: 1.1rem;
+    padding-bottom: 1.5rem;
+  }
+
+  .hub-load-more-button {
+    width: min(100%, 18rem);
+    justify-content: center;
+    min-height: var(--mobile-touch-target);
+    border-color: rgba(255, 255, 255, 0.16);
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--color-foreground);
+  }
+
+  .hub-following-auth-cta {
+    align-items: stretch;
+    justify-content: flex-start;
+    padding-top: 1.5rem;
+    padding-bottom: 1.75rem;
+    text-align: left;
+  }
+
+  .hub-following-auth-button {
+    width: 100%;
+    justify-content: center;
+    min-height: var(--mobile-touch-target);
+  }
+
+  .discover-controls {
+    align-items: stretch;
+    margin-bottom: 1.25rem;
+  }
+
+  .discover-controls__left {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .discover-controls__filter,
+  .discover-controls__publish {
+    min-height: var(--mobile-touch-target);
+  }
+
+  .discover-controls__mode {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .discover-controls__mode > button {
+    flex: 1 1 0;
+    justify-content: center;
+    min-height: var(--mobile-touch-target);
+  }
+
+  .discover-controls__publish {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .discover-filter-panel__row {
+    align-items: flex-start;
+  }
+
+  .discover-filter-panel__row > div {
+    width: 100%;
+  }
+
+  .discover-filter-panel__row > .ml-auto {
+    margin-left: 0;
+    width: auto;
+  }
+
+  .category-row__header {
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .category-row__view-more {
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+
+  .hub-grid-featured,
+  .hub-grid-standard,
+  .hub-grid-results {
+    gap: 0.85rem;
+  }
+
+  .hub-grid-featured,
+  .hub-grid-standard {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hub-card__body {
+    padding-inline: 0.85rem;
+    padding-block: 0.8rem;
+  }
+
+  .hub-card__footer {
+    gap: 0.5rem;
+    align-items: flex-end;
+  }
+
+  .hub-card__stats {
+    gap: 0.6rem;
+  }
+
+  .hub-card__creator {
+    max-width: 48%;
+  }
+
+  .editor-shell-header-main {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+
+  .editor-shell-header-actions {
+    width: 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
+
+  .editor-shell-header-actions--advanced {
+    flex-wrap: nowrap;
+    gap: 0.55rem;
+    justify-content: center;
+    overflow: visible;
+  }
+
+  .editor-shell-header-actions--advanced > * {
+    flex-shrink: 0;
+  }
+
+  .editor-shell-header-actions--advanced .editor-shell-more-button {
+    padding-inline: 0.45rem;
+  }
+
+  .editor-shell-header-actions--advanced .editor-shell-studio-button {
+    gap: 0.35rem;
+    padding-inline: 0.55rem;
+    font-size: 0.78rem;
+  }
+
+  .editor-shell-header-actions--advanced .editor-shell-save-button,
+  .editor-shell-header-actions--advanced .editor-shell-play-button {
+    gap: 0.35rem;
+    padding-inline: 0.65rem;
+    font-size: 0.78rem;
+  }
+
+  .editor-shell-header-actions > button,
+  .editor-shell-header-actions > [data-slot="dropdown-menu-trigger"] {
+    min-height: var(--mobile-touch-target);
+  }
+
+  .editor-shell-body {
+    flex: 0 0 auto;
+    min-height: auto;
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .editor-shell-sidebar {
+    width: 100%;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    overflow: visible;
+  }
+
+  .editor-shell-nav {
+    margin-top: 0;
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.75rem;
+    gap: 0.35rem;
+  }
+
+  /* On mobile, flatten the grouped sidebar so all section buttons sit
+     side-by-side in the horizontal scroller. Group labels are hidden. */
+  .editor-shell-nav > div {
+    display: contents;
+  }
+
+  .editor-shell-nav > div > div:first-child {
+    display: none;
+  }
+
+  .editor-shell-nav > div > div:last-child {
+    display: contents;
+  }
+
+  .editor-shell-nav button {
+    flex: 0 0 auto;
+    width: auto !important;
+    min-height: var(--mobile-touch-target);
+    min-width: max-content;
+    padding-inline: 0.9rem;
+    white-space: nowrap;
+  }
+
+  .editor-shell-guide-wrap,
+  .editor-shell-play-wrap {
+    padding: 0.75rem;
+    border-top: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .editor-shell-root,
+  .editor-shell-content,
+  .editor-shell-surface,
+  .editor-shell-section-surface,
+  .entries-section-root,
+  .entries-section-body,
+  .entries-section-list,
+  .entries-section-detail {
+    height: auto;
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .entries-section-list > div {
+    overflow: visible;
+  }
+
+  .mobile-studio-shell .entries-section-root,
+  .mobile-studio-shell .entries-section-body,
+  .mobile-studio-shell .entries-section-list,
+  .mobile-studio-shell .entries-section-detail {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .mobile-studio-shell .entries-section-list > div {
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mobile-studio-shell .entries-section-detail {
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .editor-shell-content {
+    flex: 0 0 auto;
+    padding: 0.75rem;
+  }
+
+  .play-header-shell {
+    padding-inline: var(--mobile-gutter);
+    padding-block: 0.25rem;
+  }
+
+  .play-header-inner {
+    width: calc(100% / max(var(--play-ui-scale), 1));
+    max-width: 100%;
+    min-height: auto;
+  }
+
+  .play-session-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 0;
+  }
+
+  .play-preview-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .play-header-leading {
+    grid-column: 1;
+    min-width: 0;
+  }
+
+  .play-session-header .play-header-actions--desktop,
+  .play-session-header .play-header-account {
+    display: none;
+  }
+
+  .play-session-header .play-header-mobile-trailing {
+    grid-column: 2;
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.2rem;
+    justify-self: end;
+  }
+
+  .play-header-mobile-trailing .topbar-account-controls,
+  .play-preview-header .play-header-account .topbar-account-controls {
+    gap: 0.35rem;
+  }
+
+  .play-header-mobile-menu {
+    display: inline-flex;
+    height: var(--mobile-touch-target);
+    width: var(--mobile-touch-target);
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+  }
+
+  .play-header-icon-button,
+  .play-header-action-button {
+    height: var(--mobile-touch-target);
+    width: var(--mobile-touch-target);
+    flex: 0 0 auto;
+  }
+
+  .play-message-scroll {
+    padding-inline: var(--mobile-gutter);
+    padding-block: 0.25rem 0.45rem;
+    overflow-x: hidden;
+  }
+
+  .play-message-stack {
+    width: calc(100% / max(var(--play-ui-scale), 1));
+    max-width: 100%;
+  }
+
+  .play-message-block {
+    padding-inline: 0.1rem;
+    padding-block: 0.55rem;
+  }
+
+  .play-user-message-shell .play-message-role,
+  .play-user-message-content {
+    width: min(88%, 46rem);
+  }
+
+  .play-system-message {
+    padding-inline: 0.1rem;
+  }
+
+  .play-message-content {
+    font-size: 0.92rem;
+    line-height: 1.65;
+    overflow-x: hidden;
+  }
+
+  .play-message-content > div {
+    max-width: 100%;
+  }
+
+  .play-message-content pre {
+    white-space: pre-wrap;
+    overflow-x: hidden;
+  }
+
+  .play-message-content iframe {
+    width: 100% !important;
+  }
+
+  .play-composer-shell {
+    padding-inline: var(--mobile-gutter);
+    padding-top: 0.35rem;
+    padding-bottom: calc(0.45rem + var(--mobile-safe-bottom));
+  }
+
+  .play-composer-inner {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .play-composer-card {
+    border-radius: 1.1rem;
+  }
+
+  .play-composer-toolbar {
+    align-items: flex-end;
+    gap: 0.5rem;
+  }
+
+  .play-composer-actions {
+    gap: 0.25rem;
+  }
+
+  .play-composer-icon-button,
+  .play-composer-send,
+  .play-composer-stop {
+    min-height: var(--mobile-touch-target);
+    min-width: var(--mobile-touch-target);
+  }
+
+  .play-zoom-trigger,
+  .play-choice-dismiss {
+    min-height: var(--mobile-touch-target);
+    min-width: var(--mobile-touch-target);
+  }
+
+  .play-choice-chip {
+    min-height: var(--mobile-touch-target);
+    padding-inline: 0.85rem;
+    padding-block: 0.45rem;
+  }
+
+  .play-attachment-thumb {
+    height: 3.5rem;
+    width: 3.5rem;
+  }
+
+  .play-attachment-remove {
+    opacity: 1;
+    height: 1.9rem;
+    width: 1.9rem;
+  }
+
+  .play-session-delete-button {
+    opacity: 1;
+    min-height: 2rem;
+    min-width: 2rem;
+  }
+
+  .library-asset-overlay-actions {
+    opacity: 1;
+    gap: 0.35rem;
+  }
+
+  .library-asset-overlay-button {
+    min-height: 2rem;
+    min-width: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .library-game-card-favorite,
+  .library-game-card-play,
+  .library-game-card-actions {
+    opacity: 1;
+  }
+
+  .library-game-card-favorite {
+    top: 0.625rem;
+    right: 0.625rem;
+  }
+
+  .library-game-card-action-button {
+    min-height: 2rem;
+    min-width: 2rem;
+  }
+
+  .library-detail-hero-icons > button,
+  .library-detail-hero-icons > a {
+    min-height: var(--mobile-touch-target);
+    min-width: var(--mobile-touch-target);
+  }
+}
+
+/* Keep every fixed drawer control available on short phones. */
+@media (max-width: 767px) and (max-height: 36rem) {
+  .mobile-nav-drawer {
+    padding-block: 0.35rem;
+  }
+
+  .mobile-nav-drawer__header {
+    padding-bottom: 0.35rem;
+  }
+
+  .mobile-nav-drawer__welcome {
+    margin-bottom: 0;
+    padding-block: 0.05rem;
+  }
+
+  .mobile-nav-drawer__list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.1rem 0.25rem;
+  }
+
+  .mobile-nav-drawer__item,
+  .mobile-nav-drawer__item--create {
+    min-height: var(--mobile-nav-touch-target);
+    gap: 0.45rem;
+    padding: 0.25rem 0.45rem;
+  }
+
+  .mobile-nav-drawer__item-icon {
+    height: 2rem;
+    width: 2rem;
+    flex-basis: 2rem;
+  }
+
+  .mobile-nav-drawer__item-label {
+    font-size: 0.82rem;
+  }
+
+  .mobile-nav-drawer__item-arrow {
+    display: none;
+  }
+
+  .mobile-nav-drawer__recent {
+    margin-top: 0.2rem;
+    padding-top: 0.3rem;
+  }
+
+  .mobile-nav-drawer__utilities {
+    padding-top: 0.3rem;
+  }
+}
+
+@media (max-width: 767px) and (max-height: 25rem) {
+  .mobile-nav-drawer__welcome,
+  .mobile-nav-drawer__recent-header {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-nav-backdrop,
+  .mobile-nav-drawer,
+  .mobile-nav-drawer__recent-item,
+  .mobile-nav-drawer button {
+    transition: none;
+  }
+}
+
+/* ── Mobile landscape: maximize play area ── */
+@media (max-width: 926px) and (orientation: landscape) {
+  :root {
+    --mobile-topbar-height: 2.75rem;
+  }
+
+  /* Compact play header in landscape to maximize vertical space */
+  .play-header-shell {
+    padding-block: 0.1rem;
+  }
+
+  .play-header-shell .play-header-inner {
+    min-height: 2rem;
+  }
+
+  /* Shrink topbar in landscape */
+  .topbar-shell {
+    min-height: 2.75rem;
+    padding-top: 0.25rem;
+    padding-bottom: 0.25rem;
+  }
+}
+
+/* ── Ensure sandbox iframes allow touch scrolling (no-op on mouse devices) ── */
+iframe[title="Yumina Sandbox"] {
+  touch-action: pan-x pan-y;
+}
+
+@media (max-width: 767px) and (display-mode: standalone),
+  (max-width: 767px) and (display-mode: fullscreen) {
+  body[data-publish-modal-open="true"] .topbar-search-region,
+  body[data-publish-modal-open="true"] .hub-topbar-search {
+    display: none !important;
+  }
+
+  .play-page-root[data-admin-review-preview="true"] {
+    padding-top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+  }
+
+  .animate-float-bar-in[data-admin-review-preview="true"] {
+    top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+  }
+
+  .play-composer-shell {
+    padding-bottom: 0.25rem;
+  }
+
+  .immersive-exit-button-shell {
+    top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
+  }
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .library-detail-root .skeleton-shimmer {
+    animation: none !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .library-detail-root,
+  .app-shell-main-mobile-scrollable:has(.library-detail-root) {
+    scroll-padding-bottom: calc(7rem + env(safe-area-inset-bottom));
+  }
+
+  .library-detail-mobile-surface {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background:
+      radial-gradient(115% 95% at 0% 0%, rgba(201, 162, 94, 0.06), transparent 54%),
+      linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
+      rgba(34, 28, 32, 0.42);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.055),
+      0 14px 34px rgba(4, 6, 10, 0.12);
+    -webkit-backdrop-filter: blur(16px) saturate(124%);
+    backdrop-filter: blur(16px) saturate(124%);
+  }
+
+  .library-detail-mobile-cta {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.012)),
+      rgba(34, 28, 32, 0.76);
+    box-shadow: 0 -12px 32px rgba(0, 0, 0, 0.24);
+    -webkit-backdrop-filter: blur(18px) saturate(126%);
+    backdrop-filter: blur(18px) saturate(126%);
+  }
+}
+
+.library-detail-actions-dropdown {
+  border-color: rgba(255, 255, 255, 0.12);
+  background:
+    radial-gradient(115% 90% at 0% 0%, rgba(201, 162, 94, 0.08), transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.018)),
+    rgba(34, 28, 32, 0.94);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 20px 48px rgba(0, 0, 0, 0.34);
+  -webkit-backdrop-filter: blur(18px) saturate(128%);
+  backdrop-filter: blur(18px) saturate(128%);
+}
+
+/* ═══ Glass morphism ═══ */
+.clouded-glass-panel,
+.clouded-glass-panel--soft,
+.clouded-glass-panel--strong,
+.clouded-glass-inset,
+.library-detail-hero-shell,
+.library-detail-hero-bar-surface,
+.library-detail-section-surface,
+.library-detail-section-surface--inset,
+.library-overview-surface,
+.library-overview-surface--inset {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    rgba(12, 13, 16, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 16px 38px rgba(4, 6, 10, 0.08);
+  -webkit-backdrop-filter: blur(18px) saturate(128%);
+  backdrop-filter: blur(18px) saturate(128%);
+}
+
+/* Soft — lighter for sidebars, secondary areas */
+.clouded-glass-panel--soft {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), rgba(255, 255, 255, 0.008)),
+    rgba(12, 13, 16, 0.035);
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 12px 28px rgba(4, 6, 10, 0.06);
+}
+
+/* Strong — more opaque for main content panels */
+.clouded-glass-panel--strong {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.022)),
+    rgba(12, 13, 16, 0.14);
+  border-color: rgba(255, 255, 255, 0.11);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 20px 44px rgba(4, 6, 10, 0.12);
+}
+
+/* ═══ Profile announcement wall — banner for the pinned/latest post ═══
+   Restraint over wash: dark glass base (text stays high-contrast) with only a
+   whisper of gold in the top-left corner and a hairline gold border. */
+.wall-banner {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid rgba(201, 162, 94, 0.22);
+  border-radius: 1rem;
+  background:
+    radial-gradient(120% 90% at 0% 0%, rgba(201, 162, 94, 0.07), transparent 55%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.015)),
+    rgba(12, 13, 16, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 14px 34px rgba(4, 6, 10, 0.12);
+  -webkit-backdrop-filter: blur(18px) saturate(128%);
+  backdrop-filter: blur(18px) saturate(128%);
+}
+
+/* ═══ Community — clean white panels ═══ */
+.community-panel {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid #eee;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  color: #1a1a1a;
+}
+
+.community-panel--soft {
+  background: #ffffff;
+  border-color: #eee;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+}
+
+.community-panel--strong {
+  background: #ffffff;
+  border-color: #e5e5e5;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.community-panel--interactive {
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* Card hovers are hover-device-only: on touch, a tapped card would keep the
+   hover style ("sticky hover") until the next tap elsewhere. */
+@media (hover: hover) {
+  .community-panel--interactive:hover {
+    border-color: var(--forum-accent, #C9A25E);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  }
+}
+
+/* Forum card accent bar — flush left */
+.community-forum-card {
+  position: relative;
+  overflow: hidden;
+  background: var(--forum-tint, #ffffff);
+}
+.community-forum-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3.5px;
+  background: var(--forum-accent, #C9A25E);
+}
+@media (hover: hover) {
+  .community-forum-card:hover {
+    background: var(--forum-tint-hover, #fafafa);
+  }
+}
+
+/* Individual thread card in lists */
+.community-thread-card {
+  background: #ffffff;
+  border: 1px solid #eee;
+  border-radius: 12px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  color: #1a1a1a;
+}
+
+@media (hover: hover) {
+  .community-thread-card:hover {
+    border-color: #ddd;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  }
+}
+
+.community-thread-card--pinned {
+  border-left: 3px solid #C9A25E;
+}
+
+.library-overview-surface--interactive {
+  transition:
+    transform 0.2s ease,
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+@media (hover: hover) {
+  .library-overview-surface--interactive:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.018)),
+      rgba(12, 13, 16, 0.075);
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.055),
+      0 18px 42px rgba(4, 6, 10, 0.1);
+  }
+}
+
+.library-overview-surface--favorite {
+  border: 2px solid var(--color-primary);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 0 18px rgba(201, 162, 94, 0.22);
+}
+
+.library-overview-surface--favorite:hover {
+  border-color: var(--color-primary);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.065),
+    0 0 24px rgba(201, 162, 94, 0.28);
+}
+
+.library-overview-surface--dragover {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.022)),
+    linear-gradient(180deg, rgba(201, 162, 94, 0.12), rgba(201, 162, 94, 0.06)),
+    rgba(12, 13, 16, 0.08);
+  border-color: rgba(201, 162, 94, 0.55);
+}
+
+.library-overview-surface--dragover:hover {
+  border-color: rgba(201, 162, 94, 0.65);
+}
+
+.library-overview-hover-overlay {
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(18, 22, 34, 0.18), rgba(6, 8, 12, 0.4)),
+    rgba(8, 10, 16, 0.68);
+}
+
+.library-overview-action-button,
+.library-asset-overlay-button {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)),
+    rgba(14, 16, 22, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 18px 34px rgba(3, 5, 10, 0.2);
+  color: rgba(255, 255, 255, 1);
+  backdrop-filter: blur(18px) saturate(128%);
+  -webkit-backdrop-filter: blur(18px) saturate(128%);
+}
+
+.library-overview-action-button:hover,
+.library-asset-overlay-button:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 1);
+}
+
+.library-overview-action-button--accent:hover {
+  background:
+    linear-gradient(180deg, rgba(226, 193, 127, 0.42), rgba(201, 162, 94, 0.28)),
+    rgba(42, 36, 44, 0.68);
+  border-color: rgba(226, 193, 127, 0.34);
+  color: var(--color-primary-foreground);
+}
+
+.library-overview-action-button--danger {
+  background:
+    linear-gradient(180deg, rgba(248, 113, 113, 0.28), rgba(153, 27, 27, 0.22)),
+    rgba(40, 30, 36, 0.8);
+  border-color: rgba(248, 113, 113, 0.36);
+  color: rgba(254, 202, 202, 0.98);
+}
+
+.library-overview-action-button--danger:hover {
+  background:
+    linear-gradient(180deg, rgba(248, 113, 113, 0.24), rgba(153, 27, 27, 0.24)),
+    rgba(42, 30, 36, 0.7);
+  border-color: rgba(248, 113, 113, 0.3);
+  color: rgba(254, 202, 202, 0.96);
+}
+
+
+
+
+.glass {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    rgba(var(--cloudy-surface-rgb), var(--cloudy-surface-alpha, 0.58));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 16px 38px rgba(4, 6, 10, 0.08);
+  /* backdrop-filter removed — each instance creates a GPU compositing layer;
+     in a 100+ message chat this was the #1 cause of GPU saturation. */
+}
+
+.glass-subtle {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    rgba(var(--cloudy-surface-rgb), var(--cloudy-surface-alpha, 0.58));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 16px 38px rgba(4, 6, 10, 0.08);
+}
+
+/* ═══ Hub card hover ═══ */
+.profile-window-glass {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    rgba(12, 13, 16, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 16px 38px rgba(4, 6, 10, 0.08);
+  backdrop-filter: blur(18px) saturate(128%);
+  -webkit-backdrop-filter: blur(18px) saturate(128%);
+}
+
+.profile-window-glass--soft {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    rgba(12, 13, 16, 0.055);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 16px 38px rgba(4, 6, 10, 0.08);
+  backdrop-filter: blur(18px) saturate(128%);
+  -webkit-backdrop-filter: blur(18px) saturate(128%);
+}
+
+.profile-overview-glass {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    rgba(12, 13, 16, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 16px 38px rgba(4, 6, 10, 0.08);
+  backdrop-filter: blur(18px) saturate(128%);
+  -webkit-backdrop-filter: blur(18px) saturate(128%);
+}
+
+.profile-overview-glass--soft {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    rgba(12, 13, 16, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 16px 38px rgba(4, 6, 10, 0.08);
+  backdrop-filter: blur(18px) saturate(128%);
+  -webkit-backdrop-filter: blur(18px) saturate(128%);
+}
+
+.profile-overview-glass input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not(.sr-only),
+.profile-overview-glass--soft input:not([type="range"]):not([type="checkbox"]):not([type="radio"]):not(.sr-only),
+.profile-overview-glass textarea,
+.profile-overview-glass--soft textarea,
+.profile-overview-glass select,
+.profile-overview-glass--soft select,
+.profile-overview-glass button[aria-haspopup="menu"],
+.profile-overview-glass--soft button[aria-haspopup="menu"],
+.profile-overview-control-surface,
+.profile-overview-input-surface,
+.profile-overview-dropdown-surface {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    rgba(12, 13, 16, 0.055) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 16px 38px rgba(4, 6, 10, 0.08) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(128%);
+  backdrop-filter: blur(18px) saturate(128%);
+}
+
+@media (hover: hover) {
+  .profile-overview-control-surface:hover,
+  .profile-overview-input-surface:hover {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.016)),
+      rgba(12, 13, 16, 0.065) !important;
+  }
+}
+
+.hub-card-glow {
+  transition: transform 0.2s ease;
+}
+
+@media (hover: hover) {
+  .hub-card-glow:hover {
+    transform: translateY(-2px);
+  }
+}
+
+/* ═══ Hover surfaces ═══
+   :hover is gated to hover-capable devices: on touch, tapping applies :hover
+   and it STICKS until the next tap elsewhere — buttons look permanently
+   pressed ("sticky hover"). Touch gets a real :active press cue instead. */
+.hover-surface {
+  transition: background-color 0.15s ease;
+}
+
+@media (hover: hover) {
+  .hover-surface:hover {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .hover-surface-strong:hover {
+    background-color: rgba(255, 255, 255, 0.15);
+  }
+}
+
+.hover-surface:active {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.hover-surface-strong:active {
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+.active-surface {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* ═══ Streaming cursor ═══ */
+@keyframes blink {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
+}
+
+.streaming-cursor {
+  animation: blink 0.8s ease-in-out infinite;
+}
+
+/* ═══ State flash (minimal, white) ═══ */
+@keyframes state-flash {
+  0% {
+    background-color: rgba(255, 255, 255, 0.1);
+  }
+
+  100% {
+    background-color: rgba(255, 255, 255, 0);
+  }
+}
+
+.state-changed {
+  animation: state-flash 1.0s ease-out;
+}
+
+/* ═══ Hero banner text animation ═══ */
+@keyframes heroTextIn {
+  0% {
+    opacity: 0;
+    transform: translateY(24px);
+  }
+
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+
+
+/* ═══ Skeleton shimmer ═══ */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.skeleton-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.04), transparent);
+  animation: shimmer 1.8s ease-in-out infinite;
+}
+
+/* ═══ Card stagger reveal ═══ */
+@keyframes card-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-card-in {
+  animation: card-fade-in 0.35s ease-out both;
+}
+
+/* ═══ Fullscreen floating bar entrance ═══ */
+@keyframes float-bar-enter {
+  0% { opacity: 0; transform: translate(-50%, -20px) scale(0.9); }
+  60% { opacity: 1; transform: translate(-50%, 4px) scale(1.02); }
+  100% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+.animate-float-bar-in {
+  animation: float-bar-enter 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* ═══ Credit pulse (critical / zero balance) ═══ */
+@keyframes creditPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+.credit-pulse {
+  animation: creditPulse 2s ease-in-out infinite;
+}
+
+/* ═══ Onboarding overlay ═══ */
+@keyframes goldShimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes onboardingCardIn {
+  from { opacity: 0; transform: scale(0.95) translateY(12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@keyframes onboardingFadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* ═══ Per-page atmosphere intensity ═══ */
+.atmosphere-vibrant { opacity: 1; }
+.atmosphere-subtle { opacity: 0.25; }
+.atmosphere-none { opacity: 0; }
+
+/* ═══ Touch devices ═══ */
+@media (hover: none) {
+  .touch-reveal {
+    opacity: 1 !important;
+    visibility: visible !important;
+    /* Hover-reveal entrance transforms (translate/scale toward the resting
+       position) would leave the control permanently offset here. */
+    transform: none !important;
+  }
+
+  .session-row-actions > button {
+    min-height: 2.5rem;
+    min-width: 2.5rem;
+  }
+
+  /* In-bubble chat action buttons (copy/branch/edit/regenerate/revert/delete,
+     swipe arrows, raw-output eye). 28px icon boxes 2px apart mis-tap
+     constantly; 40px keeps six of them + gaps inside a 320px viewport. */
+  .play-action-btn {
+    min-height: 2.5rem;
+    min-width: 2.5rem;
+  }
+
+  /* Topbar bell / DM icons: grow the HIT AREA to ~40px without changing the
+     32px visual box (negative margin re-absorbs the padding growth), so the
+     crowded mobile topbar row keeps its layout. */
+  .topbar-hit-target {
+    padding: 0.75rem;
+    margin: -0.25rem;
+  }
+
+  /* Community post action row (like / reply / edit / delete): text-xs buttons
+     are ~18px tall bare; give them a real row height on touch. */
+  .community-action-btn {
+    min-height: 2.5rem;
+    padding-inline: 0.375rem;
+  }
+
+  /* Tombstone ("no longer available") cards gate view/export/delete behind
+     hover and the card body has no tap action, so without this the actions
+     are unreachable on phones. Surface them permanently, docked to the
+     card's bottom edge so the lock glyph stays visible above them. */
+  .library-tombstone-actions {
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    align-items: flex-end !important;
+    padding-bottom: 0.75rem;
+  }
+}
+
+/* ═══ Shared keyframes for modal tab transitions ═══ */
+@keyframes tabFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══ Page content entrance animation ═══ */
+@keyframes pageEnter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.app-shell-main > *:not([data-immersive-bg]) {
+  animation: pageEnter 150ms ease-out;
+}
+
+
+/* ═══ Old-kernel compatibility mode (compat-lite) ═══
+   Quark/UC's U4 kernel and aged Android WebViews mis-composite
+   backdrop-filter on the GPU — users saw green/corrupted patches over the
+   glass panels and broken scrolling (community report 2026-08-05, @zxyw).
+   An inline script in index.html / sandbox/index.html tags <html> with
+   .compat-lite when the Chromium major is below 111 (the oklch/color-mix
+   support line — a good proxy for "kernel too old for the modern pipeline").
+   Flatten every glass effect there; panels keep their translucent bg color,
+   just without the blur. */
+html.compat-lite *,
+html.compat-lite *::before,
+html.compat-lite *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* The wallpaper blends with `mix-blend-screen`, which forces the whole
+   full-viewport layer into an isolated compositing group — the second effect
+   (after backdrop-filter) that these kernels re-raster badly. Scoped to the
+   two wallpaper layers, NOT `*`: worlds can use blend modes in their own
+   sandbox CSS and those are theirs to keep. Flattened it renders as a plain
+   alpha composite over #0B0A10 — a touch flatter, still correct. */
+html.compat-lite [data-immersive-bg] img {
+  mix-blend-mode: normal !important;
+}
+
+/* Mobile reading pages use the document scrollport. This lets browser chrome
+   composite over actual page content and lets the browser reveal focused
+   fields in one native keyboard animation. Chat/editor retain their panels.
+   The viewport controller owns the breakpoint attribute: CSS must not switch
+   first and clamp scrollY before a rotation can transfer the reading position. */
+/* The mobile notification portal temporarily owns that same scrollport.
+   Its mounted background page is hidden, not moved or unmounted. */
+html[data-mobile-notification-page] {
+  height: auto !important;
+  min-height: 100%;
+  overflow-x: clip !important;
+  overflow-y: auto !important;
+  background: var(--color-card) !important;
+  scroll-padding-top: 8rem;
+}
+html[data-mobile-notification-page] body {
+  position: static !important;
+  inset: auto !important;
+  height: auto !important;
+  min-height: 100%;
+  overflow: visible !important;
+  background: transparent;
+}
+html[data-mobile-notification-page] #root { display: none; }
+.notification-page {
+  min-height: 100vh;
+  min-height: 100lvh;
+}
+.notification-page .notification-panel-controls {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--color-card);
+  /* Overlap the section heading by a physical pixel, including fractional
+     safe-area/layout coordinates. Never leave an uncovered compositor seam. */
+  box-shadow: 0 1px 0 var(--color-card);
+}
+.notification-section-heading { box-shadow: 0 -1px 0 var(--color-card); }
+.notification-page .notification-section-heading {
+  top: calc(var(--notification-controls-height, 108px) - 1px);
+}
+
+html[data-mobile-page-scroll] {
+  height: auto;
+  min-height: 100%;
+  overflow-x: clip;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  scroll-padding-top: calc(var(--mobile-topbar-height) + var(--mobile-safe-top) + 1rem);
+  /* The canvas and transparent wrappers load before React in
+     index.html's reading-page-surface; this sheet only adds the mounted app's layout. */
+}
+
+html[data-mobile-page-scroll] .app-shell-root,
+html[data-mobile-page-scroll] .app-shell-content {
+  position: relative;
+  top: auto;
+  height: auto;
+  min-height: 100vh;
+  min-height: var(--mobile-vh);
+  overflow: visible;
+}
+
+html[data-mobile-page-scroll] .app-shell-main,
+html[data-mobile-page-scroll] #community-scroll,
+html[data-mobile-page-scroll] .hub-page-root,
+html[data-mobile-page-scroll] .hub-layout-scroll,
+html[data-mobile-page-scroll] [data-scroll-restoration-id="library-main"],
+html[data-mobile-page-scroll] [data-scroll-restoration-id="library-detail"],
+html[data-mobile-page-scroll] [data-scroll-restoration-id="library-favorites"],
+html[data-mobile-page-scroll] [data-scroll-restoration-id="profile-main"],
+html[data-mobile-page-scroll] [data-scroll-restoration-id="public-profile-main"] {
+  height: auto;
+  overflow: visible;
+  overscroll-behavior-y: auto;
+}
+
+html[data-mobile-page-scroll="dm-page-conversation-list"] :is(.dm-page-root, .dm-page-frame, .dm-page-sidebar, .dm-page-list, [data-scroll-restoration-id="dm-page-conversation-list"]) {
+  height: auto;
+  overflow: visible;
+}
+
+html[data-mobile-page-scroll="dm-page-conversation-list"] .dm-page-list-toolbar { position: static; }
+
+html[data-mobile-message-canvas]:not([data-mobile-page-scroll]) .topbar-shell {
+  position: relative;
+  padding-bottom: 2rem;
+  margin-bottom: -1.5rem;
+  pointer-events: none;
+}
+
+html[data-mobile-page-scroll="library-detail"] {
+  scroll-padding-bottom: calc(7rem + env(safe-area-inset-bottom, 0px));
+}
+
+html[data-mobile-page-scroll="profile-main"],
+html[data-mobile-page-scroll="public-profile-main"] {
+  scroll-padding-top: env(safe-area-inset-top, 0px);
+}
+
+html[data-mobile-page-scroll] .app-shell-main {
+  /* Keep the final controls reachable without clipping the page's paint
+     behind Safari's toolbar or Chrome's gesture navigation area. */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html[data-mobile-page-scroll] .app-shell-root {
+  background: transparent;
+}
+
+html[data-mobile-page-scroll] .app-shell-content {
+  /* main already owns this inset. The shell's inline padding otherwise
+     reserves it a second time and leaves a band below the footer. */
+  padding-bottom: 0 !important;
+}
+
+html[data-mobile-message-canvas] [data-immersive-bg],
+html[data-mobile-page-scroll] [data-immersive-bg] {
+  display: none;
+}
+
+html[data-mobile-page-scroll] .topbar-shell {
+  position: sticky;
+  top: 0;
+  /* Keep the same measured footprint for scroll restoration and the single
+     hide animation. Padding avoids a separate fill/border/pseudo seam. */
+  padding-bottom: 2rem;
+  border: 0;
+  margin-bottom: -1.5rem;
+  pointer-events: none;
+  /* The document owns the shared browser-edge color. This moving surface is
+     open to the content; only its decorative pseudo-element scatters light. */
+  background-image: none;
+  background-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  /* Move only the paint. Keeping the sticky element's footprint avoids a
+     feed jump and preserves browser/history/keyboard scroll positions. */
+  transform: translateY(0);
+  transition: transform 220ms cubic-bezier(0.25, 0.1, 0.25, 1), visibility 0s;
+}
+
+html[data-mobile-page-scroll] .topbar-shell[data-scroll-hidden] {
+  transform: translateY(calc(-100% - 1px));
+  visibility: hidden;
+  pointer-events: none;
+  transition: transform 220ms cubic-bezier(0.25, 0.1, 0.25, 1), visibility 0s 220ms;
+}
+
+/* A translated gradient can seed Safari's retained status tint from any
+   intermediate shade. Keep its edge still while moving the controls inside
+   a shrinking clip. Release the entire surface when the motion settles. */
+html[data-mobile-page-scroll] .topbar-shell[data-scroll-motion] {
+  transform: none;
+  transition: none;
+  visibility: visible;
+  overflow: clip;
+}
+/* Clip the filtered surface itself. Clipping its ancestor with clip-path
+   would create a backdrop root and stop the glass from sampling the page. */
+html[data-mobile-page-scroll] .topbar-shell[data-scroll-motion]::before {
+  clip-path: inset(0 0 calc((100% - 8px) * var(--topbar-motion-progress, 0)) 0);
+}
+html[data-mobile-page-scroll] .topbar-shell[data-scroll-motion] > .topbar-inner {
+  transform: translateY(calc(-1 * var(--topbar-motion-progress, 0) * var(--topbar-motion-distance, 0px)));
+}
+html[data-mobile-page-scroll] .topbar-shell[data-scroll-motion][data-motion-hidden] {
+  visibility: hidden;
+}
+/* Search and badges also cross the sampling strip while translating. Cover
+   that strip only in transit; otherwise their pixels can seed another tint. */
+html[data-mobile-page-scroll] .topbar-shell[data-motion-active]::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 8px;
+  z-index: 2;
+  pointer-events: none;
+  background: var(--reading-canvas-color);
+}
+
+html[data-mobile-message-canvas]:not([data-mobile-page-scroll]) .topbar-shell::before,
+html[data-mobile-page-scroll] .topbar-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 12px;
+  pointer-events: none;
+  /* WebKit samples a strip just inside the viewport edge for native color
+     extension. Keep both tint and mask solid through that strip so scrolling
+     artwork cannot change its color. This surface still moves with controls. */
+  /* Ease the tint out of the solid edge, then release it evenly through the
+     controls and tail. Keep the same reach and neutral hue on every page. */
+  background: linear-gradient(
+    to bottom,
+    var(--reading-canvas-color) 0px,
+    var(--reading-canvas-color) 8px,
+    rgba(25, 27, 36, 0.95) 12px,
+    rgba(25, 27, 36, 0.86) 18px,
+    rgba(25, 27, 36, 0.77) 24px,
+    rgba(25, 27, 36, 0.67) 32px,
+    rgba(25, 27, 36, 0.56) 40px,
+    rgba(25, 27, 36, 0.44) 48px,
+    rgba(25, 27, 36, 0.32) 56px,
+    rgba(25, 27, 36, 0.22) 64px,
+    rgba(25, 27, 36, 0.14) 72px,
+    rgba(25, 27, 36, 0.08) 80px
+  );
+  -webkit-backdrop-filter: blur(18px) saturate(115%);
+  backdrop-filter: blur(18px) saturate(115%);
+  /* A fixed falloff starts behind the final controls, including search.
+     Percent stops stretched Discover's fade into a separate-looking tail.
+     Keep the effect on this one moving surface, without an opacity animation. */
+  /* The short Community header needs the same coverage behind its icons as
+     Discover. Only the empty tail releases the blur; white cards must not
+     erase the controls just because this page has no search row. */
+  --topbar-fade-start: max(44px, calc(100% - 66px));
+  --topbar-ambient-mask: linear-gradient(to bottom, #000 0px, #000 var(--topbar-fade-start), rgba(0, 0, 0, 0.84) calc(30% + var(--topbar-fade-start) * 0.7), rgba(0, 0, 0, 0.4) calc(65% + var(--topbar-fade-start) * 0.35), rgba(0, 0, 0, 0.08) calc(88% + var(--topbar-fade-start) * 0.12), transparent 100%);
+  -webkit-mask-image: var(--topbar-ambient-mask);
+  mask-image: var(--topbar-ambient-mask);
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-region:empty {
+  display: none;
+}
+
+/* Preserve Community's breathing room explicitly, instead of letting an
+   empty search flex item add an accidental row gap on only some pages. */
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell:not(.topbar-shell--discover) .topbar-inner {
+  padding-bottom: 0.75rem;
+}
+
+@media (min-width: 768px) {
+  /* Equal touch targets and inset highlights, just like the mobile controls. */
+  .topbar-shell--create-picker { display: none; }
+  .topbar-account-controls .topbar-hit-target {
+    position: relative;
+    z-index: 0;
+    display: inline-flex;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+  }
+  .topbar-account-controls .topbar-hit-target::before {
+    content: "";
+    position: absolute;
+    inset: 4px;
+    z-index: -1;
+    border-radius: 50%;
+    pointer-events: none;
+    background: rgba(255, 255, 255, 0.07);
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    backdrop-filter: blur(20px) saturate(140%);
+    opacity: 0;
+    transition: opacity 160ms ease;
+  }
+  .topbar-account-controls .topbar-hit-target:is(:hover, :active, [aria-expanded="true"], [aria-current="page"])::before {
+    opacity: 1;
+  }
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-inner {
+  position: relative;
+  pointer-events: auto;
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell {
+  --topbar-control-size: 44px;
+}
+
+/* Visual circles and hit areas share one metric. The older buttons mixed
+   p-2, h-11 and negative touch-target margins, exposing three bubble sizes. */
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-content-level),
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .topbar-notification-anchor {
+  width: var(--topbar-control-size);
+  height: var(--topbar-control-size);
+  min-width: var(--topbar-control-size);
+  flex: 0 0 var(--topbar-control-size);
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-content-level) svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  filter: none;
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target) {
+  color: #f4f5f7;
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .topbar-profile-button > span:first-child {
+  width: 28px;
+  height: 28px;
+}
+
+.topbar-account-controls .topbar-unread-badge,
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .topbar-unread-badge {
+  top: 2px;
+  right: 2px;
+  min-width: 16px;
+  height: 16px;
+  padding-inline: 3px;
+  font-size: 10px;
+  pointer-events: none;
+}
+
+/* On very narrow phones, keep the five circles together and place credits
+   beside search, instead of letting the menu occupy a row by itself. */
+@media (max-width: 359px) {
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(44px, 1fr));
+    column-gap: 4px;
+  }
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]):has(a[href="/app/partner"]) {
+    grid-template-columns: repeat(6, minmax(44px, 1fr));
+  }
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) :is(.topbar-end, .topbar-account-controls) {
+    display: contents;
+  }
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) .topbar-start {
+    grid-area: 1 / 1;
+    justify-self: start;
+  }
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) .topbar-account-controls > * {
+    grid-row: 1;
+    justify-self: center;
+  }
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) .topbar-account-controls > :last-child {
+    grid-column: -2 / -1;
+    justify-self: end;
+  }
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) .topbar-account-controls > :has(> [data-credit-plan]) {
+    grid-row: 2;
+    grid-column: -3 / -1;
+    align-self: center;
+    justify-self: end;
+  }
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) .topbar-search-region {
+    grid-row: 2;
+    grid-column: 1 / -3;
+    min-width: 0;
+  }
+}
+
+/* Use DM's quiet controls on every mobile surface. The 44px hit area stays
+   consistent, while only an active control receives a compact glass highlight. */
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level) {
+  position: relative;
+  z-index: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level)::before {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: rgba(255, 255, 255, 0.07);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+  opacity: 0;
+  transition: opacity 160ms ease;
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level):is(:active, [aria-current="page"], [aria-expanded="true"])::before {
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level):hover::before { opacity: 1; }
+}
+
+/* Retain the avatar's quiet outline, without turning the whole hit target
+   into another large bubble. Its visible diameter matches the active lens. */
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .topbar-profile-button::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* Match the existing desktop search material instead of a brightness-filtered
+   silver fill. Vertical sampling keeps text below the lower edge diffused. */
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass {
+  position: relative;
+  z-index: 0;
+  border-radius: 999px;
+  color: #f5f3ee;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 24px rgba(0, 0, 0, 0.22);
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass::before {
+  content: "";
+  position: absolute;
+  inset: -32px 0;
+  z-index: -1;
+  pointer-events: none;
+  clip-path: inset(32px 0 round 999px);
+  background: rgba(var(--cloudy-surface-rgb), 0.68);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(20px) saturate(140%);
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-input--glass {
+  height: 3.25rem;
+  min-height: 48px;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  padding-inline: 3rem 1.125rem;
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-icon { z-index: 1; color: inherit; }
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-input--glass::placeholder { color: inherit; opacity: 1; }
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .topbar-sign-in-button {
+  border-radius: 999px;
+  background: rgba(var(--cloudy-surface-rgb), 0.62);
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass:focus-within {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell [data-credit-plan="free"] { color: var(--color-muted-foreground); }
+
+@supports not (((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) and (clip-path: inset(1px round 1px))) {
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass { background: #262936; }
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass::before { display: none; }
+}
+
+/* Safari can keep its home-indicator inset while editing. No shell sizing or
+   scroll corrections are needed: remove only bottom padding and elastic
+   overscroll while a text field owns focus. */
+html[data-mobile-page-scroll]:has(:is(textarea, input, [contenteditable="true"]):focus) {
+  overscroll-behavior-y: none;
+}
+
+html[data-mobile-page-scroll]:has(:is(textarea, input, [contenteditable="true"]):focus) .app-shell-main {
+  padding-bottom: 0;
+}
+
+/* Keep controls legible when transparency is unwanted or the old-kernel
+   compatibility mode disables backdrop filters. */
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell::before {
+    background: var(--reading-canvas-color);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass,
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level) {
+    background: #262936;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass::before,
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level)::before {
+    display: none;
+  }
+}
+
+html.compat-lite:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass,
+html.compat-lite:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level) {
+  background: #262936;
+}
+
+html.compat-lite:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass::before,
+html.compat-lite:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level)::before {
+  display: none;
+}
+
+html[data-mobile-page-scroll] .hub-back-to-top {
+  position: fixed;
+  inset-inline: auto var(--mobile-gutter);
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
+  width: max-content;
+}
+
+html[data-mobile-page-scroll] .hub-back-to-top .hub-container {
+  padding: 0;
+}
+
+html[data-mobile-page-scroll] .hub-back-to-top button {
+  margin-bottom: 0 !important;
+}
+
+/* Onboarding becomes a normal reading/form page on phones as well. */
+html[data-mobile-page-scroll] [data-hub-onboarding="true"] > .hub-layout-scroll,
+html[data-mobile-page-scroll] [data-hub-onboarding="true"] > .hub-back-to-top {
+  display: none;
+}
+
+html[data-mobile-page-scroll] .hub-onboarding {
+  position: relative;
+  overflow: visible;
+}
+
+html[data-mobile-page-scroll] .app-shell-main > * {
+  animation: none;
+}
+
+/* Existing modal libraries lock body; the mobile drawer uses inert. Lock
+   the document too now that it owns scrolling, without fixing/moving body. */
+html[data-mobile-page-scroll]:has(body[data-scroll-locked]),
+html[data-mobile-page-scroll]:has(.mobile-nav-drawer--open) {
+  overflow-y: hidden;
+  overscroll-behavior-y: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell button::before {
+    transition: none;
+  }
+  html[data-mobile-page-scroll] .topbar-shell,
+  html[data-mobile-page-scroll] .hub-back-to-top button,
+  html[data-mobile-page-scroll] [data-immersive-bg],
+  html[data-mobile-page-scroll] [data-immersive-bg] img,
+  html[data-mobile-page-scroll] .hub-onboarding,
+  html[data-mobile-page-scroll] .hub-onboarding * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Keep the header's place while a preview covers a native reading page. Taking
+   it out of flow would shift the feed and its saved position behind the modal. */
+.topbar-shell[data-preview-open] {
+  display: none;
+}
+html[data-mobile-page-scroll] .topbar-shell:not(.topbar-shell--profile)[data-preview-open] {
+  display: flex;
+  visibility: hidden;
+}

@@ -1,0 +1,367 @@
+{
+  "pageTitle": "設定",
+  "search": {
+    "label": "搜尋設定",
+    "placeholder": "搜尋設定",
+    "clear": "清除設定搜尋",
+    "results": "找到 {{count}} 項設定",
+    "noResults": "找不到相關設定",
+    "noResultsHint": "換個關鍵字試試，例如「語言」或「隱私」。",
+    "aiConfigDescription": "模型、服務商、API 金鑰與生成偏好。"
+  },
+  "nav": {
+    "aiConfig": "AI 配置",
+    "account": "賬戶",
+    "contentSafety": "內容與安全",
+    "privacy": "隱私",
+    "notifications": "通知",
+    "display": "顯示 / 語言",
+    "wallpaper": "桌布",
+    "about": "關於"
+  },
+  "aiConfig": {
+    "title": "AI 配置"
+  },
+  "account": {
+    "saved": "已儲存",
+    "title": "賬戶",
+    "emailLabel": "郵箱",
+    "emailCannotChange": "郵箱無法更改",
+    "usernameLabel": "使用者名稱",
+    "usernameHint": "3-30 個字元，僅允許字母、數字和下劃線",
+    "save": "儲存",
+    "saving": "儲存中...",
+    "changePassword": {
+      "changed": "已修改",
+      "title": "修改密碼",
+      "description": "更新你的密碼。其他所有會話將被登出。",
+      "currentPassword": "當前密碼",
+      "newPassword": "新密碼",
+      "confirmNewPassword": "確認新密碼",
+      "submit": "修改密碼",
+      "changing": "修改中..."
+    },
+    "signOut": {
+      "title": "退出登入",
+      "description": "在此裝置上退出你的賬戶。",
+      "button": "退出登入"
+    },
+    "loginDevices": {
+      "title": "登入裝置",
+      "description": "目前登入你帳戶的裝置。不認識的、或忘了登出的，直接在這裡踢下線。",
+      "loading": "正在載入裝置...",
+      "loadError": "無法載入裝置清單，請稍後再試。",
+      "unknownDevice": "未知裝置",
+      "thisDevice": "目前裝置",
+      "lastActive": "最後活躍 {{time}}",
+      "signOutDevice": "登出",
+      "signingOut": "正在登出...",
+      "signOutOthers": "登出其他全部裝置（{{n}}）",
+      "revoked": "裝置已登出",
+      "revokedOthers": "其他裝置已全部登出",
+      "revokeError": "無法登出該裝置，請稍後再試。",
+      "propagationNote": "被踢下線的裝置最多需要 5 分鐘才會真正登出。修改密碼會立即登出其他所有裝置。"
+    },
+    "deleteAccount": {
+      "title": "註銷賬戶",
+      "description": "永久刪除你的賬戶及相關資料。",
+      "button": "註銷賬戶",
+      "dialogTitle": "確定要永久註銷賬戶嗎？",
+      "dialogDescription": "在你透過電郵確認前，賬戶仍會保持有效。刪除後可以立即使用同一電郵重新註冊，但新賬戶要到本次刪除滿 3 天後才能再次註銷。",
+      "warningTitle": "此操作無法撤銷",
+      "warnings": {
+        "identity": "你的個人資料及所有已連結的登入方式都會被刪除。",
+        "deletionCooldown": "刪除後可以立即使用同一電郵重新註冊，包括透過 Google 或 Discord 註冊；但新賬戶在本次刪除後的 3 天內不能再次註銷。",
+        "content": "你的世界、合集、已發佈內容、遊玩記錄、訊息、角色設定和上載檔案都會被刪除。",
+        "community": "其他玩家可能會失去與你所創作內容相關的遊玩記錄、評價或回覆。",
+        "billing": "任何有效訂閱都會立即終止；剩餘訂閱時間和 Mushies 不予退款。",
+        "records": "付款處理商可能會按法律、會計或防詐騙要求保留帳單及身份記錄，但這些記錄將不再連結至有效的 Yumina 帳戶。",
+        "antiAbuse": "為防止濫用及維持服務運作，我們可能在必要期限內保留化名化的安全日誌及有限分析資料。",
+        "cache": "已儲存的上傳檔案會被刪除，但瀏覽器或內容傳遞網路中的既有快取可能在原快取期限屆滿前仍然可見。"
+      },
+      "pendingEarnings": "如果仍有待結算的創作者收入，賬戶將無法註銷。遇到這種情況請聯絡客服。",
+      "confirmLabel": "請輸入 {{target}} 以確認",
+      "confirmPlaceholder": "輸入 {{target}}",
+      "acknowledge": "我明白此操作會永久刪除我的賬戶和資料。刪除後可以立即重新註冊，但新賬戶在本次刪除後的 3 天內不能再次註銷。",
+      "sendEmail": "傳送確認電郵",
+      "sending": "正在傳送...",
+      "cancel": "保留我的賬戶",
+      "canceling": "正在取消申請...",
+      "emailSentTitle": "請查看你的電郵",
+      "emailSentDescription": "我們已向 {{email}} 傳送註銷連結。完成最終確認頁面前，你的賬戶仍保持有效。刪除後可以立即重新註冊，但新賬戶在 3 天內不能再次註銷。連結將於 1 小時後失效。",
+      "close": "關閉",
+      "finalConfirmationDescription": "這是最後一步。按下方按鈕後將立即開始刪除，且無法撤銷。你可以立即使用同一電郵重新註冊，但新賬戶在 3 天內不能再次註銷。",
+      "deleting": "正在刪除...",
+      "invalidLinkTitle": "連結無效或已過期",
+      "signInRequiredTitle": "需要登入",
+      "signInRequiredDescription": "為保障賬戶安全，請先在此瀏覽器登入該賬戶，然後重新開啟電郵中的註銷連結。",
+      "signIn": "登入",
+      "errors": {
+        "confirmationMismatch": "確認文字與目前賬戶不一致。",
+        "pendingEarnings": "仍有創作者收入等待結算，請聯絡客服後再註銷賬戶。",
+        "billing": "無法安全取消你的訂閱，請稍後再試或聯絡客服。",
+        "creatorAccount": "無法關閉你的創作者收款賬戶，請聯絡客服後再註銷。",
+        "notReady": "賬戶註銷功能正在準備中，請幾分鐘後再試。",
+        "cooldown": "這個電郵對應的上一個賬戶註銷還未滿 3 天。你可以繼續使用目前賬戶，但暫時不能再次註銷。",
+        "lastAdmin": "最後一個管理員賬戶不能註銷，請先將另一名可信用戶設為管理員。",
+        "referral": "有邀請記錄的賬戶需要由客服協助註銷，以防獎勵被重複領取。",
+        "protectedHistory": "此帳戶存在有效的安全限制，請聯絡客服協助註銷。",
+        "email": "無法傳送確認郵件，請稍後再試。",
+        "invalidLink": "此註銷連結無效或已過期，請在賬戶設定中重新申請。",
+        "generic": "暫時無法發起賬戶註銷，請稍後再試。"
+      }
+    },
+    "connectedAccounts": {
+      "title": "登入方式",
+      "description": "已繫結的所有方式都登入到同一賬戶。",
+      "emailPassword": "郵箱 & 密碼",
+      "connected": "已連線",
+      "notConnected": "未連線",
+      "connect": "連線",
+      "disconnect": "斷開",
+      "connecting": "連線中...",
+      "disconnecting": "斷開中...",
+      "loading": "載入中...",
+      "disconnected": "已斷開",
+      "connectError": "連線失敗",
+      "disconnectError": "斷開失敗"
+    },
+    "validation": {
+      "usernameMinLength": "使用者名稱至少需要 3 個字元",
+      "usernameTaken": "使用者名稱已被佔用",
+      "usernameUpdateFailed": "更新使用者名稱失敗",
+      "usernameUpdated": "使用者名稱已更新",
+      "passwordMinLength": "新密碼至少需要 8 個字元",
+      "passwordsMismatch": "兩次輸入的密碼不一致",
+      "passwordChanged": "密碼修改成功",
+      "passwordChangeFailed": "修改密碼失敗",
+      "saveFailed": "儲存設定失敗"
+    }
+  },
+  "contentSafety": {
+    "title": "內容與安全",
+    "description": "控制你在平臺上看到的內容型別。",
+    "contentLevel": "內容模式",
+    "safe": {
+      "label": "有限制",
+      "description": "部分內容會受到限制"
+    },
+    "sensitive": {
+      "label": "無限制",
+      "description": "沒有內容限制"
+    },
+    "minorRestriction": "此帳號無法使用「無限制」模式。",
+    "audiencePreference": {
+      "title": "內容性向偏好",
+      "description": "選擇你想在推薦流裡看到的內容型別。搜尋、標籤和創作者頁面不受影響。",
+      "all": {
+        "label": "全性向",
+        "description": "看到所有作品，包括男性向和女性向。"
+      },
+      "male": {
+        "label": "男性向",
+        "description": "看到男性向和全性向作品，隱藏女性向。"
+      },
+      "female": {
+        "label": "女性向",
+        "description": "看到女性向和全性向作品，隱藏男性向。"
+      }
+    },
+    "blurSensitive": {
+      "title": "模糊不受內容限制的媒體",
+      "description": "在發現頁中，將「無限制」模式下內容的縮圖顯示為模糊狀態。"
+    }
+  },
+  "privacy": {
+    "title": "隱私",
+    "description": "控制誰可以看到你的活動，以及誰可以聯絡你。",
+    "privateAccount": {
+      "title": "私密賬戶",
+      "description": "僅你關注的人可以檢視你釋出的世界、統計資料和動態。"
+    },
+    "allowDMs": {
+      "title": "允許私信",
+      "description": "允許其他使用者向你發起私信對話。"
+    },
+    "showRecentPlay": {
+      "title": "顯示最近遊玩",
+      "description": "在你的公開主頁展示最近遊玩過的世界。"
+    },
+    "profileVisibility": {
+      "title": "個人頁面可見性",
+      "description": "選擇誰可以看到你個人主頁裡的私密內容。限制可見性後，別人無法在你的個人主頁看到你釋出的作品，也無法檢視最近遊玩、粉絲/關注列表、收藏等個人資料。",
+      "public": {
+        "title": "對所有人",
+        "description": "任何人都可以檢視你的個人主頁資料和主頁內容。"
+      },
+      "followers": {
+        "title": "我關注的人",
+        "description": "只有你關注的人可以檢視你釋出的作品和非公開個人資料。"
+      },
+      "private": {
+        "title": "不公開",
+        "description": "只有你自己可以檢視你釋出的作品和非公開個人資料。"
+      }
+    },
+    "showPlayHistory": {
+      "title": "公開我的遊玩歷史",
+      "description": "在個人頁面顯示你最近遊玩過的世界。"
+    },
+    "showStats": {
+      "title": "公開我的資料",
+      "description": "在個人頁面顯示遊玩時長和創作者統計資料。"
+    },
+    "showFollowLists": {
+      "title": "公開關注/粉絲列表",
+      "description": "允許別人開啟你的關注和粉絲列表。關注數和粉絲數仍然會顯示，但別人不一定能點進去檢視具體名單。"
+    },
+    "showFavorites": {
+      "title": "公開我的收藏",
+      "description": "在個人頁面顯示收藏和庫內容預覽。"
+    },
+    "blacklist": {
+      "title": "黑名單",
+      "subtitle": "管理被你拉黑的玩家",
+      "empty": "暫無被拉黑的玩家。",
+      "unblock": "取消拉黑",
+      "saveFailed": "黑名單更新失敗",
+      "hideTheirWorlds": "不看他們的世界卡",
+      "hideMyWorlds": "不讓他們看我的世界卡",
+      "hideTheirActivity": "不看他們的評價和社羣發言"
+    }
+  },
+  "notifications": {
+    "title": "通知",
+    "groups": {
+      "engagement": "互動",
+      "engagementDesc": "你的世界和資源包的收藏、評價、點贊和打賞。",
+      "social": "社交",
+      "socialDesc": "新關注者和你關注的創作者的新發布。",
+      "library": "庫",
+      "libraryDesc": "你收藏的世界的更新和狀態變更。",
+      "community": "社羣",
+      "communityDesc": "你的論壇帖子的回覆、點贊和獎勵。"
+    }
+  },
+  "display": {
+    "title": "顯示",
+    "language": {
+      "title": "語言",
+      "current": "當前"
+    },
+    "fontSize": {
+      "title": "字型大小",
+      "small": "小",
+      "default": "預設",
+      "large": "大",
+      "xLarge": "超大",
+      "hint": "更改會立即生效並儲存到此裝置。"
+    },
+    "autoFullscreenOnPlay": {
+      "title": "進入卡片時自動全屏",
+      "description": "打開帶自訂介面的卡片時，自動進入沉浸全屏。關閉後保持正常介面，可隨時點擊全屏按鈕手動進入。此設定會儲存到你的賬號。"
+    },
+    "worldAudio": {
+      "title": "開啟世界音樂 / 音效",
+      "description": "關閉後，所有世界都不會播放背景音樂和音效，完全靜音。此設定會儲存到你的賬號。"
+    },
+    "sendKey": {
+      "title": "按 Enter 傳送",
+      "description": "開啟後，Enter 傳送訊息，Shift+Enter 換行；關閉後，Ctrl/⌘+Enter 傳送，Enter 換行。此設定會儲存到本裝置。"
+    }
+  },
+  "wallpaper": {
+    "title": "桌布",
+    "description": "為每個頁面選擇不同的桌布，並調整背景的強度。",
+    "visualControls": {
+      "title": "視覺控制"
+    },
+    "opacity": {
+      "title": "桌布透明度",
+      "description": "保持每個頁面自己的視覺平衡，但允許你讓桌布更淡或更強。",
+      "minLabel": "淡雅",
+      "maxLabel": "鮮明",
+      "ariaLabel": "桌布透明度",
+      "hint": "發現、個人資料、設定和庫背景"
+    },
+    "gradient": {
+      "title": "底部漸變強度",
+      "description": "控制沉浸式頁面底部暗色漸變的強度。",
+      "minLabel": "較淺",
+      "maxLabel": "較深",
+      "ariaLabel": "底部漸變強度",
+      "hint": "改變底部的黑色漸變而不移除頁面特定樣式"
+    },
+    "cloudyGlass": {
+      "title": "模糊玻璃強度",
+      "description": "讓模糊玻璃更模糊更密集，而不切換到更清晰的玻璃預設。",
+      "minLabel": "更清晰",
+      "maxLabel": "更模糊",
+      "ariaLabel": "模糊玻璃強度",
+      "hint": "拖動時實時預覽"
+    },
+    "autoSaves": "停止拖動後自動儲存",
+    "library": {
+      "title": "桌布庫",
+      "description": "點選桌布即可選擇哪個頁面使用它。"
+    },
+    "upload": {
+      "title": "上傳自定義桌布",
+      "description": "上傳的圖片會存入你的「{{folderName}}」資料夾，只有該資料夾中的圖片會顯示在此庫中。",
+      "loading": "正在載入桌布...",
+      "assetCount": "{{count}} 張已上傳的圖片",
+      "button": "上傳"
+    },
+    "assignments": {
+      "discover": {
+        "label": "發現",
+        "description": "探索和發現頁面"
+      },
+      "profile": {
+        "label": "個人主頁",
+        "description": "個人資料和公開資料頁面"
+      },
+      "settings": {
+        "label": "設定",
+        "description": "設定和配置頁面"
+      },
+      "library": {
+        "label": "庫",
+        "description": "庫和建立選擇頁面"
+      }
+    },
+    "unused": "未使用",
+    "setFor": "將「{{name}}」設定為...",
+    "current": "當前",
+    "set": "設定",
+    "unknown": "未知",
+    "presets": {
+      "starryNight": {
+        "label": "星空",
+        "description": "藍金色夜空"
+      },
+      "libraryCanvas": {
+        "label": "圖書館畫布",
+        "description": "暖色調繪畫場景"
+      },
+      "uploaded": {
+        "description": "已上傳的桌布"
+      }
+    },
+    "folderError": "準備「桌布」資產資料夾失敗"
+  },
+  "about": {
+    "title": "關於",
+    "version": "版本",
+    "versionValue": "夢塢 v1.0.0",
+    "termsOfService": "服務條款",
+    "privacyPolicy": "隱私政策",
+    "licenses": "開源許可",
+    "contactSupport": "聯絡夢塢",
+    "contactSupportDescription": "我們會閱讀每一條訊息。",
+    "messageOfficial": "私信 {{username}}",
+    "messageOfficialHint": "直接發訊息給官方賬號",
+    "emailSupport": "郵件支援",
+    "emailCopied": "已複製郵箱：{{email}}"
+  }
+}

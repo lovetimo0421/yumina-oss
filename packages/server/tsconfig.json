@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "outDir": "dist",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "paths": {
+      "@yumina/engine": ["../engine/src/index.ts"],
+      "@yumina/shared": ["../shared/src/index.ts"]
+    }
+  },
+  "include": ["src"]
+}

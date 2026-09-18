@@ -1,0 +1,12 @@
+{
+  "name": "Horror Narrative Renderer",
+  "description": "Message renderer that parses AI narrative for phase markers, character peephole reveals, choice extraction, and a game state HUD. Demonstrates: content parsing with regex, dynamic character image lookup, choice button rendering, variable-driven overlay UI, custom font loading.",
+  "tags": ["horror", "narrative", "content-parsing", "choices", "hud", "peephole"],
+  "surface": "message-renderer",
+  "requires": {
+    "variables": ["hp", "energy", "has-weapon", "day-count"],
+    "notes": "Number variables for HP and energy. Boolean for weapon status. Number for day tracking. AI should use [PEEP:name] markers in content to trigger character reveals, and **NIGHT N** / **DAY N** for phase banners."
+  },
+  "author": "yumina-official",
+  "version": "1.0.0"
+}

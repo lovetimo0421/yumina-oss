@@ -1,0 +1,37 @@
+{
+  "version": "2.0.0",
+  "templates": [
+    {
+      "id": "vn-scene-engine",
+      "path": "tsx/templates/vn-scene-engine",
+      "type": "component",
+      "name": "Visual Novel Scene Engine",
+      "description": "Full-screen VN with scene backgrounds (day/evening/night variants), character sprites with emotions, dialogue parsing, and interactive map navigation",
+      "tags": ["visual-novel", "scenes", "sprites", "dialogue", "full-screen", "map", "galgame"]
+    },
+    {
+      "id": "horror-narrative",
+      "path": "tsx/templates/horror-narrative",
+      "type": "renderer",
+      "name": "Horror Narrative Renderer",
+      "description": "Parses AI content for phase banners, peephole character reveals, knock sounds, and choice buttons. Includes variable-driven game state HUD.",
+      "tags": ["horror", "narrative", "choices", "content-parsing", "hud", "survival"]
+    },
+    {
+      "id": "anime-battle-ui",
+      "path": "tsx/templates/anime-battle-ui",
+      "type": "renderer",
+      "name": "Anime Battle UI Renderer",
+      "description": "Character avatar detection from AI text, battle state indicators, scene transitions, technique highlights, and interactive choice selection with stat HUD",
+      "tags": ["anime", "battle", "rpg", "avatars", "scenes", "hud", "combat"]
+    },
+    {
+      "id": "character-creation-hud",
+      "path": "tsx/templates/character-creation-hud",
+      "type": "pattern",
+      "name": "Character Creation + Game HUD",
+      "description": "Interactive greeting form (name, class, element selection) that transitions to a tabbed game state HUD with stats, skills, and inventory panels",
+      "tags": ["character-creation", "greeting", "form", "hud", "tabs", "interactive", "rpg"]
+    }
+  ]
+}

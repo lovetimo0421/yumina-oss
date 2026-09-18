@@ -1,0 +1,23 @@
+# Dependencies and build output
+node_modules/
+dist/
+*.tsbuildinfo
+.turbo/
+
+# Your secrets. `pnpm start` writes BETTER_AUTH_SECRET here on first run.
+/.env
+.env.*
+!.env.example
+
+# Local runtime data: embedded PostgreSQL (PGlite) and uploaded assets
+packages/server/data/
+packages/server/dev.db
+# Built frontend copied next to the server by `pnpm start`
+packages/server/public/
+
+# Editor and OS noise
+.vscode/
+.idea/
+*.log
+.DS_Store
+Thumbs.db

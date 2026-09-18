@@ -1,0 +1,245 @@
+/* ═══ Feedback pills ═══
+   Spec: docs/superpowers/specs/2026-09-05-feedback-system-redesign-design.md §4.
+   Every pill is a toast.custom(<Pill/>) from lib/feedback.tsx rendered inside
+   Sonner's <li>. Deliberately unlayered: these rules compete with Sonner's
+   runtime-injected stylesheet, and for normal declarations an unlayered rule
+   beats a layered one. Selectors are (0,3,0) to outrank Sonner's (0,2,0). */
+[data-sonner-toaster] [data-sonner-toast].yp-toast-shell {
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  width: fit-content;
+  max-width: min(360px, 100%);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  transition:
+    transform 200ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 150ms ease,
+    height 200ms ease;
+}
+/* Enter: rise 16px instead of Sonner's full-height slide. */
+[data-sonner-toaster] [data-sonner-toast].yp-toast-shell[data-y-position="bottom"]:not([data-mounted="true"]) {
+  --y: translateY(16px);
+}
+/* "One at a time" means replace, not stack: anything that isn't the front toast
+   is hidden instantly (no ghost peeking out above the new pill) and comes back
+   only if it becomes the front again, e.g. a persistent pill after an error. */
+[data-sonner-toaster] [data-sonner-toast].yp-toast-shell[data-front="false"] {
+  opacity: 0;
+  pointer-events: none;
+  transition: none;
+}
+/* Exit: fade + 2% scale-down, no slide. */
+[data-sonner-toaster] [data-sonner-toast].yp-toast-shell[data-removed="true"] {
+  --y: translateY(0) scale(0.98);
+  opacity: 0;
+}
+[data-sonner-toaster] [data-sonner-toast].yp-toast-shell:focus-visible {
+  box-shadow: none;
+  outline: 2px solid rgba(201, 162, 94, 0.55);
+  outline-offset: 3px;
+  border-radius: 999px;
+}
+/* Sonner wraps custom JSX in [data-content] > [data-title]; make them vanish
+   so the Pill is the shell's direct child. */
+[data-sonner-toaster] [data-sonner-toast].yp-toast-shell [data-content],
+[data-sonner-toaster] [data-sonner-toast].yp-toast-shell [data-title] {
+  display: contents;
+}
+
+.yp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  max-width: 100%;
+  padding: 0 16px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 96%, transparent);
+  border: 1px solid rgba(232, 226, 210, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  color: var(--color-foreground);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.yp-pill:not([data-kind="persistent"]) {
+  cursor: pointer; /* tap to dismiss */
+}
+.yp-pill-text {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.yp-pill-icon {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+.yp-pill[data-kind="error"] .yp-pill-icon {
+  color: var(--color-destructive);
+}
+.yp-pill-spin {
+  animation: yp-spin 900ms linear infinite;
+}
+@keyframes yp-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.yp-pill-action {
+  flex: none;
+  margin-right: -6px;
+  padding: 6px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+.yp-pill-action:hover {
+  color: var(--color-primary-hover);
+}
+.yp-pill-action:focus-visible {
+  outline: 2px solid rgba(201, 162, 94, 0.6);
+  outline-offset: 1px;
+}
+.yp-pill-close {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-right: -8px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(232, 226, 210, 0.06);
+  color: rgba(232, 226, 210, 0.55);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.yp-pill-close:hover {
+  background: rgba(232, 226, 210, 0.12);
+  color: var(--color-foreground);
+}
+@media (max-width: 600px) {
+  .yp-pill {
+    height: 44px;
+  }
+}
+
+/* ═══ Achievement moment ═══ (spec §6) */
+.yp-moment {
+  position: fixed;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 20px);
+  z-index: 1000000000; /* above Sonner's 999999999 */
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 18px 12px 12px;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--color-card) 94%, transparent);
+  border: 1px solid rgba(232, 226, 210, 0.1);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5);
+  color: var(--color-foreground);
+  cursor: pointer;
+  transform: translateX(-50%);
+  animation: yp-moment-in 320ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  touch-action: pan-y;
+}
+.yp-moment[data-leaving="true"] {
+  animation: yp-moment-out 180ms ease both;
+}
+.yp-moment[data-suppressed="true"] {
+  visibility: hidden;
+}
+@keyframes yp-moment-in {
+  from {
+    transform: translateX(-50%) translateY(24px) scale(0.92);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+@keyframes yp-moment-out {
+  to {
+    opacity: 0;
+  }
+}
+.yp-moment-badge {
+  position: relative;
+  flex: none;
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+}
+.yp-moment-halo {
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--yp-tier, #c9a25e) 0%, transparent 70%);
+  opacity: 0.25;
+  pointer-events: none;
+}
+.yp-moment-badge[data-tier="bronze"] {
+  --yp-tier: #d97706;
+}
+.yp-moment-badge[data-tier="silver"] {
+  --yp-tier: #cbd5e1;
+}
+.yp-moment-badge[data-tier="gold"] {
+  --yp-tier: #c9a25e;
+}
+.yp-moment-badge[data-tier="diamond"] {
+  --yp-tier: #67e8f9;
+}
+.yp-moment-text {
+  min-width: 0;
+  max-width: min(280px, 60vw);
+}
+.yp-moment-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-primary);
+}
+.yp-moment-title {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.yp-moment-more {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  height: 22px;
+  min-width: 26px;
+  padding: 0 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(232, 226, 210, 0.12);
+  background: rgba(232, 226, 210, 0.06);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-sub);
+}
+@media (prefers-reduced-motion: reduce) {
+  .yp-moment {
+    animation: yp-moment-out 1ms reverse both;
+  }
+}

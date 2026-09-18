@@ -1,0 +1,368 @@
+{
+  "pageTitle": "Settings",
+  "search": {
+    "label": "Search settings",
+    "placeholder": "Search settings",
+    "clear": "Clear settings search",
+    "results": "Settings found: {{count}}",
+    "noResults": "No settings found",
+    "noResultsHint": "Try another keyword, such as language or privacy.",
+    "aiConfigDescription": "Models, providers, API keys, and generation preferences."
+  },
+  "nav": {
+    "account": "Account",
+    "aiConfig": "AI Config",
+    "contentSafety": "Content & Safety",
+    "privacy": "Privacy",
+    "notifications": "Notifications",
+    "display": "Display / Language",
+    "wallpaper": "Wallpaper",
+    "about": "About"
+  },
+  "aiConfig": {
+    "title": "AI Config"
+  },
+  "account": {
+    "saved": "Saved",
+    "title": "Account",
+    "emailLabel": "Email",
+    "emailCannotChange": "Email cannot be changed",
+    "usernameLabel": "Username",
+    "usernameHint": "3-30 characters, letters, numbers, and underscores only",
+    "save": "Save",
+    "saving": "Saving...",
+    "changePassword": {
+      "changed": "Changed",
+      "title": "Change Password",
+      "description": "Update your password. All other sessions will be signed out.",
+      "currentPassword": "Current password",
+      "newPassword": "New password",
+      "confirmNewPassword": "Confirm new password",
+      "submit": "Change Password",
+      "changing": "Changing..."
+    },
+    "signOut": {
+      "title": "Sign Out",
+      "description": "Sign out of your account on this device.",
+      "button": "Sign Out"
+    },
+    "loginDevices": {
+      "title": "Login devices",
+      "description": "Devices currently signed in to your account. Sign out any you don't recognize or forgot to log out of.",
+      "loading": "Loading devices...",
+      "loadError": "Could not load your devices. Try again later.",
+      "unknownDevice": "Unknown device",
+      "thisDevice": "This device",
+      "lastActive": "Last active {{time}}",
+      "signOutDevice": "Sign out",
+      "signingOut": "Signing out...",
+      "signOutOthers": "Sign out all other devices ({{n}})",
+      "revoked": "Device signed out",
+      "revokedOthers": "All other devices signed out",
+      "revokeError": "Could not sign out that device. Try again later.",
+      "propagationNote": "A signed-out device can take up to 5 minutes to be logged out. Changing your password signs out every other device immediately."
+    },
+    "deleteAccount": {
+      "title": "Delete account",
+      "description": "Permanently delete your account and associated data.",
+      "button": "Delete account",
+      "dialogTitle": "Delete your account permanently?",
+      "dialogDescription": "Your account remains active until you confirm the request from your email. After deletion, you may register again immediately, but the recreated account cannot be deleted until 3 days after this deletion.",
+      "warningTitle": "This cannot be undone",
+      "warnings": {
+        "identity": "Your profile and every linked sign-in method will be removed.",
+        "deletionCooldown": "The same email can register again immediately, including through Google or Discord, but the recreated account cannot be deleted again for 3 days after this deletion.",
+        "content": "Your worlds, bundles, published content, playthroughs, messages, personas, and uploads will be deleted.",
+        "community": "Other players may lose playthroughs, reviews, or replies attached to content you created.",
+        "billing": "Any active subscription will end immediately. Remaining plan time and Mushies are not refunded.",
+        "records": "Payment processors may retain billing and identity records as legally required for accounting or fraud prevention; they will no longer be linked to an active Yumina account.",
+        "antiAbuse": "Pseudonymous security logs and limited analytics may be retained for required periods to prevent abuse and operate the service.",
+        "cache": "Stored uploads are deleted, but existing browser or delivery-network caches may remain visible until their previous cache lifetime expires."
+      },
+      "pendingEarnings": "Accounts with creator earnings still on hold cannot be deleted until those earnings are settled. Contact support if this applies to you.",
+      "confirmLabel": "Type {{target}} to confirm",
+      "confirmPlaceholder": "Enter {{target}}",
+      "acknowledge": "I understand that this permanently deletes my account and data. I may register again immediately, but the recreated account cannot be deleted again for 3 days after this deletion.",
+      "sendEmail": "Send confirmation email",
+      "sending": "Sending...",
+      "cancel": "Keep my account",
+      "canceling": "Canceling request...",
+      "emailSentTitle": "Check your email",
+      "emailSentDescription": "We sent a deletion link to {{email}}. Your account remains active until you complete the final confirmation page. After deletion, you may register again immediately, but the recreated account cannot be deleted again for 3 days. The link expires in 1 hour.",
+      "close": "Close",
+      "finalConfirmationDescription": "This is the final step. Deletion begins as soon as you press the button below and cannot be reversed. You may register again immediately, but the recreated account cannot be deleted again for 3 days.",
+      "deleting": "Deleting...",
+      "invalidLinkTitle": "Invalid or expired link",
+      "signInRequiredTitle": "Sign in required",
+      "signInRequiredDescription": "For your security, sign in to this account in the same browser, then open the deletion link from your email again.",
+      "signIn": "Sign in",
+      "errors": {
+        "confirmationMismatch": "The confirmation text does not match your account.",
+        "pendingEarnings": "Creator earnings are still awaiting settlement. Contact support before deleting your account.",
+        "billing": "We could not safely cancel your billing. Try again later or contact support.",
+        "creatorAccount": "Your creator payout account could not be closed. Contact support before deleting your account.",
+        "notReady": "Account deletion is being prepared. Try again in a few minutes.",
+        "cooldown": "This email was used by an account deleted less than 3 days ago. You may keep using this account, but it cannot be deleted again yet.",
+        "lastAdmin": "The final administrator account cannot be deleted. Promote another trusted administrator first.",
+        "referral": "Accounts with referral history need support-assisted deletion so rewards cannot be claimed twice.",
+        "protectedHistory": "This account has an active safety restriction. Contact support for assisted deletion.",
+        "email": "We could not send the confirmation email. Try again later.",
+        "invalidLink": "This deletion link is invalid or has expired. Request a new one from Account settings.",
+        "generic": "Could not start account deletion. Try again later."
+      }
+    },
+    "connectedAccounts": {
+      "title": "Sign-in methods",
+      "description": "All linked methods sign you into this same account.",
+      "emailPassword": "Email & password",
+      "connected": "Connected",
+      "notConnected": "Not connected",
+      "connect": "Connect",
+      "disconnect": "Disconnect",
+      "connecting": "Connecting...",
+      "disconnecting": "Disconnecting...",
+      "loading": "Loading...",
+      "disconnected": "Disconnected",
+      "connectError": "Failed to connect",
+      "disconnectError": "Failed to disconnect"
+    },
+    "validation": {
+      "usernameMinLength": "Username must be at least 3 characters",
+      "usernameTaken": "Username already taken",
+      "usernameUpdateFailed": "Failed to update username",
+      "usernameUpdated": "Username updated",
+      "passwordMinLength": "New password must be at least 8 characters",
+      "passwordsMismatch": "Passwords do not match",
+      "passwordChanged": "Password changed successfully",
+      "passwordChangeFailed": "Failed to change password",
+      "saveFailed": "Failed to save setting"
+    }
+  },
+  "contentSafety": {
+    "title": "Content & Safety",
+    "description": "Control what type of content you see on the platform.",
+    "contentLevel": "Content Mode",
+    "safe": {
+      "label": "Limited",
+      "description": "Show Limited content only"
+    },
+    "sensitive": {
+      "label": "Limitless",
+      "description": "Include Limitless content"
+    },
+    "minorRestriction": "Limitless mode isn't available for this account.",
+    "audiencePreference": {
+      "title": "Audience Preference",
+      "description": "Choose which audience to see in the recommended feed. Does not affect search, tags, or creator pages.",
+      "all": {
+        "label": "For Everyone",
+        "description": "See all stories, including male and female-oriented."
+      },
+      "male": {
+        "label": "For Men",
+        "description": "See male-oriented and general stories, hide female-oriented."
+      },
+      "female": {
+        "label": "For Women",
+        "description": "See female-oriented and general stories, hide male-oriented."
+      }
+    },
+    "blurSensitive": {
+      "title": "Blur Limitless Media",
+      "description": "Blur thumbnails for Limitless content on Discover."
+    }
+  },
+  "privacy": {
+    "title": "Privacy",
+    "description": "Control who can see your activity and reach out to you.",
+    "privateAccount": {
+      "title": "Private Account",
+      "description": "Only people you follow can see your published worlds, stats, and activity."
+    },
+    "allowDMs": {
+      "title": "Allow Private Messages",
+      "description": "Let other users start a direct message conversation with you."
+    },
+    "showRecentPlay": {
+      "title": "Show Recent Play",
+      "description": "Display your recently played worlds on your public profile."
+    },
+    "profileVisibility": {
+      "title": "Profile Visibility",
+      "description": "Choose who can see the private parts of your profile. When your profile is restricted, other people cannot see your published worlds on your profile, recent play, followers/following lists, or favorites.",
+      "public": {
+        "title": "Public",
+        "description": "Anyone can view your profile details and profile sections."
+      },
+      "followers": {
+        "title": "People I follow",
+        "description": "Only people you follow can view your published worlds and private profile data."
+      },
+      "private": {
+        "title": "Private",
+        "description": "Only you can view your published worlds and private profile data."
+      }
+    },
+    "showPlayHistory": {
+      "title": "Show Play History",
+      "description": "Display your recently played worlds on your public profile."
+    },
+    "showStats": {
+      "title": "Show My Data",
+      "description": "Display playtime and creator statistics on your public profile."
+    },
+    "showFollowLists": {
+      "title": "Show Followers / Following Lists",
+      "description": "Let others open your followers and following lists. The counts still show either way."
+    },
+    "showFavorites": {
+      "title": "Show My Favorites",
+      "description": "Display favorites and library previews on your public profile."
+    },
+    "blacklist": {
+      "title": "Blacklist",
+      "subtitle": "Manage blocked users",
+      "empty": "No blocked users.",
+      "unblock": "Unblock",
+      "saveFailed": "Failed to update blacklist",
+      "hideTheirWorlds": "Hide their world cards",
+      "hideMyWorlds": "Hide my world cards from them",
+      "hideTheirActivity": "Hide their reviews and community posts"
+    }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "groups": {
+      "engagement": "Engagement",
+      "engagementDesc": "Favorites, reviews, likes, and tips on your worlds and bundles.",
+      "social": "Social",
+      "socialDesc": "New followers and publishes from creators you follow.",
+      "library": "Library",
+      "libraryDesc": "Updates and status changes for worlds in your library.",
+      "community": "Community",
+      "communityDesc": "Replies, likes, and rewards on your forum posts."
+    }
+  },
+  "display": {
+    "title": "Display",
+    "language": {
+      "title": "Language",
+      "current": "Current"
+    },
+    "fontSize": {
+      "title": "Font Size",
+      "small": "Small",
+      "default": "Default",
+      "large": "Large",
+      "xLarge": "X-Large",
+      "hint": "Changes apply instantly and are saved to this device."
+    },
+    "autoFullscreenOnPlay": {
+      "title": "Auto-enter fullscreen when playing",
+      "description": "Automatically enter immersive fullscreen when opening a card with a custom interface. When off, cards open in the normal layout and you can enter fullscreen anytime with the fullscreen button. Saved to your account."
+    },
+    "worldAudio": {
+      "title": "World music & sound effects",
+      "description": "When off, worlds play no background music or sound effects at all — fully silent. Saved to your account."
+    },
+    "sendKey": {
+      "title": "Press Enter to send",
+      "description": "When on, Enter sends your message and Shift+Enter starts a new line. When off, Ctrl/⌘+Enter sends and Enter starts a new line."
+    }
+  },
+  "wallpaper": {
+    "title": "Wallpaper",
+    "description": "Choose a different wallpaper for each page and tune how strong the background feels.",
+    "visualControls": {
+      "title": "Visual Controls"
+    },
+    "opacity": {
+      "title": "Wallpaper Opacity",
+      "description": "Keeps each page's own visual balance, but lets you make the wallpaper fainter or stronger overall.",
+      "minLabel": "Subtle",
+      "maxLabel": "Vivid",
+      "ariaLabel": "Wallpaper opacity",
+      "hint": "Hub, profile, settings, and library backgrounds"
+    },
+    "gradient": {
+      "title": "Bottom Gradient Strength",
+      "description": "Controls how strong the dark fade is near the bottom of immersive pages.",
+      "minLabel": "Lighter",
+      "maxLabel": "Darker",
+      "ariaLabel": "Bottom gradient strength",
+      "hint": "Changes the lower black fade without removing page-specific styling"
+    },
+    "cloudyGlass": {
+      "title": "Cloudy Glass Strength",
+      "description": "Makes the cloudy glass blurrier and denser without switching over to the clearer glass presets.",
+      "minLabel": "Clearer",
+      "maxLabel": "Cloudier",
+      "ariaLabel": "Cloudy glass strength",
+      "hint": "Live preview while dragging"
+    },
+    "autoSaves": "Auto-saves after you stop dragging",
+    "library": {
+      "title": "Wallpaper Library",
+      "description": "Click a wallpaper to choose which page uses it."
+    },
+    "upload": {
+      "title": "Upload Custom Wallpaper",
+      "description": "Uploaded images go into your \"{{folderName}}\" folder, and only images from that folder appear in this gallery.",
+      "loading": "Loading wallpapers...",
+      "assetCount_one": "{{count}} uploaded image asset",
+      "assetCount": "{{count}} uploaded image assets",
+      "button": "Upload"
+    },
+    "assignments": {
+      "discover": {
+        "label": "Discover",
+        "description": "Hub and discovery pages"
+      },
+      "profile": {
+        "label": "Profile",
+        "description": "Profile and public profile pages"
+      },
+      "settings": {
+        "label": "Settings",
+        "description": "Settings and config pages"
+      },
+      "library": {
+        "label": "Library",
+        "description": "Library and create picker pages"
+      }
+    },
+    "unused": "Unused",
+    "setFor": "Set \"{{name}}\" for...",
+    "current": "Current",
+    "set": "Set",
+    "unknown": "Unknown",
+    "presets": {
+      "starryNight": {
+        "label": "Starry Night",
+        "description": "Blue-gold night sky"
+      },
+      "libraryCanvas": {
+        "label": "Library Canvas",
+        "description": "Warmer painted scene"
+      },
+      "uploaded": {
+        "description": "Uploaded wallpaper"
+      }
+    },
+    "folderError": "Could not prepare the wallpaper folder"
+  },
+  "about": {
+    "title": "About",
+    "version": "Version",
+    "versionValue": "Yumina v1.0.0",
+    "termsOfService": "Terms of Service",
+    "privacyPolicy": "Privacy Policy",
+    "licenses": "Licenses",
+    "contactSupport": "Contact Yumina",
+    "contactSupportDescription": "We read every message.",
+    "messageOfficial": "Message {{username}}",
+    "messageOfficialHint": "Open a direct message",
+    "emailSupport": "Email support",
+    "emailCopied": "Email copied: {{email}}"
+  }
+}

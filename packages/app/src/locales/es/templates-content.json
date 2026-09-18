@@ -1,0 +1,167 @@
+{
+  "presets": {
+    "fictionMode": "Modo ficción",
+    "task": "Tarea",
+    "style": "Estilo",
+    "instructions": "Instrucciones",
+    "cotBypass": "Bypass de CoT"
+  },
+  "chat": {
+    "name": "Chat de personaje",
+    "description": "Roleplay uno a uno con un personaje",
+    "entries": {
+      "character": {
+        "name": "Personaje",
+        "content": "[Nombre]\n[Nombre completo, apodos, forma de dirigirse preferida]\n\n[Apariencia]\n[Un detalle memorable supera tres oraciones vagas]\n\n[Trasfondo]\n[Origen, eventos clave de su vida, lo que moldeó quiénes son]\n\n[Personalidad]\n[2-3 capas. Usa pares de rasgos para crear profundidad: \"valiente en batalla pero aterrado de hablar en público\", \"generoso pero calculador\"]"
+      },
+      "worldview": {
+        "name": "Cosmovisión",
+        "content": "[El mundo en el que vive este personaje — ¿dónde? ¿cuándo? ¿qué reglas?]\n\n[Era / Ambientación]\n[¿Ciudad moderna? ¿Fantasía medieval? ¿Espacio del futuro lejano?]\n\n[Reglas especiales]\n[¿Qué hace único este mundo? Magia, superpoderes, IA, sistema político?]\n\n[Tono]\n[¿Relajado tipo slice-of-life? ¿Frío y de suspenso? ¿Aventura heroica? ¿Sanación agridulce?]"
+      },
+      "dialogueAndStyle": {
+        "name": "Diálogo de muestra y estilo",
+        "content": "[Dile a la IA cómo habla este personaje y el estilo general de escritura. Lo específico supera lo abstracto — \"se jala el lóbulo de la oreja y mira hacia otro lado\" supera \"se pone nerviosa.\"]\n\n[Habla]\nNeutral: [voz por defecto — una oración completa de ejemplo]\nFeliz: [cómo la alegría la cambia — una oración completa]\nMolesta: [una oración completa]\nNerviosa: [una oración completa]\nManerismos: [tics, frases recurrentes, microdetalles]\n\n[Estilo de escritura]\nPOV: [¿Primera persona? ¿Tercera persona limitada?]\nEnfoque: [Monólogo interno / descripción del entorno / acción]\nRitmo: [Rápido · lento · variado]\n\n[Escena de muestra — pega un fragmento que ejemplifique el estilo que quieres]\n[La longitud depende de ti, pero hazla lo suficientemente concreta para ser una plantilla de \"esta es exactamente la voz\"]"
+      },
+      "greeting": {
+        "name": "Saludo",
+        "content": "[El mensaje inicial del personaje — esta entrada por sí sola establece el estilo de escritura de la IA para toda la conversación.\n\n- Si quieres respuestas largas → escribe un saludo largo\n- Si quieres respuestas cortas → escribe un saludo corto\n- Demuestra el formato que quieres (*acciones en cursiva*, \"diálogo entre comillas\")\n- Establece la ambientación, el ánimo, el estado actual del personaje\n- Termina invitando a {{user}} a responder]"
+      }
+    },
+    "variables": {
+      "affinity": {
+        "name": "Afinidad",
+        "description": "Cuánto le agrada {{user}} al personaje",
+        "behaviorRules": "Escucha atenta o mostrar empatía genuina +3~5; recordar detalles que el personaje mencionó antes +2~3; interacción casual y agradable +1~2; pequeños desacuerdos o momentos incómodos -1~2; comportamiento grosero o ignorar al personaje -3~5; tocar temas sensibles sin cuidado -5~8"
+      },
+      "mood": {
+        "name": "Estado de ánimo",
+        "description": "Estado emocional actual del personaje",
+        "behaviorRules": "Valores permitidos: feliz, triste, enojado, tímido, neutral, emocionado. Actualiza según el contexto de la conversación. El ánimo se desplaza naturalmente hacia neutral a lo largo de 3-5 mensajes si no ocurre nada significativo. No anuncies los cambios de ánimo — muéstralos a través del comportamiento."
+      },
+      "relationshipStage": {
+        "name": "Etapa de la relación",
+        "description": "Nivel actual de relación con {{user}}",
+        "behaviorRules": "Progresión: desconocido → conocido → amigo → cercano. Gestionado automáticamente por reglas según los umbrales de afinidad. NO actualices esta variable directamente. Cada etapa debería sentirse distinta en cómo se comporta el personaje hacia {{user}}."
+      }
+    },
+    "rules": {
+      "toAcquaintance": { "name": "Volverse conocido", "description": "La afinidad alcanza 25" },
+      "toFriend": { "name": "Volverse amigo", "description": "La afinidad alcanza 50" },
+      "toClose": { "name": "Volverse cercano", "description": "La afinidad alcanza 75" }
+    },
+    "components": {
+      "affinity": "Afinidad",
+      "relationshipStage": "Relación"
+    }
+  },
+  "world": {
+    "name": "Simulación de mundo",
+    "description": "Un mundo vivo con personajes y sistemas",
+    "entries": {
+      "worldOverview": {
+        "name": "Resumen del mundo",
+        "content": "[¿Qué es este mundo?]\n[Reino de fantasía, post-apocalipsis, estación espacial, ciudad moderna con magia oculta... una o dos oraciones]\n\n[Tono]\n[¿Crudo y peligroso? ¿Caprichoso? ¿Intriga política tensa? ¿Slice-of-life?]\n\n[Trasfondo clave]\n[¿Qué pasó antes de que comience la historia y que da forma al AHORA? Enfócate en las consecuencias que encontrará el jugador — no en una línea de tiempo completa]"
+      },
+      "systemAndPowers": {
+        "name": "Sistemas y poderes",
+        "content": "[Poder / Magia / Tecnología]\n[¿Qué se puede y qué no se puede hacer en este mundo?]\n- ¿Cómo funciona? (Fuente de energía, activación, límites)\n- ¿Límites duros? (Cosas que son IMPOSIBLES)\n- ¿Costo de usar el poder?\n\n[Facciones / Poderes]\n[¿Quién tiene el poder?]\n- Para cada uno: nombre, qué controlan, qué quieren, actitud hacia el jugador\n\nLo preciso supera lo vago — los sistemas vagos causan un comportamiento inconsistente de la IA."
+      },
+      "npcA": {
+        "name": "NPC: [Nombre]",
+        "content": "Nombre: [Nombre completo]\nRol: [Mercader · rival · mentor · gobernante...]\nApariencia: [Un detalle memorable]\nPersonalidad: [Usa pares de rasgos: \"generoso pero calculador\", \"alegre pero escondiendo dolor\"]\nMotivación: [¿Qué quieren? ¿Qué los impulsa?]\nHacia el jugador: [Postura inicial — amigable, sospechoso, indiferente?]\nEstilo de habla: [Formal · directo · florido · sarcástico?]"
+      },
+      "npcB": {
+        "name": "NPC: [Nombre]",
+        "content": "[Un segundo NPC — hazlo muy diferente del NPC A para mostrar el rango del mundo.]\n\nNombre: [Nombre completo]\nRol: [Diferente de A]\nApariencia: [Estilo contrastante]\nPersonalidad: [Modelo diferente — si A es amigable, haz a B difícil; si A es simple, haz a B complejo]\nMotivación: [Objetivos diferentes o en conflicto con A]\nHacia el jugador: [Postura inicial diferente de A]\nRelación con el NPC A: [¿Aliados? ¿Rivales? ¿Desconocidos?]\nEstilo de habla: [Claramente diferente de A]"
+      },
+      "narrativeStyle": {
+        "name": "Estilo narrativo",
+        "content": "[Dile a la IA cómo narrar este mundo.]\n\n=== Estilo ===\n- Muestra a través del detalle sensorial, no de la exposición\n- Termina las respuestas a mitad de escena para que el jugador pueda actuar\n- Nunca tomes decisiones por el jugador\n\n=== Comportamiento de los NPC ===\n- Los NPC actúan de forma independiente con sus propios objetivos\n- Los NPC hablan ENTRE SÍ, no solo con el jugador\n- Actualiza las relaciones: [relationships.name.affinity: +5]\n\n=== Ritmo ===\n- Eventos menores cada 2-3 acciones del jugador\n- Eventos mayores (trama, peligro) cada 5-8\n- Nunca fuerces los resultados — presenta situaciones, deja que el jugador elija"
+      },
+      "greeting": {
+        "name": "Saludo",
+        "content": "[El primer momento del jugador en tu mundo — la longitud y el estilo de este saludo establecen la escritura de la IA para todo lo que sigue.\n\n- Describe el entorno a través de los sentidos (vista, sonido, tacto)\n- Lo que está ocurriendo AHORA MISMO\n- Insinúa algo interesante cerca (un NPC, un sonido, una elección)\n- Haz que el mundo se sienta vivo — otros haciendo cosas, clima, detalles ambientales\n- Termina en un momento natural para que el jugador actúe]"
+      }
+    },
+    "variables": {
+      "resources": {
+        "name": "Recursos",
+        "description": "Suministros y riqueza disponibles (0 = desesperado, 100 = bien abastecido)",
+        "behaviorRules": "Disminuyen con los viajes (-5~10), combate (-10~15) y la supervivencia diaria (-5). Aumentan al forrajear (+10~15), comerciar (+variable), completar tareas (+20~30) o encontrar depósitos. En 0, el jugador enfrenta una crisis de supervivencia — los NPC pueden negarle servicio, las opciones se vuelven desesperadas."
+      },
+      "location": {
+        "name": "Ubicación",
+        "description": "Ubicación actual en el mundo"
+      },
+      "day": {
+        "name": "Día",
+        "description": "Conteo del día actual",
+        "behaviorRules": "Incrementa cuando el jugador descansa, duerme o pasa un tiempo significativo. Cada nuevo día trae nuevos eventos, cambios en los horarios de los NPC y desarrollos del mundo."
+      },
+      "timeOfDay": {
+        "name": "Hora del día",
+        "description": "Período de tiempo actual",
+        "behaviorRules": "Ciclo: mañana → tarde → noche → madrugada. Avanza naturalmente con las acciones del jugador. Las distintas horas afectan la disponibilidad de los NPC, los niveles de peligro y las actividades disponibles."
+      },
+      "relationships": {
+        "name": "Relaciones",
+        "description": "Rastrea cómo se sienten los NPC respecto al jugador",
+        "behaviorRules": "Objeto JSON. Estructura: {\"npc_name\": {\"affinity\": 50, \"status\": \"neutral\"}}. Actualiza después de interacciones significativas: [relationships.name.affinity: +5]. Valores de estado: hostile / wary / neutral / friendly / loyal. El comportamiento del NPC debe reflejar su afinidad y estado actuales."
+      }
+    },
+    "rules": {
+      "lowResources": {
+        "name": "Advertencia de recursos bajos",
+        "description": "Alerta cuando los recursos caen por debajo de 20"
+      }
+    },
+    "components": {
+      "resources": "Recursos",
+      "location": "Ubicación",
+      "time": "Hora",
+      "day": "Día"
+    }
+  },
+  "multiplayer": {
+    "name": "Campaña multijugador",
+    "description": "Aventura colaborativa multijugador",
+    "entries": {
+      "hostRules": {
+        "name": "Reglas del anfitrión / DM",
+        "content": "[Define cómo la IA dirige la sesión multijugador.\n\n=== Rol ===\n¿Cuál es el rol de la IA? (Dungeon Master, narrador, árbitro, presentador de un programa de juegos...)\n\n=== Manejo de mensajes ===\nCada mensaje de jugador lleva su nombre como prefijo (ej., \"Alice: Hago X\").\n¿Cómo debe manejar la IA múltiples acciones de jugadores en una sola respuesta?\n- ¿Resolver todas las acciones juntas en una narrativa?\n- ¿Atender a cada jugador en secuencia?\n\n=== Justicia ===\n¿Cómo asegurar que todos los jugadores reciban atención equitativa?\n¿Qué hacer cuando un jugador ha estado callado?\n¿Cómo manejar acciones contradictorias de jugadores?\n\n=== Límites ===\n¿Qué nunca debe hacer la IA? (ej., tomar decisiones por los jugadores, revelar información oculta, matar sin advertencia)]"
+      },
+      "gameSystem": {
+        "name": "Sistema de juego",
+        "content": "[Define el sistema de reglas de tu campaña. Esto es lo que la convierte en un JUEGO, no solo en narración colaborativa.\n\n=== Resolución de acciones ===\n¿Cómo se deciden los resultados inciertos? Opciones:\n- Basado en dados (D20 + modificador vs. dificultad)\n- Juicio narrativo (la IA decide según el contexto)\n- Elección del jugador (se presentan múltiples opciones)\n- Híbrido (dados para combate, narrativa para lo social)\n\n=== Combate / Conflicto ===\n¿Cómo funciona el combate? ¿Orden de turnos? ¿Cómo se calcula el daño?\nO si no hay combate — ¿cómo se resuelven los conflictos?\n\n=== Progresión ===\n¿Crecen los personajes? ¿Cómo? (XP, hitos de la historia, equipo...)\n\nSé tan detallado o tan libre como quieras — más reglas = más estructura, menos reglas = más libertad.]"
+      },
+      "worldSetting": {
+        "name": "Ambientación del mundo",
+        "content": "[El mundo compartido que habitan todos los jugadores.\n\n=== Ambientación ===\n¿Qué tipo de mundo es este? ¿Dónde ocurre la aventura?\n\n=== Conflicto central ===\n¿Qué une a los jugadores? ¿Qué intentan lograr?\n\n=== Facciones y amenazas ===\n¿Qué fuerzas existen en este mundo? ¿Quiénes son los aliados y los enemigos?\n\n=== Tono ===\n¿Cuál es el ánimo? (Fantasía heroica épica, horror de supervivencia oscuro, caos cómico, intriga política...)]"
+      },
+      "playerGuide": {
+        "name": "Incorporación de jugadores",
+        "content": "[Cómo se unen los nuevos jugadores a la sesión.\n\n=== Lo que los jugadores deben proporcionar ===\n¿Qué información debe dar un jugador al unirse? (Nombre, apariencia, clase, trasfondo...)\n\n=== Creación de personaje ===\n¿Hay roles/clases predefinidos? ¿O es a mano libre?\n¿Cuáles son las estadísticas/equipo/habilidades iniciales?\n\n=== Cómo jugar ===\n¿Cómo declaran los jugadores las acciones? ¿Algún formato específico?\n¿Qué pueden y qué no pueden hacer los jugadores?]"
+      },
+      "greeting": {
+        "name": "Saludo",
+        "content": "[La escena inicial cuando comienza la sesión. Establece el tono para toda la campaña.\n\n- Establece la ambientación y la atmósfera\n- Da a los jugadores una razón para estar aquí\n- Termina invitando a cada jugador a presentar a su personaje\n- El estilo de este saludo determina cómo escribirá la IA durante el resto de la sesión]"
+      }
+    },
+    "variables": {
+      "players": {
+        "name": "Jugadores",
+        "behaviorRules": "Rastrea el estado de cada jugador como un objeto JSON. Cuando un jugador presenta a su personaje, crea su entrada: [players.name: set {\"key\": \"value\"}]. Define los campos que necesite tu sistema de juego (hp, clase, inventario, etc.). Actualiza con dot-paths: [players.alice.hp: -5]."
+      },
+      "worldState": {
+        "name": "Estado del mundo",
+        "behaviorRules": "Rastrea el estado compartido de la campaña — ubicación, hora, situación actual. Actualiza a medida que avanza la historia: [world-state.location: set \"nuevo lugar\"]. Agrega los campos que necesite tu campaña."
+      }
+    },
+    "settings": {
+      "authorNotes": "Campaña multijugador para 2-4 jugadores. Define tu propio sistema de juego, mundo y reglas."
+    },
+    "components": {
+      "worldState": "Estado de la campaña"
+    }
+  }
+}

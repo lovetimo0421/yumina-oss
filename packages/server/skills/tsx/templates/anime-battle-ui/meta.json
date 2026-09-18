@@ -1,0 +1,12 @@
+{
+  "name": "Anime Battle UI Renderer",
+  "description": "Message renderer with character avatar system, battle state indicators, scene transitions, speaker detection from AI text, and interactive technique/choice selection. Demonstrates: asset manifest pattern, speaker alias resolution, scene detection markers, stat HUD with multiple indicators, XML tag parsing for choices.",
+  "tags": ["anime", "battle", "rpg", "avatars", "scenes", "character-creation", "hud"],
+  "surface": "message-renderer",
+  "requires": {
+    "variables": ["hp", "level", "cursed-energy", "battle-state", "scene-character", "relationships"],
+    "notes": "Number variables for HP, level, energy. String for battle-state (normal/combat/domain). String for current scene character. JSON array for relationships."
+  },
+  "author": "yumina-official",
+  "version": "1.0.0"
+}

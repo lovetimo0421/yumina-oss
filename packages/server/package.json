@@ -1,0 +1,71 @@
+{
+  "name": "@yumina/server",
+  "version": "0.0.1",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "import": "./dist/index.mjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "node scripts/test-local.mjs",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:prepare-account-deletion": "tsx src/db/prepare-account-deletion.ts",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx src/db/seed.ts",
+    "db:migrate-worlds": "tsx src/db/migrate-worlds.ts",
+    "db:migrate-dnd-worlds": "tsx src/db/migrate-dnd-worlds.ts",
+    "check:models": "tsx scripts/check-model-ids-live.ts",
+    "check:tags": "tsx scripts/check-tags.mts",
+    "social-floor:install-schema": "tsx scripts/install-verified-social-settlement-floor-schema.ts",
+    "social-floor:backfill": "tsx scripts/backfill-verified-social-settlement-floor.ts",
+    "analytics:worker": "tsx src/analytics/worker.ts",
+    "analytics:schema": "tsx src/analytics/worker.ts --apply-schema",
+    "analytics:views": "tsx src/analytics/worker.ts --apply-cdc-views",
+    "analytics:test": "tsx --test src/analytics/*.test.ts src/lib/playtime-policy.test.ts src/lib/usage-observation.test.ts src/lib/review-transaction.test.ts",
+    "test:raw": "tsx --test --test-timeout=120000 src/**/*.test.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1019.0",
+    "@aws-sdk/lib-storage": "^3.1019.0",
+    "@aws-sdk/s3-request-presigner": "^3.1019.0",
+    "@babel/parser": "7.29.0",
+    "@electric-sql/pglite": "^0.4.1",
+    "@hono/node-server": "^1.19.11",
+    "@yumina/engine": "workspace:*",
+    "@yumina/shared": "workspace:*",
+    "better-auth": "^1.5.6",
+    "dotenv": "^16",
+    "drizzle-kit": "^0.31.10",
+    "drizzle-orm": "^0.41.0",
+    "hono": "^4.12.9",
+    "ioredis": "^5.10.1",
+    "jsonrepair": "^3.13.3",
+    "opencc-js": "^1.0.5",
+    "pg": "^8",
+    "posthog-node": "^5.29.1",
+    "resend": "^6.9.3",
+    "sharp": "^0.35.3",
+    "stripe": "^22.0.0",
+    "sucrase": "^3.35.1",
+    "zod": "^3.24"
+  },
+  "devDependencies": {
+    "@types/ioredis": "^5.0.0",
+    "@types/node": "^22",
+    "@types/opencc-js": "^1.0.3",
+    "@types/pg": "^8",
+    "tsup": "^8",
+    "tsx": "^4",
+    "typescript": "^5.7"
+  }
+}

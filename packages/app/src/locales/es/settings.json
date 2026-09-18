@@ -1,0 +1,368 @@
+{
+  "pageTitle": "Ajustes",
+  "search": {
+    "label": "Buscar ajustes",
+    "placeholder": "Buscar ajustes",
+    "clear": "Borrar búsqueda de ajustes",
+    "results": "Ajustes encontrados: {{count}}",
+    "noResults": "No se encontraron ajustes",
+    "noResultsHint": "Prueba otra palabra, como idioma o privacidad.",
+    "aiConfigDescription": "Modelos, proveedores, claves API y preferencias de generación."
+  },
+  "nav": {
+    "account": "Cuenta",
+    "aiConfig": "Configuración de IA",
+    "contentSafety": "Contenido y seguridad",
+    "privacy": "Privacidad",
+    "notifications": "Notificaciones",
+    "display": "Pantalla / Idioma",
+    "wallpaper": "Fondo de pantalla",
+    "about": "Acerca de"
+  },
+  "aiConfig": {
+    "title": "Configuración de IA"
+  },
+  "account": {
+    "saved": "Guardado",
+    "title": "Cuenta",
+    "emailLabel": "Correo electrónico",
+    "emailCannotChange": "El correo electrónico no se puede cambiar",
+    "usernameLabel": "Nombre de usuario",
+    "usernameHint": "3-30 caracteres, solo letras, números y guiones bajos",
+    "save": "Guardar",
+    "saving": "Guardando...",
+    "changePassword": {
+      "changed": "Cambiada",
+      "title": "Cambiar contraseña",
+      "description": "Actualiza tu contraseña. Se cerrará la sesión en todos los demás dispositivos.",
+      "currentPassword": "Contraseña actual",
+      "newPassword": "Nueva contraseña",
+      "confirmNewPassword": "Confirmar nueva contraseña",
+      "submit": "Cambiar contraseña",
+      "changing": "Cambiando..."
+    },
+    "signOut": {
+      "title": "Cerrar sesión",
+      "description": "Cierra la sesión de tu cuenta en este dispositivo.",
+      "button": "Cerrar sesión"
+    },
+    "loginDevices": {
+      "title": "Dispositivos con sesión iniciada",
+      "description": "Dispositivos que tienen la sesión abierta en tu cuenta. Cierra la sesión en los que no reconozcas o hayas olvidado cerrar.",
+      "loading": "Cargando dispositivos...",
+      "loadError": "No se pudieron cargar tus dispositivos. Inténtalo más tarde.",
+      "unknownDevice": "Dispositivo desconocido",
+      "thisDevice": "Este dispositivo",
+      "lastActive": "Última actividad {{time}}",
+      "signOutDevice": "Cerrar sesión",
+      "signingOut": "Cerrando sesión...",
+      "signOutOthers": "Cerrar sesión en los demás dispositivos ({{n}})",
+      "revoked": "Sesión cerrada en el dispositivo",
+      "revokedOthers": "Sesión cerrada en todos los demás dispositivos",
+      "revokeError": "No se pudo cerrar la sesión en ese dispositivo. Inténtalo más tarde.",
+      "propagationNote": "Un dispositivo desconectado puede tardar hasta 5 minutos en cerrar sesión. Cambiar tu contraseña cierra la sesión en todos los demás dispositivos de inmediato."
+    },
+    "deleteAccount": {
+      "title": "Eliminar cuenta",
+      "description": "Elimina permanentemente tu cuenta y los datos asociados.",
+      "button": "Eliminar cuenta",
+      "dialogTitle": "¿Eliminar tu cuenta permanentemente?",
+      "dialogDescription": "Tu cuenta seguirá activa hasta que confirmes la solicitud desde tu correo. Tras eliminarla, podrás registrarte de nuevo de inmediato, pero la cuenta nueva no podrá eliminarse hasta 3 días después de esta eliminación.",
+      "warningTitle": "Esta acción no se puede deshacer",
+      "warnings": {
+        "identity": "Se eliminarán tu perfil y todos los métodos de inicio de sesión vinculados.",
+        "deletionCooldown": "El mismo correo puede registrarse de nuevo de inmediato, también mediante Google o Discord, pero la cuenta nueva no podrá eliminarse durante los 3 días posteriores a esta eliminación.",
+        "content": "Se eliminarán tus mundos, colecciones, contenido publicado, partidas, mensajes, personajes y archivos subidos.",
+        "community": "Otros jugadores podrían perder partidas, reseñas o respuestas vinculadas al contenido que creaste.",
+        "billing": "Cualquier suscripción activa finalizará de inmediato. El tiempo restante y los Mushies no se reembolsan.",
+        "records": "Los procesadores de pago pueden conservar registros de facturación e identidad cuando la ley, la contabilidad o la prevención del fraude lo exijan; ya no estarán vinculados a una cuenta activa de Yumina.",
+        "antiAbuse": "Los registros de seguridad seudónimos y análisis limitados pueden conservarse durante los plazos necesarios para evitar abusos y operar el servicio.",
+        "cache": "Los archivos almacenados se eliminan, pero las cachés existentes del navegador o de la red pueden seguir visibles hasta que caduque su duración anterior."
+      },
+      "pendingEarnings": "Las cuentas con ingresos de creador aún retenidos no pueden eliminarse hasta que se liquiden. Contacta con soporte si es tu caso.",
+      "confirmLabel": "Escribe {{target}} para confirmar",
+      "confirmPlaceholder": "Introduce {{target}}",
+      "acknowledge": "Entiendo que esto elimina permanentemente mi cuenta y mis datos. Podré registrarme de nuevo de inmediato, pero la cuenta nueva no podrá eliminarse durante los 3 días posteriores a esta eliminación.",
+      "sendEmail": "Enviar correo de confirmación",
+      "sending": "Enviando...",
+      "cancel": "Conservar mi cuenta",
+      "canceling": "Cancelando solicitud...",
+      "emailSentTitle": "Revisa tu correo",
+      "emailSentDescription": "Enviamos un enlace de eliminación a {{email}}. Tu cuenta seguirá activa hasta completar la confirmación final. Después podrás registrarte de nuevo de inmediato, pero la cuenta nueva no podrá eliminarse durante 3 días. El enlace caduca en 1 hora.",
+      "close": "Cerrar",
+      "finalConfirmationDescription": "Este es el último paso. La eliminación comenzará al pulsar el botón y no se podrá revertir. Podrás registrarte de nuevo de inmediato, pero la cuenta nueva no podrá eliminarse durante 3 días.",
+      "deleting": "Eliminando...",
+      "invalidLinkTitle": "Enlace no válido o caducado",
+      "signInRequiredTitle": "Debes iniciar sesión",
+      "signInRequiredDescription": "Por tu seguridad, inicia sesión en esta cuenta desde el mismo navegador y vuelve a abrir el enlace de eliminación del correo.",
+      "signIn": "Iniciar sesión",
+      "errors": {
+        "confirmationMismatch": "El texto de confirmación no coincide con tu cuenta.",
+        "pendingEarnings": "Hay ingresos de creador pendientes de liquidación. Contacta con soporte antes de eliminar tu cuenta.",
+        "billing": "No pudimos cancelar tu facturación de forma segura. Inténtalo más tarde o contacta con soporte.",
+        "creatorAccount": "No se pudo cerrar tu cuenta de cobros de creador. Contacta con soporte antes de eliminarla.",
+        "notReady": "La eliminación de cuentas se está preparando. Inténtalo de nuevo en unos minutos.",
+        "cooldown": "La cuenta anterior asociada a este correo se eliminó hace menos de 3 días. Puedes seguir usando la cuenta actual, pero todavía no puedes eliminarla de nuevo.",
+        "lastAdmin": "La última cuenta de administrador no se puede eliminar. Primero asigna como administrador a otra persona de confianza.",
+        "referral": "Las cuentas con historial de referidos requieren eliminación asistida por soporte para evitar recompensas duplicadas.",
+        "protectedHistory": "Esta cuenta tiene una restricción de seguridad activa. Contacta con soporte para una eliminación asistida.",
+        "email": "No pudimos enviar el correo de confirmación. Inténtalo más tarde.",
+        "invalidLink": "Este enlace de eliminación no es válido o ha caducado. Solicita uno nuevo en la configuración de la cuenta.",
+        "generic": "No se pudo iniciar la eliminación de la cuenta. Inténtalo más tarde."
+      }
+    },
+    "connectedAccounts": {
+      "title": "Métodos de inicio de sesión",
+      "description": "Todos los métodos vinculados te permiten iniciar sesión en esta misma cuenta.",
+      "emailPassword": "Correo y contraseña",
+      "connected": "Conectado",
+      "notConnected": "No conectado",
+      "connect": "Conectar",
+      "disconnect": "Desconectar",
+      "connecting": "Conectando...",
+      "disconnecting": "Desconectando...",
+      "loading": "Cargando...",
+      "disconnected": "Desconectado",
+      "connectError": "Error al conectar",
+      "disconnectError": "Error al desconectar"
+    },
+    "validation": {
+      "usernameMinLength": "El nombre de usuario debe tener al menos 3 caracteres",
+      "usernameTaken": "El nombre de usuario ya está en uso",
+      "usernameUpdateFailed": "Error al actualizar el nombre de usuario",
+      "usernameUpdated": "Nombre de usuario actualizado",
+      "passwordMinLength": "La nueva contraseña debe tener al menos 8 caracteres",
+      "passwordsMismatch": "Las contraseñas no coinciden",
+      "passwordChanged": "Contraseña cambiada correctamente",
+      "passwordChangeFailed": "Error al cambiar la contraseña",
+      "saveFailed": "Error al guardar el ajuste"
+    }
+  },
+  "contentSafety": {
+    "title": "Contenido y seguridad",
+    "description": "Controla qué tipo de contenido ves en la plataforma.",
+    "contentLevel": "Modo de contenido",
+    "safe": {
+      "label": "Limitado",
+      "description": "Mostrar solo contenido Limitado"
+    },
+    "sensitive": {
+      "label": "Sin límites",
+      "description": "Incluir contenido Sin límites"
+    },
+    "minorRestriction": "El modo Sin límites no está disponible para esta cuenta.",
+    "audiencePreference": {
+      "title": "Preferencia de audiencia",
+      "description": "Elige qué audiencia ver en el feed recomendado. No afecta a la búsqueda, las etiquetas ni las páginas de creadores.",
+      "all": {
+        "label": "Para todos",
+        "description": "Ver todas las historias, incluidas las orientadas a hombres y mujeres."
+      },
+      "male": {
+        "label": "Para hombres",
+        "description": "Ver historias orientadas a hombres y generales, ocultar las orientadas a mujeres."
+      },
+      "female": {
+        "label": "Para mujeres",
+        "description": "Ver historias orientadas a mujeres y generales, ocultar las orientadas a hombres."
+      }
+    },
+    "blurSensitive": {
+      "title": "Difuminar contenido Sin límites",
+      "description": "Difumina las miniaturas de contenido Sin límites en Descubrir."
+    }
+  },
+  "privacy": {
+    "title": "Privacidad",
+    "description": "Controla quién puede ver tu actividad y contactarte.",
+    "privateAccount": {
+      "title": "Cuenta privada",
+      "description": "Solo las personas que sigues pueden ver tus mundos publicados, estadísticas y actividad."
+    },
+    "allowDMs": {
+      "title": "Permitir mensajes privados",
+      "description": "Permite que otros usuarios inicien una conversación directa contigo."
+    },
+    "showRecentPlay": {
+      "title": "Mostrar partidas recientes",
+      "description": "Muestra los mundos jugados recientemente en tu perfil público."
+    },
+    "profileVisibility": {
+      "title": "Visibilidad del perfil",
+      "description": "Elige quién puede ver las partes privadas de tu perfil. Cuando tu perfil está restringido, otras personas no pueden ver tus mundos publicados en tu perfil, partidas recientes, listas de seguidores/seguidos ni favoritos.",
+      "public": {
+        "title": "Público",
+        "description": "Cualquiera puede ver los detalles y las secciones de tu perfil."
+      },
+      "followers": {
+        "title": "Personas que sigo",
+        "description": "Solo las personas que sigues pueden ver tus mundos publicados y datos privados del perfil."
+      },
+      "private": {
+        "title": "Privado",
+        "description": "Solo tú puedes ver tus mundos publicados y los datos privados del perfil."
+      }
+    },
+    "showPlayHistory": {
+      "title": "Mostrar historial de partidas",
+      "description": "Muestra los mundos jugados recientemente en tu perfil público."
+    },
+    "showStats": {
+      "title": "Mostrar mis datos",
+      "description": "Muestra el tiempo de juego y las estadísticas de creador en tu perfil público."
+    },
+    "showFollowLists": {
+      "title": "Mostrar listas de seguidores / seguidos",
+      "description": "Permite que otros abran tus listas de seguidores y seguidos. Los conteos seguirán visibles de todos modos."
+    },
+    "showFavorites": {
+      "title": "Mostrar mis favoritos",
+      "description": "Muestra los favoritos y vistas previas de Biblioteca en tu perfil público."
+    },
+    "blacklist": {
+      "title": "Lista de bloqueados",
+      "subtitle": "Administra los usuarios bloqueados",
+      "empty": "No hay usuarios bloqueados.",
+      "unblock": "Desbloquear",
+      "saveFailed": "Error al actualizar la lista de bloqueados",
+      "hideTheirWorlds": "Ocultar sus tarjetas de mundo",
+      "hideMyWorlds": "Ocultarle mis tarjetas de mundo",
+      "hideTheirActivity": "Ocultar sus reseñas y publicaciones de la Comunidad"
+    }
+  },
+  "notifications": {
+    "title": "Notificaciones",
+    "groups": {
+      "engagement": "Interacción",
+      "engagementDesc": "Favoritos, reseñas, me gusta y propinas en tus mundos y paquetes.",
+      "social": "Social",
+      "socialDesc": "Nuevos seguidores y publicaciones de creadores que sigues.",
+      "library": "Biblioteca",
+      "libraryDesc": "Actualizaciones y cambios de estado de mundos en tu Biblioteca.",
+      "community": "Comunidad",
+      "communityDesc": "Respuestas, me gusta y recompensas en tus publicaciones del foro."
+    }
+  },
+  "display": {
+    "title": "Pantalla",
+    "language": {
+      "title": "Idioma",
+      "current": "Actual"
+    },
+    "fontSize": {
+      "title": "Tamaño de fuente",
+      "small": "Pequeño",
+      "default": "Predeterminado",
+      "large": "Grande",
+      "xLarge": "Extra grande",
+      "hint": "Los cambios se aplican al instante y se guardan en este dispositivo."
+    },
+    "autoFullscreenOnPlay": {
+      "title": "Pantalla completa automática al jugar",
+      "description": "Al abrir una carta con interfaz personalizada se entra automáticamente en pantalla completa inmersiva. Si está desactivado, la carta se abre en el diseño normal y puedes entrar cuando quieras con el botón de pantalla completa. Se guarda en tu cuenta."
+    },
+    "worldAudio": {
+      "title": "Música y efectos de sonido",
+      "description": "Si está desactivado, los mundos no reproducen música de fondo ni efectos de sonido: silencio total. Se guarda en tu cuenta."
+    },
+    "sendKey": {
+      "title": "Pulsa Enter para enviar",
+      "description": "Cuando está activado, Enter envía el mensaje y Shift+Enter inserta un salto de línea. Cuando está desactivado, Ctrl/⌘+Enter envía y Enter inserta un salto de línea. Se guarda en este dispositivo."
+    }
+  },
+  "wallpaper": {
+    "title": "Fondo de pantalla",
+    "description": "Elige un fondo distinto para cada página y ajusta qué tanta presencia tiene.",
+    "visualControls": {
+      "title": "Controles visuales"
+    },
+    "opacity": {
+      "title": "Opacidad del fondo",
+      "description": "Mantiene el balance visual propio de cada página, pero te permite hacer el fondo más sutil o intenso en general.",
+      "minLabel": "Sutil",
+      "maxLabel": "Vívido",
+      "ariaLabel": "Opacidad del fondo",
+      "hint": "Fondos del Hub, perfil, ajustes y Biblioteca"
+    },
+    "gradient": {
+      "title": "Intensidad del degradado inferior",
+      "description": "Controla qué tan fuerte es el desvanecimiento oscuro en la parte inferior de las páginas inmersivas.",
+      "minLabel": "Más claro",
+      "maxLabel": "Más oscuro",
+      "ariaLabel": "Intensidad del degradado inferior",
+      "hint": "Cambia el desvanecimiento negro inferior sin quitar el estilo propio de cada página"
+    },
+    "cloudyGlass": {
+      "title": "Intensidad del cristal nublado",
+      "description": "Hace el cristal nublado más borroso y denso sin cambiar a los preajustes de cristal más claro.",
+      "minLabel": "Más claro",
+      "maxLabel": "Más nublado",
+      "ariaLabel": "Intensidad del cristal nublado",
+      "hint": "Vista previa en vivo al arrastrar"
+    },
+    "autoSaves": "Se guarda automáticamente al soltar",
+    "library": {
+      "title": "Biblioteca de fondos",
+      "description": "Haz clic en un fondo para elegir qué página lo usa."
+    },
+    "upload": {
+      "title": "Subir fondo personalizado",
+      "description": "Las imágenes subidas van a tu carpeta \"{{folderName}}\", y solo las imágenes de esa carpeta aparecen en esta galería.",
+      "loading": "Cargando fondos...",
+      "assetCount_one": "{{count}} recurso de imagen subido",
+      "assetCount": "{{count}} recursos de imagen subidos",
+      "button": "Subir"
+    },
+    "assignments": {
+      "discover": {
+        "label": "Descubrir",
+        "description": "Páginas del Hub y de descubrimiento"
+      },
+      "profile": {
+        "label": "Perfil",
+        "description": "Páginas de perfil y perfil público"
+      },
+      "settings": {
+        "label": "Ajustes",
+        "description": "Páginas de ajustes y configuración"
+      },
+      "library": {
+        "label": "Biblioteca",
+        "description": "Páginas de Biblioteca y selector de creación"
+      }
+    },
+    "unused": "Sin uso",
+    "setFor": "Asignar \"{{name}}\" para...",
+    "current": "Actual",
+    "set": "Asignar",
+    "unknown": "Desconocido",
+    "presets": {
+      "starryNight": {
+        "label": "Noche estrellada",
+        "description": "Cielo nocturno azul-dorado"
+      },
+      "libraryCanvas": {
+        "label": "Lienzo de biblioteca",
+        "description": "Escena pintada más cálida"
+      },
+      "uploaded": {
+        "description": "Fondo subido"
+      }
+    },
+    "folderError": "No se pudo preparar la carpeta wallpaper"
+  },
+  "about": {
+    "title": "Acerca de",
+    "version": "Versión",
+    "versionValue": "Yumina v1.0.0",
+    "termsOfService": "Términos del servicio",
+    "privacyPolicy": "Política de privacidad",
+    "licenses": "Licencias",
+    "contactSupport": "Contactar a Yumina",
+    "contactSupportDescription": "Leemos cada mensaje.",
+    "messageOfficial": "Enviar mensaje a {{username}}",
+    "messageOfficialHint": "Abrir un mensaje directo",
+    "emailSupport": "Correo de soporte",
+    "emailCopied": "Correo copiado: {{email}}"
+  }
+}

@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Yumina Sandbox</title>
+    <script>
+      // Mirror of the compat-lite tag in the app shell's index.html: old
+      // Chromium kernels (Quark/UC U4, aged WebViews) mis-composite
+      // backdrop-filter, so globals.css flattens glass effects under
+      // html.compat-lite. Tencent's X5/TBS kernel needs it too but reports
+      // Chrome/121, so match the kernel by name as well. The sandbox is a
+      // separate document — tag it too. Keep this in sync with index.html.
+      (function () {
+        var ua = navigator.userAgent;
+        var m = ua.match(/Chrom(?:e|ium)\/(\d+)/);
+        var x5 = /Android/.test(ua) && /MQQBrowser|\bTBS\/\d/.test(ua);
+        if (x5 || (m && parseInt(m[1], 10) < 111)) {
+          document.documentElement.className += " compat-lite";
+        }
+      })();
+    </script>
+    <style>
+      /* Let Tailwind preflight handle the full reset — only add box-sizing */
+      *, *::before, *::after { box-sizing: border-box; }
+      /* Opt out of Android WebView font-boosting up front (X5/TBS in WeChat,
+         MIUI/Huawei) so the composer text isn't inflated before globals.css
+         loads. Full prefix set — newer engines honor the unprefixed property
+         over the deprecated -webkit- alias. See globals.css html{} for the why. */
+      html { touch-action: manipulation; -webkit-text-size-adjust: 100%; -moz-text-size-adjust: 100%; -ms-text-size-adjust: 100%; text-size-adjust: 100%; }
+      html, body, #sandbox-root { width: 100%; height: 100%; background: var(--color-background, #121316); color: var(--color-foreground, #E8E2D2); -webkit-user-select: none; user-select: none; }
+      /* Exactly ONE document-level scroller: #sandbox-root. html/body stay
+         hidden so browser-driven scrolls (soft-keyboard focus reveal, missed
+         momentum clamps) can never offset the whole canvas. This invariant
+         previously depended on globals.css being injected AFTER this style
+         block to override an overflow-y:auto here — now it's explicit. */
+      html, body { overflow: hidden; overscroll-behavior: none; }
+      #sandbox-root { overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+      /* Sandbox has no sidebar — zero out the offset that some worlds reference */
+      :root { --desktop-sidebar-offset: 0px; --mobile-safe-bottom: env(safe-area-inset-bottom, 0px); }
+    </style>
+  </head>
+  <body>
+    <div id="sandbox-root"></div>
+    <script type="module" src="./main.tsx"></script>
+  </body>
+</html>

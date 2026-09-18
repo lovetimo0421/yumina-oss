@@ -1,0 +1,88 @@
+{
+  "title": "Extensiones",
+  "subtitle": "Funciones oficiales que puedes activar en tu cuenta",
+  "viewMore": "Ver más",
+  "getMore": "Obtener más",
+  "manage": "Gestionar",
+  "discover": "Descubrir",
+  "installed": "Instaladas",
+  "previouslyInstalled": "Instaladas anteriormente",
+  "installedBadge": "Instalada",
+  "install": "Instalar",
+  "uninstall": "Desinstalar",
+  "reinstall": "Reinstalar",
+  "empty": "Aún no hay extensiones",
+  "emptyHint": "Explora Descubrir abajo para añadir tu primera extensión.",
+  "search": "Buscar extensiones",
+  "noResults": "Ninguna extensión coincide con tu búsqueda.",
+  "sort": {
+    "recommended": "Recomendadas",
+    "popular": "Populares",
+    "newest": "Más recientes"
+  },
+  "category": {
+    "all": "Todas",
+    "memory": "Memoria",
+    "narrative": "Narrativa",
+    "tools": "Herramientas",
+    "social": "Social"
+  },
+  "detail": {
+    "byAuthor": "por {{author}}",
+    "about": "Acerca de",
+    "whatItDoes": "Qué hace",
+    "reviewsWithCount": "Reseñas ({{count}})"
+  },
+  "reviews": {
+    "write": "Escribir una reseña",
+    "submit": "Enviar reseña",
+    "placeholder": "Comparte tu experiencia… (opcional)",
+    "none": "Aún no hay reseñas",
+    "noComment": "Sin comentario",
+    "hidden": "Oculta",
+    "raterCount": "{{count}} valoraciones",
+    "raterCount_one": "{{count}} valoración",
+    "yourRating": "Tu valoración",
+    "confirmDelete": "¿Eliminar este comentario?",
+    "deleted": "Comentario eliminado",
+    "deleteFailed": "No se pudo eliminar el comentario",
+    "deleteTitle": "Eliminar comentario"
+  },
+  "toast": {
+    "installed": "Extensión instalada",
+    "uninstalled": "Extensión desinstalada",
+    "reinstalled": "Extensión reinstalada",
+    "installFailed": "Error al instalar",
+    "uninstallFailed": "Error al desinstalar",
+    "reviewSubmitted": "Reseña enviada",
+    "reviewFailed": "Error al enviar la reseña",
+    "memoryCostNotice": "Las actualizaciones de memoria cuestan un poco — cambia a gratis en el chat"
+  },
+  "catalog": {
+    "session-memory-summary": {
+      "name": "Memoria de sesión y resumen de historia (Beta)",
+      "shortDescription": "En chats largos la IA olvida cosas. Esta extensión le toma notas: registra los hechos clave y comprime el chat antiguo en un resumen — que además ahorra tokens. Beta.",
+      "longDescription": "En chats largos la IA olvida cosas. Esta extensión le toma notas en segundo plano: los hechos clave (relaciones, objetos, promesas, metas) van a una lista, el chat antiguo se comprime en un resumen de lo ocurrido, y ambos se le pasan a la IA antes de cada respuesta — los detalles sobreviven y cada turno gasta menos tokens. Hay además un resumen por capas experimental para historias larguísimas.\n\nTomar notas tiene un pequeño costo: el modelo por defecto es Gemini 2.5 Flash Lite, normalmente bastante menos de 1 mushie por actualización. ¿No quieres gastar nada? Cámbialo a Yumina Free en el panel de Memoria.\n\nTodo lo que escribe está en el panel de Memoria (el botón sobre el cuadro de chat; en algunos mundos con interfaz totalmente propia el botón no existe — lleva el cursor al borde superior y usa la barra de controles). Léelo, edítalo, bórralo y regenéralo, cambia el modelo, ajusta cuándo se comprime.\n\nDesinstalar solo lo apaga — tus notas se conservan y al reinstalar continúas. Beta: a veces se equivoca en algún detalle.",
+      "tags": {
+        "memory": "memoria",
+        "context": "contexto",
+        "long-play": "sesión larga",
+        "summary": "resumen"
+      },
+      "explanations": [
+        {
+          "title": "Memoria de sesión",
+          "body": "Los hechos clave van a una lista — relaciones, objetos, promesas, metas pendientes — y se le pasan a la IA antes de cada respuesta, para que los detalles sobrevivan a las sesiones largas."
+        },
+        {
+          "title": "Resumen de historia",
+          "body": "El chat antiguo se comprime en un \"resumen de lo ocurrido\". La IA mantiene la trama sin la transcripción completa, y cada turno cuesta menos tokens."
+        },
+        {
+          "title": "Costo y control",
+          "body": "Tomar notas cuesta poco (por defecto: Gemini 2.5 Flash Lite; un toque en el panel de Memoria lo cambia al modelo gratuito). Todo lo que escribe se puede ver, editar o borrar."
+        }
+      ]
+    }
+  }
+}

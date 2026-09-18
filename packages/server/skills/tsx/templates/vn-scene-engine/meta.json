@@ -1,0 +1,12 @@
+{
+  "name": "Visual Novel Scene Engine",
+  "description": "Full-screen VN with scene backgrounds (day/evening/night), character sprites with emotions, dialogue parsing from AI text, and a navigation map. Demonstrates: asset-driven scenes, sprite emotion system, segment parsing, period/time tracking, map overlay with landmarks.",
+  "tags": ["visual-novel", "scenes", "sprites", "dialogue", "full-screen", "map"],
+  "surface": "custom-component",
+  "requires": {
+    "variables": ["current-scene", "current-period", "char1-emotion", "char2-emotion"],
+    "notes": "String variables for scene ID and period (morning/afternoon/evening/night). String variables for character emotions (normal/happy/sad/angry/shy/surprised). Optionally number variables for affinity tracking."
+  },
+  "author": "yumina-official",
+  "version": "1.0.0"
+}

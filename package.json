@@ -1,0 +1,55 @@
+{
+  "name": "yumina",
+  "version": "0.0.35.0",
+  "license": "AGPL-3.0-only",
+  "private": true,
+  "packageManager": "pnpm@10.30.1",
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "start": "node scripts/start.mjs",
+    "start:rebuild": "node scripts/start.mjs --build",
+    "db:push": "pnpm --filter @yumina/server db:push"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1019.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@types/pg": "^8.16.0",
+    "pg": "^8.18.0",
+    "railway": "3.11.0",
+    "turbo": "^2"
+  },
+  "dependencies": {
+    "@posthog/react": "^1.8.2",
+    "js-tiktoken": "^1.0.21",
+    "posthog-js": "^1.351.4"
+  },
+  "pnpm": {
+    "overrides": {
+      "defu": ">=6.1.5",
+      "kysely": ">=0.28.17"
+    },
+    "supportedArchitectures": {
+      "os": [
+        "current",
+        "linux"
+      ],
+      "cpu": [
+        "current",
+        "x64"
+      ],
+      "libc": [
+        "current",
+        "glibc"
+      ]
+    }
+  },
+  "description": "Open-source AI interactive fiction engine: play and build worlds with your own model keys.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lovetimo0421/yumina-oss.git"
+  }
+}

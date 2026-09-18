@@ -1,0 +1,87 @@
+{
+  "title": "扩展",
+  "subtitle": "可在你的账号上启用的官方功能",
+  "viewMore": "查看更多",
+  "getMore": "获取更多",
+  "manage": "管理",
+  "discover": "发现",
+  "installed": "已安装",
+  "previouslyInstalled": "曾经安装",
+  "installedBadge": "已安装",
+  "install": "安装",
+  "uninstall": "卸载",
+  "reinstall": "重新安装",
+  "empty": "还没有扩展",
+  "emptyHint": "在下方“发现”中添加你的第一个扩展。",
+  "search": "搜索扩展",
+  "noResults": "没有符合搜索条件的扩展。",
+  "sort": {
+    "recommended": "推荐",
+    "popular": "热门",
+    "newest": "最新"
+  },
+  "category": {
+    "all": "全部",
+    "memory": "记忆",
+    "narrative": "叙事",
+    "tools": "工具",
+    "social": "社交"
+  },
+  "detail": {
+    "byAuthor": "作者 {{author}}",
+    "about": "简介",
+    "whatItDoes": "功能说明",
+    "reviewsWithCount": "评价 ({{count}})"
+  },
+  "reviews": {
+    "write": "撰写评价",
+    "submit": "提交评价",
+    "placeholder": "分享你的体验……（可选）",
+    "none": "还没有评价",
+    "noComment": "无评论",
+    "hidden": "已隐藏",
+    "raterCount": "{{count}} 人评分",
+    "yourRating": "你的评分",
+    "confirmDelete": "删除这条评论？",
+    "deleted": "评论已删除",
+    "deleteFailed": "删除评论失败",
+    "deleteTitle": "删除评论"
+  },
+  "toast": {
+    "installed": "扩展已安装",
+    "uninstalled": "扩展已卸载",
+    "reinstalled": "扩展已重新安装",
+    "installFailed": "安装失败",
+    "uninstallFailed": "卸载失败",
+    "reviewSubmitted": "评价已提交",
+    "reviewFailed": "评价提交失败",
+    "memoryCostNotice": "提醒：记忆更新默认用 Gemini 2.5 Flash Lite，按次少量计费。随时可以在聊天里的记忆面板换成免费模型。"
+  },
+  "catalog": {
+    "session-memory-summary": {
+      "name": "会话记忆与剧情摘要（Beta）",
+      "shortDescription": "AI 聊久了会忘事，这个扩展帮它记笔记：关键事实自动记录，旧聊天压缩成前情提要，还能省 token。测试版。",
+      "longDescription": "AI 聊久了会忘事。这个扩展在后台帮它记笔记：关键事实（人物关系、道具、承诺、目标）记成清单，旧聊天压缩成前情提要，每次回复前喂给 AI——细节不丢，还省 token。另有实验性的分层摘要，超长故事才用得上。\n\n记笔记有消耗：默认 Gemini 2.5 Flash Lite，一次一般不到 1 个蘑菇。不想花钱，在记忆面板把模型换成 Yumina Free 就完全免费。\n\n记了什么都在「记忆」面板里（聊天输入框上方的按钮；个别作者自绘界面的卡没有这个按钮，鼠标移到屏幕顶边从操作条打开）。能看、能改、能清空重新生成，也能换模型、调整什么时候压缩。\n\n卸载只关功能不删笔记，重装接着用。测试版，偶尔会记错细节。",
+      "tags": {
+        "memory": "记忆",
+        "context": "上下文",
+        "long-play": "长跑局",
+        "summary": "摘要"
+      },
+      "explanations": [
+        {
+          "title": "会话记忆",
+          "body": "关键事实记成清单：人物关系、道具、承诺、还没完成的目标。每次回复前喂给 AI，长跑局里细节不丢。"
+        },
+        {
+          "title": "剧情摘要",
+          "body": "旧聊天压缩成一段前情提要，AI 记得住剧情，每轮还少花 token。"
+        },
+        {
+          "title": "费用与控制",
+          "body": "记笔记会花少量蘑菇（默认 Gemini 2.5 Flash Lite，在记忆面板一键可换免费模型）。记了什么随时能看、能改、能删。"
+        }
+      ]
+    }
+  }
+}

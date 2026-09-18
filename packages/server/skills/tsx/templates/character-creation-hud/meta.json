@@ -1,0 +1,12 @@
+{
+  "name": "Character Creation + Game HUD",
+  "description": "Message renderer with interactive character creation form on greeting (messageIndex 0), then switches to a game state HUD with tabbed panels for subsequent messages. Demonstrates: form-based greeting interaction, multi-tab state panels, variable-driven stat bars, CSS animations, stamp/approval effects, inventory/skill list rendering.",
+  "tags": ["character-creation", "greeting", "form", "hud", "tabs", "interactive", "rpg"],
+  "surface": "message-renderer",
+  "requires": {
+    "variables": ["player-name", "player-class", "chakra-nature", "hp", "chakra", "inventory", "skills"],
+    "notes": "String variables for player identity choices. Number variables for stats. JSON arrays for inventory and skills. The greeting entry should set up the character creation narrative."
+  },
+  "author": "yumina-official",
+  "version": "1.0.0"
+}

@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en" class="dark" translate="no">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      // Account-deletion links carry their one-time token in the URL fragment
+      // so it never reaches server logs or referrers. Capture and erase it
+      // before any analytics or application module can observe the URL.
+      (function () {
+        if (!/^\/delete-account\/?$/.test(window.location.pathname)) return;
+        var token = new URLSearchParams(window.location.hash.slice(1)).get("token");
+        if (!token || !/^[a-f0-9]{48}$/.test(token)) return;
+        window.__yuminaAccountDeletionToken = token;
+        try {
+          window.sessionStorage.setItem("yumina-account-deletion-token", token);
+        } catch (_) {
+          // The in-memory copy above still lets this page finish the flow.
+        }
+        window.history.replaceState(
+          window.history.state,
+          "",
+          window.location.pathname + window.location.search
+        );
+      })();
+    </script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <script id="reading-page-bootstrap">
+      // Install the reading surface before first paint, including '/' (the
+      // Discover redirect and PWA start URL). React adopts it without a gap.
+      (function () {
+        if (/^creator\./i.test(window.location.hostname)) return;
+        if (!window.matchMedia || !window.matchMedia("(max-width: 767px)").matches) return;
+        var path = window.location.pathname;
+        var page;
+        if (/^\/app\/messages(?:\/|$)/.test(path)) document.documentElement.setAttribute("data-mobile-message-canvas", "");
+        if (path === "/" || /^\/app\/hub(?:\/|$)/.test(path)) page = "hub-main";
+        else if (/^\/app\/community(?:\/|$)/.test(path)) page = "community-main";
+        else if (/^\/app\/messages\/?$/.test(path)) page = "dm-page-conversation-list";
+        else if (/^\/app\/library\/?$/.test(path)) {
+          var search = new URLSearchParams(window.location.search);
+          page = search.get("view") === "favorites" ? "library-favorites" : search.get("worldId") ? "library-detail" : "library-main";
+        } else if (/^\/app\/profile\/?$/.test(path)) page = "profile-main";
+        else if (/^\/app\/users\/[^/]+\/?$/.test(path)) page = "public-profile-main";
+        if (!page) return;
+        var root = document.documentElement;
+        root.setAttribute("data-mobile-page-scroll", page);
+        root.setAttribute("data-reading-boot", "");
+      })();
+    </script>
+    <script>
+      // Old Chromium kernels (Quark/UC's U4, aged Android WebViews) crash the
+      // GPU compositor on backdrop-filter — green/corrupted patches over glass
+      // panels. Tag the document so globals.css (html.compat-lite) can flatten
+      // those effects. Chromium < 111 is the oklch()/color-mix() support line,
+      // a good proxy for "kernel too old for the modern CSS pipeline".
+      //
+      // Tencent's X5/TBS kernel (QQ Browser, older WeChat webviews) needs the
+      // same treatment but slips past the version gate: it advertises
+      // Chrome/121 while running Tencent's own compositor. Community report
+      // 2026-08-17 (@姜千越, OPPO PKM110 / Android 16 / MQQBrowser 20.3) —
+      // opening the soft keyboard shrinks the layout viewport 591→351px and
+      // the page paints solid black, while the DOM stays healthy (verified
+      // against his session replay: --keyboard-inset never leaves 0px, no
+      // style/class writes on <html>, no unmounts). That signature is a
+      // compositor failure, and the heavy layers on screen are exactly the
+      // ones compat-lite already flattens. Match the kernel, not the version.
+      (function () {
+        var ua = navigator.userAgent;
+        var m = ua.match(/Chrom(?:e|ium)\/(\d+)/);
+        // Android only: on iOS these same apps are WKWebView skins with
+        // Safari's compositor, which handles both effects fine.
+        var x5 = /Android/.test(ua) && /MQQBrowser|\bTBS\/\d/.test(ua);
+        if (x5 || (m && parseInt(m[1], 10) < 111)) {
+          document.documentElement.className += " compat-lite";
+        }
+      })();
+    </script>
+    <script>
+      // iOS ONLY: append maximum-scale=1 to suppress Safari's sticky auto-zoom
+      // when a sub-16px input gains focus (the zoom never reverts and pushes
+      // fixed-layout cards' send button off-screen). iOS ignores maximum-scale
+      // for MANUAL pinch since iOS 10, so accessibility zoom keeps working.
+      // Deliberately NOT applied on Android: Chrome honors maximum-scale and
+      // would disable pinch-zoom entirely there.
+      (function () {
+        var ua = navigator.userAgent;
+        var iOS = /iPad|iPhone|iPod/.test(ua) || (/Mac/.test(ua) && navigator.maxTouchPoints > 1);
+        if (!iOS) return;
+        var m = document.querySelector('meta[name="viewport"]');
+        if (m) m.setAttribute("content", m.getAttribute("content") + ", maximum-scale=1");
+      })();
+    </script>
+    <meta name="google" content="notranslate" />
+    <meta name="theme-color" content="#0B0F19" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Yumina" />
+    <style>
+      html,
+      body,
+      #root {
+        min-height: 100%;
+        background-color: #121316;
+        color: #E8E2D2;
+      }
+      /* App-shell splash: painted from the first byte of HTML (no JS needed) and
+         removed by the inline script below once React paints into #root. Turns a
+         cold/slow load from a silent black screen into a branded loading state. */
+      #app-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483600;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background: #121316;
+        color: #E8E2D2;
+        transition: opacity 0.35s ease;
+      }
+      #app-splash.is-hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #app-splash .ys-spinner {
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 3px solid rgba(201, 162, 94, 0.18);
+        border-top-color: #c9a25e;
+        animation: ys-spin 0.8s linear infinite;
+      }
+      @keyframes ys-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      #app-splash .ys-wordmark {
+        font-family: "Nunito Sans", system-ui, -apple-system, sans-serif;
+        font-weight: 600;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        font-size: 13px;
+        color: rgba(255, 245, 214, 0.72);
+      }
+      #app-splash .ys-hint {
+        min-height: 16px;
+        max-width: 260px;
+        padding: 0 24px;
+        text-align: center;
+        font-family: "Nunito Sans", system-ui, -apple-system, sans-serif;
+        font-size: 12px;
+        line-height: 1.4;
+        color: rgba(232, 226, 210, 0.42);
+        opacity: 0;
+        transition: opacity 0.4s ease;
+      }
+      #app-splash .ys-hint.is-shown {
+        opacity: 1;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        #app-splash .ys-spinner {
+          animation-duration: 1.8s;
+        }
+      }
+    </style>
+    <!-- Keep the entire reading canvas in the HTML response. Safari can choose
+         its initial browser-edge color before external CSS has arrived; a
+         separate stylesheet lets the old splash/body color seed that state. -->
+    <style id="reading-page-surface">
+      html[data-mobile-page-scroll], html[data-mobile-message-canvas] {
+        --reading-canvas-image: url("/starry-night-bg.jpg");
+        --reading-canvas-color: rgb(25, 27, 36);
+        --reading-canvas-veil: linear-gradient(rgba(11, 10, 16, 0.45), rgba(11, 10, 16, 0.45));
+        --reading-canvas-gradient: linear-gradient(to top, rgba(11, 15, 25, 0.8), rgba(18, 18, 18, 0.5), rgba(18, 18, 18, 0.2));
+        --reading-canvas-tile-height: max(100vh, calc(100vw / var(--reading-canvas-aspect, 1.7777778)));
+        background-color: var(--reading-canvas-color);
+        background-image:
+          linear-gradient(to bottom, var(--reading-canvas-color), transparent 16%, transparent 78%, var(--reading-canvas-color)),
+          var(--reading-canvas-gradient), var(--reading-canvas-veil), var(--reading-canvas-image);
+        /* Stable matching tiles don't recrop when a feed grows. Scroll
+           attachment avoids the fixed-background limitations in iOS. */
+        background-size: 100% var(--reading-canvas-tile-height), 100% var(--reading-canvas-tile-height), 100% var(--reading-canvas-tile-height), auto var(--reading-canvas-tile-height);
+        background-position: center top;
+        background-repeat: repeat-y;
+        background-attachment: scroll;
+      }
+
+      html[data-mobile-page-scroll] {
+        height: auto;
+        min-height: 100%;
+        overflow-x: clip;
+        overflow-y: auto;
+        overscroll-behavior-y: auto;
+      }
+
+      /* Conversations keep their keyboard-sized panels. Paint the document
+         behind those panels as well, including Safari's browser edges. */
+      html[data-mobile-message-canvas] body,
+      html[data-mobile-message-canvas] #root,
+      html[data-mobile-message-canvas] .app-shell-root {
+        background: transparent;
+      }
+
+      html[data-mobile-page-scroll="community-main"],
+      html[data-mobile-page-scroll^="library-"] {
+        --reading-canvas-image: url("/libary-bg.jpg");
+        --reading-canvas-veil: linear-gradient(rgba(11, 10, 16, 0.28), rgba(11, 10, 16, 0.28));
+      }
+
+      @supports (height: 100lvh) {
+        html[data-mobile-page-scroll], html[data-mobile-message-canvas] {
+          --reading-canvas-tile-height: max(100lvh, calc(100vw / var(--reading-canvas-aspect, 1.7777778)));
+        }
+      }
+
+      html[data-mobile-page-scroll] body,
+      html[data-mobile-page-scroll] #root {
+        position: static;
+        height: auto;
+        min-height: 100%;
+        overflow: visible;
+        overscroll-behavior-y: auto;
+        background: transparent;
+      }
+
+      /* Keep the loading indicator without a fixed black layer that Safari
+         can retain as a solid toolbar color after loading. */
+      html[data-mobile-page-scroll] #app-splash,
+      html[data-mobile-message-canvas] #app-splash {
+        position: absolute;
+        inset: 0 0 auto;
+        min-height: 100vh;
+        min-height: 100svh;
+        background: transparent;
+      }
+    </style>
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Nunito+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <title>Yumina</title>
+    <meta name="description" content="Play and create AI-powered interactive worlds on Yumina. Open-source platform for AI-native games, interactive fiction, and roleplay. Browse thousands of worlds or build your own with Studio AI." />
+    <link rel="canonical" href="https://yumina.io/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Yumina" />
+    <meta property="og:url" content="https://yumina.io/" />
+    <meta property="og:title" content="Yumina - AI Interactive Fiction Platform" />
+    <meta property="og:description" content="Play and create AI-powered interactive worlds on Yumina. Open-source platform for AI-native games, interactive fiction, and roleplay. Browse thousands of worlds or build your own with Studio AI." />
+    <meta property="og:image" content="https://yumina.io/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:locale" content="en_US" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Yumina - AI Interactive Fiction Platform" />
+    <meta name="twitter:description" content="Play and create AI-powered interactive worlds on Yumina. Open-source platform for AI-native games, interactive fiction, and roleplay. Browse thousands of worlds or build your own with Studio AI." />
+    <meta name="twitter:image" content="https://yumina.io/og-image.png" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "Yumina",
+      "url": "https://yumina.io",
+      "description": "Open-source AI interactive fiction platform. Play and create AI-powered worlds, interactive stories, and games.",
+      "applicationCategory": "GameApplication",
+      "operatingSystem": "Any",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "author": {
+        "@type": "Organization",
+        "name": "Yumina",
+        "url": "https://yumina.io",
+        "sameAs": [
+          "https://discord.gg/gPhncrugz3",
+          "https://docs.yumina.io"
+        ]
+      }
+    }
+    </script>
+    <!-- Prefetch wallpapers (low priority — loads when idle, no console warnings) -->
+    <link rel="prefetch" as="image" href="/starry-night-bg.jpg" />
+    <link rel="prefetch" as="image" href="/libary-bg.jpg" />
+    <!-- The sandbox iframe's bundle is warmed by src/lib/sandbox-prewarm.ts, not by a
+         prefetch tag. A tag here cannot name the document: its URL is content-hashed at
+         build time. Worse, the tag that used to sit here made Vite treat the sandbox HTML
+         as an asset of this page and emit a copy of the UNBUILT source (src="./main.tsx",
+         a file absent from dist) as /assets/index-<hash>.html — a dead artifact that the
+         2026-08-25 cache fix then mistook for the real document. -->
+  </head>
+  <body class="bg-background text-foreground">
+    <div id="app-splash" role="status" aria-live="polite" aria-label="Loading Yumina">
+      <div class="ys-spinner"></div>
+      <div class="ys-wordmark">Yumina</div>
+      <div class="ys-hint" id="ys-hint"></div>
+    </div>
+    <div id="root"></div>
+    <script>
+      // Remove the app-shell splash once React paints, with a safety net so a
+      // hung mount can never strand the spinner. Plain ES5, runs before the
+      // module bundle (which may take seconds to arrive on a slow connection).
+      (function () {
+        var splash = document.getElementById("app-splash");
+        if (!splash) return;
+        var root = document.getElementById("root");
+        var done = false;
+        function hide() {
+          if (done) return;
+          done = true;
+          splash.classList.add("is-hidden");
+          window.setTimeout(function () {
+            if (splash && splash.parentNode) splash.parentNode.removeChild(splash);
+          }, 420);
+        }
+        window.__hideAppSplash = hide;
+        // If content still hasn't appeared after a few seconds, reassure the
+        // user it's their connection, not a broken page.
+        var hintTimer = window.setTimeout(function () {
+          var hint = document.getElementById("ys-hint");
+          if (!hint) return;
+          var lang = (navigator.language || "").toLowerCase();
+          hint.textContent =
+            lang.indexOf("zh") === 0
+              ? "网络较慢，仍在加载…"
+              : "Still loading on a slow connection…";
+          hint.classList.add("is-shown");
+        }, 6000);
+        // Hide the moment React commits its first content (or the error screen).
+        if (root && "MutationObserver" in window) {
+          var obs = new MutationObserver(function () {
+            if (root.firstElementChild) {
+              obs.disconnect();
+              window.clearTimeout(hintTimer);
+              requestAnimationFrame(function () {
+                requestAnimationFrame(hide);
+              });
+            }
+          });
+          obs.observe(root, { childList: true });
+        } else {
+          window.clearTimeout(hintTimer);
+          hide();
+        }
+        // Safety net: never leave a spinner up forever.
+        window.setTimeout(function () {
+          window.clearTimeout(hintTimer);
+          hide();
+        }, 15000);
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

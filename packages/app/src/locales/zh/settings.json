@@ -1,0 +1,367 @@
+{
+  "pageTitle": "设置",
+  "search": {
+    "label": "搜索设置",
+    "placeholder": "搜索设置",
+    "clear": "清空设置搜索",
+    "results": "找到 {{count}} 项设置",
+    "noResults": "没有找到相关设置",
+    "noResultsHint": "换个关键词试试，例如「语言」或「隐私」。",
+    "aiConfigDescription": "模型、服务商、API 密钥与生成偏好。"
+  },
+  "nav": {
+    "aiConfig": "AI 配置",
+    "account": "账户",
+    "contentSafety": "内容与安全",
+    "privacy": "隐私",
+    "notifications": "通知",
+    "display": "显示 / 语言",
+    "wallpaper": "壁纸",
+    "about": "关于"
+  },
+  "aiConfig": {
+    "title": "AI 配置"
+  },
+  "account": {
+    "saved": "已保存",
+    "title": "账户",
+    "emailLabel": "邮箱",
+    "emailCannotChange": "邮箱无法更改",
+    "usernameLabel": "用户名",
+    "usernameHint": "3-30 个字符，仅允许字母、数字和下划线",
+    "save": "保存",
+    "saving": "保存中...",
+    "changePassword": {
+      "changed": "已修改",
+      "title": "修改密码",
+      "description": "更新你的密码。其他所有会话将被登出。",
+      "currentPassword": "当前密码",
+      "newPassword": "新密码",
+      "confirmNewPassword": "确认新密码",
+      "submit": "修改密码",
+      "changing": "修改中..."
+    },
+    "signOut": {
+      "title": "退出登录",
+      "description": "在此设备上退出你的账户。",
+      "button": "退出登录"
+    },
+    "loginDevices": {
+      "title": "登录设备",
+      "description": "当前登录你账号的设备。不认识的、或忘了退出的，直接在这里踢下线。",
+      "loading": "正在加载设备...",
+      "loadError": "无法加载设备列表，请稍后再试。",
+      "unknownDevice": "未知设备",
+      "thisDevice": "当前设备",
+      "lastActive": "最后活跃 {{time}}",
+      "signOutDevice": "退出",
+      "signingOut": "正在退出...",
+      "signOutOthers": "退出其他全部设备（{{n}}）",
+      "revoked": "设备已退出登录",
+      "revokedOthers": "其他设备已全部退出登录",
+      "revokeError": "无法退出该设备，请稍后再试。",
+      "propagationNote": "被踢下线的设备最多需要 5 分钟才会真正登出。修改密码会立即登出其他所有设备。"
+    },
+    "deleteAccount": {
+      "title": "注销账户",
+      "description": "永久删除你的账户及相关数据。",
+      "button": "注销账户",
+      "dialogTitle": "确定要永久注销账户吗？",
+      "dialogDescription": "在你通过邮件确认前，账户仍会保持有效。删除后可以立即使用同一邮箱重新注册，但新账户要到本次删除满 3 天后才能再次注销。",
+      "warningTitle": "此操作无法撤销",
+      "warnings": {
+        "identity": "你的个人资料及所有已绑定的登录方式都会被删除。",
+        "deletionCooldown": "删除后可以立即使用同一邮箱重新注册，包括通过 Google 或 Discord 注册；但新账户在本次删除后的 3 天内不能再次注销。",
+        "content": "你的世界、合集、已发布内容、游玩记录、消息、角色设定和上传文件都会被删除。",
+        "community": "其他玩家可能会失去与你所创作内容关联的游玩记录、评价或回复。",
+        "billing": "任何有效订阅都会立即终止；剩余订阅时间和 Mushies 不予退款。",
+        "records": "支付处理商可能会按法律、会计或防欺诈要求保留账单及身份记录，但这些记录将不再关联到有效的 Yumina 账户。",
+        "antiAbuse": "为防止滥用和维持服务运行，我们可能在必要期限内保留化名化的安全日志及有限分析数据。",
+        "cache": "已存储的上传文件会被删除，但浏览器或内容分发网络中的既有缓存可能在原缓存期限届满前仍然可见。"
+      },
+      "pendingEarnings": "如果仍有待结算的创作者收入，账户将无法注销。遇到这种情况请联系客服。",
+      "confirmLabel": "请输入 {{target}} 以确认",
+      "confirmPlaceholder": "输入 {{target}}",
+      "acknowledge": "我明白此操作会永久删除我的账户和数据。删除后可以立即重新注册，但新账户在本次删除后的 3 天内不能再次注销。",
+      "sendEmail": "发送确认邮件",
+      "sending": "正在发送...",
+      "cancel": "保留我的账户",
+      "canceling": "正在取消申请...",
+      "emailSentTitle": "请查看你的邮箱",
+      "emailSentDescription": "我们已向 {{email}} 发送注销链接。完成最终确认页面前，你的账户仍保持有效。删除后可以立即重新注册，但新账户在 3 天内不能再次注销。链接将在 1 小时后失效。",
+      "close": "关闭",
+      "finalConfirmationDescription": "这是最后一步。点击下方按钮后将立即开始删除，且无法撤销。你可以立即使用同一邮箱重新注册，但新账户在 3 天内不能再次注销。",
+      "deleting": "正在删除...",
+      "invalidLinkTitle": "链接无效或已过期",
+      "signInRequiredTitle": "需要登录",
+      "signInRequiredDescription": "为保障账户安全，请先在此浏览器登录该账户，然后重新打开邮件中的注销链接。",
+      "signIn": "登录",
+      "errors": {
+        "confirmationMismatch": "确认文字与当前账户不一致。",
+        "pendingEarnings": "仍有创作者收入等待结算，请联系客服后再注销账户。",
+        "billing": "无法安全取消你的订阅，请稍后重试或联系客服。",
+        "creatorAccount": "无法关闭你的创作者收款账户，请联系客服后再注销。",
+        "notReady": "账户注销功能正在准备中，请几分钟后再试。",
+        "cooldown": "这个邮箱对应的上一个账户注销还未满 3 天。你可以继续使用当前账户，但暂时不能再次注销。",
+        "lastAdmin": "最后一个管理员账户不能注销，请先将另一名可信用户设为管理员。",
+        "referral": "有邀请记录的账户需要由客服协助注销，以防奖励被重复领取。",
+        "protectedHistory": "此账户存在有效的安全限制，请联系客服协助注销。",
+        "email": "无法发送确认邮件，请稍后再试。",
+        "invalidLink": "此注销链接无效或已过期，请在账户设置中重新申请。",
+        "generic": "暂时无法发起账户注销，请稍后重试。"
+      }
+    },
+    "connectedAccounts": {
+      "title": "登录方式",
+      "description": "已绑定的所有方式都登录到同一账户。",
+      "emailPassword": "邮箱 & 密码",
+      "connected": "已连接",
+      "notConnected": "未连接",
+      "connect": "连接",
+      "disconnect": "断开",
+      "connecting": "连接中...",
+      "disconnecting": "断开中...",
+      "loading": "加载中...",
+      "disconnected": "已断开",
+      "connectError": "连接失败",
+      "disconnectError": "断开失败"
+    },
+    "validation": {
+      "usernameMinLength": "用户名至少需要 3 个字符",
+      "usernameTaken": "用户名已被占用",
+      "usernameUpdateFailed": "更新用户名失败",
+      "usernameUpdated": "用户名已更新",
+      "passwordMinLength": "新密码至少需要 8 个字符",
+      "passwordsMismatch": "两次输入的密码不一致",
+      "passwordChanged": "密码修改成功",
+      "passwordChangeFailed": "修改密码失败",
+      "saveFailed": "保存设置失败"
+    }
+  },
+  "contentSafety": {
+    "title": "内容与安全",
+    "description": "控制你在平台上看到的内容类型。",
+    "contentLevel": "内容模式",
+    "safe": {
+      "label": "有限制",
+      "description": "部分内容将受到限制"
+    },
+    "sensitive": {
+      "label": "无限制",
+      "description": "没有内容限制"
+    },
+    "minorRestriction": "此账号无法使用「无限制」模式。",
+    "audiencePreference": {
+      "title": "内容性向偏好",
+      "description": "选择你想在推荐流里看到的内容类型。搜索、标签和创作者页面不受影响。",
+      "all": {
+        "label": "全性向",
+        "description": "看到所有作品，包括男性向和女性向。"
+      },
+      "male": {
+        "label": "男性向",
+        "description": "看到男性向和全性向作品，隐藏女性向。"
+      },
+      "female": {
+        "label": "女性向",
+        "description": "看到女性向和全性向作品，隐藏男性向。"
+      }
+    },
+    "blurSensitive": {
+      "title": "模糊不受内容限制的媒体",
+      "description": "在发现页中，将「无限制」模式下内容的缩略图显示为模糊状态。"
+    }
+  },
+  "privacy": {
+    "title": "隐私",
+    "description": "控制谁可以看到你的活动，以及谁可以联系你。",
+    "privateAccount": {
+      "title": "私密账户",
+      "description": "仅你关注的人可以查看你发布的世界、统计数据和动态。"
+    },
+    "allowDMs": {
+      "title": "允许私信",
+      "description": "允许其他用户向你发起私信对话。"
+    },
+    "showRecentPlay": {
+      "title": "显示最近游玩",
+      "description": "在你的公开主页展示最近游玩过的世界。"
+    },
+    "profileVisibility": {
+      "title": "个人页面可见性",
+      "description": "选择谁可以看到你个人主页里的私密内容。限制可见性后，别人无法在你的个人主页看到你发布的作品，也无法查看最近游玩、粉丝/关注列表、收藏等个人数据。",
+      "public": {
+        "title": "对所有人",
+        "description": "任何人都可以查看你的个人主页资料和主页内容。"
+      },
+      "followers": {
+        "title": "我关注的人",
+        "description": "只有你关注的人可以查看你发布的作品和非公开个人数据。"
+      },
+      "private": {
+        "title": "不公开",
+        "description": "只有你自己可以查看你发布的作品和非公开个人数据。"
+      }
+    },
+    "showPlayHistory": {
+      "title": "公开我的游玩历史",
+      "description": "在个人页面显示你最近游玩过的世界。"
+    },
+    "showStats": {
+      "title": "公开我的数据",
+      "description": "在个人页面显示游玩时长和创作者统计数据。"
+    },
+    "showFollowLists": {
+      "title": "公开关注/粉丝列表",
+      "description": "允许别人打开你的关注和粉丝列表。关注数和粉丝数仍然会显示，但别人不一定能点进去查看具体名单。"
+    },
+    "showFavorites": {
+      "title": "公开我的收藏",
+      "description": "在个人页面显示收藏和库内容预览。"
+    },
+    "blacklist": {
+      "title": "黑名单",
+      "subtitle": "管理被你拉黑的玩家",
+      "empty": "暂无被拉黑的玩家。",
+      "unblock": "取消拉黑",
+      "saveFailed": "黑名单更新失败",
+      "hideTheirWorlds": "不看他们的世界卡",
+      "hideMyWorlds": "不让他们看我的世界卡",
+      "hideTheirActivity": "不看他们的评价和社区发言"
+    }
+  },
+  "notifications": {
+    "title": "通知",
+    "groups": {
+      "engagement": "互动",
+      "engagementDesc": "你的世界和资源包的收藏、评价、点赞和打赏。",
+      "social": "社交",
+      "socialDesc": "新关注者和你关注的创作者的新发布。",
+      "library": "库",
+      "libraryDesc": "你收藏的世界的更新和状态变更。",
+      "community": "社区",
+      "communityDesc": "你的论坛帖子的回复、点赞和奖励。"
+    }
+  },
+  "display": {
+    "title": "显示",
+    "language": {
+      "title": "语言",
+      "current": "当前"
+    },
+    "fontSize": {
+      "title": "字体大小",
+      "small": "小",
+      "default": "默认",
+      "large": "大",
+      "xLarge": "超大",
+      "hint": "更改会立即生效并保存到此设备。"
+    },
+    "autoFullscreenOnPlay": {
+      "title": "进入卡片时自动全屏",
+      "description": "打开带自定义界面的卡片时，自动进入沉浸全屏。关闭后保持正常界面，可随时点击全屏按钮手动进入。此设置会保存到你的账号。"
+    },
+    "worldAudio": {
+      "title": "开启世界音乐 / 音效",
+      "description": "关闭后，所有世界都不会播放背景音乐和音效，完全静音。此设置会保存到你的账号。"
+    },
+    "sendKey": {
+      "title": "按 Enter 发送",
+      "description": "开启后，Enter 发送消息，Shift+Enter 换行；关闭后，Ctrl/⌘+Enter 发送，Enter 换行。此设置会保存到本设备。"
+    }
+  },
+  "wallpaper": {
+    "title": "壁纸",
+    "description": "为每个页面选择不同的壁纸，并调整背景的强度。",
+    "visualControls": {
+      "title": "视觉控制"
+    },
+    "opacity": {
+      "title": "壁纸透明度",
+      "description": "保持每个页面自己的视觉平衡，但允许你让壁纸更淡或更强。",
+      "minLabel": "淡雅",
+      "maxLabel": "鲜明",
+      "ariaLabel": "壁纸透明度",
+      "hint": "发现、个人资料、设置和库背景"
+    },
+    "gradient": {
+      "title": "底部渐变强度",
+      "description": "控制沉浸式页面底部暗色渐变的强度。",
+      "minLabel": "较浅",
+      "maxLabel": "较深",
+      "ariaLabel": "底部渐变强度",
+      "hint": "改变底部的黑色渐变而不移除页面特定样式"
+    },
+    "cloudyGlass": {
+      "title": "模糊玻璃强度",
+      "description": "让模糊玻璃更模糊更密集，而不切换到更清晰的玻璃预设。",
+      "minLabel": "更清晰",
+      "maxLabel": "更模糊",
+      "ariaLabel": "模糊玻璃强度",
+      "hint": "拖动时实时预览"
+    },
+    "autoSaves": "停止拖动后自动保存",
+    "library": {
+      "title": "壁纸库",
+      "description": "点击壁纸即可选择哪个页面使用它。"
+    },
+    "upload": {
+      "title": "上传自定义壁纸",
+      "description": "上传的图片会存入你的「{{folderName}}」文件夹，只有该文件夹中的图片会显示在此库中。",
+      "loading": "正在加载壁纸...",
+      "assetCount": "{{count}} 张已上传的图片",
+      "button": "上传"
+    },
+    "assignments": {
+      "discover": {
+        "label": "发现",
+        "description": "探索和发现页面"
+      },
+      "profile": {
+        "label": "个人主页",
+        "description": "个人资料和公开资料页面"
+      },
+      "settings": {
+        "label": "设置",
+        "description": "设置和配置页面"
+      },
+      "library": {
+        "label": "库",
+        "description": "库和创建选择页面"
+      }
+    },
+    "unused": "未使用",
+    "setFor": "将「{{name}}」设置为...",
+    "current": "当前",
+    "set": "设置",
+    "unknown": "未知",
+    "presets": {
+      "starryNight": {
+        "label": "星空",
+        "description": "蓝金色夜空"
+      },
+      "libraryCanvas": {
+        "label": "图书馆画布",
+        "description": "暖色调绘画场景"
+      },
+      "uploaded": {
+        "description": "已上传的壁纸"
+      }
+    },
+    "folderError": "准备「壁纸」资产文件夹失败"
+  },
+  "about": {
+    "title": "关于",
+    "version": "版本",
+    "versionValue": "梦坞 v1.0.0",
+    "termsOfService": "服务条款",
+    "privacyPolicy": "隐私政策",
+    "licenses": "开源许可",
+    "contactSupport": "联系梦坞",
+    "contactSupportDescription": "我们会阅读每一条消息。",
+    "messageOfficial": "私信 {{username}}",
+    "messageOfficialHint": "直接发消息给官方账号",
+    "emailSupport": "邮件支持",
+    "emailCopied": "已复制邮箱：{{email}}"
+  }
+}

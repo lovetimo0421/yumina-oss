@@ -1,0 +1,38 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalPassThroughEnv": [
+    "BETTER_AUTH_SECRET",
+    "BETTER_AUTH_URL",
+    "ENCRYPTION_KEY",
+    "DATABASE_URL",
+    "DATABASE_READ_URL",
+    "PGLITE_DATA_DIR",
+    "YUMINA_*",
+    "VITE_*",
+    "PUBLIC_ORIGIN",
+    "HOST",
+    "PORT",
+    "NODE_ENV",
+    "CI",
+    "TZ"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "lint": {
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["^build"]
+    }
+  }
+}

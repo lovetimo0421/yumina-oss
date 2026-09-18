@@ -1,0 +1,64 @@
+name: Feature request
+description: Suggest something new for the open-source edition.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before you write: hosted-only features (hub, discover, community, billing, accounts sync)
+        live on yumina.io and are out of scope here. See CONTRIBUTING.md for the full list.
+        Everything else in the engine, editor, Studio, player, providers, cards, and docs is fair game.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation, not the solution yet. "When I ..., I cannot ..., so I have to ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like to happen?
+      description: Your idea for how Yumina should handle it. Screenshots or mockups help.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried instead?
+      description: Workarounds, other tools, or ways this could be done with what exists today.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Which part of Yumina is this about?
+      options:
+        - Engine (state, rules, directives, prompt)
+        - Card format / world spec
+        - Editor
+        - Studio (AI assistant)
+        - Play canvas / chat
+        - Custom UI / sandbox
+        - Audio
+        - Model providers
+        - Import / export
+        - Settings
+        - Docs / kit
+        - Something else
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: This is not a hosted-only feature (hub, community, billing, accounts).
+          required: true
+        - label: I searched existing issues and discussions and did not find this idea.
+          required: true
+        - label: I would be willing to help build this.

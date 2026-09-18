@@ -1,0 +1,88 @@
+{
+  "title": "Extensions",
+  "subtitle": "First-party features you can enable on your account",
+  "viewMore": "View More",
+  "getMore": "Get More",
+  "manage": "Manage",
+  "discover": "Discover",
+  "installed": "Installed",
+  "previouslyInstalled": "Previously Installed",
+  "installedBadge": "Installed",
+  "install": "Install",
+  "uninstall": "Uninstall",
+  "reinstall": "Reinstall",
+  "empty": "No extensions yet",
+  "emptyHint": "Browse Discover below to add your first extension.",
+  "search": "Search extensions",
+  "noResults": "No extensions match your search.",
+  "sort": {
+    "recommended": "Recommended",
+    "popular": "Popular",
+    "newest": "Newest"
+  },
+  "category": {
+    "all": "All",
+    "memory": "Memory",
+    "narrative": "Narrative",
+    "tools": "Tools",
+    "social": "Social"
+  },
+  "detail": {
+    "byAuthor": "by {{author}}",
+    "about": "About",
+    "whatItDoes": "What it does",
+    "reviewsWithCount": "Reviews ({{count}})"
+  },
+  "reviews": {
+    "write": "Write a Review",
+    "submit": "Submit Review",
+    "placeholder": "Share your experience… (optional)",
+    "none": "No reviews yet",
+    "noComment": "No comment",
+    "hidden": "Hidden",
+    "raterCount": "{{count}} ratings",
+    "raterCount_one": "{{count}} rating",
+    "yourRating": "Your rating",
+    "confirmDelete": "Delete this comment?",
+    "deleted": "Comment deleted",
+    "deleteFailed": "Failed to delete comment",
+    "deleteTitle": "Delete comment"
+  },
+  "toast": {
+    "installed": "Extension installed",
+    "uninstalled": "Extension uninstalled",
+    "reinstalled": "Extension reinstalled",
+    "installFailed": "Failed to install",
+    "uninstallFailed": "Failed to uninstall",
+    "reviewSubmitted": "Review submitted",
+    "reviewFailed": "Failed to submit review",
+    "memoryCostNotice": "Memory updates cost a little — switch to free anytime in chat"
+  },
+  "catalog": {
+    "session-memory-summary": {
+      "name": "Session Memory & Story Summary (Beta)",
+      "shortDescription": "The AI forgets things in long chats. This keeps notes for it: key facts get recorded, older chat gets compressed into a recap — which also saves tokens. Beta.",
+      "longDescription": "The AI forgets things in long chats. This extension keeps notes for it in the background: key facts (relationships, items, promises, goals) go into a running list, older chat gets compressed into a \"story so far\" recap, and both are fed to the AI before every reply — details survive, and every turn costs fewer tokens. There's also an experimental Layered Summary for very long stories.\n\nNote-taking costs a little: the default model is Gemini 2.5 Flash Lite, usually well under 1 mushie per update. Don't want to spend anything? Switch it to Yumina Free in the Memory panel.\n\nEverything it writes lives in the Memory panel (the button above the chat input; in a few worlds with fully custom interfaces the button is missing — move your cursor to the top edge and use the play-controls bar). Read it, edit it, clear and regenerate it, change the model, tune when compression kicks in.\n\nUninstalling just turns it off — your notes are kept, and reinstalling picks them back up. Beta: it occasionally gets a detail wrong.",
+      "tags": {
+        "memory": "memory",
+        "context": "context",
+        "long-play": "long-play",
+        "summary": "summary"
+      },
+      "explanations": [
+        {
+          "title": "Session Memory",
+          "body": "Key facts go into a running list — relationships, items, promises, open goals — and get fed to the AI before every reply, so details survive long sessions."
+        },
+        {
+          "title": "Story Summary",
+          "body": "Older chat is compressed into a \"story so far\" recap. The AI keeps the plot without carrying the full transcript, and every turn costs fewer tokens."
+        },
+        {
+          "title": "Cost & control",
+          "body": "Note-taking costs a little (default: Gemini 2.5 Flash Lite; one tap in the Memory panel switches it to the free model). Everything it writes can be viewed, edited, or cleared."
+        }
+      ]
+    }
+  }
+}

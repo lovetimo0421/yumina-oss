@@ -1,0 +1,144 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import test from "node:test";
+import { act, createElement, type ComponentType, type ReactNode } from "react";
+import { createRoot } from "react-dom/client";
+import { JSDOM } from "jsdom";
+import { transform } from "sucrase";
+import { create } from "zustand";
+import type { SessionData } from "@/stores/chat";
+import type { Persona } from "@/stores/personas";
+import { createChatPersonaController } from "@/lib/refresh-chat-persona";
+
+// Exercise the actual manager's hooks and wiring while replacing only visual shells
+// and external stores. This keeps the test offline and does not open a browser.
+test("manager follows global changes while closed, queues public edits during generation, and finishes saves after closing", async () => {
+  const dom = new JSDOM('<div id="root"></div>');
+  const globals = { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true };
+  const previous = new Map(Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
+  const originalFetch = globalThis.fetch;
+  const a = { id: "A", name: "Session A", backstory: "Before", isActive: true } as Persona;
+  const b = { id: "B", name: "Profile B", backstory: "B", isActive: false } as Persona;
+  const session: SessionData = { id: "chat", worldId: "world", createdAt: "", updatedAt: "",
+    state: { variables: { hp: 9 }, metadata: { activeAudio: "song", personaName: a.name } },
+    sessionPersona: { persona: { id: a.id, name: a.name } } };
+  const chat = create(() => ({ session, isStreaming: false }));
+  let fetches = 0;
+  const personas = create(() => ({ personas: [a, b], fetchPersonas: async (invalidate?: boolean) => {
+    assert.equal(invalidate, true, "in-chat commit invalidates any older profile list request");
+    fetches++;
+    personas.setState({ personas: [a, b].map((p) => ({ ...p, isActive: p.id === selected.id })) });
+  } }));
+  const calls: { url: string; init?: RequestInit }[] = [];
+  let selected = a;
+  let finishSave!: () => void;
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url: String(url), init });
+    if (init?.method === "PUT") {
+      return new Promise<Response>((resolve) => {
+        finishSave = () => { selected = b; resolve(Response.json({ data: { persona: b } })); };
+      });
+    }
+    return Response.json({ data: { ...session, sessionPersona: { persona: selected },
+      state: { variables: { hp: 1 }, metadata: { personaName: selected.name, personaBackstory: selected.backstory } } } });
+  };
+  const t = (key: string, values?: { name: string }) => values?.name ?? key;
+  const shell = ({ children }: { children: ReactNode }) => createElement("div", null, children);
+  const modules: Record<string, unknown> = {
+    "react-i18next": { useTranslation: () => ({ t }) },
+    "@/components/ui/dialog": { Dialog: ({ open, children }: { open: boolean; children: ReactNode }) => open ? createElement("div", null, children) : null,
+      DialogContent: shell, DialogTitle: shell },
+    "@/features/personas/persona-carousel": { PersonaCarousel: ({ sessionSelection }: { sessionSelection: { personaId: string | null; onSelect: (id: string) => Promise<void> } }) =>
+      createElement("button", { "data-persona": sessionSelection.personaId, onClick: () => void sessionSelection.onSelect("B") }, "Select B") },
+    "@/features/personas/persona-edit-modal": { PersonaEditModal: () => null },
+    "@/components/ui/field-error": { FieldError: () => null },
+    "@/stores/chat": { useChatStore: chat },
+    "@/stores/personas": { usePersonasStore: personas },
+    "@/lib/refresh-chat-persona": { createChatPersonaController },
+  };
+  const require = createRequire(import.meta.url);
+  const module = { exports: {} as { PersonaManagerDialog: ComponentType<{ open: boolean; onClose: () => void; sessionId: string }> } };
+  const source = readFileSync(new URL("./persona-manager-dialog.tsx", import.meta.url), "utf8")
+    .replaceAll("import.meta.env.VITE_API_URL", '""');
+  new Function("require", "module", "exports", transform(source, { transforms: ["typescript", "jsx", "imports"], jsxRuntime: "automatic" }).code)(
+    (id: string) => modules[id] ?? require(id), module, module.exports,
+  );
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const render = (open: boolean) => root.render(createElement(module.exports.PersonaManagerDialog, { open, onClose() {}, sessionId: "chat" }));
+  try {
+    await act(async () => render(true));
+    assert.equal(dom.window.document.querySelector("[data-persona]")?.getAttribute("data-persona"), "A");
+    assert.equal(calls.length, 1, "opening refreshes identity once");
+    await act(async () => { chat.setState({ isStreaming: true }); });
+    await act(async () => { chat.setState({ isStreaming: false }); });
+    assert.equal(calls.length, 1, "an ordinary completed turn does not refresh");
+    await act(async () => render(false));
+    await act(async () => {
+      selected = { ...b, isActive: true };
+      personas.setState({ personas: [{ ...a, isActive: false }, selected] });
+    });
+    assert.equal(chat.getState().session.sessionPersona?.persona?.id, "B", "a global selection refreshes an existing chat with its dialog closed");
+    assert.equal(calls.length, 2);
+    await act(async () => {
+      personas.setState({ personas: [{ ...a, isActive: false }, { ...selected, note: "Private edit" }] });
+    });
+    assert.equal(calls.length, 2, "private notes are not prompt identity changes");
+    await act(async () => { chat.setState({ isStreaming: true }); });
+    await act(async () => {
+      selected = { ...b, backstory: "Edited", isActive: true };
+      personas.setState({ personas: [{ ...a, isActive: false }, selected] });
+    });
+    assert.equal(calls.length, 2, "editing during generation queues the refresh");
+    await act(async () => { chat.setState({ isStreaming: false }); });
+    assert.equal(calls.length, 3);
+    assert.equal((chat.getState().session.state.metadata as Record<string, unknown>).personaBackstory, "Edited");
+    await act(async () => render(true));
+    await act(async () => { dom.window.document.querySelector("[data-persona]")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })); });
+    assert.equal(calls.at(-1)?.url, "/api/sessions/chat/persona");
+    await act(async () => render(false));
+    await act(async () => finishSave());
+    assert.equal(chat.getState().session.sessionPersona?.persona?.id, "B");
+    assert.equal(fetches, 1, "a successful in-chat selection refetches the account selection");
+    assert.equal(personas.getState().personas.find((p) => p.isActive)?.id, "B");
+    assert.deepEqual(chat.getState().session.state.variables, { hp: 9 });
+    assert.equal((chat.getState().session.state.metadata as Record<string, unknown>).activeAudio, "song");
+    assert.equal(calls.filter((call) => call.init?.method === "PUT").length, 1);
+    assert.ok(calls.every((call) => call.url.startsWith("/api/sessions/chat")));
+    Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "hidden" });
+    const beforeHidden = calls.length;
+    await act(async () => { dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange")); });
+    assert.equal(calls.length, beforeHidden, "hiding a tab does not refresh");
+    assert.equal(fetches, 1);
+    Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "visible" });
+    selected = a;
+    await act(async () => { dom.window.dispatchEvent(new dom.window.Event("focus")); });
+    assert.equal(fetches, 2, "returning from another tab fetches the global choice");
+    assert.equal(chat.getState().session.sessionPersona?.persona?.id, "A");
+    await act(async () => { chat.setState({ isStreaming: true }); });
+    const beforeStreamFocus = calls.length;
+    selected = b;
+    await act(async () => { dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange")); });
+    assert.equal(fetches, 3);
+    assert.equal(calls.length, beforeStreamFocus, "tab-return identity refresh is queued during generation");
+    await act(async () => { chat.setState({ isStreaming: false }); });
+    assert.equal(chat.getState().session.sessionPersona?.persona?.id, "B");
+    const beforeUnmount = calls.length;
+    await act(async () => root.unmount());
+    await act(async () => {
+      dom.window.dispatchEvent(new dom.window.Event("focus"));
+      dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
+    });
+    assert.equal(fetches, 3, "unmount removes both global listeners");
+    assert.equal(calls.length, beforeUnmount);
+  } finally {
+    await act(async () => root.unmount());
+    globalThis.fetch = originalFetch;
+    dom.window.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});

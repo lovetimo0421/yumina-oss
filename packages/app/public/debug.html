@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Yumina API Diagnostic</title>
+<style>
+  body { font-family: monospace; font-size: 13px; color: #e0e0e0; background: #111; padding: 24px; margin: 0; }
+  h1 { font-size: 18px; margin-bottom: 8px; }
+  h2 { font-size: 15px; margin: 24px 0 8px; }
+  .info { color: #888; margin-bottom: 16px; }
+  table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+  th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #444; color: #aaa; }
+  td { padding: 6px 8px; border-bottom: 1px solid #222; }
+  .ok { color: #4ade80; }
+  .warn { color: #fbbf24; }
+  .err { color: #f87171; }
+  .preview { max-width: 500px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: #999; }
+  pre { background: #1a1a1a; padding: 16px; border-radius: 8px; overflow: auto; max-height: 500px; white-space: pre-wrap; word-break: break-all; }
+  .copy-btn { background: #333; color: #ccc; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-family: monospace; margin-top: 12px; }
+  .copy-btn:hover { background: #444; }
+</style>
+</head>
+<body>
+<h1>Yumina API Diagnostic</h1>
+<p class="info" id="status">Running tests...</p>
+<p class="info">Cookies visible to JS: <span id="cookies"></span></p>
+
+<h2>API Endpoint Tests</h2>
+<table>
+  <thead><tr><th>Endpoint</th><th>Status</th><th>Time</th><th>Response</th></tr></thead>
+  <tbody id="results"></tbody>
+</table>
+
+<h2>Server-Side Diagnostic</h2>
+<pre id="serverDiag">Waiting for API tests to complete...</pre>
+
+<h2>Environment</h2>
+<pre id="env"></pre>
+
+<button class="copy-btn" onclick="copyAll()">Copy All Results</button>
+
+<script>
+const apiBase = '';
+const tbody = document.getElementById('results');
+const allResults = [];
+
+document.getElementById('cookies').textContent = document.cookie
+  ? document.cookie.split(';').map(c => c.trim().split('=')[0]).join(', ')
+  : '(none visible to JS — HttpOnly cookies still sent with requests)';
+
+document.getElementById('env').textContent = [
+  'User Agent: ' + navigator.userAgent,
+  'URL: ' + location.href,
+  'Time: ' + new Date().toISOString(),
+  'Timezone: ' + Intl.DateTimeFormat().resolvedOptions().timeZone,
+  'Language: ' + navigator.language,
+].join('\n');
+
+async function test(name, url, creds) {
+  const start = Date.now();
+  try {
+    const opts = creds ? { credentials: 'include' } : {};
+    const res = await fetch(url, opts);
+    const ms = Date.now() - start;
+    const text = await res.text();
+    const result = { name, status: res.status, ms, preview: text.substring(0, 300) };
+    allResults.push(result);
+    addRow(result);
+    return result;
+  } catch (e) {
+    const ms = Date.now() - start;
+    const result = { name, status: 'ERR', ms, preview: e.message || String(e) };
+    allResults.push(result);
+    addRow(result);
+    return result;
+  }
+}
+
+function addRow(r) {
+  const tr = document.createElement('tr');
+  const cls = r.status === 200 ? 'ok' : r.status === 401 ? 'warn' : 'err';
+  tr.innerHTML = `
+    <td>${r.name}</td>
+    <td class="${cls}">${r.status}</td>
+    <td>${r.ms}ms</td>
+    <td class="preview">${escHtml(r.preview)}</td>
+  `;
+  tbody.appendChild(tr);
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function run() {
+  // Public endpoints
+  await test('Health', apiBase + '/health', false);
+  await test('Hub worlds (no auth)', apiBase + '/api/worlds/hub?limit=5', false);
+  await test('Hub tags (no auth)', apiBase + '/api/worlds/hub/tags', false);
+
+  // Auth check
+  const authRes = await test('Auth session', apiBase + '/api/auth/get-session', true);
+
+  // Authenticated endpoints
+  await test('My profile (/api/users/me)', apiBase + '/api/users/me', true);
+  await test('My worlds', apiBase + '/api/worlds', true);
+  await test('Library', apiBase + '/api/library?limit=5', true);
+  await test('Subscription status', apiBase + '/api/subscription/status', true);
+  await test('AI config', apiBase + '/api/users/me/ai-config', true);
+  await test('Notifications', apiBase + '/api/notifications?limit=3', true);
+  await test('Community forums', apiBase + '/api/community/forums', true);
+  await test('Favorites', apiBase + '/api/favorites', true);
+  await test('Hub worlds (auth)', apiBase + '/api/worlds/hub?limit=5', true);
+  await test('Hub hero threads', apiBase + '/api/community/threads/hero?limit=1&lang=zh', true);
+  await test('Hub events', apiBase + '/api/community/events/hero?limit=1&lang=zh', true);
+  await test('Check-in status', apiBase + '/api/check-ins/status', true);
+  await test('Credit transactions', apiBase + '/api/credits/transactions?limit=3', true);
+
+  // Server-side diagnostic
+  let userId = null;
+  try {
+    if (authRes.status === 200) {
+      const parsed = JSON.parse(authRes.preview);
+      userId = parsed?.user?.id || parsed?.data?.user?.id;
+    }
+  } catch {}
+
+  const profileRes = allResults.find(r => r.name === 'My profile (/api/users/me)');
+  if (!userId && profileRes && profileRes.status === 200) {
+    try {
+      const parsed = JSON.parse(profileRes.preview);
+      userId = parsed?.data?.id || parsed?.id;
+    } catch {}
+  }
+
+  if (userId) {
+    const diagRes = await test('Server diagnostic', apiBase + '/api/diagnostic/' + userId, true);
+    try {
+      document.getElementById('serverDiag').textContent = JSON.stringify(JSON.parse(diagRes.preview), null, 2);
+    } catch {
+      document.getElementById('serverDiag').textContent = diagRes.preview;
+    }
+  } else {
+    document.getElementById('serverDiag').textContent = 'Could not determine user ID (auth may have failed).\nManual test: visit ' + location.origin + '/api/diagnostic/YOUR_USER_ID';
+  }
+
+  // Count results
+  const ok = allResults.filter(r => r.status === 200).length;
+  const fail = allResults.filter(r => r.status !== 200).length;
+  document.getElementById('status').innerHTML = `Done. <span class="ok">${ok} passed</span>, <span class="${fail ? 'err' : 'ok'}">${fail} failed</span>`;
+}
+
+function copyAll() {
+  const text = JSON.stringify({
+    timestamp: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    url: location.href,
+    cookies: document.cookie.split(';').map(c => c.trim().split('=')[0]).filter(Boolean),
+    results: allResults,
+    serverDiag: document.getElementById('serverDiag').textContent,
+  }, null, 2);
+  navigator.clipboard.writeText(text).then(() => alert('Copied!')).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    alert('Copied!');
+  });
+}
+
+run();
+</script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+User-agent: *
+Allow: /app/hub
+Allow: /app/community
+Allow: /app/bundles
+Allow: /app/worlds
+Allow: /app/users/
+Allow: /login
+Allow: /register
+
+Disallow: /api/
+Disallow: /app/chat/
+Disallow: /app/studio/
+Disallow: /app/settings
+Disallow: /app/profile
+Disallow: /app/admin
+Disallow: /app/messages
+Disallow: /app/configs
+Disallow: /app/plans
+Disallow: /app/onboarding
+Disallow: /app/preview/
+Disallow: /sandbox/
+
+Sitemap: https://yumina.io/sitemap.xml
+Sitemap: https://docs.yumina.io/sitemap.xml

@@ -1,0 +1,176 @@
+/* Dockview theme — maps Yumina dark theme to dockview CSS variables.
+   We use !important on every variable to guarantee our overrides survive
+   production CSS-chunk reordering (Vite may place dockview.css after this). */
+
+.dockview-theme-yumina {
+  /* ── Core backgrounds ─────────────────────────────── */
+  --dv-background-color: transparent !important;
+  --dv-group-view-background-color: transparent !important;
+  --dv-paneview-header-border-color: transparent !important;
+
+  /* ── Tab bar ──────────────────────────────────────── */
+  --dv-tabs-and-actions-container-background-color: transparent !important;
+  --dv-tabs-and-actions-container-height: 48px !important;
+  --dv-tabs-and-actions-container-font-size: 13px !important;
+
+  /* ── Active group tabs ────────────────────────────── */
+  --dv-activegroup-visiblepanel-tab-background-color: rgba(255,255,255,0.05) !important;
+  --dv-activegroup-hiddenpanel-tab-background-color: transparent !important;
+  --dv-activegroup-visiblepanel-tab-color: #E6E4DD !important;
+  --dv-activegroup-hiddenpanel-tab-color: #8E8A84 !important;
+
+  /* ── Inactive group tabs ──────────────────────────── */
+  --dv-inactivegroup-visiblepanel-tab-background-color: transparent !important;
+  --dv-inactivegroup-hiddenpanel-tab-background-color: transparent !important;
+  --dv-inactivegroup-visiblepanel-tab-color: #8E8A84 !important;
+  --dv-inactivegroup-hiddenpanel-tab-color: #6B6864 !important;
+
+  /* ── Separators & dividers ────────────────────────── */
+  --dv-separator-border: transparent !important;
+  --dv-tab-divider-color: transparent !important;
+
+  /* ── Scrollbar ────────────────────────────────────── */
+  --dv-tabs-container-scrollbar-color: rgba(255, 255, 255, 0.1) !important;
+
+  /* ── Drag & drop ──────────────────────────────────── */
+  --dv-drag-over-background-color: rgba(201, 162, 94, 0.1) !important;
+  --dv-drag-over-border-color: var(--color-gold) !important;
+
+  /* ── Focus / outlines ─────────────────────────────── */
+  --dv-paneview-active-outline-color: var(--color-gold) !important;
+
+  /* ── Icon hover ───────────────────────────────────── */
+  --dv-icon-hover-background-color: rgba(255, 255, 255, 0.1) !important;
+
+  /* ── Floating panels ──────────────────────────────── */
+  --dv-floating-box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+  --dv-overlay-z-index: 999 !important;
+
+  /* ── Tab sizing ───────────────────────────────────── */
+  --dv-tab-font-size: inherit !important;
+  --dv-border-radius: 8px !important;
+  --dv-tab-margin: 4px !important;
+
+  /* ── Sash (resize handle) ─────────────────────────── */
+  --dv-sash-color: transparent !important;
+  --dv-active-sash-color: var(--color-gold) !important;
+  --dv-active-sash-transition-duration: 0.1s !important;
+  --dv-active-sash-transition-delay: 0.5s !important;
+}
+
+.dockview-theme-yumina .tab {
+  font-size: 0.8125rem !important;
+  padding: 0 16px !important;
+  margin-top: 8px !important;
+  margin-bottom: 8px !important;
+  height: calc(100% - 16px) !important;
+  border: 1px solid transparent !important;
+  transition: all 0.2s ease !important;
+}
+
+.dockview-theme-yumina .dv-tabs-and-actions-container {
+  height: 48px !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05) !important;
+}
+
+.dockview-theme-yumina .dv-left-actions-container {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.dockview-theme-yumina .dv-default-tab.dv-activegroup-visiblepanel-tab {
+  font-weight: 600 !important;
+  border-bottom: 2px solid var(--color-gold) !important;
+  border-radius: 8px 8px 0 0 !important;
+  background-color: rgba(255,255,255,0.03) !important;
+}
+
+.dockview-theme-yumina .dv-default-tab:hover:not(.dv-activegroup-visiblepanel-tab) {
+  background-color: rgba(255,255,255,0.05) !important;
+  border-radius: 8px !important;
+}
+
+.dockview-theme-yumina .studio-tab-add-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+  margin-left: 2px;
+  border: 1px solid transparent;
+  border-radius: 9999px;
+  background: transparent;
+  color: #8E8A84;
+  transition: all 0.2s ease;
+}
+
+.dockview-theme-yumina .studio-tab-add-button:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #E6E4DD;
+}
+
+.dockview-theme-yumina .dv-horizontal > .dv-sash-container > .dv-sash {
+  width: 10px;
+  background-color: transparent !important;
+}
+
+.dockview-theme-yumina .dv-horizontal > .dv-sash-container > .dv-sash::before {
+  content: "";
+  position: absolute;
+  top: 16px;
+  bottom: 16px;
+  left: 50%;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--color-gold);
+  opacity: 0.78;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 18px rgba(201, 162, 94, 0.18);
+  transition:
+    background-color 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease;
+  pointer-events: none;
+}
+
+.dockview-theme-yumina .dv-horizontal > .dv-sash-container > .dv-sash::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 10px;
+  height: 42px;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle, rgba(255, 255, 255, 0.34) 0 1px, transparent 1.5px)
+      center / 3px 11px repeat-y;
+  opacity: 0.7;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+  pointer-events: none;
+}
+
+.dockview-theme-yumina .dv-horizontal > .dv-sash-container > .dv-sash:not(.disabled):hover::before,
+.dockview-theme-yumina .dv-horizontal > .dv-sash-container > .dv-sash:not(.disabled):active::before {
+  background: var(--color-gold);
+  opacity: 1;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08),
+    0 0 22px rgba(201, 162, 94, 0.28);
+}
+
+.dockview-theme-yumina .dv-horizontal > .dv-sash-container > .dv-sash:not(.disabled):hover::after,
+.dockview-theme-yumina .dv-horizontal > .dv-sash-container > .dv-sash:not(.disabled):active::after {
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1.02);
+}

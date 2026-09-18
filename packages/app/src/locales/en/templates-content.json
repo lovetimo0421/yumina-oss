@@ -1,0 +1,167 @@
+{
+  "presets": {
+    "fictionMode": "Fiction Mode",
+    "task": "Task",
+    "style": "Style",
+    "instructions": "Instructions",
+    "cotBypass": "CoT Bypass"
+  },
+  "chat": {
+    "name": "Character Chat",
+    "description": "One-on-one character roleplay",
+    "entries": {
+      "character": {
+        "name": "Character",
+        "content": "[Name]\n[Full name, nicknames, preferred address]\n\n[Appearance]\n[One memorable detail beats three vague sentences]\n\n[Background]\n[Origin, key life events, what shaped who they are]\n\n[Personality]\n[2-3 layers. Use trait pairs to create depth: \"brave in battle but terrified of public speaking\", \"generous but calculating\"]"
+      },
+      "worldview": {
+        "name": "Worldview",
+        "content": "[The world this character lives in — where? when? what rules?]\n\n[Era / Setting]\n[Modern city? Medieval fantasy? Far-future space?]\n\n[Special rules]\n[What's unique here? Magic, superpowers, AI, political system?]\n\n[Tone]\n[Slice-of-life chill? Cold and suspenseful? Heroic adventure? Bittersweet healing?]"
+      },
+      "dialogueAndStyle": {
+        "name": "Sample Dialogue & Style",
+        "content": "[Tell the AI how this character speaks and the overall writing style. Specific beats abstract — \"she tugs her earlobe and looks away\" beats \"she gets nervous.\"]\n\n[Speech]\nNeutral: [default voice — a full example sentence]\nHappy: [how joy changes them — a full sentence]\nAnnoyed: [a full sentence]\nNervous: [a full sentence]\nMannerisms: [fidgets, catchphrases, micro-details]\n\n[Writing style]\nPOV: [First-person? Third-person limited?]\nFocus: [Inner monologue / setting description / action]\nPacing: [Fast · slow · varied]\n\n[Sample scene — paste a chunk that exemplifies the style you want]\n[Length is up to you, but make it concrete enough to be a \"this is exactly the voice\" template]"
+      },
+      "greeting": {
+        "name": "Greeting",
+        "content": "[The character's opening message — this one entry sets the AI's writing style for the whole conversation.\n\n- Want long responses → write a long greeting\n- Want short responses → write a short greeting\n- Demonstrate the format you want (*italic actions*, \"quoted dialogue\")\n- Establish setting, mood, character's current state\n- End by inviting {{user}} to respond]"
+      }
+    },
+    "variables": {
+      "affinity": {
+        "name": "Affinity",
+        "description": "How much the character likes {{user}}",
+        "behaviorRules": "Attentive listening or showing genuine empathy +3~5; remembering details the character mentioned before +2~3; casual pleasant interaction +1~2; minor disagreements or awkwardness -1~2; rude behavior or ignoring the character -3~5; touching delicate topics carelessly -5~8"
+      },
+      "mood": {
+        "name": "Mood",
+        "description": "Character's current emotional state",
+        "behaviorRules": "Allowed values: happy, sad, angry, shy, neutral, excited. Update based on conversation context. Mood naturally drifts toward neutral over 3-5 messages if nothing significant happens. Don't announce mood changes — show them through behavior."
+      },
+      "relationshipStage": {
+        "name": "Relationship Stage",
+        "description": "Current relationship level with {{user}}",
+        "behaviorRules": "Progression: stranger → acquaintance → friend → close. Managed automatically by rules based on affinity thresholds. DO NOT update this variable directly. Each stage should feel distinct in how the character behaves toward {{user}}."
+      }
+    },
+    "rules": {
+      "toAcquaintance": { "name": "Become Acquaintance", "description": "Affinity reaches 25" },
+      "toFriend": { "name": "Become Friend", "description": "Affinity reaches 50" },
+      "toClose": { "name": "Become Close", "description": "Affinity reaches 75" }
+    },
+    "components": {
+      "affinity": "Affinity",
+      "relationshipStage": "Relationship"
+    }
+  },
+  "world": {
+    "name": "World Simulation",
+    "description": "A living world with characters and systems",
+    "entries": {
+      "worldOverview": {
+        "name": "World Overview",
+        "content": "[What is this world?]\n[Fantasy kingdom, post-apocalypse, space station, modern city with hidden magic... a sentence or two]\n\n[Tone]\n[Gritty and dangerous? Whimsical? Tense political intrigue? Slice-of-life?]\n\n[Key background]\n[What happened before the story starts that shapes NOW? Focus on consequences the player will encounter — not a full timeline]"
+      },
+      "systemAndPowers": {
+        "name": "Systems & Powers",
+        "content": "[Power / Magic / Technology]\n[What can and can't be done in this world?]\n- How does it work? (Energy source, activation, limits)\n- Hard limits? (Things that are IMPOSSIBLE)\n- Cost of using power?\n\n[Factions / Powers]\n[Who holds power?]\n- For each: name, what they control, what they want, attitude toward the player\n\nPrecise beats vague — vague systems cause inconsistent AI behavior."
+      },
+      "npcA": {
+        "name": "NPC: [Name]",
+        "content": "Name: [Full name]\nRole: [Merchant · rival · mentor · ruler...]\nAppearance: [One memorable detail]\nPersonality: [Use trait pairs: \"generous but calculating\", \"cheerful but hiding grief\"]\nMotivation: [What do they want? What drives them?]\nToward the player: [Initial stance — friendly, suspicious, indifferent?]\nSpeech style: [Formal · blunt · flowery · sarcastic?]"
+      },
+      "npcB": {
+        "name": "NPC: [Name]",
+        "content": "[A second NPC — make them very different from NPC A to show the world's range.]\n\nName: [Full name]\nRole: [Different from A]\nAppearance: [Contrasting style]\nPersonality: [Different model — if A is friendly, make B difficult; if A is simple, make B complex]\nMotivation: [Different or conflicting goals from A]\nToward the player: [Different initial stance from A]\nRelationship to NPC A: [Allies? Rivals? Strangers?]\nSpeech style: [Distinctly different from A]"
+      },
+      "narrativeStyle": {
+        "name": "Narrative Style",
+        "content": "[Tell the AI how to narrate this world.]\n\n=== Style ===\n- Show through sensory detail, not exposition\n- End responses mid-scene so the player can act\n- Never make decisions for the player\n\n=== NPC Behavior ===\n- NPCs act independently with their own goals\n- NPCs talk to EACH OTHER, not just to the player\n- Update relationships: [relationships.name.affinity: +5]\n\n=== Pacing ===\n- Minor events every 2-3 player actions\n- Major events (plot, danger) every 5-8\n- Never force outcomes — present situations, let the player choose"
+      },
+      "greeting": {
+        "name": "Greeting",
+        "content": "[The player's first moment in your world — this greeting's length and style set the AI's writing for everything that follows.\n\n- Describe the environment through senses (sight, sound, feel)\n- What's happening RIGHT NOW\n- Hint at something interesting nearby (an NPC, a sound, a choice)\n- Make the world feel alive — others doing things, weather, ambient details\n- End at a natural moment for the player to act]"
+      }
+    },
+    "variables": {
+      "resources": {
+        "name": "Resources",
+        "description": "Available supplies and wealth (0 = desperate, 100 = well-stocked)",
+        "behaviorRules": "Decrease with travel (-5~10), combat (-10~15), and daily survival (-5). Increase by foraging (+10~15), trading (+variable), completing tasks (+20~30), or finding caches. At 0, the player faces survival crisis — NPCs may refuse service, options become desperate."
+      },
+      "location": {
+        "name": "Location",
+        "description": "Current location in the world"
+      },
+      "day": {
+        "name": "Day",
+        "description": "Current day count",
+        "behaviorRules": "Increment when the player rests, sleeps, or significant time passes. Each new day brings new events, NPC schedule changes, and world developments."
+      },
+      "timeOfDay": {
+        "name": "Time of Day",
+        "description": "Current time period",
+        "behaviorRules": "Cycle through: morning → afternoon → evening → night. Advance naturally with player actions. Different times affect NPC availability, danger levels, and available activities."
+      },
+      "relationships": {
+        "name": "Relationships",
+        "description": "Tracks how NPCs feel about the player",
+        "behaviorRules": "JSON object. Structure: {\"npc_name\": {\"affinity\": 50, \"status\": \"neutral\"}}. Update after meaningful interactions: [relationships.name.affinity: +5]. Status values: hostile / wary / neutral / friendly / loyal. NPC behavior should reflect their current affinity and status."
+      }
+    },
+    "rules": {
+      "lowResources": {
+        "name": "Low Resources Warning",
+        "description": "Alert when resources drop below 20"
+      }
+    },
+    "components": {
+      "resources": "Resources",
+      "location": "Location",
+      "time": "Time",
+      "day": "Day"
+    }
+  },
+  "multiplayer": {
+    "name": "Multiplayer Campaign",
+    "description": "Multiplayer collaborative adventure",
+    "entries": {
+      "hostRules": {
+        "name": "Host / DM Rules",
+        "content": "[Define how the AI hosts the multiplayer session.\n\n=== Role ===\nWhat is the AI's role? (Dungeon Master, narrator, referee, game show host...)\n\n=== Message Handling ===\nEach player's message is prefixed with their name (e.g., \"Alice: I do X\").\nHow should the AI handle multiple player actions in one response?\n- Resolve all actions together in one narrative?\n- Address each player in sequence?\n\n=== Fairness ===\nHow to ensure all players get equal attention?\nWhat to do when a player has been quiet?\nHow to handle conflicting player actions?\n\n=== Boundaries ===\nWhat should the AI never do? (e.g., make decisions for players, reveal hidden info, kill without warning)]"
+      },
+      "gameSystem": {
+        "name": "Game System",
+        "content": "[Define the rules system for your campaign. This is what makes it a GAME, not just collaborative storytelling.\n\n=== Action Resolution ===\nHow are uncertain outcomes decided? Options:\n- Dice-based (D20 + modifier vs. difficulty)\n- Narrative judgment (AI decides based on context)\n- Player choice (multiple options presented)\n- Hybrid (dice for combat, narrative for social)\n\n=== Combat / Conflict ===\nHow does combat work? Turn order? How is damage calculated?\nOr if there's no combat — how are conflicts resolved?\n\n=== Progression ===\nDo characters grow? How? (XP, story milestones, equipment...)\n\nBe as detailed or as loose as you want — more rules = more structure, fewer rules = more freeform.]"
+      },
+      "worldSetting": {
+        "name": "World Setting",
+        "content": "[The shared world all players inhabit.\n\n=== Setting ===\nWhat kind of world is this? Where does the adventure take place?\n\n=== Central Conflict ===\nWhat brings the players together? What are they trying to accomplish?\n\n=== Factions & Threats ===\nWhat forces exist in this world? Who are the allies and enemies?\n\n=== Tone ===\nWhat's the mood? (Epic heroic fantasy, dark survival horror, comedic chaos, political intrigue...)]"
+      },
+      "playerGuide": {
+        "name": "Player Onboarding",
+        "content": "[How new players join the session.\n\n=== What Players Need to Provide ===\nWhat info should a player give when joining? (Name, appearance, class, background...)\n\n=== Character Creation ===\nAre there predefined roles/classes? Or is it freeform?\nWhat are the starting stats/equipment/abilities?\n\n=== How to Play ===\nHow do players declare actions? Any specific format?\nWhat can and can't players do?]"
+      },
+      "greeting": {
+        "name": "Greeting",
+        "content": "[The opening scene when the session starts. Sets the tone for the entire campaign.\n\n- Establish the setting and atmosphere\n- Give players a reason to be here\n- End by inviting each player to introduce their character\n- The style of this greeting determines how the AI writes for the rest of the session]"
+      }
+    },
+    "variables": {
+      "players": {
+        "name": "Players",
+        "behaviorRules": "Track each player's state as a JSON object. When a player introduces their character, create their entry: [players.name: set {\"key\": \"value\"}]. Define whatever fields your game system needs (hp, class, inventory, etc.). Update with dot-paths: [players.alice.hp: -5]."
+      },
+      "worldState": {
+        "name": "World State",
+        "behaviorRules": "Track shared campaign state — location, time, current situation. Update as the story progresses: [world-state.location: set \"new place\"]. Add whatever fields your campaign needs."
+      }
+    },
+    "settings": {
+      "authorNotes": "Multiplayer campaign for 2-4 players. Define your own game system, world, and rules."
+    },
+    "components": {
+      "worldState": "Campaign Status"
+    }
+  }
+}

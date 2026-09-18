@@ -1,0 +1,124 @@
+name: Bug report
+description: Something is broken in the open-source edition.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Four facts answer most questions before we have to ask:
+        version, OS, how you run it, and which model provider. Please fill them in.
+
+        Security problem? Do not file it here. Email the address in SECURITY.md.
+
+        Hosted-only feature (hub, billing, community)? That lives on yumina.io, not in this repo.
+
+  - type: input
+    id: version
+    attributes:
+      label: Yumina version
+      description: The release tag (for example v0.1.0) or the commit hash you are running. Settings > About shows it.
+      placeholder: v0.1.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+        - Other (say which in the description)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: run-mode
+    attributes:
+      label: How do you run Yumina?
+      options:
+        - pnpm start (single-user, embedded database)
+        - pnpm start with DATABASE_URL (real PostgreSQL)
+        - Docker image
+        - pnpm dev (development)
+        - Other (say which in the description)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Model provider
+      description: The provider you had selected when it happened. Pick "Not related" if the bug has nothing to do with a model call.
+      options:
+        - OpenRouter
+        - Anthropic
+        - OpenAI
+        - Google
+        - Ollama
+        - OpenAI-compatible URL (DeepSeek, LM Studio, KoboldCpp, TabbyAPI, vLLM, ...)
+        - Not related to a model call
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model name
+      description: If a model was involved, which one?
+      placeholder: anthropic/claude-sonnet-4.5
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you see? Paste the exact error text if there is one.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered steps. Start from a fresh page load if you can.
+      placeholder: |
+        1. Open a world with a custom UI
+        2. Send a message
+        3. Click Rewind
+        4. The health bar shows the old value
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Terminal output from the server, and anything in the browser console (F12). Remove API keys before pasting.
+      render: shell
+
+  - type: textarea
+    id: card
+    attributes:
+      label: World card, if the bug needs one
+      description: If the bug only happens with a specific world, attach the exported JSON card here (drag and drop). Strip anything private first.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send
+      options:
+        - label: I am on the latest release.
+          required: true
+        - label: I searched existing issues and did not find this one.
+          required: true
+        - label: I removed API keys and personal data from the logs above.
+          required: true

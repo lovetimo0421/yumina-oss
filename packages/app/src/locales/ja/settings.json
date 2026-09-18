@@ -1,0 +1,367 @@
+{
+  "pageTitle": "設定",
+  "search": {
+    "label": "設定を検索",
+    "placeholder": "設定を検索",
+    "clear": "設定の検索をクリア",
+    "results": "{{count}} 件の設定が見つかりました",
+    "noResults": "設定が見つかりません",
+    "noResultsHint": "「言語」や「プライバシー」など、別のキーワードをお試しください。",
+    "aiConfigDescription": "モデル、プロバイダー、API キー、生成設定。"
+  },
+  "nav": {
+    "account": "アカウント",
+    "aiConfig": "AI設定",
+    "contentSafety": "コンテンツと安全性",
+    "privacy": "プライバシー",
+    "notifications": "通知",
+    "display": "表示／言語",
+    "wallpaper": "壁紙",
+    "about": "Yuminaについて"
+  },
+  "aiConfig": {
+    "title": "AI設定"
+  },
+  "account": {
+    "saved": "保存しました",
+    "title": "アカウント",
+    "emailLabel": "メールアドレス",
+    "emailCannotChange": "メールアドレスは変更できません",
+    "usernameLabel": "ユーザー名",
+    "usernameHint": "3〜30文字。英数字とアンダースコアのみ使用できます",
+    "save": "保存",
+    "saving": "保存中...",
+    "changePassword": {
+      "changed": "変更しました",
+      "title": "パスワードを変更",
+      "description": "パスワードを更新します。他のすべてのセッションからログアウトされます。",
+      "currentPassword": "現在のパスワード",
+      "newPassword": "新しいパスワード",
+      "confirmNewPassword": "新しいパスワード（確認）",
+      "submit": "パスワードを変更",
+      "changing": "変更中..."
+    },
+    "signOut": {
+      "title": "ログアウト",
+      "description": "このデバイスからアカウントをログアウトします。",
+      "button": "ログアウト"
+    },
+    "loginDevices": {
+      "title": "ログイン中のデバイス",
+      "description": "現在アカウントにログインしているデバイスです。心当たりのないもの、ログアウトし忘れたものはここでサインアウトできます。",
+      "loading": "デバイスを読み込み中...",
+      "loadError": "デバイス一覧を読み込めませんでした。しばらくしてからお試しください。",
+      "unknownDevice": "不明なデバイス",
+      "thisDevice": "このデバイス",
+      "lastActive": "最終アクティブ {{time}}",
+      "signOutDevice": "サインアウト",
+      "signingOut": "サインアウト中...",
+      "signOutOthers": "他のすべてのデバイスをサインアウト（{{n}}）",
+      "revoked": "デバイスをサインアウトしました",
+      "revokedOthers": "他のすべてのデバイスをサインアウトしました",
+      "revokeError": "そのデバイスをサインアウトできませんでした。しばらくしてからお試しください。",
+      "propagationNote": "サインアウトしたデバイスが実際にログアウトされるまで最大5分かかることがあります。パスワードを変更すると、他のすべてのデバイスが即座にサインアウトされます。"
+    },
+    "deleteAccount": {
+      "title": "アカウントを削除",
+      "description": "アカウントと関連データを完全に削除します。",
+      "button": "アカウントを削除",
+      "dialogTitle": "アカウントを完全に削除しますか？",
+      "dialogDescription": "メールで確認するまではアカウントは有効です。削除後は同じメールアドレスですぐに再登録できますが、再登録したアカウントは今回の削除から3日間は再度削除できません。",
+      "warningTitle": "この操作は取り消せません",
+      "warnings": {
+        "identity": "プロフィールと連携済みのすべてのログイン方法が削除されます。",
+        "deletionCooldown": "GoogleまたはDiscord経由を含め、同じメールアドレスですぐに再登録できますが、再登録したアカウントは今回の削除から3日間は再度削除できません。",
+        "content": "ワールド、バンドル、公開コンテンツ、プレイ履歴、メッセージ、ペルソナ、アップロードが削除されます。",
+        "community": "あなたのコンテンツに紐づく他のプレイヤーのプレイ履歴、レビュー、返信が失われる場合があります。",
+        "billing": "有効なサブスクリプションは直ちに終了します。残りの期間とMushiesは返金されません。",
+        "records": "決済事業者は、法令・会計・不正防止上必要な請求情報や本人確認記録を保持する場合がありますが、有効なYuminaアカウントとの関連付けは解除されます。",
+        "antiAbuse": "不正防止とサービス運営のため、仮名化されたセキュリティログと限定的な分析情報を必要な期間保持する場合があります。",
+        "cache": "保存済みアップロードは削除されますが、既存のブラウザまたは配信ネットワークのキャッシュは以前の有効期限まで表示される場合があります。"
+      },
+      "pendingEarnings": "保留中のクリエイター収益があるアカウントは、精算が完了するまで削除できません。該当する場合はサポートへご連絡ください。",
+      "confirmLabel": "確認のため {{target}} と入力してください",
+      "confirmPlaceholder": "{{target}} を入力",
+      "acknowledge": "アカウントとデータが完全に削除されること、削除後はすぐに再登録できるものの、再登録したアカウントは今回の削除から3日間は再度削除できないことを理解しました。",
+      "sendEmail": "確認メールを送信",
+      "sending": "送信中...",
+      "cancel": "アカウントを残す",
+      "canceling": "申請を取り消しています...",
+      "emailSentTitle": "メールを確認してください",
+      "emailSentDescription": "{{email}} に削除リンクを送信しました。最終確認ページを完了するまではアカウントは有効です。削除後はすぐに再登録できますが、再登録したアカウントは3日間は再度削除できません。リンクは1時間で期限切れになります。",
+      "close": "閉じる",
+      "finalConfirmationDescription": "これが最後の手順です。下のボタンを押すと削除が直ちに開始され、元に戻せません。同じメールアドレスですぐに再登録できますが、再登録したアカウントは3日間は再度削除できません。",
+      "deleting": "削除中...",
+      "invalidLinkTitle": "リンクが無効または期限切れです",
+      "signInRequiredTitle": "サインインが必要です",
+      "signInRequiredDescription": "安全のため、このブラウザで対象のアカウントにサインインしてから、メールの削除リンクをもう一度開いてください。",
+      "signIn": "サインイン",
+      "errors": {
+        "confirmationMismatch": "確認テキストが現在のアカウントと一致しません。",
+        "pendingEarnings": "精算待ちのクリエイター収益があります。アカウントを削除する前にサポートへご連絡ください。",
+        "billing": "請求を安全に停止できませんでした。後でもう一度試すか、サポートへご連絡ください。",
+        "creatorAccount": "クリエイター受取口座を閉鎖できませんでした。削除前にサポートへご連絡ください。",
+        "notReady": "アカウント削除機能を準備中です。数分後にもう一度お試しください。",
+        "cooldown": "このメールアドレスの前のアカウントを削除してから3日経過していません。現在のアカウントは引き続き利用できますが、まだ再度削除できません。",
+        "lastAdmin": "最後の管理者アカウントは削除できません。先に信頼できる別のユーザーを管理者にしてください。",
+        "referral": "紹介履歴のあるアカウントは、報酬の二重受取を防ぐためサポートによる削除が必要です。",
+        "protectedHistory": "このアカウントには有効な安全上の制限があります。サポートへ削除をご依頼ください。",
+        "email": "確認メールを送信できませんでした。後でもう一度お試しください。",
+        "invalidLink": "この削除リンクは無効または期限切れです。アカウント設定から新しいリンクを申請してください。",
+        "generic": "アカウント削除を開始できませんでした。後でもう一度お試しください。"
+      }
+    },
+    "connectedAccounts": {
+      "title": "ログイン方法",
+      "description": "連携したすべての方法で同じアカウントにログインできます。",
+      "emailPassword": "メールとパスワード",
+      "connected": "連携済み",
+      "notConnected": "未連携",
+      "connect": "連携",
+      "disconnect": "連携解除",
+      "connecting": "連携中...",
+      "disconnecting": "解除中...",
+      "loading": "読み込み中...",
+      "disconnected": "連携を解除しました",
+      "connectError": "連携に失敗しました",
+      "disconnectError": "連携解除に失敗しました"
+    },
+    "validation": {
+      "usernameMinLength": "ユーザー名は3文字以上にしてください",
+      "usernameTaken": "このユーザー名は既に使われています",
+      "usernameUpdateFailed": "ユーザー名の更新に失敗しました",
+      "usernameUpdated": "ユーザー名を更新しました",
+      "passwordMinLength": "新しいパスワードは8文字以上にしてください",
+      "passwordsMismatch": "パスワードが一致しません",
+      "passwordChanged": "パスワードを変更しました",
+      "passwordChangeFailed": "パスワードの変更に失敗しました",
+      "saveFailed": "設定の保存に失敗しました"
+    }
+  },
+  "contentSafety": {
+    "title": "コンテンツと安全性",
+    "description": "プラットフォームに表示されるコンテンツの種類を管理します。",
+    "contentLevel": "コンテンツモード",
+    "safe": {
+      "label": "制限あり",
+      "description": "「制限あり」のコンテンツのみ表示"
+    },
+    "sensitive": {
+      "label": "無制限",
+      "description": "「無制限」のコンテンツを含める"
+    },
+    "minorRestriction": "このアカウントでは「無制限」モードを利用できません。",
+    "audiencePreference": {
+      "title": "オーディエンス設定",
+      "description": "おすすめフィードで表示するオーディエンスを選択します。検索、タグ、クリエイターページには影響しません。",
+      "all": {
+        "label": "全員向け",
+        "description": "男性向け・女性向けを含むすべてのストーリーを表示します。"
+      },
+      "male": {
+        "label": "男性向け",
+        "description": "男性向けと一般のストーリーを表示し、女性向けを非表示にします。"
+      },
+      "female": {
+        "label": "女性向け",
+        "description": "女性向けと一般のストーリーを表示し、男性向けを非表示にします。"
+      }
+    },
+    "blurSensitive": {
+      "title": "無制限メディアをぼかす",
+      "description": "見つける画面で無制限コンテンツのサムネイルをぼかします。"
+    }
+  },
+  "privacy": {
+    "title": "プライバシー",
+    "description": "あなたのアクティビティを誰が見られるか、誰が連絡できるかを管理します。",
+    "privateAccount": {
+      "title": "非公開アカウント",
+      "description": "フォローしている人だけが、公開ワールド、統計、アクティビティを見られます。"
+    },
+    "allowDMs": {
+      "title": "ダイレクトメッセージを許可",
+      "description": "他のユーザーがあなたとのダイレクトメッセージを開始できるようにします。"
+    },
+    "showRecentPlay": {
+      "title": "最近のプレイを表示",
+      "description": "最近プレイしたワールドを公開プロフィールに表示します。"
+    },
+    "profileVisibility": {
+      "title": "プロフィールの公開範囲",
+      "description": "プロフィールの非公開部分を誰が見られるかを選びます。プロフィールを制限すると、他の人はあなたの公開ワールド、最近のプレイ、フォロワー／フォロー中リスト、お気に入りを見られなくなります。",
+      "public": {
+        "title": "公開",
+        "description": "誰でもプロフィールの詳細とセクションを閲覧できます。"
+      },
+      "followers": {
+        "title": "フォロー中の人",
+        "description": "あなたがフォローしている人だけが、公開ワールドと非公開プロフィールデータを見られます。"
+      },
+      "private": {
+        "title": "非公開",
+        "description": "あなただけが公開ワールドと非公開プロフィールデータを見られます。"
+      }
+    },
+    "showPlayHistory": {
+      "title": "プレイ履歴を表示",
+      "description": "最近プレイしたワールドを公開プロフィールに表示します。"
+    },
+    "showStats": {
+      "title": "データを表示",
+      "description": "プレイ時間とクリエイター統計を公開プロフィールに表示します。"
+    },
+    "showFollowLists": {
+      "title": "フォロワー／フォロー中リストを表示",
+      "description": "他のユーザーがあなたのフォロワー／フォロー中リストを開けるようにします。件数はいずれにせよ表示されます。"
+    },
+    "showFavorites": {
+      "title": "お気に入りを表示",
+      "description": "お気に入りとライブラリのプレビューを公開プロフィールに表示します。"
+    },
+    "blacklist": {
+      "title": "ブラックリスト",
+      "subtitle": "ブロックしたユーザーを管理",
+      "empty": "ブロック中のユーザーはいません。",
+      "unblock": "ブロック解除",
+      "saveFailed": "ブラックリストの更新に失敗しました",
+      "hideTheirWorlds": "相手のワールドカードを非表示",
+      "hideMyWorlds": "自分のワールドカードを相手に非表示",
+      "hideTheirActivity": "相手のレビューやコミュニティ投稿を非表示"
+    }
+  },
+  "notifications": {
+    "title": "通知",
+    "groups": {
+      "engagement": "エンゲージメント",
+      "engagementDesc": "あなたのワールドに対するリアクション。",
+      "social": "ソーシャル",
+      "socialDesc": "フォロワーとフォロー中のクリエイター。",
+      "library": "ライブラリ",
+      "libraryDesc": "ライブラリ内のワールドの更新。",
+      "community": "コミュニティ",
+      "communityDesc": "コミュニティ投稿への返信、いいね、アクティビティ。"
+    }
+  },
+  "display": {
+    "title": "表示",
+    "language": {
+      "title": "言語",
+      "current": "現在"
+    },
+    "fontSize": {
+      "title": "文字サイズ",
+      "small": "小",
+      "default": "標準",
+      "large": "大",
+      "xLarge": "特大",
+      "hint": "変更は即時反映され、このデバイスに保存されます。"
+    },
+    "autoFullscreenOnPlay": {
+      "title": "カードを開いたとき自動で全画面",
+      "description": "カスタムUI付きのカードを開くと、自動で没入全画面に入ります。オフにすると通常レイアウトのまま開き、全画面ボタンでいつでも手動で切り替えられます。アカウントに保存されます。"
+    },
+    "worldAudio": {
+      "title": "ワールドの音楽・効果音",
+      "description": "オフにすると、すべてのワールドで BGM や効果音が一切再生されず、完全に無音になります。アカウントに保存されます。"
+    },
+    "sendKey": {
+      "title": "Enter キーで送信",
+      "description": "オンにすると Enter で送信、Shift+Enter で改行します。オフにすると Ctrl/⌘+Enter で送信、Enter で改行します。この設定はこの端末に保存されます。"
+    }
+  },
+  "wallpaper": {
+    "title": "壁紙",
+    "description": "ページごとに別の壁紙を選び、背景の主張の強さを調整します。",
+    "visualControls": {
+      "title": "ビジュアルコントロール"
+    },
+    "opacity": {
+      "title": "壁紙の不透明度",
+      "description": "各ページ自身の視覚バランスは保ちつつ、壁紙全体の主張を控えめにも強くもできます。",
+      "minLabel": "控えめ",
+      "maxLabel": "鮮やか",
+      "ariaLabel": "壁紙の不透明度",
+      "hint": "ハブ、プロフィール、設定、ライブラリの背景"
+    },
+    "gradient": {
+      "title": "下部グラデーションの強さ",
+      "description": "イマーシブページの下部にかかる暗いフェードの強さを調整します。",
+      "minLabel": "薄め",
+      "maxLabel": "濃いめ",
+      "ariaLabel": "下部グラデーションの強さ",
+      "hint": "ページ固有のスタイルを維持したまま下部の黒いフェードを変更します"
+    },
+    "cloudyGlass": {
+      "title": "曇りガラスの強さ",
+      "description": "クリアなガラスのプリセットに切り替えることなく、曇りガラスをよりぼかして濃くします。",
+      "minLabel": "クリア寄り",
+      "maxLabel": "曇り寄り",
+      "ariaLabel": "曇りガラスの強さ",
+      "hint": "ドラッグ中もライブプレビュー"
+    },
+    "autoSaves": "ドラッグを離すと自動保存されます",
+    "library": {
+      "title": "壁紙ライブラリ",
+      "description": "壁紙をクリックして、どのページで使うかを選びます。"
+    },
+    "upload": {
+      "title": "カスタム壁紙をアップロード",
+      "description": "アップロードした画像は「{{folderName}}」フォルダに入り、そのフォルダの画像だけがこのギャラリーに表示されます。",
+      "loading": "壁紙を読み込み中...",
+      "assetCount": "{{count}} 件のアップロード画像アセット",
+      "button": "アップロード"
+    },
+    "assignments": {
+      "discover": {
+        "label": "発見",
+        "description": "ハブと発見ページ"
+      },
+      "profile": {
+        "label": "プロフィール",
+        "description": "プロフィールおよび公開プロフィールページ"
+      },
+      "settings": {
+        "label": "設定",
+        "description": "設定およびコンフィグページ"
+      },
+      "library": {
+        "label": "ライブラリ",
+        "description": "ライブラリおよび作成ピッカーページ"
+      }
+    },
+    "unused": "未使用",
+    "setFor": "「{{name}}」を次に設定...",
+    "current": "現在",
+    "set": "設定",
+    "unknown": "不明",
+    "presets": {
+      "starryNight": {
+        "label": "星空の夜",
+        "description": "青と金の夜空"
+      },
+      "libraryCanvas": {
+        "label": "ライブラリキャンバス",
+        "description": "暖かみのある絵画調シーン"
+      },
+      "uploaded": {
+        "description": "アップロードされた壁紙"
+      }
+    },
+    "folderError": "「wallpaper」アセットフォルダの準備に失敗しました"
+  },
+  "about": {
+    "title": "Yuminaについて",
+    "version": "バージョン",
+    "versionValue": "Yumina v1.0.0",
+    "termsOfService": "利用規約",
+    "privacyPolicy": "プライバシーポリシー",
+    "licenses": "ライセンス",
+    "contactSupport": "Yuminaに連絡",
+    "contactSupportDescription": "すべてのメッセージに目を通しています。",
+    "messageOfficial": "{{username}} にメッセージ",
+    "messageOfficialHint": "ダイレクトメッセージを開く",
+    "emailSupport": "メールサポート",
+    "emailCopied": "メールをコピーしました: {{email}}"
+  }
+}
