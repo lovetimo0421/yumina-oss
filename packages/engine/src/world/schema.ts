@@ -307,6 +307,7 @@ export const worldEntrySchema = z.object({
   presetId: z.string().optional(),
   variableBound: z.boolean().optional(),
   audience: z.enum(["ai", "player", "both"]).optional(),
+  portrait: z.string().optional(),
   pairId: z.string().optional(),
   worldbookId: z.string().optional(),
   initialVariables: z

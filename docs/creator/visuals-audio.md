@@ -4,6 +4,10 @@ Every world comes with a clean chat interface out of the box. Here's how to go f
 
 In the editor, custom UI lives in **Custom UI**, audio tracks in **Audio**, and uploaded files in **Assets**.
 
+## Character portraits
+
+Give a character a face: in the simple editor, click the camera square next to the character's name; in Studio, open the character's entry in **Lorebook** and use **Portrait**. Pick an image from **Assets** or upload one on the spot. In chat, that image and the character's name appear above every line they speak. When several characters have portraits, the AI is asked to open every reply with a hidden `[speaker: Name]` tag, so the right face is on screen before the first word arrives. A reply tagged as narration shows no face; if a model skips the tag, the chat falls back to a `Name:` marker or a name in the first sentence.
+
 ## Custom UI
 
 The default chat is enough for most worlds. Custom UI is how you go beyond it:

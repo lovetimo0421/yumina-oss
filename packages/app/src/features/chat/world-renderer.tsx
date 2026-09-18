@@ -171,6 +171,7 @@ interface WorldRendererProps {
     tags?: string[];
     conditions?: Condition[];
     conditionLogic?: "all" | "any";
+    portrait?: string;
   }>;
   loreUiBindings?: LoreUiBinding[];
   worldbooks?: Worldbook[];
@@ -1662,6 +1663,9 @@ export function WorldRenderer({
         tags: e.tags,
         conditions: e.conditions ?? [],
         conditionLogic: e.conditionLogic ?? "all",
+        // Resolved here (the sandbox boundary) so the bubble can drop it straight
+        // into an <img src> — the sandbox never sees a raw @asset: ref.
+        portrait: e.portrait ? absoluteImageUrl(e.portrait) : null,
       }));
     const data: SessionChannelData = {
       worldId,

@@ -24,6 +24,7 @@ import {
   FALLBACK_MODEL_ID,
 } from "./i18n";
 import type { SandboxMessage } from "./types";
+import { resolveSpeaker, stripLeadingSpeakerTag, isPartialLeadingSpeakerTag } from "./speaker";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -115,7 +116,15 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
   const rawContent = isStreaming ? (streamingContent ?? "") : message.content;
-  const displayContent = isStreaming ? stripDirectives(rawContent) : rawContent;
+  // The leading speaker tag is stripped server-side for stored content, but
+  // a live stream is raw — peel it before the generic directive strip (which
+  // cannot match a multi-word name).
+  // While the tag itself is still arriving (`[spea`) show nothing yet: the
+  // label would otherwise flash "Narrator" for a token before the face lands.
+  const holdingSpeakerTag = isStreaming && isPartialLeadingSpeakerTag(rawContent);
+  const displayContent = isStreaming
+    ? holdingSpeakerTag ? "" : stripDirectives(stripLeadingSpeakerTag(rawContent))
+    : rawContent;
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [rawExpanded, setRawExpanded] = useState(false);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -170,6 +179,21 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
 
   // User label
   const userLabel = t("you");
+
+  // Which character's face goes above this bubble. Reads the world's entries
+  // straight from the sandbox API (pushed by the host with portraits already
+  // resolved to URLs) so message rows never have to carry it.
+  // Stored replies keep the tag only in the swipe's rawContent (cleanText has
+  // it stripped), so the resolver reads raw: live stream while streaming,
+  // else the active swipe's raw output, else the content itself (greeting,
+  // pre-2026-09 history) where only the prose heuristics apply.
+  const speakerSource = isStreaming
+    ? (streamingContent ?? "")
+    : (activeSwipe?.rawContent ?? message.content);
+  const speaker = useMemo(
+    () => (isUser || isSystem ? null : resolveSpeaker(api.entries, speakerSource)),
+    [api.entries, isUser, isSystem, speakerSource],
+  );
 
   // Auto-resize edit textarea
   useLayoutEffect(() => {
@@ -228,16 +252,33 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
       )}
     >
       <div className={cn("w-full min-w-0", isUser && "play-user-message-shell")}>
-        {/* Name label */}
-        {showRoleLabel && (
-          <p
-            className={cn(
-              "play-message-role mb-1 text-xs font-medium",
-              isUser ? "text-emerald-300/60" : "text-primary/70",
+        {/* Name label — a character portrait + name when the world says who is
+            speaking, otherwise the plain role label on role changes. */}
+        {speaker ? (
+          <div className="play-message-speaker mb-1.5 flex items-center gap-2">
+            {speaker.portrait && (
+              <img
+                src={speaker.portrait}
+                alt=""
+                draggable={false}
+                className="h-8 w-8 shrink-0 rounded-full border border-border object-cover"
+              />
             )}
-          >
-            {isUser ? userLabel : t("narrator")}
-          </p>
+            <p className="play-message-role text-xs font-medium text-primary/70">
+              {speaker.name}
+            </p>
+          </div>
+        ) : (
+          showRoleLabel && !holdingSpeakerTag && (
+            <p
+              className={cn(
+                "play-message-role mb-1 text-xs font-medium",
+                isUser ? "text-emerald-300/60" : "text-primary/70",
+              )}
+            >
+              {isUser ? userLabel : t("narrator")}
+            </p>
+          )
         )}
 
         {/* Attachment thumbnails */}

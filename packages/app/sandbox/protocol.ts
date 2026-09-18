@@ -35,6 +35,9 @@ export interface SandboxEntry {
   conditions?: Condition[];
   conditionLogic?: "all" | "any";
   audience?: "ai" | "player" | "both";
+  /** Character portrait as an absolute URL (host resolves `@asset:` refs before
+   *  pushing), or null when the entry has none. */
+  portrait?: string | null;
 }
 
 export type SandboxLoreUiBinding = LoreUiBinding;

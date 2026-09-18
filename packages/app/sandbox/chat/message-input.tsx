@@ -169,8 +169,10 @@ export function MessageInput() {
     if (e.key !== "Enter") return;
     // Never send while a pinyin/CJK candidate is being composed — Enter commits it.
     if (composingRef.current || e.nativeEvent.isComposing || e.keyCode === 229) return;
-    const isMobile = "ontouchstart" in window || navigator.maxTouchPoints > 0;
-    if (isMobile) return; // touch keyboards: Enter = newline, send via the button
+    // Match Settings and the host composer: touch support alone also includes laptops.
+    const isTouchPrimary = typeof window.matchMedia === "function"
+      && window.matchMedia("(pointer: coarse)").matches;
+    if (isTouchPrimary) return; // touch keyboards: Enter = newline, send via the button
     // Honor the user's Settings → "Press Enter to send" preference (mirrored
     // across the bridge — the iframe can't read the host ui store). Same
     // semantics as the host's useComposerSubmit:

@@ -8,7 +8,7 @@ import { useCreditStore } from "@/edition/slots.state";
 import { useExtensionsStore } from "@/stores/extensions";
 import { EXTENSION_REGISTRY, SESSION_MEMORY_EXTENSION_KEY } from "@yumina/shared";
 import { useAudioStore } from "@/stores/audio";
-import { stripDirectives } from "@/lib/strip-directives";
+import { stripDirectivesForSandbox } from "@/lib/strip-directives";
 import { GameFrame } from "./game-frame";
 import { SessionHeader } from "./session-header";
 import { type YuminaAPI } from "@/features/studio/lib/custom-component-renderer";
@@ -570,7 +570,7 @@ export function ChatView({
       ...yuminaAPI,
       variables: fullScreenVariables,
       isStreaming,
-      streamingContent: isStreaming ? stripDirectives(streamingContent ?? "") : "",
+      streamingContent: isStreaming ? stripDirectivesForSandbox(streamingContent ?? "") : "",
       // WorldRenderer reads these directly off api (legacy path passes them
       // via extraProps={canvasExtraProps} instead). Mirror them here so
       // rootComponent worlds get greetingContent / pendingChoices / etc.

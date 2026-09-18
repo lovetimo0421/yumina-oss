@@ -11,6 +11,7 @@ import { filterEntriesByActiveLoreSlots } from "../lorebook/lore-slot.js";
 import { isVariableBoundEntry } from "../lorebook/entry-triggers.js";
 import { isAiReadable } from "../state/variable-activation.js";
 import { getAiAudioTracks } from "../audio/ai-audio.js";
+import { buildSpeakerFormatBlock } from "./speaker-tag.js";
 
 /** Static (state-free) check: could the AI ever see this variable? Used by the
  *  cached prefix blocks, which must not depend on per-turn activation — the
@@ -250,10 +251,14 @@ export class PromptBuilder {
     const hasVariables = world.variables.length > 0;
     const audioTracks = getAiAudioTracks(world.audioTracks ?? []);
     const hasAudio = audioTracks.length > 0;
+    // Several characters with portraits: the AI names the speaker up front so
+    // the chat can show the right face before the prose streams in.
+    const speakerBlock = buildSpeakerFormatBlock(world);
 
-    if (!hasVariables && !hasAudio) return "";
+    if (!hasVariables && !hasAudio && !speakerBlock) return "";
 
     const parts: string[] = [];
+    if (speakerBlock) parts.push(speakerBlock);
 
     // Behavior rules section — variables with detailed AI instructions
     const behaviorRulesSection = this.buildBehaviorRulesSection(world);

@@ -15,6 +15,8 @@ import { anchorInitialTranscript, markTranscriptScroll } from "./initial-message
 import { trackTranscriptPosition } from "./transcript-position";
 import { restoreTranscriptHistory } from "./restore-transcript-history";
 
+const warmedPortraits = new Map<string, HTMLImageElement>();
+
 // The sandbox scroll guard (component-host.tsx) patches Element.prototype's
 // scrollTop setter to NO-OP programmatic scrolls once the user has scrolled a
 // container — right for creator auto-scroll-to-bottom, but it also swallows our
@@ -82,6 +84,20 @@ export function MessageList({ rendererComponent }: MessageListProps) {
   const api = useYumina();
   const t = useMemo(() => makeChatT(api.language), [api.language]);
   const messages = api.messages as unknown as SandboxMessage[];
+  // Warm the portraits: the speaker tag lands with the first token of a reply,
+  // and the face should land with it rather than a network round-trip later.
+  // The elements are kept in a module map so the decoded bitmaps stay live
+  // (a GC'd Image gives the cache nothing to share with the bubble's <img>).
+  useEffect(() => {
+    for (const e of api.entries) {
+      if (e.role !== "character" || typeof e.portrait !== "string" || !e.portrait) continue;
+      if (warmedPortraits.has(e.portrait)) continue;
+      const img = new Image();
+      img.decoding = "async";
+      img.src = e.portrait;
+      warmedPortraits.set(e.portrait, img);
+    }
+  }, [api.entries]);
   const isStreaming = api.isStreaming;
   const streamingContent = api.streamingContent;
   const streamingReasoning = api.streamingReasoning;

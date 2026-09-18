@@ -409,6 +409,10 @@ export interface WorldEntry {
   bundleInstallId?: string;
   /** Who receives this entry's content: AI prompt, player UI slots, or both (default). */
   audience?: "ai" | "player" | "both";
+  /** Character portrait shown beside this character's lines in chat. An
+   *  `@asset:<id>` reference (or an absolute URL). Only meaningful on
+   *  `role: "character"` entries. */
+  portrait?: string;
   /**
    * When true, this entry is active only while variable conditions match
    * (replaces manual enabled / always-send toggles in the editor).

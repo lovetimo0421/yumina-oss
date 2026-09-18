@@ -3,6 +3,7 @@ import { LLM_CONNECTION_TIMEOUT_MS, LLM_REQUEST_TIMEOUT_MS, LLM_STREAM_INACTIVIT
 import { clampTemperatureForModel, clampTopKForModel, repetitionPenaltyForModel } from "./sampling-limits.js";
 import { parseClaudeVersion } from "./anthropic-thinking.js";
 import { normalizeProviderCostUsd } from "../provider-cost.js";
+import { OPENROUTER_APP_HEADERS } from "./openrouter-attribution.js";
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 
@@ -683,8 +684,7 @@ export class OpenRouterProvider implements LLMProvider {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://yumina.app",
-        "X-Title": "Yumina",
+        ...OPENROUTER_APP_HEADERS,
         // Attach routing metadata (attempts[], selected endpoint) to responses —
         // including error responses — so failures can name the provider that
         // caused them (see extractFailedProviderSlug).
@@ -1024,8 +1024,7 @@ export class OpenRouterProvider implements LLMProvider {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           "Content-Type": "application/json",
-          "HTTP-Referer": "https://yumina.app",
-          "X-Title": "Yumina",
+          ...OPENROUTER_APP_HEADERS,
           // See streaming path — lets error responses name the failing provider.
           "X-OpenRouter-Metadata": "enabled",
         },

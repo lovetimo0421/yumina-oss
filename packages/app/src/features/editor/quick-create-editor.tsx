@@ -70,6 +70,7 @@ import { ReviewStateControl } from "./review-state-control";
 import { GuestEditorReadOnly } from "./components/guest-editor-readonly";
 import { BundlesSection } from "@/edition/slots";
 import { AssetPicker } from "./asset-picker";
+import { EntryPortraitField } from "./components/entry-portrait-field";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { useTemplateContentPlaceholder } from "./template-placeholders";
 import {
@@ -1086,9 +1087,11 @@ function CharacterForm({
   return (
     <div className="space-y-4">
       <div className="flex items-start gap-3">
-        <button className="group flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border border-dashed border-border bg-background/50 transition-colors hover:border-fuchsia-400/40">
-          <Camera className="h-4 w-4 text-muted-foreground/40 group-hover:text-fuchsia-300" />
-        </button>
+        <EntryPortraitField
+          variant="avatar"
+          value={entry.portrait}
+          onChange={(portrait) => updateEntry(entryId, { portrait })}
+        />
         <div className="flex-1">
           <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
             {t("simple.character.name")}

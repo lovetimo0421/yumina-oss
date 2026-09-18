@@ -837,3 +837,28 @@ describe("ResponseParser", () => {
     });
   });
 });
+
+describe("ResponseParser speaker tag", () => {
+  it("peels a leading [speaker: Name] into `speaker` and never into an effect", () => {
+    const parser = new ResponseParser();
+    const r = parser.parse('[speaker: Mia Chen]\nShe smiles. [gold: +5]');
+    expect(r.speaker).toBe("Mia Chen");
+    expect(r.cleanText).toBe("She smiles.");
+    expect(r.effects).toEqual([{ variableId: "gold", operation: "add", value: 5 }]);
+  });
+
+  it("lower-cases narrator and leaves a tagless reply untouched", () => {
+    const parser = new ResponseParser();
+    expect(parser.parse("[Speaker: Narrator] The wind howls.").speaker).toBe("narrator");
+    const r = parser.parse("Plain prose. [hp: -1]");
+    expect(r.speaker).toBeUndefined();
+    expect(r.cleanText).toBe("Plain prose.");
+  });
+
+  it("only honours the tag at the very start — a later one is an ordinary directive", () => {
+    const parser = new ResponseParser();
+    const r = parser.parse('Text first. [speaker: set "Mia"]');
+    expect(r.speaker).toBeUndefined();
+    expect(r.effects).toEqual([{ variableId: "speaker", operation: "set", value: "Mia" }]);
+  });
+});

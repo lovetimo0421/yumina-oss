@@ -137,6 +137,16 @@ export { createEmptyRuleState } from "./rules/rule-state.js";
 
 // Prompts
 export { PromptBuilder } from "./prompts/prompt-builder.js";
+export {
+  NARRATOR_SPEAKER,
+  portraitCharacters,
+  displayCharacterName,
+  speakerTagEnabled,
+  parseLeadingSpeakerTag,
+  isPartialLeadingSpeakerTag,
+  buildSpeakerFormatBlock,
+} from "./prompts/speaker-tag.js";
+export type { SpeakerTagParse } from "./prompts/speaker-tag.js";
 export type { ChatMessage, UserPrompt, PromptCostBreakdown, PromptCostBlock } from "./prompts/prompt-builder.js";
 export { expandMacros } from "./prompts/macros.js";
 export type { MacroContext } from "./prompts/macros.js";

@@ -14,6 +14,7 @@ import {
 import { recordUsageLog } from "./usage-log.js";
 
 import { env } from "./env.js";
+import { OPENROUTER_APP_HEADERS } from "./llm/openrouter-attribution.js";
 import { hasTranslatableProse } from "@yumina/shared";
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
@@ -400,6 +401,7 @@ async function requestTranslationRaw(
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
+        ...OPENROUTER_APP_HEADERS,
       },
       body: JSON.stringify(body),
       // A translation that hasn't answered in three minutes is not going to.

@@ -2198,3 +2198,41 @@ describe("PromptBuilder", () => {
     });
   });
 });
+
+describe("speaker tag prompt block", () => {
+  const character = (name: string, portrait?: string) => ({
+    id: `e-${name}`,
+    name,
+    content: `${name} profile`,
+    role: "character" as const,
+    alwaysSend: true,
+    keywords: [],
+    conditions: [],
+    conditionLogic: "all" as const,
+    enabled: true,
+    position: 0,
+    section: "system-presets" as const,
+    ...(portrait ? { portrait } : {}),
+  });
+
+  it("is absent with one portrait character, present with two, and names them", () => {
+    const pb = new PromptBuilder();
+    const one = createMockWorld({ entries: [character("Mia", "@asset:a"), character("Rex")] });
+    expect(pb.buildStaticFormatBlock(one)).toBe("");
+
+    const two = createMockWorld({ entries: [character("Mia", "@asset:a"), character("人物：Balder", "@asset:b")] });
+    const block = pb.buildStaticFormatBlock(two);
+    expect(block).toContain("<speaker-format>");
+    expect(block).toContain("Characters with portraits: Mia, Balder.");
+    expect(block).toContain("[speaker: narrator]");
+  });
+
+  it("stays out of a world whose own variable is called speaker", () => {
+    const pb = new PromptBuilder();
+    const world = createMockWorld({
+      entries: [character("Mia", "@asset:a"), character("Balder", "@asset:b")],
+      variables: [createMockVariable({ id: "speaker", type: "string", initial: "" })],
+    });
+    expect(pb.buildStaticFormatBlock(world)).not.toContain("<speaker-format>");
+  });
+});

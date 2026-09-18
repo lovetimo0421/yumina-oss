@@ -43,6 +43,7 @@ import {
 } from "@/lib/entry-constants";
 import { useEditorStore } from "@/stores/editor";
 import { HoverHint } from "../components/hover-hint";
+import { EntryPortraitField } from "../components/entry-portrait-field";
 import {
   estimateTokens,
   deriveSectionDefaults,
@@ -1349,6 +1350,15 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                     className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground shadow-inner transition-all focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
                   />
                 </div>
+
+                {/* Portrait — only characters have a face to show in chat */}
+                {selected.role === "character" && (
+                  <EntryPortraitField
+                    variant="row"
+                    value={selected.portrait}
+                    onChange={(portrait) => updateEntry(selected.id, { portrait })}
+                  />
+                )}
 
                 {/* Worldbook (lore module) membership */}
                 {scopeWorldbookId === undefined && worldbooks.length > 0 && (

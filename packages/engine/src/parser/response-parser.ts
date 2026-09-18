@@ -1,10 +1,15 @@
 import type { Effect, AudioEffect } from "../types/index.js";
 import { ThinkingTagFilter } from "./thinking-tag-filter.js";
+import { parseLeadingSpeakerTag } from "../prompts/speaker-tag.js";
 
 export interface ParseResult {
   cleanText: string;
   effects: Effect[];
   audioEffects: AudioEffect[];
+  /** `[speaker: Name]` the reply opened with (see prompts/speaker-tag.ts),
+   *  lower-cased "narrator" for narration, undefined when there was no tag.
+   *  Never a state effect — it names who is talking, not a variable. */
+  speaker?: string;
 }
 
 /**
@@ -40,8 +45,12 @@ export class ResponseParser {
     // Strip leaked thinking/reasoning blocks (e.g. Gemini Flash Lite outputs <fiction-mode>...</fiction-mode>)
     const stripped = ThinkingTagFilter.strip(responseText);
 
+    // The speaker tag sits at the very start and must never reach the
+    // standard directive pattern below, which would read it as `[speaker: set …]`.
+    const speakerTag = parseLeadingSpeakerTag(stripped);
+
     // Extract <UpdateVariable> JSON Patch blocks (SillyTavern compatibility)
-    let text = this.extractJsonPatch(stripped, effects, jsonVarId ?? "game_state");
+    let text = this.extractJsonPatch(speakerTag.text, effects, jsonVarId ?? "game_state");
 
     // Extract fenced ```json directive blocks (Gemini 3.1 Pro drift format)
     text = this.extractFencedDirectives(text, effects);
@@ -76,7 +85,9 @@ export class ResponseParser {
       .replace(/^\s*<\/?(maintext|option|sum|Analysis|UpdateVariable|JSONPatch|status_current_variable)\s*>\s*$/gim, "")
       .replace(/[^\S\n]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
 
-    return { cleanText, effects, audioEffects };
+    return speakerTag.speaker
+      ? { cleanText, effects, audioEffects, speaker: speakerTag.speaker }
+      : { cleanText, effects, audioEffects };
   }
 
   private parseDirective(
