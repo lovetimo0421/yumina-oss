@@ -481,6 +481,14 @@
     "unavailable": "Krew.io はまだ Yumina で利用できません。",
     "unavailableHint": "しばらくしてからもう一度お試しください。",
     "backToDiscover": "ディスカバーに戻る",
-    "frameTitle": "Krew.io ゲーム"
+    "frameTitle": "Krew.io ゲーム",
+    "signIn": {
+      "emailNotVerified": "先にメールアドレスを確認してください。受信箱を確認してから再度サインインしてください。",
+      "close": "閉じる",
+      "finishing": "サインインを完了しています…",
+      "popupDone": "サインインしました。このウィンドウを閉じてゲームに戻ってください。",
+      "popupFailed": "サインインが完了しませんでした。このウィンドウを閉じてもう一度お試しください。",
+      "backToGame": "Krew.io に戻る"
+    }
   }
 }

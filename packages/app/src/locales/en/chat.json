@@ -254,7 +254,29 @@
     "costForThisChat": "this chat: ~{{typical}} · up to ~{{heavy}} mushies/reply",
     "costHelpAria": "How the mushie estimate works",
     "costHelpTitle": "How the mushie estimate works",
-    "costHelpBody": "These numbers are measured, not promised. We look at every real reply on a model over the last 7 days: “typically” is the middle reply, “up to” is what 9 out of 10 replies stay under. Your own cost depends mostly on how much the model reads each turn — the chat so far plus the world's text — so long chats cost more and short ones less. Inside a chat the estimate is scaled to that chat's current size. Cached context and shorter replies bring it down."
+    "costHelpBody": "These numbers are measured, not promised. We look at every real reply on a model over the last 7 days: “typically” is the middle reply, “up to” is what 9 out of 10 replies stay under. Your own cost depends mostly on how much the model reads each turn — the chat so far plus the world's text — so long chats cost more and short ones less. Inside a chat the estimate is scaled to that chat's current size. Cached context and shorter replies bring it down.",
+    "sortLabel": "Sort models",
+    "favoritesOnly": "Favorites",
+    "noMatches": "No matching models",
+    "showMore": "Show {{count}} more",
+    "referenceCostBasis": "Estimates: 21.3K input + 700 output tokens, no cache. Lunaris: 6K input. Reasoning adds cost.",
+    "sort": {
+      "recommended": "Recommended",
+      "costAsc": "Cost: low to high",
+      "costDesc": "Cost: high to low",
+      "newest": "Newly added",
+      "recent": "Recently used",
+      "name": "Name A–Z",
+      "popular": "Popular"
+    },
+    "compactTitle": "Choose model",
+    "sourceLabel": "Model source",
+    "closePicker": "Close",
+    "popularityLabel": "Combined usage",
+    "popularityInfoTitle": "How popularity is ranked",
+    "popularityInfoBody": "50% OpenRouter entertainment Token share + 50% Yumina Token share. Both compare the available chat models. Yumina counts official chat replies, excluding private APIs, background tasks and empty replies. Missing measurements contribute no score.",
+    "popularityWindow": "Yumina, last 30 days: {{start}}–{{end}}. OpenRouter monthly report: {{externalDate}} ({{count}} apps, public data only). Updated {{date}}. Reporting cutoffs may differ.",
+    "compactCostUnit": "Est. mushies / reply"
   },
   "readOnly": {
     "worldUnavailable": "This world is no longer available",
@@ -307,7 +329,8 @@
     "MESSAGE_TOO_LONG": "Your message is too long. Please shorten it and try again.",
     "NO_API_KEY": "No API key configured for this provider. Add one in Settings.",
     "GENERATION_FAILED": "AI response failed. Please try again.",
-    "CONTENT_BLOCKED": "The model's safety filter blocked this response. Some prompts can trigger it — regenerating may pass, or try a different model."
+    "CONTENT_BLOCKED": "The model's safety filter blocked this response. Some prompts can trigger it — regenerating may pass, or try a different model.",
+    "MODEL_UNAVAILABLE": "This model is currently unavailable. Select another model and try again."
   },
   "deleteAllSessions": "Delete all sessions",
   "tokenUsageHint": "Token usage increases with context length and number of replies.",

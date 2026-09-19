@@ -283,7 +283,29 @@
     "costForThisChat": "este chat: ~{{typical}} · hasta ~{{heavy}} mushies/respuesta",
     "costHelpAria": "Cómo se estima el coste en mushies",
     "costHelpTitle": "Cómo se estima el coste en mushies",
-    "costHelpBody": "Estas cifras se miden, no se prometen. Tomamos cada respuesta real de un modelo en los últimos 7 días: “normalmente” es la respuesta del medio y “hasta” es lo que 9 de cada 10 respuestas no superan. Tu coste depende sobre todo de cuánto lee el modelo en cada turno — el chat hasta ahora más el texto del mundo — así que los chats largos cuestan más y los cortos menos. Dentro de un chat, la estimación se ajusta al tamaño actual de ese chat. El contexto en caché y las respuestas más cortas la reducen."
+    "costHelpBody": "Estas cifras se miden, no se prometen. Tomamos cada respuesta real de un modelo en los últimos 7 días: “normalmente” es la respuesta del medio y “hasta” es lo que 9 de cada 10 respuestas no superan. Tu coste depende sobre todo de cuánto lee el modelo en cada turno — el chat hasta ahora más el texto del mundo — así que los chats largos cuestan más y los cortos menos. Dentro de un chat, la estimación se ajusta al tamaño actual de ese chat. El contexto en caché y las respuestas más cortas la reducen.",
+    "sortLabel": "Ordenar modelos",
+    "favoritesOnly": "Favoritos",
+    "noMatches": "No hay modelos que coincidan",
+    "showMore": "Mostrar {{count}} más",
+    "referenceCostBasis": "Estimación: 21,3K tokens de entrada + 700 de salida, sin caché. Lunaris: 6K de entrada. Razonar cuesta más.",
+    "sort": {
+      "recommended": "Recomendados",
+      "costAsc": "Menor coste primero",
+      "costDesc": "Mayor coste primero",
+      "newest": "Más recientes",
+      "recent": "Usados recientemente",
+      "name": "Nombre A–Z",
+      "popular": "Popularidad"
+    },
+    "compactTitle": "Elegir modelo",
+    "sourceLabel": "Origen del modelo",
+    "closePicker": "Cerrar",
+    "popularityLabel": "Uso combinado",
+    "popularityInfoTitle": "Cómo se ordenan los modelos",
+    "popularityInfoBody": "50 % de la cuota de tokens en entretenimiento de OpenRouter + 50 % de la cuota en Yumina, entre los modelos de chat disponibles. Yumina cuenta respuestas oficiales; excluye API privadas, tareas en segundo plano y respuestas vacías. Sin datos, esa fuente no aporta puntuación.",
+    "popularityWindow": "Yumina, últimos 30 días: {{start}}–{{end}}. Informe mensual de OpenRouter: {{externalDate}} ({{count}} apps, datos públicos). Actualizado el {{date}}. Las horas de corte pueden diferir.",
+    "compactCostUnit": "Mushies aprox. / respuesta"
   },
   "readOnly": {
     "worldUnavailable": "Este mundo ya no está disponible",
@@ -336,7 +358,8 @@
     "MESSAGE_TOO_LONG": "Tu mensaje es demasiado largo. Acórtalo e inténtalo de nuevo.",
     "NO_API_KEY": "No hay clave API configurada para este proveedor. Añade una en Ajustes.",
     "GENERATION_FAILED": "La respuesta de la IA falló. Inténtalo de nuevo.",
-    "CONTENT_BLOCKED": "El filtro de seguridad del modelo bloqueó esta respuesta. Algunos prompts pueden activarlo: vuelve a generar (puede funcionar) o prueba otro modelo."
+    "CONTENT_BLOCKED": "El filtro de seguridad del modelo bloqueó esta respuesta. Algunos prompts pueden activarlo: vuelve a generar (puede funcionar) o prueba otro modelo.",
+    "MODEL_UNAVAILABLE": "Este modelo no está disponible. Elige otro e inténtalo de nuevo."
   },
   "deleteAllSessions": "Eliminar todas las sesiones",
   "tokenUsageHint": "El uso de tokens aumenta con la longitud del contexto y el número de respuestas.",

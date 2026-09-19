@@ -18,6 +18,7 @@ import { Route as DeleteAccountRouteImport } from './routes/delete-account'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
+import { Route as AuthPopupDoneRouteImport } from './routes/auth.popup-done'
 import { Route as AppWorldsRouteImport } from './routes/app/worlds'
 import { Route as AppSettingsRouteImport } from './routes/app/settings'
 import { Route as AppProfileRouteImport } from './routes/app/profile'
@@ -77,6 +78,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => AppRoute,
+} as any)
+const AuthPopupDoneRoute = AuthPopupDoneRouteImport.update({
+  id: '/auth/popup-done',
+  path: '/auth/popup-done',
+  getParentRoute: () => rootRouteImport,
 } as any)
 const AppWorldsRoute = AppWorldsRouteImport.update({
   id: '/worlds',
@@ -165,6 +171,7 @@ export interface FileRoutesByFullPath {
   '/app/profile': typeof AppProfileRouteWithChildren
   '/app/settings': typeof AppSettingsRoute
   '/app/worlds': typeof AppWorldsRouteWithChildren
+  '/auth/popup-done': typeof AuthPopupDoneRoute
   '/app/': typeof AppIndexRoute
   '/app/chat/$sessionId': typeof AppChatSessionIdRoute
   '/app/preview/$worldId': typeof AppPreviewWorldIdRoute
@@ -187,6 +194,7 @@ export interface FileRoutesByTo {
   '/app/library': typeof AppLibraryRoute
   '/app/portals': typeof AppPortalsRoute
   '/app/settings': typeof AppSettingsRoute
+  '/auth/popup-done': typeof AuthPopupDoneRoute
   '/app': typeof AppIndexRoute
   '/app/chat/$sessionId': typeof AppChatSessionIdRoute
   '/app/preview/$worldId': typeof AppPreviewWorldIdRoute
@@ -213,6 +221,7 @@ export interface FileRoutesById {
   '/app/profile': typeof AppProfileRouteWithChildren
   '/app/settings': typeof AppSettingsRoute
   '/app/worlds': typeof AppWorldsRouteWithChildren
+  '/auth/popup-done': typeof AuthPopupDoneRoute
   '/app/': typeof AppIndexRoute
   '/app/chat/$sessionId': typeof AppChatSessionIdRoute
   '/app/preview/$worldId': typeof AppPreviewWorldIdRoute
@@ -240,6 +249,7 @@ export interface FileRouteTypes {
     | '/app/profile'
     | '/app/settings'
     | '/app/worlds'
+    | '/auth/popup-done'
     | '/app/'
     | '/app/chat/$sessionId'
     | '/app/preview/$worldId'
@@ -262,6 +272,7 @@ export interface FileRouteTypes {
     | '/app/library'
     | '/app/portals'
     | '/app/settings'
+    | '/auth/popup-done'
     | '/app'
     | '/app/chat/$sessionId'
     | '/app/preview/$worldId'
@@ -287,6 +298,7 @@ export interface FileRouteTypes {
     | '/app/profile'
     | '/app/settings'
     | '/app/worlds'
+    | '/auth/popup-done'
     | '/app/'
     | '/app/chat/$sessionId'
     | '/app/preview/$worldId'
@@ -306,6 +318,7 @@ export interface RootRouteChildren {
   RegisterRoute: typeof RegisterRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   VerifiedRoute: typeof VerifiedRoute
+  AuthPopupDoneRoute: typeof AuthPopupDoneRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -372,6 +385,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/'
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/auth/popup-done': {
+      id: '/auth/popup-done'
+      path: '/auth/popup-done'
+      fullPath: '/auth/popup-done'
+      preLoaderRoute: typeof AuthPopupDoneRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/app/worlds': {
       id: '/app/worlds'
@@ -541,6 +561,7 @@ const rootRouteChildren: RootRouteChildren = {
   RegisterRoute: RegisterRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   VerifiedRoute: VerifiedRoute,
+  AuthPopupDoneRoute: AuthPopupDoneRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -291,6 +291,7 @@ export {
 export type { TagEntry, TagLocale } from "./constants/tags.js";
 export {
   YUMINA_MODELS,
+  RETIRED_PLAY_MODEL_IDS,
   PLAY_MODELS,
   STUDIO_MODELS,
   PLAY_MODEL_IDS,
@@ -365,3 +366,6 @@ export type {
   PlatformStyleInfo,
   GenerationErrorCode,
 } from "./constants/generation.js";
+
+export { blendModelPopularity, type ModelPopularitySnapshot } from "./types/model-popularity.js";
+export { MODEL_POPULARITY_SEED } from "./constants/model-popularity-seed.js";

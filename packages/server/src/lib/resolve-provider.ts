@@ -6,6 +6,7 @@ import { createByokProvider, createProvider, inferProvider } from "./llm/provide
 import type { ProviderName } from "./llm/provider-factory.js";
 import type { LLMProvider } from "./llm/types.js";
 import type { ApiKeyMetadata } from "@yumina/shared";
+import { RETIRED_PLAY_MODEL_IDS } from "@yumina/shared";
 import { isOfficialModel } from "./model-price-cache.js";
 import { ensureWallet } from "./credit-service.js";
 import { resolveEffectivePlanWithEventEntitlements } from "./event-plan-entitlements.js";
@@ -158,6 +159,9 @@ export async function resolveProviderForModel(
   options?: {
     forceOfficial?: boolean;
     allowNonPriced?: boolean;
+    /** Chat callers must reject these models before inference. Allows a saved
+     * retired selection to reach the unavailable-model error, not a key error. */
+    allowRetiredForAccessCheck?: boolean;
     /** Explicitly permit a private-mode request to use Yumina's official key
      * when no user key is available. Defaults to false so BYOK fails closed. */
     allowOfficialFallback?: boolean;
@@ -165,13 +169,14 @@ export async function resolveProviderForModel(
 ): Promise<ResolvedProvider | null> {
   const providerName = inferProvider(modelId);
   const { plan, preferredProvider } = await getUserMeta(userId);
+  const retiredAccessCheck = options?.allowRetiredForAccessCheck && RETIRED_PLAY_MODEL_IDS.has(modelId);
 
   // Force official keys (e.g., protected worlds with allowEdit=false)
   // Skip BYOK entirely — user's own key must never see the prompt data
   if (options?.forceOfficial) {
     // Custom models can never run under official mode (no pricing/billing info)
     if (providerName === "custom") return null;
-    if (!(await isOfficialModel(modelId))) {
+    if (!retiredAccessCheck && !(await isOfficialModel(modelId))) {
       return null;
     }
     const officialKey = resolveOfficialKey(plan);
@@ -212,7 +217,7 @@ export async function resolveProviderForModel(
 
   // Official keys — only models in the model_prices table can use official keys.
   // allowNonPriced: studio has its own allowlist and may use models not in model_prices.
-  if (!options?.allowNonPriced && !(await isOfficialModel(modelId))) {
+  if (!retiredAccessCheck && !options?.allowNonPriced && !(await isOfficialModel(modelId))) {
     return null;
   }
 

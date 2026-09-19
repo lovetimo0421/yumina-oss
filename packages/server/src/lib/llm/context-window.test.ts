@@ -103,3 +103,29 @@ test("clampMaxContextToModel: a request already under the cap passes through", (
   const result = clampMaxContextToModel(8000, "deepseek/deepseek-v3.2", 4096, undefined);
   assert.equal(result, 8000);
 });
+
+test("new catalog models retain their exact cold-start context limits", () => {
+  assert.equal(getModelContextWindow("sao10k/l3-lunaris-8b"), 8192);
+  assert.equal(getModelContextWindow("anthropic/claude-opus-4.5"), 200_000);
+});
+
+test("Lunaris reserves useful prompt room even when a world asks for a huge reply with reasoning", () => {
+  const model = "sao10k/l3-lunaris-8b";
+  for (const requestedOutput of [undefined, 700, 4096, 16_384, 65_536]) {
+    for (const effort of [undefined, "high", "xhigh"]) {
+      const output = effectiveMaxTokens(requestedOutput, effort, model);
+      const input = clampMaxContextToModel(200_000, model, requestedOutput, effort);
+      assert.ok(input >= 3000, "short-window model must retain useful prompt capacity");
+      assert.ok(input + output <= 8192, `Lunaris input ${input} + output ${output} overflows`);
+      if (requestedOutput === 700) assert.equal(output, 700, "do not inflate a modest reply request");
+    }
+  }
+});
+
+test("Opus 4.5 high-output requests fit 200K while newer Claude models retain their larger window", () => {
+  const model = "anthropic/claude-opus-4.5";
+  const input = clampMaxContextToModel(1_000_000, model, 65_536, "xhigh");
+  assert.ok(input + effectiveMaxTokens(65_536, "xhigh", model) <= 200_000);
+  assert.equal(getModelContextWindow("anthropic/claude-opus-5"), 1_000_000);
+  assert.equal(effectiveMaxTokens(4096, "high", "anthropic/claude-opus-5"), 36_864);
+});

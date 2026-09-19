@@ -3,7 +3,6 @@ import { LLM_CONNECTION_TIMEOUT_MS, LLM_REQUEST_TIMEOUT_MS, LLM_STREAM_INACTIVIT
 import { clampTemperatureForModel, clampTopKForModel, repetitionPenaltyForModel } from "./sampling-limits.js";
 import { parseClaudeVersion } from "./anthropic-thinking.js";
 import { normalizeProviderCostUsd } from "../provider-cost.js";
-import { OPENROUTER_APP_HEADERS } from "./openrouter-attribution.js";
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 
@@ -85,8 +84,11 @@ function reasoningHeadroom(effort: string | undefined): number {
 const MAX_EFFECTIVE_OUTPUT_TOKENS = 65536;
 
 /** Combine user-visible maxTokens with reasoning headroom, applying the hard cap. */
-export function effectiveMaxTokens(userMax: number | undefined, effort: string | undefined): number {
+export function effectiveMaxTokens(userMax: number | undefined, effort: string | undefined, modelId?: string): number {
   const base = userMax ?? 4096;
+  // This roleplay model has only 8K total context and no reasoning mode.
+  // Reserve room for the prompt even when a world requests a 16K reply.
+  if (modelId === "sao10k/l3-lunaris-8b") return Math.min(base, 4096);
   const headroom = effort && effort !== "none" ? reasoningHeadroom(effort) : 0;
   return Math.min(base + headroom, MAX_EFFECTIVE_OUTPUT_TOKENS);
 }
@@ -640,6 +642,7 @@ export class OpenRouterProvider implements LLMProvider {
         max_tokens: effectiveMaxTokens(
           params.maxTokens,
           params.disableReasoning ? "none" : params.reasoningEffort,
+          params.model,
         ),
         temperature: clampTemperatureForModel(params.model, params.temperature),
         stream: true,
@@ -684,7 +687,8 @@ export class OpenRouterProvider implements LLMProvider {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         "Content-Type": "application/json",
-        ...OPENROUTER_APP_HEADERS,
+        "HTTP-Referer": "https://yumina.app",
+        "X-Title": "Yumina",
         // Attach routing metadata (attempts[], selected endpoint) to responses —
         // including error responses — so failures can name the provider that
         // caused them (see extractFailedProviderSlug).
@@ -989,6 +993,7 @@ export class OpenRouterProvider implements LLMProvider {
           max_tokens: effectiveMaxTokens(
             params.maxTokens,
             params.disableReasoning ? "none" : params.reasoningEffort,
+            params.model,
           ),
           temperature: clampTemperatureForModel(params.model, params.temperature),
           stream: false,
@@ -1024,7 +1029,8 @@ export class OpenRouterProvider implements LLMProvider {
         headers: {
           Authorization: `Bearer ${this.apiKey}`,
           "Content-Type": "application/json",
-          ...OPENROUTER_APP_HEADERS,
+          "HTTP-Referer": "https://yumina.app",
+          "X-Title": "Yumina",
           // See streaming path — lets error responses name the failing provider.
           "X-OpenRouter-Metadata": "enabled",
         },

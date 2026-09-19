@@ -9,6 +9,7 @@ import { usageObservation } from "../lib/usage-observation.js";
  * POST /api/sessions/:sessionId/completions
  */
 
+import { RETIRED_PLAY_MODEL_IDS } from "@yumina/shared";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { eq, and } from "drizzle-orm";
@@ -122,12 +123,16 @@ completionRoutes.post("/sessions/:sessionId/completions", async (c) => {
   const isProtectedWorld = worldRow?.allowCustomApi === false && worldRow.creatorId !== currentUser.id;
 
   const model = body.model ?? DEFAULT_MODEL;
-  const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld });
+  const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld, allowRetiredForAccessCheck: true });
   if (!resolved) {
     if (isProtectedWorld) {
       return c.json({ error: "This world requires official API keys. Please remove your custom key to play." }, 400);
     }
     return c.json({ error: "No API key available for this model" }, 400);
+  }
+
+  if (!resolved.isByok && RETIRED_PLAY_MODEL_IDS.has(model)) {
+    return c.json({ error: "This model is unavailable. Please select another model.", code: "MODEL_UNAVAILABLE" }, 403);
   }
 
   // ── Credit check + model access (skip for BYOK) ──

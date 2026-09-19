@@ -481,6 +481,14 @@
     "unavailable": "Krew.io 尚未在 Yumina 上線。",
     "unavailableHint": "請稍後再來。",
     "backToDiscover": "返回探索",
-    "frameTitle": "Krew.io 遊戲"
+    "frameTitle": "Krew.io 遊戲",
+    "signIn": {
+      "emailNotVerified": "請先驗證電子郵件：查看收件匣後再登入一次。",
+      "close": "關閉",
+      "finishing": "正在完成登入…",
+      "popupDone": "已登入。你可以關閉此視窗回到遊戲。",
+      "popupFailed": "登入未完成。請關閉此視窗再試一次。",
+      "backToGame": "返回 Krew.io"
+    }
   }
 }

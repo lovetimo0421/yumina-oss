@@ -485,6 +485,14 @@
     "unavailable": "Krew.io aún no está disponible en Yumina.",
     "unavailableHint": "Vuelve pronto.",
     "backToDiscover": "Volver a Descubrir",
-    "frameTitle": "Juego Krew.io"
+    "frameTitle": "Juego Krew.io",
+    "signIn": {
+      "emailNotVerified": "Verifica tu correo primero: revisa tu bandeja de entrada y vuelve a iniciar sesión.",
+      "close": "Cerrar",
+      "finishing": "Terminando el inicio de sesión…",
+      "popupDone": "Sesión iniciada. Puedes cerrar esta ventana y volver al juego.",
+      "popupFailed": "El inicio de sesión no se completó. Cierra esta ventana e inténtalo de nuevo.",
+      "backToGame": "Volver a Krew.io"
+    }
   }
 }

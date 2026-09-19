@@ -1321,7 +1321,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             _isSending = false;
 
             // Transient errors: show translated toast, remove pending user message, don't set error state
-            const TRANSIENT_CODES = ["RATE_LIMITED", "CONCURRENT_LIMIT", "MESSAGE_TOO_LONG", "SUSPENDED", "NO_CREDITS", "MODEL_NOT_ALLOWED", "PROTECTED_WORLD", "REPETITIVE_REPLY"];
+            const TRANSIENT_CODES = ["RATE_LIMITED", "CONCURRENT_LIMIT", "MESSAGE_TOO_LONG", "SUSPENDED", "NO_CREDITS", "MODEL_NOT_ALLOWED", "PROTECTED_WORLD", "REPETITIVE_REPLY", "MODEL_UNAVAILABLE"];
             if (errorCode && TRANSIENT_CODES.includes(errorCode)) {
               // No Retry here: the composer restores the typed text on
               // sendFailureNonce, so the send button IS the retry affordance.
@@ -1560,7 +1560,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               if (typeof parsed.balance === "number") errorBalance = parsed.balance;
             } catch { /* use raw */ }
 
-            const _tc = ["RATE_LIMITED", "CONCURRENT_LIMIT", "SUSPENDED", "NO_CREDITS", "MODEL_NOT_ALLOWED", "PROTECTED_WORLD", "REPETITIVE_REPLY"];
+            const _tc = ["RATE_LIMITED", "CONCURRENT_LIMIT", "SUSPENDED", "NO_CREDITS", "MODEL_NOT_ALLOWED", "PROTECTED_WORLD", "REPETITIVE_REPLY", "MODEL_UNAVAILABLE"];
             if (errorCode && _tc.includes(errorCode)) {
               showStreamError(errorCode, resolveErrorToast(errorCode, errorMsg, errorBalance), () =>
                 get().regenerateMessage(messageId, model),
@@ -1779,7 +1779,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             console.error("Continue error:", err);
             _isSending = false;
 
-            const _tc = ["RATE_LIMITED", "CONCURRENT_LIMIT", "SUSPENDED", "NO_CREDITS", "MODEL_NOT_ALLOWED", "PROTECTED_WORLD", "REPETITIVE_REPLY"];
+            const _tc = ["RATE_LIMITED", "CONCURRENT_LIMIT", "SUSPENDED", "NO_CREDITS", "MODEL_NOT_ALLOWED", "PROTECTED_WORLD", "REPETITIVE_REPLY", "MODEL_UNAVAILABLE"];
             if (errorCode && _tc.includes(errorCode)) {
               showStreamError(errorCode, resolveErrorToast(errorCode, errorMsg, errorBalance), () =>
                 get().continueLastMessage(model),

@@ -51,7 +51,18 @@ export type HubEventMap = {
   /** The /krew page mounted its game frame (krew.io running inside Yumina). */
   krew_embed_loaded: { signed_in: boolean; has_path: boolean };
   /** How the page answered the krew frame's identity request. */
-  krew_auth_handoff: { outcome: "token" | "unauthenticated" | "error" | "login_redirect" };
+  krew_auth_handoff: {
+    outcome:
+      | "token"
+      | "unauthenticated"
+      | "error"
+      | "login_redirect"
+      | "login_dialog"
+      | "login_popup_success"
+      | "login_popup_error"
+      | "login_popup_blocked"
+      | "login_email_success";
+  };
   /**
    * A world card became visible in the viewport (≥500ms dwell, 50% of
    * card area shown). Debounced per-card-per-session via the feature

@@ -82,9 +82,10 @@ import { insertHashedTransaction } from "../lib/transaction-hash.js";
 import { MidStreamTracker } from "../lib/credit-guard.js";
 import { PLANS } from "../lib/plan-config.js";
 import { getAllModelPrices } from "../lib/model-price-cache.js";
+import { getModelPopularity } from "../lib/model-popularity.js";
 import { getModelCostStats } from "../lib/model-cost-stats.js";
 import type { ModelCostStats } from "@yumina/shared";
-import { DEFAULT_MODEL, MAX_USER_MESSAGE_CHARS } from "@yumina/shared";
+import { DEFAULT_MODEL, MAX_USER_MESSAGE_CHARS, PLAY_MODELS, PLAY_MODEL_IDS, RETIRED_PLAY_MODEL_IDS } from "@yumina/shared";
 import {
   compactTurnOverflowIfNeeded,
   injectMemoryPromptBlocks,
@@ -114,6 +115,7 @@ const messageRoutes = new Hono<AppEnv>();
 messageRoutes.use("/sessions/*", authMiddleware);
 messageRoutes.use("/messages/*", authMiddleware);
 messageRoutes.use("/models", authMiddleware);
+messageRoutes.use("/models/popularity", authMiddleware);
 
 /** Honor the user's explicit model choice. We used to swap any model
  *  not in `model_prices` to a fallback, but that broke BYOK users whose
@@ -741,7 +743,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
 
   // Protected worlds (allowCustomApi=false) must use official keys to prevent prompt leaking via BYOK
   const isProtectedWorld = context.worldAllowCustomApi === false && context.worldCreatorId !== currentUser.id;
-  const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld });
+  const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld, allowRetiredForAccessCheck: true });
   if (!resolved) {
     if (isProtectedWorld) {
       return c.json({ error: "This world requires an official model. The creator has restricted this world to protect its content.", code: "PROTECTED_WORLD" }, 403);
@@ -751,6 +753,9 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
 
   // Official key users get rate limiting, concurrency limits, credit checks, and suspend checks.
   // BYOK users are using their own API key — skip protections.
+  if (!resolved.isByok && RETIRED_PLAY_MODEL_IDS.has(model)) {
+    return c.json({ error: "This model is unavailable. Please select another model.", code: "MODEL_UNAVAILABLE" }, 403);
+  }
   const useProtections = !resolved.isByok;
   // Read plan from wallet (fresh DB query), NEVER from cached session.
   // The auth session cache can be stale for up to 60s after a plan change.
@@ -2112,7 +2117,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   ]);
 
   const isProtectedWorld = context.worldAllowCustomApi === false && context.worldCreatorId !== currentUser.id;
-  const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld });
+  const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld, allowRetiredForAccessCheck: true });
   if (!resolved) {
     if (isProtectedWorld) {
       return c.json({ error: "This world requires an official model. The creator has restricted this world to protect its content.", code: "PROTECTED_WORLD" }, 403);
@@ -2120,6 +2125,9 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     return c.json({ error: "No API key configured for this provider" }, 400);
   }
 
+  if (!resolved.isByok && RETIRED_PLAY_MODEL_IDS.has(model)) {
+    return c.json({ error: "This model is unavailable. Please select another model.", code: "MODEL_UNAVAILABLE" }, 403);
+  }
   const useProtections = !resolved.isByok;
   const walletCheck = useProtections ? await checkBalance(currentUser.id) : null;
   const userPlan = walletCheck?.wallet.plan ?? "free";
@@ -2988,7 +2996,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   ]);
 
   const isProtectedWorld = context.worldAllowCustomApi === false && context.worldCreatorId !== currentUser.id;
-  const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld });
+  const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld, allowRetiredForAccessCheck: true });
   if (!resolved) {
     if (isProtectedWorld) {
       return c.json({ error: "This world requires an official model. The creator has restricted this world to protect its content.", code: "PROTECTED_WORLD" }, 403);
@@ -2996,6 +3004,9 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     return c.json({ error: "No API key configured for this provider. Add one in Settings." }, 400);
   }
 
+  if (!resolved.isByok && RETIRED_PLAY_MODEL_IDS.has(model)) {
+    return c.json({ error: "This model is unavailable. Please select another model.", code: "MODEL_UNAVAILABLE" }, 403);
+  }
   const useProtections = !resolved.isByok;
   const walletCheck = useProtections ? await checkBalance(currentUser.id) : null;
   const userPlan = walletCheck?.wallet.plan ?? "free";
@@ -4051,46 +4062,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
 
 // ── Model listing with cache and categorization ──
 
-const CURATED_MODEL_IDS = new Set([
-  // Budget
-  "google/gemini-2.5-flash-lite",
-  "deepseek/deepseek-v4-flash",
-  "deepseek/deepseek-v3.2",
-  "qwen/qwen3-vl-235b-a22b-instruct",
-  "anthropic/claude-3-haiku",
-  "z-ai/glm-5.3-flash",
-  "tencent/hy3",
-  "openai/gpt-5.6-luna",
-  // Standard (cost low→high)
-  "google/gemini-3.1-flash-lite",
-  "meituan/longcat-2.0",
-  "google/gemini-3.5-flash-lite",
-  "stepfun/step-3.7-flash",
-  "minimax/minimax-m3",
-  "moonshotai/kimi-k2-0905",
-  "z-ai/glm-4.6",
-  "deepseek/deepseek-v4-pro",
-  "google/gemini-3-flash-preview",
-  "mistralai/mistral-large-2512",
-  "thinkingmachines/inkling-small",
-  "google/gemini-3.7-flash",
-  "google/gemini-3.5-flash",
-  "google/gemini-2.5-pro",
-  // Premium
-  "anthropic/claude-haiku-4.5",
-  "x-ai/grok-4.3",
-  "x-ai/grok-4.20",
-  "openai/gpt-5.4-mini",
-  "google/gemini-3.8-flash",
-  "moonshotai/kimi-k2.6",
-  "google/gemini-3.1-pro-preview",
-  // Ultra
-  "anthropic/claude-sonnet-4.6",
-  "anthropic/claude-sonnet-5",
-  "openai/gpt-5.6-sol",
-  "anthropic/claude-opus-4.7",
-  "anthropic/claude-opus-5",
-]);
+const CURATED_MODEL_IDS = PLAY_MODEL_IDS;
 
 function getProvider(modelId: string): string {
   const prefix = modelId.split("/")[0] ?? "unknown";
@@ -4140,6 +4112,9 @@ export async function invalidateModelCacheForUser(userId: string): Promise<void>
   }
 }
 
+// Shared cache only; never scan usage logs while opening the picker.
+messageRoutes.get("/models/popularity", async (c) => c.json({ data: await getModelPopularity() }));
+
 // GET /api/models — list available models with caching and categorization
 messageRoutes.get("/models", async (c) => {
   const currentUser = c.get("user");
@@ -4175,11 +4150,12 @@ messageRoutes.get("/models", async (c) => {
     if (!edition.info().features.officialModels) {
       return c.json({ data: { curated: [], all: [] } });
     }
-    const fallback: CachedModel[] = [...CURATED_MODEL_IDS].map((id) => ({
-      id,
-      name: id.split("/")[1]?.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) ?? id,
-      provider: getProvider(id),
-      contextLength: 0,
+    const fallback: CachedModel[] = PLAY_MODELS.map((model) => ({
+      id: model.id,
+      name: model.name,
+      provider: getProvider(model.id),
+      contextLength: model.contextWindow ?? 0,
+      minPlan: model.minPlan,
       isCurated: true,
     }));
     const measured = await getModelCostStats();

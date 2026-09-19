@@ -252,7 +252,29 @@
     "costForThisChat": "本聊天：~{{typical}} · 最多 ~{{heavy}} 蘑菇币/回复",
     "costHelpAria": "蘑菇币估算是怎么来的",
     "costHelpTitle": "蘑菇币估算是怎么来的",
-    "costHelpBody": "这些数字是量出来的，不是承诺。我们统计该模型最近 7 天里每一次真实回复：“通常”是中位数，“最多”是十次里有九次不会超过的值。你自己的花费主要取决于模型每轮读了多少——到目前为止的聊天加上世界文本——所以长对话更贵、短对话更便宜。在聊天里，估算会按这个聊天当前的大小缩放。缓存的上下文和更短的回复会让它更低。"
+    "costHelpBody": "这些数字是量出来的，不是承诺。我们统计该模型最近 7 天里每一次真实回复：“通常”是中位数，“最多”是十次里有九次不会超过的值。你自己的花费主要取决于模型每轮读了多少——到目前为止的聊天加上世界文本——所以长对话更贵、短对话更便宜。在聊天里，估算会按这个聊天当前的大小缩放。缓存的上下文和更短的回复会让它更低。",
+    "sortLabel": "模型排序",
+    "favoritesOnly": "只看收藏",
+    "noMatches": "没有找到符合条件的模型",
+    "showMore": "再显示 {{count}} 个",
+    "referenceCostBasis": "参考消耗：2.13万输入 + 700输出，无缓存。Lunaris 按6千输入；思考另计。",
+    "sort": {
+      "recommended": "推荐排序",
+      "costAsc": "蘑菇币从低到高",
+      "costDesc": "蘑菇币从高到低",
+      "newest": "最近上新",
+      "recent": "最近使用",
+      "name": "名称 A–Z",
+      "popular": "热门"
+    },
+    "compactTitle": "选择模型",
+    "sourceLabel": "模型来源",
+    "closePicker": "关闭",
+    "popularityLabel": "综合用量",
+    "popularityInfoTitle": "热门排序",
+    "popularityInfoBody": "OpenRouter 娱乐榜 Token 用量占比 × 50% + 梦坞 Token 用量占比 × 50%。两边只比较当前可用聊天模型。梦坞统计官方聊天，排除私有 API、后台任务和空回复；暂无记录的来源不加分。",
+    "popularityWindow": "梦坞近 30 天：{{start}} 至 {{end}}。OpenRouter 月榜统计日：{{externalDate}}（{{count}} 个平台，仅公开数据）。更新于 {{date}}；两边截止时点可能不同。",
+    "compactCostUnit": "约蘑菇币 / 回复"
   },
   "readOnly": {
     "worldUnavailable": "此世界不再可用",
@@ -303,7 +325,8 @@
     "MESSAGE_TOO_LONG": "消息太长了，请缩短后重试。",
     "NO_API_KEY": "未配置此供应商的 API 密钥，请在设置中添加。",
     "GENERATION_FAILED": "AI 响应失败，请重试。",
-    "CONTENT_BLOCKED": "模型的安全过滤拦截了这次回复。部分提示词可能触发过滤——重新生成有机会通过，也可以更换其他模型。"
+    "CONTENT_BLOCKED": "模型的安全过滤拦截了这次回复。部分提示词可能触发过滤——重新生成有机会通过，也可以更换其他模型。",
+    "MODEL_UNAVAILABLE": "这个模型暂时无法使用，请换一个模型后重试。"
   },
   "deleteAllSessions": "删除所有会话",
   "tokenUsageHint": "Token 使用量随上下文长度和回复次数增加。",

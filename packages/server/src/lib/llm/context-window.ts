@@ -1,5 +1,8 @@
 import { effectiveMaxTokens } from "./openrouter.js";
 import { getCatalogContextWindow } from "./model-catalog.js";
+import { YUMINA_MODELS } from "@yumina/shared";
+
+const REGISTERED_CONTEXT_WINDOWS = new Map(YUMINA_MODELS.filter(model => model.addedAt).map(model => [model.id, model.contextWindow]));
 
 /**
  * Real maximum context window (input + output, in tokens) for a model.
@@ -29,6 +32,9 @@ import { getCatalogContextWindow } from "./model-catalog.js";
 export function getModelContextWindow(modelId: string): number {
   const live = getCatalogContextWindow(modelId);
   if (live && live > 0) return live;
+
+  const registered = REGISTERED_CONTEXT_WINDOWS.get(modelId);
+  if (registered && registered > 0) return registered;
 
   const id = modelId.toLowerCase();
 
@@ -99,8 +105,8 @@ export function clampMaxContextToModel(
   const window = Math.min(getModelContextWindow(modelId), providerWindow);
   if (!Number.isFinite(window)) return requestedMaxContext; // unknown/custom — no-op
 
-  const outputReserve = effectiveMaxTokens(maxTokens, reasoningEffort);
-  const inputCap = Math.max(4096, Math.floor((window - outputReserve) * 0.85));
+  const outputReserve = effectiveMaxTokens(maxTokens, reasoningEffort, modelId);
+  const inputCap = Math.max(256, Math.floor((window - outputReserve) * 0.85));
   if (requestedMaxContext <= inputCap) return requestedMaxContext;
 
   console.log(

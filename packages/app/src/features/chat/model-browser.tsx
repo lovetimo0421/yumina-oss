@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
-import { X, Search, Loader2, Clock, Star, Lock, Unlock, Key, Sparkles, Layers, Shuffle, Plus, ArrowLeft, ChevronDown } from "lucide-react";
+import { X, Search, Loader2, Clock, Star, Lock, Unlock, Key, Sparkles, Layers, Shuffle, Plus, ArrowLeft, ChevronDown, Info, Check, Globe, ArrowDownWideNarrow } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTransientFlag } from "@/hooks/use-transient-flag";
 import {
@@ -21,7 +21,7 @@ import {
 } from "./deepseek-pricing-info";
 import { useUserProfileStore } from "@/stores/user-profile";
 import {
-  PLAY_MODELS, STUDIO_MODELS, STUDIO_MODEL_IDS, STUDIO_RECOMMENDED_MODEL,
+  PLAY_MODELS, STUDIO_MODELS, STUDIO_MODEL_IDS, STUDIO_RECOMMENDED_MODEL, MODEL_POPULARITY_SEED, type ModelPopularitySnapshot,
   PLAN_HIERARCHY, MAX_PINNED_MODELS, formatAvgCost, formatModelId, type CostTier, type StudioModel,
 } from "@yumina/shared";
 import {
@@ -32,6 +32,7 @@ import {
 import { getPoolPercentages, MAX_POOL_SIZE } from "@/lib/model-mix";
 import { estimateReplyCost, formatCostEstimate } from "@yumina/shared";
 import { CostEstimateInfo } from "./cost-estimate-info";
+import { orderOfficialModels, type OfficialModelSort } from "@/lib/official-model-order";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
@@ -236,6 +237,20 @@ export function ModelBrowser({
     />
   );
 
+  const compactProviderSwitch = (selectionOnly || privateOnly) ? null : (
+    <div className="relative ml-auto min-w-0 max-w-[125px] shrink-0">
+    <Globe aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-white/55 max-[390px]:hidden" />
+    <select aria-label={t("modelBrowser.sourceLabel")} value={provider} disabled={switching}
+      onChange={e => requestProvider(e.target.value as "official" | "private")}
+      className="h-8 w-full appearance-none rounded-[9px] border border-white/10 bg-[#242228] pl-7 pr-6 text-[11px] text-white/65 max-[390px]:pl-2 [@media(pointer:coarse)]:h-11">
+      <option value="official">{t("modelBrowser.sourceOfficial")}</option>
+      <option value="private">{t("modelBrowser.sourcePrivate")}</option>
+    </select>
+    <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-white/55" />
+    </div>
+  );
+  const expandedOfficial = isOfficialMode && !studioMode && !privateOnly && !showMix;
+
   return createPortal(
     <>
       <div className="fixed inset-0 z-[1200] flex items-center justify-center" onClick={onClose}>
@@ -243,7 +258,12 @@ export function ModelBrowser({
 
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative z-10 w-[min(440px,calc(100vw-2rem))] max-h-[min(600px,calc(100dvh-4rem))] flex flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#1a1b1e]/95 shadow-2xl shadow-black/40 backdrop-blur-xl animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("modelBrowser.title")}
+        className={cn("relative z-10 flex flex-col overflow-hidden border border-white/[0.08] shadow-2xl shadow-black/40 animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200", expandedOfficial
+          ? "h-[min(800px,calc(100dvh-2rem))] w-[min(540px,calc(100vw-1rem))] rounded-[22px] bg-[#1b1a1e]"
+          : "w-[min(440px,calc(100vw-2rem))] max-h-[min(600px,calc(100dvh-4rem))] rounded-2xl bg-[#1a1b1e]")}
       >
         {showMix && !privateOnly && !selectionOnly ? (
           <MixConfigView
@@ -258,7 +278,7 @@ export function ModelBrowser({
             contextTokens={contextTokens}
             onSelect={handleSelect}
             onClose={onClose}
-            providerSwitch={providerSwitch}
+            providerSwitch={compactProviderSwitch}
             onMixMode={selectionOnly ? undefined : () => {
               const store = useConfigStore.getState();
               if (store.modelPool.length === 0) store.addToPool(selectedModel);
@@ -618,7 +638,6 @@ function OfficialView({
 }: {
   selectedModel: string;
   userPlan: string;
-  /** Tokens the next reply will read in the open chat; scales the measured estimate. */
   contextTokens?: number | null;
   onSelect: (id: string) => void;
   onClose: () => void;
@@ -626,253 +645,147 @@ function OfficialView({
   onMixMode?: () => void;
 }) {
   const { t } = useTranslation(["chat", "common", "profile"]);
-  const mixMode = useConfigStore((s) => s.mixMode);
-  const modelPool = useConfigStore((s) => s.modelPool);
-  const grokTrialRemaining = useCreditStore((s) => s.grokTrialRemaining);
+  const mixMode = useConfigStore(s => s.mixMode);
+  const modelPool = useConfigStore(s => s.modelPool);
+  const grokTrialRemaining = useCreditStore(s => s.grokTrialRemaining);
+  const storeModels = useModelsStore(s => s.models);
+  const statsById = useMemo(() => new Map(storeModels.map(x => [x.id, x.costStats])), [storeModels]);
+  const pinnedModels = useConfigStore(s => s.pinnedModels);
+  const pinModel = useConfigStore(s => s.pinModel);
+  const unpinModel = useConfigStore(s => s.unpinModel);
+  const recentlyUsed = useModelsStore(s => s.recentlyUsed);
   const deepSeekPricingCopy = useDeepSeekPricingCopy();
-  // The catalog entries are constants; the measured cost per model comes from
-  // the store, which GET /api/models fills once the nightly job has run.
-  const storeModels = useModelsStore((st) => st.models);
-  const statsById = useMemo(() => new Map(storeModels.map((x) => [x.id, x.costStats])), [storeModels]);
   const isMixActive = !!onMixMode && mixMode && modelPool.length >= 2;
-  const percentages = useMemo(() => (isMixActive ? getPoolPercentages(modelPool) : []), [isMixActive, modelPool]);
-  const [activeTier, setActiveTier] = useState<CostTier>(() => {
-    const current = PLAY_MODELS.find((m) => m.id === selectedModel);
-    return (current?.tier as CostTier) ?? "budget";
-  });
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<OfficialModelSort>("popular");
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
+  const [pinLimitNonce, setPinLimitNonce] = useState(0);
+  const pinLimitHit = useTransientFlag(pinLimitNonce, 2500);
+  const [activeTier, setActiveTier] = useState<CostTier | "all">(() => PLAY_MODELS.find(m => m.id === selectedModel)?.tier ?? "budget");
+  const [popularity, setPopularity] = useState<ModelPopularitySnapshot>(MODEL_POPULARITY_SEED);
+  const [info, setInfo] = useState<"cost" | "popularity" | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const infoRef = useRef<HTMLDivElement>(null);
+  const infoTrigger = useRef<HTMLButtonElement | null>(null);
+  const closeInfo = useCallback(() => { setInfo(null); infoTrigger.current?.focus(); }, []);
 
-  const models = PLAY_MODELS
-    .filter((m) => m.tier === activeTier)
-    .sort((a, b) => (statsById.get(a.id)?.medianCredits ?? a.avgCostMushies ?? 0) - (statsById.get(b.id)?.medianCredits ?? b.avgCostMushies ?? 0));
-  const tierMeta = TIER_META[activeTier];
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch(`${apiBase}/api/models/popularity`, { credentials: "include", signal: controller.signal })
+      .then(r => r.ok ? r.json() : null)
+      .then(result => {
+        const next = result?.data as ModelPopularitySnapshot | undefined;
+        if (next?.scores && typeof next.externalReportingDate === "string" && Number.isFinite(Date.parse(next.externalReportingDate)) && [next.updatedAt,next.windowStart,next.windowEnd].every(d => typeof d === "string" && Number.isFinite(Date.parse(d))) && Date.parse(next.windowStart) < Date.parse(next.windowEnd) && Number.isInteger(next.sourceApps) && next.sourceApps >= 10 && PLAY_MODELS.every(m => Number.isFinite(next.scores[m.id]) && next.scores[m.id]! >= 0)) setPopularity(next);
+      }).catch(() => { /* Keep the reviewed dated snapshot. */ });
+    return () => controller.abort();
+  }, []);
 
-  const getDesc = (modelId: string) => {
-    const m = PLAY_MODELS.find((o) => o.id === modelId);
-    if (!m) return "";
-    return t(`aiProvider.models.${m.descKey?.split(".").pop()}` as any, { ns: "profile", defaultValue: "" }) || formatModelId(modelId);
+  useEffect(() => { listRef.current?.scrollTo({ top: 0 }); }, [query, sort, activeTier, favoritesOnly]);
+  useEffect(() => {
+    if (!info) return;
+    infoRef.current?.focus({ preventScroll: true });
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); closeInfo(); }
+    };
+    document.addEventListener("keydown", escape, true);
+    return () => document.removeEventListener("keydown", escape, true);
+  }, [info, closeInfo]);
+
+  const showInfo = (kind: "cost" | "popularity", event: React.MouseEvent<HTMLButtonElement>) => {
+    infoTrigger.current = event.currentTarget;
+    setInfo(current => current === kind ? null : kind);
   };
-
-  const resolvePoolName = (id: string) => {
-    const m = PLAY_MODELS.find((o) => o.id === id);
-    return m?.name ?? formatModelId(id);
+  const getDesc = (m: (typeof PLAY_MODELS)[number]) => t(`aiProvider.models.${m.descKey?.split(".").pop()}` as any, { ns: "profile", defaultValue: "" }) || formatModelId(m.id);
+  const models = orderOfficialModels(PLAY_MODELS, {
+    tier: activeTier, query, sort, pinned: pinnedModels, favoritesOnly,
+    recent: recentlyUsed, description: getDesc, popularityScores: popularity.scores,
+  });
+  const cost = (m: (typeof PLAY_MODELS)[number]) => {
+    if (m.avgCostMushies === 0) return t("modelBrowser.free");
+    if (m.avgCostMushiesByPeriod) {
+      const { peak, offPeak } = m.avgCostMushiesByPeriod;
+      return `~${formatAvgCost(Math.min(peak, offPeak))}–${formatAvgCost(Math.max(peak, offPeak))}`;
+    }
+    return `~${formatAvgCost(m.avgCostMushies)}`;
   };
 
   return (
     <>
-      {/* Header */}
-      <div className="flex items-center justify-between px-5 pt-5 pb-1">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-primary/10">
-            <Sparkles className="h-4 w-4 text-primary" />
-          </div>
-          <div>
-            <h2 className="text-sm font-bold text-white">{t("modelBrowser.title")}</h2>
-            <p className="text-[11px] text-white/40">{t("modelBrowser.sourceOfficial")}</p>
-          </div>
-        </div>
-        <button onClick={onClose} className="flex h-7 w-7 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/5 hover:text-white/60">
-          <X className="h-4 w-4" />
-        </button>
+      <div className="flex shrink-0 items-center gap-2 px-[17px] pb-3 pt-4 max-[390px]:gap-1.5 max-[390px]:px-3">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[11px] bg-gold/10 text-gold max-[390px]:h-7 max-[390px]:w-6"><Sparkles aria-hidden="true" className="h-4 w-4" /></span>
+        <h2 className="mr-auto min-w-0 truncate text-base font-semibold text-white max-[390px]:text-sm">{t("modelBrowser.compactTitle")}</h2>
+        {providerSwitch}
+        {onMixMode && <button type="button" onClick={onMixMode} aria-label={t("modelMix.title")} title={t("modelMix.title")} className={cn("flex h-8 w-7 shrink-0 items-center justify-center rounded-lg text-white/55 hover:bg-white/5 hover:text-white [@media(pointer:coarse)]:h-11", isMixActive && "bg-gold/10 text-gold")}><Shuffle className="h-4 w-4" /></button>}
+        <button type="button" onClick={onClose} aria-label={t("modelBrowser.closePicker")} className="flex h-8 w-7 shrink-0 items-center justify-center rounded-lg text-white/55 hover:bg-white/5 hover:text-white [@media(pointer:coarse)]:h-11"><X className="h-4 w-4" /></button>
       </div>
-
-      {providerSwitch}
-
-      {/* Mix strip: rich preview when active, usage text + pill when inactive */}
-      {isMixActive && onMixMode ? (
-        <button
-          onClick={onMixMode}
-          className="flex w-full flex-col gap-1.5 border-y border-white/[0.06] px-5 py-2.5 text-left transition-colors hover:bg-white/[0.015]"
-        >
-          <div className="flex items-center gap-1.5">
-            <Shuffle className="h-3.5 w-3.5 text-primary" />
-            <span className="flex-1 text-[11px] font-semibold text-primary/70">
-              {t("modelBrowser.mixPool")} · {t("modelBrowser.mixPoolCount", { count: modelPool.length })}
-            </span>
-            <ChevronDown className="h-3 w-3 -rotate-90 text-white/20" />
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {percentages.map((entry, i) => (
-              <span
-                key={entry.modelId}
-                className="inline-flex items-center gap-1 rounded-md border border-white/[0.06] bg-white/[0.03] px-2 py-0.5 text-[10px] text-white/50"
-              >
-                <span className={cn("h-1.5 w-1.5 rounded-full", POOL_COLORS[i % POOL_COLORS.length].dot)} />
-                <span className="max-w-[80px] truncate">{resolvePoolName(entry.modelId)}</span>
-                <span className="tabular-nums text-white/30">{entry.pct}%</span>
-              </span>
-            ))}
-          </div>
-          <div className="flex h-[5px] w-full overflow-hidden rounded-full bg-white/[0.04]">
-            {percentages.map((entry, i) => (
-              <div
-                key={entry.modelId}
-                className={cn("transition-all duration-300 ease-out", POOL_COLORS[i % POOL_COLORS.length].bg)}
-                style={{ width: `${entry.pct}%` }}
-              />
-            ))}
-          </div>
-        </button>
-      ) : (
-        <div className="flex items-center gap-2 border-y border-white/[0.06] px-5 py-2">
-          <p className="flex-1 text-[11px] leading-snug text-white/45">
-            {t("tokenUsageHint")}
-          </p>
-          {onMixMode && <MixPill onClick={onMixMode} />}
+      {isMixActive && onMixMode && <button type="button" onClick={onMixMode} className="flex shrink-0 items-center gap-2 px-4 pb-2 text-xs text-gold"><Shuffle className="h-3.5 w-3.5" />{t("modelBrowser.mixPool")} · {t("modelBrowser.mixPoolCount", {count:modelPool.length})}<ChevronDown className="ml-auto h-3.5 w-3.5 -rotate-90" /></button>}
+      <div className="flex shrink-0 gap-2 px-[17px] pb-2.5 max-[390px]:px-3">
+        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/10 bg-[#242228] px-2.5 focus-within:border-purple-300/40">
+          <Search className="h-4 w-4 shrink-0 text-white/45" />
+          <input value={query} onChange={e => {setQuery(e.target.value); if(e.target.value) setActiveTier("all");}} aria-label={t("modelBrowser.searchPlaceholder")} placeholder={t("modelBrowser.searchPlaceholder")} className="h-10 min-w-0 w-full bg-transparent text-[13px] text-white outline-none placeholder:text-white/40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:text-base" />
+        </label>
+        <div className="relative flex min-w-[90px] max-w-[42%]">
+        <span aria-hidden="true" className="pointer-events-none invisible block truncate pl-7 pr-6 text-xs">{t(`modelBrowser.sort.${sort}`)}</span>
+        <ArrowDownWideNarrow aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-white/55" />
+        <select value={sort} onChange={e => setSort(e.target.value as OfficialModelSort)} aria-label={t("modelBrowser.sortLabel")} className="absolute inset-0 min-w-0 w-full appearance-none rounded-xl border border-white/10 bg-[#242228] pl-7 pr-6 text-xs text-white/80">
+          {(["popular", "costAsc", "costDesc", "newest", "recent", "name"] as const).map(value => <option key={value} value={value}>{t(`modelBrowser.sort.${value}`)}</option>)}
+        </select>
+        <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-white/55" />
         </div>
-      )}
-
-      {/* Tier tabs */}
-      <div className="flex gap-1 px-5 pt-3 pb-2">
-        {TIERS.map((tier) => {
-          const meta = TIER_META[tier];
-          const isActive = activeTier === tier;
-          return (
-            <button
-              key={tier}
-              onClick={() => setActiveTier(tier)}
-              className={cn(
-                "flex flex-1 items-center justify-center gap-1.5 rounded-xl border px-2 py-2 text-[11px] font-semibold uppercase tracking-wider transition-all",
-                isActive
-                  ? `${meta.bg} ${meta.border} ${meta.color} shadow-md ${meta.glow}`
-                  : "border-white/[0.06] bg-white/[0.02] text-white/30 hover:border-white/10 hover:text-white/50",
-              )}
-            >
-              <div className={cn("h-1.5 w-1.5 rounded-full", isActive ? meta.dot : "bg-white/20")} />
-              <span>{t(`modelBrowser.tier${tier.charAt(0).toUpperCase() + tier.slice(1)}` as any)}</span>
-            </button>
-          );
-        })}
       </div>
-
-      {/* Cost warning */}
-      {tierMeta.costWarning && (
-        <div className="px-5 pb-1">
-          <span className="text-[11px] text-white/30">{t("modelBrowser.higherCost")}</span>
-        </div>
-      )}
-
-      {/* Model list — clean single-select, click = select model */}
-      <div className="flex-1 overflow-y-auto px-4 py-2">
-        <div className="space-y-1.5">
-          {models.map((m) => {
-            const isSelected = !isMixActive && selectedModel === m.id;
-            const hasGrokTrial = m.id === "anthropic/claude-sonnet-4.6" && grokTrialRemaining > 0;
-            const locked = hasGrokTrial ? false : !canAccessPlan(m.minPlan, userPlan);
-            const meta = TIER_META[m.tier as CostTier];
-            const desc = getDesc(m.id);
-
-            return (
-              <div
-                key={m.id}
-                className={cn(
-                  "group/row flex w-full items-center rounded-xl border transition-all",
-                  locked
-                    ? "cursor-not-allowed border-white/[0.04] bg-white/[0.01] opacity-45"
-                    : isSelected
-                      ? `${meta.border} ${meta.bg} shadow-md ${meta.glow}`
-                      : "border-white/[0.06] bg-white/[0.02] hover:border-white/10 hover:bg-white/[0.04]",
-                )}
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (locked) return;
-                    if (isMixActive) useConfigStore.getState().setConfig("mixMode", false);
-                    onSelect(m.id);
-                  }}
-                  disabled={locked}
-                  className="group flex min-w-0 flex-1 items-center gap-3 rounded-xl p-3.5 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
-                >
-                  <div className={cn("h-2.5 w-2.5 shrink-0 rounded-full", meta.dot, locked ? "opacity-30" : isSelected ? "opacity-100" : "opacity-50")} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className={cn("text-sm font-medium", locked ? "text-white/30" : isSelected ? "text-white" : "text-white/80")}>
-                        {m.name}
-                      </span>
-                      {m.badge && !locked && (
-                        <span className="rounded bg-gold/15 px-1.5 py-0.5 text-[9px] font-bold text-gold/80">
-                          {m.badge}
-                        </span>
-                      )}
-                      {hasGrokTrial && (
-                        <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-bold text-amber-400">
-                          {t("modelBrowser.freeTriesLeft", { count: grokTrialRemaining })}
-                        </span>
-                      )}
-                      {locked && (
-                        <span className="inline-flex items-center gap-0.5 rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[9px] font-bold text-white/30">
-                          <Lock className="h-2.5 w-2.5" />
-                          {t(`planName.${m.minPlan}` as never, { ns: "common" })}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-                      <span className={cn("text-[11px]", locked ? "text-white/15" : "text-white/35")}>
-                        {desc}
-                      </span>
-                      {!locked && (() => {
-                        // Measured range first ("typically … up to …", scaled to the open
-                        // chat when we know its context); the catalog constant only
-                        // until a model has been measured.
-                        // The free route is free to the player whatever it costs us.
-                        if (m.avgCostMushies === 0) return (
-                          <span className="text-[10px] font-medium text-emerald-400/60">{t("modelBrowser.free")}</span>
-                        );
-                        const stats = statsById.get(m.id);
-                        if (stats) {
-                          const e = estimateReplyCost(stats, contextTokens);
-                          return (
-                            <span className="text-[10px] text-gold/50">
-                              {t(e.scaled ? "modelBrowser.costForThisChat" : "modelBrowser.costRange", {
-                                typical: formatCostEstimate(e.typical), heavy: formatCostEstimate(e.heavy),
-                              })}
-                            </span>
-                          );
-                        }
-                        if (m.avgCostMushiesByPeriod) return (
-                          <span className="text-[10px] text-gold/50">
-                            {t("modelBrowser.avgCostByPeriod", {
-                              peak: formatAvgCost(m.avgCostMushiesByPeriod.peak),
-                              offPeak: formatAvgCost(m.avgCostMushiesByPeriod.offPeak),
-                            })}
-                          </span>
-                        );
-                        if (m.avgCostMushies != null && m.avgCostMushies > 0) return (
-                          <span className="text-[10px] text-gold/50">{t("modelBrowser.avgCost", { cost: m.avgCostMushies })}</span>
-                        );
-                        if (m.avgCostMushies === 0) return (
-                          <span className="text-[10px] font-medium text-emerald-400/60">{t("modelBrowser.free")}</span>
-                        );
-                        return null;
-                      })()}
-                    </div>
-                  </div>
-                  {isSelected && !locked && (
-                    <div className={cn("h-2.5 w-2.5 shrink-0 rounded-full shadow-lg", meta.dot, meta.glow)} />
-                  )}
-                </button>
-                {!statsById.get(m.id) && (
-                  <DeepSeekPricingInfo
-                    modelId={m.id}
-                    modelName={m.name}
-                    copy={deepSeekPricingCopy}
-                    className="mr-2"
-                  />
-                )}
-              </div>
-            );
+      <div className="flex shrink-0 items-center gap-1.5 px-[17px] pb-1 max-[390px]:px-3">
+        <div className="grid min-w-0 flex-1 grid-cols-5 gap-1">
+          {(["all", ...TIERS] as const).map(tier => {
+            const meta = TIER_META[tier === "all" ? "premium" : tier];
+            return <button type="button" key={tier} onClick={() => setActiveTier(tier)} aria-pressed={activeTier === tier} className={cn("flex h-9 min-w-0 items-center justify-center gap-1 rounded-[10px] border px-0.5 text-xs transition-colors motion-reduce:transition-none max-[390px]:gap-0.5 max-[390px]:text-[11px] [@media(pointer:coarse)]:h-11", meta.color, activeTier === tier ? `${meta.bg} ${meta.border} shadow-md ${meta.glow}` : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]")}>
+            <span className="truncate">{tier === "all" ? t("modelBrowser.tabAll") : t(`modelBrowser.tier${tier.charAt(0).toUpperCase()+tier.slice(1)}` as any)}</span><span className="text-[10px] opacity-60">{tier === "all" ? PLAY_MODELS.length : PLAY_MODELS.filter(m => m.tier === tier).length}</span>
+          </button>;
           })}
         </div>
+        <button type="button" aria-pressed={favoritesOnly} aria-label={t("modelBrowser.favoritesOnly")} title={t("modelBrowser.favoritesOnly")} onClick={() => setFavoritesOnly(v=>!v)} className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg hover:bg-white/5 [@media(pointer:coarse)]:h-11",favoritesOnly ? "bg-gold/10 text-gold" : "text-white/55")}><Star className={cn("h-4 w-4", favoritesOnly && "fill-current")} /></button>
       </div>
-
-      {/* Footer */}
-      <div className="px-5 py-3 border-t border-white/[0.06]">
-        <p className="text-[10px] text-white/25 text-center">
-          {userPlan === "free"
-            ? t("modelBrowser.upgradeForMore")
-            : t("modelBrowser.currentPlan", { plan: t(`planName.${userPlan}` as never, { ns: "common" }) })}
-        </p>
+      <div className="flex min-h-8 shrink-0 items-center justify-between gap-1 px-5 text-[11px] text-white/55" aria-live="polite">
+        <span>{pinLimitHit ? t("modelBrowser.pinLimit",{max:MAX_PINNED_MODELS}) : t("modelBrowser.modelsFound",{count:models.length})}</span>
+        {sort === "popular" && <button type="button" onClick={e=>showInfo("popularity",e)} aria-expanded={info === "popularity"} className="flex items-center gap-1 rounded px-1 py-1 hover:text-white">· {t("modelBrowser.popularityLabel")}<Info className="h-3 w-3" /></button>}
       </div>
+      <div ref={listRef} data-testid="official-model-list" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 max-[390px]:px-2">
+        {models.map(m => {
+          const isSelected = !isMixActive && selectedModel === m.id;
+          const hasGrokTrial = m.id === "anthropic/claude-sonnet-4.6" && grokTrialRemaining > 0;
+          const locked = !hasGrokTrial && !canAccessPlan(m.minPlan,userPlan);
+          const meta = TIER_META[m.tier as CostTier];
+          return <div key={m.id} className={cn("mb-1.5 flex min-h-[68px] w-full items-center rounded-[13px] border transition-colors motion-reduce:transition-none",isSelected ? `${meta.border} ${meta.bg} shadow-md ${meta.glow}` : "border-white/[0.07] bg-white/[0.02]",!locked && !isSelected && "hover:border-white/15 hover:bg-white/[0.04]",locked && "opacity-60")}>
+            <button type="button" disabled={locked} aria-pressed={isSelected} onClick={() => {if(isMixActive)useConfigStore.getState().setConfig("mixMode",false);onSelect(m.id);}} title={(() => {const stats=statsById.get(m.id);if(!stats)return undefined;const estimate=estimateReplyCost(stats,contextTokens);return t(estimate.scaled?"modelBrowser.costForThisChat":"modelBrowser.costRange",{typical:formatCostEstimate(estimate.typical),heavy:formatCostEstimate(estimate.heavy)});})()} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl py-2.5 pl-3.5 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 max-[390px]:gap-2 max-[390px]:pl-2.5">
+              <span aria-hidden="true" className={cn("h-2 w-2 shrink-0 rounded-full",meta.dot,isSelected ? "opacity-100 ring-4 ring-white/5" : "opacity-70")} />
+              <div className="min-w-0 flex-1">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="min-w-0 text-sm font-medium text-white/90 [overflow-wrap:anywhere]">{m.name}</span>
+                {isSelected && !locked && <Check aria-hidden="true" className={cn("h-3 w-3 shrink-0 self-center",meta.color)} />}
+                <span className={cn("shrink-0 whitespace-nowrap text-[11px] tabular-nums",m.avgCostMushies === 0 ? "text-emerald-400/80" : "text-gold/75")}>{cost(m)}</span>
+              </div>
+              <p className="mt-1 text-xs leading-snug text-white/55">{getDesc(m)}</p>
+              {(locked || hasGrokTrial || m.badge) && <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
+                {locked && <span className="inline-flex items-center gap-1 rounded bg-white/[0.06] px-1.5 py-0.5 text-white/60"><Lock className="h-3 w-3" />{t(`planName.${m.minPlan}` as never,{ns:"common"})}</span>}
+                {hasGrokTrial && <span className="rounded bg-amber-400/10 px-1.5 py-0.5 text-amber-400">{t("modelBrowser.freeTriesLeft",{count:grokTrialRemaining})}</span>}
+                {m.badge && !locked && <span className="rounded bg-gold/10 px-1.5 py-0.5 text-gold/80">{m.badge}</span>}
+              </div>}
+              </div>
+            </button>
+            <button type="button" aria-pressed={pinnedModels.includes(m.id)} aria-label={t(pinnedModels.includes(m.id)?"modelBrowser.unpinFromQuickSelect":"modelBrowser.pinToQuickSelect")+`: ${m.name}`} onClick={() => {if(pinnedModels.includes(m.id))unpinModel(m.id,"official");else if(!pinModel(m.id,"official"))setPinLimitNonce(n=>n+1);}} className="mr-1 flex h-10 w-8 shrink-0 items-center justify-center rounded-lg text-white/50 hover:bg-white/5 hover:text-gold focus-visible:ring-2 focus-visible:ring-primary [@media(pointer:coarse)]:h-11"><Star className={cn("h-4 w-4",pinnedModels.includes(m.id)&&"fill-gold text-gold")} /></button>
+            {!statsById.get(m.id) && <DeepSeekPricingInfo modelId={m.id} modelName={m.name} copy={deepSeekPricingCopy} className="mr-1" />}
+          </div>;
+        })}
+        {models.length === 0 && <p className="py-8 text-center text-xs text-white/55">{t("modelBrowser.noMatches")}</p>}
+      </div>
+      <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-t border-white/[0.08] px-[18px] py-2.5 text-[11px] text-white/50">
+        <button type="button" onClick={e=>showInfo("cost",e)} aria-expanded={info === "cost"} className="flex items-center gap-1 rounded hover:text-white/80">{t("modelBrowser.compactCostUnit")}<Info className="h-3 w-3" /></button>
+        <span className="text-right text-gold/75">{userPlan === "free" ? t("modelBrowser.upgradeForMore") : t("modelBrowser.currentPlan",{plan:t(`planName.${userPlan}` as never,{ns:"common"})})}</span>
+      </div>
+      {info && <div ref={infoRef} role="dialog" aria-label={t(info === "cost"?"modelBrowser.costHelpTitle":"modelBrowser.popularityInfoTitle")} tabIndex={-1} className="absolute inset-x-3 bottom-12 z-20 max-h-[60%] overflow-y-auto rounded-xl border border-white/15 bg-[#242529] p-4 shadow-xl outline-none">
+        <button type="button" onClick={closeInfo} aria-label={t("modelBrowser.closePicker")} className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-lg text-white/60 hover:bg-white/5"><X className="h-4 w-4" /></button>
+        <h3 className="mb-2 pr-8 text-sm font-medium text-white">{t(info === "cost"?"modelBrowser.costHelpTitle":"modelBrowser.popularityInfoTitle")}</h3>
+        {info === "cost" ? <><p className="text-xs leading-relaxed text-white/65">{t("tokenUsageHint")}</p><p className="mt-2 text-xs leading-relaxed text-white/65">{t("modelBrowser.referenceCostBasis")}</p></> : <><p className="text-xs leading-relaxed text-white/65">{t("modelBrowser.popularityInfoBody")}</p><p className="mt-2 text-xs leading-relaxed text-white/50">{t("modelBrowser.popularityWindow",{start:popularity.windowStart.slice(0,10),end:new Date(Date.parse(popularity.windowEnd)-1).toISOString().slice(0,10),date:popularity.updatedAt.slice(0,10),count:popularity.sourceApps,externalDate:popularity.externalReportingDate})}</p></>}
+      </div>}
     </>
   );
 }
