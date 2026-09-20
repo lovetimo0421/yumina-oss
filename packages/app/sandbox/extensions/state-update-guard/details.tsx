@@ -2,6 +2,7 @@ import type { StateValidationAudit } from "@yumina/shared";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ChevronRight, History } from "lucide-react";
 import { diagnosticSummary, OutputComparison, readableLabels, variableLabel } from "./readable-output";
+import { clampLanguage } from "../../../src/lib/language-clamp";
 export { validationRecords } from "./audit-records";
 
 const copy = {
@@ -13,8 +14,7 @@ const copy = {
 } as const;
 
 export function guardLabels(language?: string) {
-  const key = language?.startsWith("zh-Hant") || language?.startsWith("zh-TW") ? "zh-Hant" : language?.startsWith("zh") ? "zh" : language?.startsWith("ja") ? "ja" : language?.startsWith("es") ? "es" : "en";
-  return copy[key];
+  return copy[clampLanguage(language)];
 }
 
 export function auditOutcome(audit: StateValidationAudit): StateValidationAudit["outcome"] {
@@ -30,7 +30,7 @@ const modelCopy = {
 } as const;
 
 function ModelRoles({ audit, language = "en" }: { audit: StateValidationAudit; language?: string }) {
-  const key = /^zh-(Hant|TW)/.test(language) ? "zh-Hant" : language.startsWith("zh") ? "zh" : language.startsWith("ja") ? "ja" : language.startsWith("es") ? "es" : "en";
+  const key = clampLanguage(language);
   const text = modelCopy[key];
   return <span className="block break-words text-xs text-white/60">
     <span className="block">{text[0]}: {audit.model}</span>
@@ -44,7 +44,7 @@ const statusCopy = {
 } as const;
 
 function historyStatus(audit: StateValidationAudit, language = "en") {
-  const key = /^zh-(Hant|TW)/.test(language) ? "zh-Hant" : language.startsWith("zh") ? "zh" : language.startsWith("ja") ? "ja" : language.startsWith("es") ? "es" : "en";
+  const key = clampLanguage(language);
   const outcome = auditOutcome(audit);
   const labels = guardLabels(language);
   if (outcome === "valid-updates" || outcome === "explicit-none" || outcome === "not-required") {
@@ -59,7 +59,7 @@ export function StateGuardDetails({ records, language }: { records: StateValidat
     {!records.length && <p>{text[1]}</p>}
     {records.slice(-12).reverse().map((audit) => <section key={audit.attemptId} className="rounded-lg border border-white/15 p-3" aria-live="polite">
       <p className="font-medium">{historyStatus(audit, language)}</p>
-      <p className="mt-1 text-xs text-white/50">{new Date(audit.startedAt).toLocaleString()}</p>
+      <p className="mt-1 text-xs text-white/50">{new Date(audit.startedAt).toLocaleString(clampLanguage(language))}</p>
       <details className="mt-2"><summary className="cursor-pointer py-3 text-white/70">{readableLabels(language)[4]}</summary>
         <ModelRoles audit={audit} language={language} />
         <p className="mt-1 text-white/60">{text[11]}: {audit.parsedCount} · {text[12]}: {audit.correctionCount}</p>
@@ -84,8 +84,7 @@ export function StateGuardHistory(props: { records: StateValidationAudit[]; lang
   const heading = useRef<HTMLHeadingElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const previousView = useRef(view);
-  const lang = props.language ?? "en";
-  const key = lang.startsWith("zh-Hant") || lang.startsWith("zh-TW") ? "zh-Hant" : lang.startsWith("zh") ? "zh" : lang.startsWith("ja") ? "ja" : lang.startsWith("es") ? "es" : "en";
+  const key = clampLanguage(props.language);
   const text = historyCopy[key];
   const labels = guardLabels(props.language);
   const audit = props.records.find((record) => record.attemptId === view);
@@ -108,14 +107,14 @@ export function StateGuardHistory(props: { records: StateValidationAudit[]; lang
         {!props.records.length && <p>{labels[1]}</p>}
         <ol className="space-y-2">{[...props.records].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).map((record) => <li key={record.attemptId}>
           <button type="button" onClick={() => setView(record.attemptId)} className={`${button} w-full border border-white/10 p-3 text-left`}>
-            <span className="min-w-0 flex-1"><span className="block">{new Date(record.startedAt).toLocaleString()}</span>
+            <span className="min-w-0 flex-1"><span className="block">{new Date(record.startedAt).toLocaleString(key)}</span>
               <span className="block text-xs text-white/60">{historyStatus(record, props.language)}</span>
             </span><ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0" />
           </button>
         </li>)}</ol>
       </> : audit ? <>
         <p className="font-medium">{historyStatus(audit, props.language)}</p>
-        <p className="text-xs text-white/60">{new Date(audit.startedAt).toLocaleString()}</p>
+        <p className="text-xs text-white/60">{new Date(audit.startedAt).toLocaleString(key)}</p>
         {audit.committed !== undefined && <p className={audit.committed ? "text-green-300" : "text-amber-300"}>{text[audit.committed ? 8 : 9]}</p>}
         <h4 className="font-semibold">{readableLabels(props.language)[27]}</h4>
         {!audit.changes ? <p className="text-white/60">{text[10]}</p> : !audit.changes.length ? <p>{text[11]}</p> :

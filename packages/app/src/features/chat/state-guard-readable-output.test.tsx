@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 import type { StateValidationAudit } from "@yumina/shared";
 import { diagnosticSummary, readableBatch, readableLabels, variableLabel } from "../../../sandbox/extensions/state-update-guard/readable-output";
 import { displayAudit, validationRecords } from "../../../sandbox/extensions/state-update-guard/audit-records";
+import { guardLabels } from "../../../sandbox/extensions/state-update-guard/details";
+import { guardSettingsLabels } from "../../../sandbox/extensions/state-update-guard/settings";
 
 // Sandbox TSX has its own config; load its real automatic-JSX transform just as
 // the existing guard navigation harness does, without opening a browser.
@@ -23,6 +25,15 @@ before(async () => {
 after(async () => { await vite?.close(); });
 
 const uuid = "8a23ad63-c7ce-40db-b59b-e10113f81d21";
+
+test("Guard surfaces use the same regional and case-insensitive language routing as the app", () => {
+  for (const [input, expected] of [["zh-HK", "zh-Hant"], ["zh-MO", "zh-Hant"], ["zh-hant", "zh-Hant"],
+    ["ZH-TW", "zh-Hant"], ["ZH-cn", "zh"], ["JA-jp", "ja"], ["ES-mx", "es"], ["fr", "en"]]) {
+    assert.deepEqual(guardLabels(input), guardLabels(expected), input);
+    assert.deepEqual(guardSettingsLabels(input), guardSettingsLabels(expected), input);
+    assert.deepEqual(readableLabels(input), readableLabels(expected), input);
+  }
+});
 const audit = (patch: Partial<StateValidationAudit> = {}): StateValidationAudit => ({
   version: 1, attemptId: "attempt-a", path: "send", outcome: "valid-updates", diagnostics: [],
   parsedCount: 1, correctionCount: 1, repaired: true, model: "story", apiKeyTier: "byok",
@@ -157,6 +168,17 @@ test("simple status and technical model labels are localized together", () => {
       assert.deepEqual([...dom.window.document.querySelectorAll("section > p:first-child")].map((node) => node.textContent), [corrected, unchanged]);
       assert.ok(dom.window.document.body.textContent!.includes(`${story}: story`));
       assert.ok(dom.window.document.body.textContent!.includes(`${correction}: gemini`));
+    } finally { dom.window.close(); }
+  }
+});
+
+test("Guard history dates follow the selected UI language rather than the browser default", async () => {
+  const { StateGuardDetails } = await vite.ssrLoadModule("/sandbox/extensions/state-update-guard/details.tsx");
+  const record = audit({ correctionCount: 0 });
+  for (const language of ["zh-Hant", "ja", "es"]) {
+    const dom = new JSDOM(renderToStaticMarkup(createElement(StateGuardDetails, { records: [record], language })));
+    try {
+      assert.ok(dom.window.document.body.textContent!.includes(new Date(record.startedAt).toLocaleString(language)), language);
     } finally { dom.window.close(); }
   }
 });

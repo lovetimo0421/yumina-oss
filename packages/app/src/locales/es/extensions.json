@@ -59,6 +59,17 @@
     "memoryCostNotice": "Las actualizaciones de memoria cuestan un poco — cambia a gratis en el chat"
   },
   "catalog": {
+    "state-update-guard": {
+      "name": "Protección de estado (Beta)",
+      "shortDescription": "Comprueba los cambios de la IA antes de guardar la respuesta. Si falta el formato o es incorrecto, intenta corregirlo una vez.",
+      "longDescription": "Ayuda a que los valores de la historia sigan actualizándose cuando la IA usa un formato incorrecto. Funciona con las tarjetas existentes. Cada respuesta debe incluir cambios válidos o indicar expresamente que no hay cambios. Si la comprobación o la corrección falla, se conserva el estado anterior y no se cobra esa respuesta. Se comprueba el formato, no la exactitud de la historia.\n\nLas comprobaciones son gratis. Solo las correcciones guardadas con modelos de pago de Yumina cuestan mushies. El modelo predeterminado es Gemini 2.5 Flash Lite, como en Memoria. Pulsa «Usar modelo gratuito» en el panel para corregir gratis. Con tu propia clave de API no se descuentan mushies de Yumina, pero tu proveedor puede cobrar.\n\nAbre el panel desde la barra del chat para activar o desactivar la función, elegir un modelo de corrección y ver los cambios. Al desactivarla se recuperan las actualizaciones normales de la tarjeta. Desinstalarla no borra el estado ni el historial guardados. Los cambios de instalación pueden tardar hasta 60 segundos en aplicarse.",
+      "tags": { "state": "estado", "reliability": "fiabilidad", "beta": "beta" },
+      "explanations": [
+        { "title": "Compatible con tus tarjetas", "body": "Usa las variables y los comandos que ya tiene la tarjeta. No hace falta reescribir las instrucciones ni la interfaz." },
+        { "title": "Resultados claros", "body": "Consulta si una respuesta necesitó corrección y qué valores cambiaron. La ausencia de cambios también debe confirmarse. Las reglas automáticas del juego siguen funcionando." },
+        { "title": "Solo corrige cuando hace falta", "body": "Las respuestas válidas no requieren otra llamada al modelo. Las incorrectas reciben un intento con el modelo elegido. Las correcciones guardadas con modelos de pago de Yumina cuestan mushies; los modelos gratuitos y tu propia API no los consumen. Tu proveedor de API puede cobrar." }
+      ]
+    },
     "session-memory-summary": {
       "name": "Memoria de sesión y resumen de historia (Beta)",
       "shortDescription": "En chats largos la IA olvida cosas. Esta extensión le toma notas: registra los hechos clave y comprime el chat antiguo en un resumen — que además ahorra tokens. Beta.",

@@ -203,7 +203,7 @@ test("history navigates settings/list/call with AI and rule before/after, failed
     assert.doesNotMatch(document.querySelector("ol")!.textContent!, /model|Commands|Corrections|Checked|custom\//);
     const call = async (model: string) => {
       const record = records.find((item) => (item.correctionModel ?? item.model) === model)!;
-      const entry = [...document.querySelectorAll<HTMLButtonElement>("ol button")].find((item) => item.textContent?.includes(new Date(record.startedAt).toLocaleString()));
+      const entry = [...document.querySelectorAll<HTMLButtonElement>("ol button")].find((item) => item.textContent?.includes(new Date(record.startedAt).toLocaleString("en")));
       assert.ok(entry); await act(async () => entry.click());
     };
     const visibleDetail = () => { const clone = document.body.cloneNode(true) as HTMLElement; clone.querySelectorAll("details:not([open]), [hidden]").forEach((node) => node.remove()); return clone.textContent!; };
@@ -253,5 +253,47 @@ test("history navigates settings/list/call with AI and rule before/after, failed
     await render("chat-b");
     assert.equal(document.querySelector("h3"), null, "session-key reset returns to settings");
     assert.equal(document.getElementById("settings")!.closest("[hidden]"), null);
+  } finally { await h.close(); }
+});
+
+test("open Guard settings and history follow language changes without saving or resetting the chat", async () => {
+  const h = await harness();
+  try {
+    const { StateGuardModal } = await h.vite.ssrLoadModule("/sandbox/extensions/state-update-guard/client.tsx");
+    const { YuminaContext } = await h.vite.ssrLoadModule("/sandbox/sandbox-context.tsx");
+    const record: StateValidationAudit = { version: 1, attemptId: "locale", path: "send", outcome: "valid-updates",
+      diagnostics: [], parsedCount: 1, correctionCount: 0, repaired: false, model: "story", apiKeyTier: "byok",
+      startedAt: "2026-09-09T01:00:00Z", baselineFingerprint: "test", usageLogIds: [], committed: true,
+      changes: [{ variableId: "health", oldValue: 100, newValue: 85, source: "ai" }], variableNames: { health: "Player health" } };
+    let loads = 0;
+    const api = { language: "en", sessionId: "locale-chat", selectedModel: "openrouter/free", preferredProvider: "official",
+      userPlan: "free", modelPool: [], messages: [{ stateValidation: record }],
+      getStateGuardSettings: async () => { loads++; return { enabled: true, model: null }; },
+      setStateGuardSettings: async () => { throw new Error("Language changes must not save settings"); },
+      getModels: async () => ({ models: [] }) };
+    const render = (language: string) => h.render(createElement(YuminaContext.Provider, { value: { ...api, language } },
+      createElement(StateGuardModal, { open: true, onClose() {} })));
+    await render("en");
+    assert.ok(button("Use free model"));
+    await render("zh-HK");
+    assert.ok(document.querySelector('[role="dialog"][aria-label="狀態更新守衛"]'));
+    assert.ok(button("使用免費模型"));
+    assert.equal(document.querySelector('[role="switch"]')?.getAttribute("aria-label"), "在此聊天中啟用");
+    await act(async () => button("檢視記錄").click());
+    assert.ok(document.querySelector("ol")!.textContent!.includes(new Date(record.startedAt).toLocaleString("zh-Hant")));
+    await render("ja");
+    assert.equal(document.querySelector("h3")?.textContent, "履歴");
+    assert.ok(document.querySelector("ol")!.textContent!.includes(new Date(record.startedAt).toLocaleString("ja")));
+    await act(async () => document.querySelector<HTMLButtonElement>("ol button")!.click());
+    assert.equal(document.querySelector("h3")?.textContent, "呼び出しの詳細");
+    await render("es");
+    assert.equal(document.querySelector("h3")?.textContent, "Detalles de la llamada");
+    assert.match(document.body.textContent!, /No necesita corrección/);
+    assert.ok(document.body.textContent!.includes(new Date(record.startedAt).toLocaleString("es")));
+    assert.match(document.body.textContent!, /Player health/, "author's variable names stay untouched");
+    await act(async () => button("Volver").click());
+    await act(async () => button("Volver").click());
+    assert.ok(button("Usar modelo gratuito"));
+    assert.equal(loads, 1, "language-only changes keep loaded settings and navigation state");
   } finally { await h.close(); }
 });

@@ -1,4 +1,5 @@
 import type { StateValidationAudit } from "@yumina/shared";
+import { clampLanguage as languageKey } from "../../../src/lib/language-clamp";
 
 const copy = {
   en: ["Before correction", "After correction", "Original response was not saved for this older call.", "No correction was needed.", "View technical details", "View original output", "View corrected output", "The reply did not include the required update confirmation.", "The update confirmation did not match the instructions.", "Some update instructions could not be read safely.", "The correction did not pass validation. No changes from it were applied.", "The check could not finish. See technical details.", "The model explicitly requested no updates.", "These are requested operations, not proof that they were applied.", "No readable structured update list was found. The original text is available below.", "set to", "increase by", "decrease by", "multiply by", "switch on/off", "append", "merge", "add item", "delete", "Output preview shortened.", "The model did not provide any output.", "Variable", "Recorded value changes"],
@@ -8,9 +9,6 @@ const copy = {
   es: ["Antes de corregir", "Después de corregir", "No se guardó la respuesta original de esta llamada antigua.", "No se necesitó corrección.", "Ver detalles técnicos", "Ver salida original", "Ver salida corregida", "Faltaba la confirmación de actualización requerida.", "La confirmación no coincidía con las instrucciones.", "No se pudieron leer algunas instrucciones de forma segura.", "La corrección no superó la validación. Sus cambios no se aplicaron.", "No se pudo completar la comprobación. Consulta los detalles.", "El modelo indicó explícitamente que no había cambios.", "Son operaciones solicitadas, no prueba de que se aplicaran.", "No se encontró una lista legible de cambios. El texto original está disponible abajo.", "establecer en", "aumentar en", "reducir en", "multiplicar por", "alternar", "añadir texto", "combinar", "añadir elemento", "eliminar", "Vista previa abreviada.", "El modelo no devolvió ninguna salida.", "Variable", "Cambios de valores registrados"],
 } as const;
 
-function languageKey(language = "en") {
-  return /^zh-(Hant|TW)/.test(language) ? "zh-Hant" : language.startsWith("zh") ? "zh" : language.startsWith("ja") ? "ja" : language.startsWith("es") ? "es" : "en";
-}
 export function readableLabels(language = "en") {
   return copy[languageKey(language)];
 }

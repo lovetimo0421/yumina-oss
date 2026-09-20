@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { DEFAULT_STATE_GUARD_MODEL, FREE_STATE_GUARD_MODEL, parseStateGuardModel, stateGuardModelSelection, type StateGuardSettings } from "@yumina/shared";
+import { clampLanguage as languageKey } from "../../../src/lib/language-clamp";
 
 const copy = {
   en: ["Enabled for this chat", "On", "Off", "Correction model", "Same as story model", "Used only when a reply needs correction; does not change your story model. Uses your current AI Provider connection.", "Changes apply to the next reply. Off restores normal card updates without format checking or correction. It does not uninstall the extension.", "Loading settings…", "Saving…", "Saved", "Could not load settings.", "Could not confirm the save. Retry reloads the current settings; check your provider and model access if selection failed.", "Retry", "Could not load models. You can still turn the guard off.", "Unavailable in preview or replay."],
@@ -30,9 +31,6 @@ const legacyBillingCopy = {
   ja: "Yuminaモデルは修正ごとに課金。自分のAPIはプロバイダーの料金のみ。",
   es: "Modelos de Yumina: pago por corrección. BYOK: solo cobra tu proveedor.",
 };
-function languageKey(language?: string) {
-  return language?.startsWith("zh-Hant") || language?.startsWith("zh-TW") ? "zh-Hant" : language?.startsWith("zh") ? "zh" : language?.startsWith("ja") ? "ja" : language?.startsWith("es") ? "es" : "en";
-}
 export function guardSettingsLabels(language?: string) {
   return copy[languageKey(language)];
 }

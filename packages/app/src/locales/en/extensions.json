@@ -59,6 +59,17 @@
     "memoryCostNotice": "Memory updates cost a little — switch to free anytime in chat"
   },
   "catalog": {
+    "state-update-guard": {
+      "name": "State Update Guard (Beta)",
+      "shortDescription": "Checks the AI's updates before saving a reply. If the format is missing or broken, it tries to fix it once.",
+      "longDescription": "Helps keep the story's values updating when the AI returns the wrong format. Works with existing cards. Each reply must include valid updates or explicitly say there are no updates. If the check or correction fails, your previous state is kept and that reply is not charged. It checks the format, not whether the story's facts are right.\n\nChecks are free. Only saved corrections with paid Yumina models cost mushies. The default is Gemini 2.5 Flash Lite, like Memory. Choose Use free model in the panel for free corrections. With your own API key, Yumina does not charge mushies, but your provider may charge.\n\nOpen the panel from the chat toolbar to turn it on or off, choose a correction model, or view what changed. Turning it off restores normal card updates. Uninstalling keeps saved state and history. Installation changes may take up to 60 seconds to take effect.",
+      "tags": { "state": "state", "reliability": "reliability", "beta": "beta" },
+      "explanations": [
+        { "title": "Works with existing cards", "body": "Uses the card's existing variables and commands. No need to rewrite its prompt or interface." },
+        { "title": "Clear results", "body": "See whether a reply needed a fix and which values changed. No updates must be explicitly confirmed. Automatic game rules still run." },
+        { "title": "Only fixes when needed", "body": "Valid replies need no extra model call. Invalid replies get one attempt with your correction model. Saved paid Yumina corrections cost mushies; free models and your own API do not. Your API provider may charge." }
+      ]
+    },
     "session-memory-summary": {
       "name": "Session Memory & Story Summary (Beta)",
       "shortDescription": "The AI forgets things in long chats. This keeps notes for it: key facts get recorded, older chat gets compressed into a recap — which also saves tokens. Beta.",
