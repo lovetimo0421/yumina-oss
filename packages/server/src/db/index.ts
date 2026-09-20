@@ -924,6 +924,9 @@ const COLUMN_ALTERS = [
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS name TEXT`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_updated_at TIMESTAMP`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_model TEXT`,
+  `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS state_guard_enabled BOOLEAN NOT NULL DEFAULT true`,
+  `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS state_guard_model TEXT`,
+  `ALTER TABLE messages ADD COLUMN IF NOT EXISTS state_validation JSONB`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_model TEXT`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_implementation TEXT NOT NULL DEFAULT 'localdev'`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_mode TEXT NOT NULL DEFAULT 'threshold'`,
@@ -2367,6 +2370,9 @@ export async function ensureExtensionTables() {
  */
 export async function ensureSessionContextColumns() {
   if (IS_PGLITE) return;
+  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS state_guard_enabled BOOLEAN NOT NULL DEFAULT true`));
+  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS state_guard_model TEXT`));
+  await db.execute(sql.raw(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS state_validation JSONB`));
   await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_updated_at TIMESTAMP`));
   await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_model TEXT`));
   await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_model TEXT`));
@@ -2828,6 +2834,8 @@ export async function ensureDmSchema() {
 const SCHEDULED_FUNCTION_SCRIPTS = [
   "install-daily-recovery-fn.sql",
   "install-cleanup-fns.sql",
+  // Every mushie movement must write a ledger row (docs/billing/2026-09-19-ledger-hard-rule.md).
+  "install-ledger-guard.sql",
 ];
 
 export async function ensureScheduledFunctions(): Promise<void> {

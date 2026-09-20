@@ -149,7 +149,6 @@ export function PlaythroughReplayView({ playthroughId, returnContext }: { playth
     () => makeVariableKeyResolver(worldDef?.variables),
     [worldDef?.variables],
   );
-
   const handleSetVariable = useCallback<YuminaAPI["setVariable"]>((rawId, value) => {
     const id = resolveVariableKey(rawId);
     setVariables((prev) => (prev[id] === value ? prev : { ...prev, [id]: value as VariableValue }));

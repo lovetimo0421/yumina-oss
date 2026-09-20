@@ -67,6 +67,8 @@ describe("branchSession", () => {
       worldId: testWorldId,
       state: { variables: { hp: 10 } },
       summary: "parent summary",
+      stateGuardEnabled: false,
+      stateGuardModel: "custom/repair",
       name: "main",
     }).returning();
     testSessionId = s!.id;
@@ -208,6 +210,14 @@ describe("branchSession", () => {
       messageId: messageIds[2]!,
     });
     assert.strictEqual(result.status, 404);
+  });
+
+  it("inherits the parent's guard toggle and correction model", async () => {
+    const result = await branchSession({ userId: testUserId, sessionId: testSessionId, messageId: messageIds[2]! });
+    assert.equal(result.status, 201);
+    const [branch] = await db.select().from(playSessions).where(eq(playSessions.id, result.body.data!.sessionId));
+    assert.equal(branch!.stateGuardEnabled, false);
+    assert.equal(branch!.stateGuardModel, "custom/repair");
   });
 
   it("rejects branching with an unknown messageId", async () => {

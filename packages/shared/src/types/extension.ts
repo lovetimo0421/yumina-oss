@@ -50,6 +50,7 @@ export type ServerHookSeam =
   | "filterHistory"
   | "onPromptOverflow"
   | "onTurnComplete"
+  | "validateTurnOutput"
   | "invalidate";
 
 export interface ServerHookDecl {
@@ -116,6 +117,24 @@ export interface ExtensionDefinition {
 export const SESSION_MEMORY_EXTENSION_KEY = "session-memory-summary";
 
 export const EXTENSION_REGISTRY: readonly ExtensionDefinition[] = [
+  {
+    key: "state-update-guard",
+    name: "State Update Guard (Beta)",
+    shortDescription: "Checks the AI's state-update format before saving a reply. Missing or broken commands get one correction attempt.",
+    longDescription: "Keep existing cards and their variables. Every protected reply must return valid state commands or explicitly acknowledge no AI updates. The guard checks the complete batch before applying it and asks your selected correction model for one correction only when needed. If checking fails, the previous story state stays saved and the turn is not charged.\n\nSaved corrections with paid Yumina models cost mushies. The default model is Gemini 2.5 Flash Lite, matching Session Memory. Choose Use free model in the guard panel for free corrections. BYOK corrections do not deduct mushies, but your own API provider may charge. Format checks are free. Correct format does not guarantee correct story facts. Uninstall disables protection for future turns; saved state and diagnostics are retained. Install changes may take up to 60 seconds to reach every server.",
+    icon: "shield-check", category: "tools", tags: ["state", "reliability", "beta"],
+    version: "1.0.0", author: "Yumina", screenshots: [], firstParty: true, apiVersion: 1,
+    explanations: [
+      { title: "Existing cards", body: "Uses existing commands and variables. No card prompt or UI rewrite." },
+      { title: "Explicit outcome", body: "Distinguishes checked commands, no AI updates, and a failed check. Automatic game rules still run." },
+      { title: "One correction", body: "No extra call on valid replies. One bounded correction with your selected model for invalid output. Saved paid Yumina corrections cost mushies; free models and BYOK do not deduct mushies. BYOK provider charges may apply." },
+    ],
+    capabilityHookIds: ["state-update-guard"], clientEntry: "state-update-guard",
+    contributions: [{ point: "chat.composer.toolbar", priority: 40 }],
+    serverHooks: [{ capability: "state-update-guard", seam: "validateTurnOutput" }],
+    // Player-facing opt-in beta, listed like Session Memory. Only developer
+    // proof extensions (such as turn-counter) should stay hidden.
+  },
   {
     key: SESSION_MEMORY_EXTENSION_KEY,
     name: "Session Memory & Story Summary (Beta)",

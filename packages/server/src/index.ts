@@ -48,6 +48,7 @@ import { worldRoutes } from "./routes/worlds.js";
 import { apiKeyRoutes } from "./routes/api-keys.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { sessionMemoryRoutes } from "./routes/session-memory.js";
+import { stateGuardRoutes } from "./routes/state-update-guard.js";
 import { messageRoutes } from "./routes/messages.js";
 import { studioRoutes } from "./routes/studio.js";
 import { assetRoutes } from "./routes/assets.js";
@@ -74,6 +75,7 @@ import { posthog, captureServerError } from "./lib/posthog.js";
 import { drainStreams, activeStreamCount } from "./lib/stream-registry.js";
 import { getMetaForPath, injectMeta } from "./lib/seo.js";
 import { registerSessionMemoryExtension } from "./extensions/session-memory/hooks.js";
+import { registerStateUpdateGuard } from "./extensions/state-update-guard/hooks.js";
 import { runWithRequestCache } from "./lib/request-cache.js";
 import { edition, editionRoutes } from "./edition/index.js";
 import { storageRoutes } from "./routes/storage.js";
@@ -82,6 +84,7 @@ import { storageRoutes } from "./routes/storage.js";
 // message pipeline dispatches through the registry instead of hardcoding
 // per-feature checks.
 registerSessionMemoryExtension();
+registerStateUpdateGuard();
 
 // Last-resort process-level handlers. Without these, any unhandled 'error'
 // event or stray rejection from a fire-and-forget promise crashes the whole
@@ -235,6 +238,7 @@ app.route("/api/worlds", worldRoutes);
 app.route("/api/keys", apiKeyRoutes);
 app.route("/api/sessions", sessionRoutes);
 app.route("/api/sessions", sessionMemoryRoutes);
+app.route("/api/sessions", stateGuardRoutes);
 app.route("/api/combat", combatRoutes);
 // Hosted routers with public reads, webhooks or guest beacons MUST precede
 // messageRoutes' broad "/api/*" authMiddleware. The edition owns that list

@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { slimMessages } from "./slim-messages";
+import { validationRecords } from "../../../sandbox/extensions/state-update-guard/audit-records";
+import type { StateValidationAudit } from "@yumina/shared";
 
 const msg = (over: Record<string, unknown> = {}) => ({
   id: "m1",
@@ -66,4 +68,32 @@ test("slimMessages leaves a swipe-free message object untouched", () => {
   const input = [{ id: "u1", role: "user", content: "hi", stateSnapshot: { variables: {} } }];
   const [out] = slimMessages(input);
   assert.equal(out, input[0]); // same ref
+});
+
+test("non-active swipe audit keeps its own original after display bodies are removed", () => {
+  const audit: StateValidationAudit = { version: 1, attemptId: "older", path: "regenerate", outcome: "valid-updates",
+    diagnostics: [], parsedCount: 1, repaired: true, correctionCount: 1, model: "story", apiKeyTier: "byok",
+    startedAt: "2026-09-09T01:00:00Z", baselineFingerprint: "baseline", usageLogIds: [] };
+  const original = msg({ swipes: [
+    { content: "old story", rawContent: "old original", stateValidation: audit, generationState: { privateBaseline: true } },
+    { content: "new story", rawContent: "new original", stateValidation: { ...audit, attemptId: "newer" } },
+  ] });
+  const [out] = slimMessages([original], [{ id: "health", name: "Health" }]);
+  const swipes = out.swipes as Array<Record<string, unknown>>;
+  assert.equal(swipes[0]!.rawContent, undefined);
+  assert.equal(swipes[0]!.content, undefined);
+  assert.equal(swipes[0]!.generationState, undefined);
+  assert.equal((swipes[0]!.stateValidation as StateValidationAudit).originalRaw, "old original");
+  assert.deepEqual(validationRecords([out]).map((item) => [item.attemptId, item.originalRaw]), [["older", "old original"], ["newer", "new original"]]);
+  assert.deepEqual((swipes[0]!.stateValidation as StateValidationAudit).variableNames, { health: "Health" });
+  assert.equal(audit.originalRaw, undefined, "source store audit must stay untouched");
+  assert.equal((original.swipes as Array<Record<string, unknown>>)[0]!.rawContent, "old original");
+});
+
+test("message-only audit enrichment cannot take an active swipe's unrelated original", () => {
+  const audit = { version: 1, attemptId: "message-attempt", path: "send" };
+  const [out] = slimMessages([msg({ stateValidation: audit })], [{ id: "health", name: "Health" }]);
+  assert.equal((out.stateValidation as StateValidationAudit).originalRaw, undefined);
+  assert.deepEqual((out.stateValidation as StateValidationAudit).variableNames, { health: "Health" });
+  assert.equal(Object.hasOwn(audit, "variableNames"), false);
 });

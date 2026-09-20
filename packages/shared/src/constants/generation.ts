@@ -72,24 +72,99 @@ export const MAX_ACTIVE_GENERATION_JOBS = 2;
 export const MAX_GENERATION_PROMPT_LENGTH = 2000;
 
 export const SMART_IMAGE_MODEL = "bytedance-seed/seedream-5-0-lite";
-export const SMART_IMAGE_ASPECTS = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"] as const;
-/** Provider cost estimates for balance checks, never a retail charge.
- * Capabilities checked against OpenRouter's dedicated Image API on 2026-09-07.
- * Keep the default for historical jobs, recipes and drafts without a model.
- */
+
+/** Every aspect ratio any of our models accepts. The UI shows the intersection
+ *  with the selected model's own list, never this union, because a provider
+ *  rejects a ratio it does not know. Ordered for display: squares and the
+ *  familiar photo/screen shapes first, letterbox strips last. */
+export const SMART_IMAGE_ASPECTS = [
+  "1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4",
+  "21:9", "9:21", "2:1", "1:2", "4:1", "1:4", "8:1", "1:8",
+] as const;
+export type SmartImageAspect = typeof SMART_IMAGE_ASPECTS[number];
+
+/** Output size tiers, smallest first. `512` is the only sub-1K option any
+ *  provider exposes and the one creators asked for: card icons and avatars do
+ *  not want a 2K render they then have to shrink themselves. */
+export const SMART_IMAGE_RESOLUTIONS = ["512", "1K", "2K", "4K"] as const;
+export type SmartImageResolution = typeof SMART_IMAGE_RESOLUTIONS[number];
+
+/** Balance-check estimate only; the real charge is reconciled from the
+ *  provider's reported cost (billingMode "openrouter-actual-v1").
+ *
+ *  `estimatedCostUsd` is the 2K price. Token-priced models (the Gemini pair)
+ *  really do cost more at 4K, so the reservation scales UP for that tier and
+ *  never scales down: over-reserving briefly is harmless, under-reserving lets
+ *  a run start that the wallet cannot cover.
+ *
+ *  `aspectRatios` / `resolutions` mirror OpenRouter's per-model
+ *  `supported_parameters`, read from /api/v1/images/models on 2026-09-19.
+ *  smart-image-capabilities.test.ts re-checks them against that endpoint. */
+export const SMART_IMAGE_4K_COST_FACTOR = 1.5;
+
 export const SMART_IMAGE_MODELS = [
-  { id: SMART_IMAGE_MODEL, key: "seedreamLite", name: "Seedream 5.0 Lite", estimatedCostUsd: 0.035, resolution: "2K", quality: undefined, supportsSeed: true },
-  { id: "bytedance-seed/seedream-5-0-pro", key: "seedreamPro", name: "Seedream 5.0 Pro", estimatedCostUsd: 0.093, resolution: "2K", quality: undefined, supportsSeed: true },
-  { id: "google/gemini-3.1-flash-image", key: "nanoBanana2", name: "Nano Banana 2", estimatedCostUsd: 0.14, resolution: "2K", quality: undefined, supportsSeed: false },
-  { id: "google/gemini-3-pro-image", key: "nanoBananaPro", name: "Nano Banana Pro", estimatedCostUsd: 0.24, resolution: "2K", quality: undefined, supportsSeed: false },
-  { id: "openai/gpt-image-2", key: "gptImage2", name: "GPT Image 2", estimatedCostUsd: 0.45, resolution: undefined, quality: "high", supportsSeed: false },
+  { id: SMART_IMAGE_MODEL, key: "seedreamLite", name: "Seedream 5.0 Lite", estimatedCostUsd: 0.035, resolution: "2K", quality: undefined, supportsSeed: true,
+    resolutions: ["2K", "4K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "9:21", "2:1", "1:2"] },
+  { id: "bytedance-seed/seedream-5-0-pro", key: "seedreamPro", name: "Seedream 5.0 Pro", estimatedCostUsd: 0.093, resolution: "2K", quality: undefined, supportsSeed: true,
+    resolutions: ["1K", "2K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "9:21", "2:1", "1:2"] },
+  { id: "google/gemini-3.1-flash-image", key: "nanoBanana2", name: "Nano Banana 2", estimatedCostUsd: 0.14, resolution: "2K", quality: undefined, supportsSeed: false,
+    resolutions: ["512", "1K", "2K", "4K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "4:1", "1:4", "8:1", "1:8"] },
+  { id: "google/gemini-3-pro-image", key: "nanoBananaPro", name: "Nano Banana Pro", estimatedCostUsd: 0.24, resolution: "2K", quality: undefined, supportsSeed: false,
+    resolutions: ["1K", "2K", "4K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9"] },
+  { id: "openai/gpt-image-2", key: "gptImage2", name: "GPT Image 2", estimatedCostUsd: 0.45, resolution: undefined, quality: "high", supportsSeed: false,
+    // No resolution knob at all — this one is sized by `quality`, which we pin high.
+    resolutions: [],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "21:9"] },
 ] as const;
 export type SmartImageModelId = typeof SMART_IMAGE_MODELS[number]["id"];
 export const SMART_IMAGE_MODEL_IDS = SMART_IMAGE_MODELS.map(model => model.id) as [SmartImageModelId, ...SmartImageModelId[]];
 export function getSmartImageModel(id: string = SMART_IMAGE_MODEL) {
   return SMART_IMAGE_MODELS.find(model => model.id === id);
 }
-export type SmartImageParams = { billing?: "actual-v1"; model?: SmartImageModelId; aspectRatio: typeof SMART_IMAGE_ASPECTS[number]; batchSize: number; seed?: number };
+
+/** The ratios/sizes this model really accepts, in SMART_IMAGE_ASPECTS display
+ *  order. Both the picker and the server's validation read this, so an option
+ *  a creator can see is always an option the provider will take. */
+export function getSmartImageCapabilities(id: string = SMART_IMAGE_MODEL): {
+  aspectRatios: SmartImageAspect[];
+  resolutions: SmartImageResolution[];
+} {
+  const model = getSmartImageModel(id) ?? SMART_IMAGE_MODELS[0];
+  return {
+    aspectRatios: SMART_IMAGE_ASPECTS.filter(ratio => (model.aspectRatios as readonly string[]).includes(ratio)),
+    resolutions: SMART_IMAGE_RESOLUTIONS.filter(size => (model.resolutions as readonly string[]).includes(size)),
+  };
+}
+
+/** Pick the size to send. Falls back to the model's own default whenever the
+ *  request names one this model cannot do — a stored recipe, an older draft, or
+ *  a model switch that left a 512 selection behind on a model without it. */
+export function resolveSmartImageResolution(id: string | undefined, requested: string | undefined): string | undefined {
+  const model = getSmartImageModel(id) ?? SMART_IMAGE_MODELS[0];
+  if (requested && (model.resolutions as readonly string[]).includes(requested)) return requested;
+  return model.resolution;
+}
+
+export function resolveSmartImageAspect(id: string | undefined, requested: string | undefined): SmartImageAspect {
+  const { aspectRatios } = getSmartImageCapabilities(id);
+  if (requested && (aspectRatios as string[]).includes(requested)) return requested as SmartImageAspect;
+  return (aspectRatios[0] ?? "1:1") as SmartImageAspect;
+}
+
+export type SmartImageParams = {
+  billing?: "actual-v1";
+  model?: SmartImageModelId;
+  aspectRatio: SmartImageAspect;
+  /** Output size tier. Absent means "this model's default", which is what every
+   *  job created before the picker existed carries. */
+  resolution?: SmartImageResolution;
+  batchSize: number;
+  seed?: number;
+};
 
 export type GenerationJobStatus =
   | "queued"

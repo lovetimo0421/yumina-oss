@@ -106,3 +106,13 @@ test("a card whose ids are already slugs is completely unaffected", () => {
   assert.deepEqual(Object.keys(vars).sort(), ["hull", "shields"]);
   assert.equal(makeVariableKeyResolver(defs)("hull"), "hull");
 });
+
+test("duplicate display names resolve reads and writes to the same last definition", () => {
+  const defs = [{ id: "first", name: "health" }, { id: "last", name: "health" }];
+  const state = { first: 10, last: 90 };
+  const read = withVariableNameAliases(state, idsByName(defs));
+  const write = makeVariableKeyResolver(defs);
+  assert.equal(write("health"), "last");
+  assert.equal(read.health, state[write("health") as keyof typeof state]);
+  assert.equal(write("first"), "first");
+});

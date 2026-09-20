@@ -266,6 +266,9 @@ interface StudioState {
   creditPause: StudioCreditPause | null;
   isResumingCredits: boolean;
   isRefreshingCreditPause: boolean;
+  /** A manual Reconnect is in flight. Distinct from isRefreshingCreditPause,
+   *  which also fires on mount and tab focus and must stay silent. */
+  isReconnecting: boolean;
   creditPauseError: string | null;
 
   // Approval (server-side — pending proposal from server)
@@ -288,6 +291,12 @@ interface StudioState {
   sendChatMessage: (worldId: string, content: string, model: string, conversationId?: string | null) => Promise<void>;
   resumeCreditPause: () => Promise<void>;
   refreshCreditPause: (worldId: string, conversationId?: string | null, runId?: string) => Promise<void>;
+  /** Re-attach to a run whose stream died, from the "connection dropped" card.
+   *  Read-only: it never starts a model, so it costs nothing to press. */
+  reconnectAgent: (worldId: string, conversationId?: string | null, runId?: string) => Promise<void>;
+  /** Same button, but while the recovery banner is still up and a poller is
+   *  already attached: poll now and reset the give-up budget. */
+  nudgeRecovery: () => void;
   stopAgent: () => void;
   approveProposal: () => void;
   rejectProposal: () => void;
@@ -335,6 +344,11 @@ interface AgentStreamCallbacks {
    *  transient "reconnecting" state instead of immediately showing a terminal
    *  error. Follow-up callback (onDone / onProposal / onError) clears it. */
   onStreamInterrupted?: () => void;
+  /** One recovery poll came back and the run is still alive server-side. Carries
+   *  the server's own progress so the disconnected UI can show what the agent is
+   *  actually doing instead of an indefinite spinner. Fires on every successful
+   *  poll (~5s), so the banner ticks even though no SSE bytes are arriving. */
+  onRecoveryProgress?: (data: { runId: string; iteration: number; maxIterations: number; committedTurns: number }) => void;
   onCredits?: (data: Record<string, unknown>) => void;
   onCreditsPaused?: (data: Record<string, unknown>) => void;
   onError: (error: string, code?: string) => void;
@@ -364,7 +378,14 @@ async function tryRecoverAgentRun(
   if (!worldId) return false;
 
   const STALE_MS = 120_000;     // give up if updatedAt hasn't moved in 2 min
-  const HARD_CAP_MS = 900_000;  // absolute ceiling: 15 min, regardless of progress
+  // Absolute ceiling. MUST outlast the server's own ABSOLUTE_TIMEOUT_MS
+  // (routes/agent.ts) — the agent keeps iterating and writing to the world long
+  // after the SSE drops, so a client cap SHORTER than the server's reports a
+  // healthy long run as a connection failure while it is still editing the card.
+  // This was 15 min while the server allowed 30 (raised 2026-07-17 for single
+  // 24-min iterations), so every run past 15 min was a guaranteed fake error.
+  // Server budget + 2 min for the terminal write to land.
+  const HARD_CAP_MS = 1_920_000; // 32 min
   const POLL_INTERVAL_MS = 5_000;
 
   // Resolve the runId: if we don't have one (SSE died before run_started event),
@@ -376,6 +397,30 @@ async function tryRecoverAgentRun(
   let lastUpdatedAt = 0;
   let lastProgressAt = Date.now();
   let consecutiveNetErrs = 0;
+
+  // Bubbles already handed to the store during THIS recovery. The server keeps
+  // committing turns while we are disconnected, and every poll returns the whole
+  // list, so without a local guard a 10-minute recovery would re-dispatch the
+  // same turn ~120 times. onAssistantTurnCommit is idempotent by commitId, so
+  // this is about churn, not correctness.
+  const emittedCommitIds = new Set<string>();
+  const emitTurns = (turns: unknown, recoveredRunId: string) => {
+    if (!Array.isArray(turns)) return 0;
+    for (const turn of turns) {
+      const commitId = (turn as { commitId?: unknown })?.commitId;
+      if (typeof commitId !== "string" || emittedCommitIds.has(commitId)) continue;
+      emittedCommitIds.add(commitId);
+      const t = turn as { iteration?: number; textContent?: string; writeToolCalls?: unknown };
+      callbacks.onAssistantTurnCommit({
+        runId: recoveredRunId,
+        iteration: t.iteration ?? 0,
+        textContent: t.textContent ?? "",
+        commitId,
+        writeToolCalls: Array.isArray(t.writeToolCalls) ? (t.writeToolCalls as ToolCall[]) : undefined,
+      });
+    }
+    return turns.length;
+  };
 
   // Wake the poll sleep immediately when the user returns to the tab or when the
   // network comes back online. Without this we'd wait up to POLL_INTERVAL_MS
@@ -394,7 +439,15 @@ async function tryRecoverAgentRun(
   const onVisibility = () => {
     if (document.visibilityState === "visible") poke();
   };
+  const onNudge = () => {
+    // An explicit press is a statement that the creator is still waiting, so
+    // reset every clock that could cut the run short and poll immediately.
+    lastProgressAt = Date.now();
+    consecutiveNetErrs = 0;
+    poke();
+  };
   window.addEventListener("online", onOnline);
+  window.addEventListener(AGENT_RECOVERY_NUDGE, onNudge);
   document.addEventListener("visibilitychange", onVisibility);
 
   try {
@@ -448,12 +501,7 @@ async function tryRecoverAgentRun(
         callbacks.onRunStarted?.(recoveredRunId);
 
         if (data.status === "awaiting_credits" || data.creditPause?.resumable === true || data.status === "error") {
-          for (const turn of Array.isArray(data.committedTurns) ? data.committedTurns : []) {
-            if (typeof turn?.commitId !== "string") continue;
-            callbacks.onAssistantTurnCommit({ runId: recoveredRunId, iteration: turn.iteration ?? 0,
-              textContent: turn.textContent ?? "", commitId: turn.commitId,
-              writeToolCalls: Array.isArray(turn.writeToolCalls) ? turn.writeToolCalls : undefined });
-          }
+          emitTurns(data.committedTurns, recoveredRunId);
           if (data.creditPause && (data.status === "awaiting_credits" || data.creditPause.resumable === true)) {
             callbacks.onCreditsPaused?.({ ...data.creditPause, runId: recoveredRunId,
               reason: data.creditPause.reason ?? (data.error === "STALE_WORLD" ? data.error : undefined) });
@@ -465,17 +513,7 @@ async function tryRecoverAgentRun(
           // Hydrate any committed turns the client missed while disconnected.
           // onAssistantTurnCommit is idempotent by commitId, so live and recovery
           // paths can safely emit for the same turn without duplicating bubbles.
-          const turns = Array.isArray(data.committedTurns) ? data.committedTurns : [];
-          for (const turn of turns) {
-            if (typeof turn?.commitId !== "string") continue;
-            callbacks.onAssistantTurnCommit({
-              runId: recoveredRunId,
-              iteration: turn.iteration ?? 0,
-              textContent: turn.textContent ?? "",
-              commitId: turn.commitId,
-              writeToolCalls: Array.isArray(turn.writeToolCalls) ? turn.writeToolCalls : undefined,
-            });
-          }
+          emitTurns(data.committedTurns, recoveredRunId);
           callbacks.onDone({ runId: recoveredRunId });
           return true;
         }
@@ -509,17 +547,7 @@ async function tryRecoverAgentRun(
         }
         // ask_user yields control — the run is done from the agent's perspective
         if (data.status === "awaiting_user") {
-          const turns = Array.isArray(data.committedTurns) ? data.committedTurns : [];
-          for (const turn of turns) {
-            if (typeof turn?.commitId !== "string") continue;
-            callbacks.onAssistantTurnCommit({
-              runId: recoveredRunId,
-              iteration: turn.iteration ?? 0,
-              textContent: turn.textContent ?? "",
-              commitId: turn.commitId,
-              writeToolCalls: Array.isArray(turn.writeToolCalls) ? turn.writeToolCalls : undefined,
-            });
-          }
+          emitTurns(data.committedTurns, recoveredRunId);
           callbacks.onDone({ runId: recoveredRunId });
           return true;
         }
@@ -531,9 +559,24 @@ async function tryRecoverAgentRun(
           return true;
         }
 
-        // Still running — track progress via updatedAt timestamp. The server
-        // heartbeat bumps updatedAt every 5s while the agent loop is alive, so
-        // a 2-min gap now reliably means the Node process has actually died.
+        // Still running. Two things happen on every poll, both of which used to
+        // wait until the run finished:
+        //   1. Bubbles the agent has committed since the disconnect are handed to
+        //      the store NOW, so the conversation keeps growing on screen.
+        //   2. The server's own step counter is reported, so the UI can say what
+        //      the agent is doing rather than spin indefinitely. Users were
+        //      killing healthy runs at step 7/50 because nothing on screen moved.
+        emitTurns(data.committedTurns, recoveredRunId);
+        callbacks.onRecoveryProgress?.({
+          runId: recoveredRunId,
+          iteration: typeof data.iteration === "number" ? data.iteration : 0,
+          maxIterations: typeof data.maxIterations === "number" ? data.maxIterations : 0,
+          committedTurns: emittedCommitIds.size,
+        });
+
+        // Track liveness via the updatedAt timestamp. The server heartbeat bumps
+        // it every 5s while the agent loop is alive, so a 2-min gap now reliably
+        // means the Node process has actually died.
         const updatedAt = data.updatedAt ? new Date(data.updatedAt).getTime() : 0;
         if (updatedAt > lastUpdatedAt) {
           lastUpdatedAt = updatedAt;
@@ -554,8 +597,66 @@ async function tryRecoverAgentRun(
     return false;
   } finally {
     window.removeEventListener("online", onOnline);
+    window.removeEventListener(AGENT_RECOVERY_NUDGE, onNudge);
     document.removeEventListener("visibilitychange", onVisibility);
   }
+}
+
+/** Fired when the creator presses Reconnect while the recovery poller is already
+ *  running. The poller listens for it exactly like "online" and "visibilitychange":
+ *  wake up now instead of sleeping out the interval. It also clears the give-up
+ *  budget, so a press always buys the run a fresh 2 minutes. */
+const AGENT_RECOVERY_NUDGE = "yumina:agent-recovery-nudge";
+
+// ── Abandoned-run ledger ────────────────────────────────────────────────────
+// "The conversation ends on an unanswered question" is NOT enough to justify
+// replaying a finished run's bubbles: a creator who removed an assistant turn
+// leaves the same shape, and resurrecting it on every tab focus would be worse
+// than the bug being fixed (studio-credit-recovery.test.ts pins that).
+//
+// So record the unambiguous fact instead: THIS browser watched the run, lost the
+// stream, polled until it gave up, and showed an error. A turn the user deleted
+// was never abandoned, so it can never be revived through this path.
+const ABANDONED_RUNS_KEY = "yumina:studio-abandoned-runs";
+const ABANDONED_TTL_MS = 24 * 60 * 60_000;
+const ABANDONED_MAX = 20;
+
+type AbandonedEntry = { runId: string; at: number };
+
+function readAbandonedRuns(): AbandonedEntry[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ABANDONED_RUNS_KEY) ?? "[]");
+    if (!Array.isArray(raw)) return [];
+    const cutoff = Date.now() - ABANDONED_TTL_MS;
+    return raw.filter((entry): entry is AbandonedEntry =>
+      !!entry && typeof entry.runId === "string" && typeof entry.at === "number" && entry.at > cutoff);
+  } catch {
+    return []; // private mode / blocked storage — the rescue path just stays off
+  }
+}
+
+function rememberAbandonedRun(runId: string | undefined): void {
+  if (!runId) return;
+  try {
+    const next = [{ runId, at: Date.now() }, ...readAbandonedRuns().filter(e => e.runId !== runId)]
+      .slice(0, ABANDONED_MAX);
+    localStorage.setItem(ABANDONED_RUNS_KEY, JSON.stringify(next));
+  } catch {
+    /* storage unavailable; nothing to rescue later, which is the safe direction */
+  }
+}
+
+function forgetAbandonedRun(runId: string): void {
+  try {
+    localStorage.setItem(ABANDONED_RUNS_KEY,
+      JSON.stringify(readAbandonedRuns().filter(e => e.runId !== runId)));
+  } catch {
+    /* see above */
+  }
+}
+
+function wasAbandonedHere(runId: unknown): boolean {
+  return typeof runId === "string" && readAbandonedRuns().some(e => e.runId === runId);
 }
 
 /** Translate raw browser network errors (Safari "Load failed", Chrome
@@ -564,7 +665,7 @@ async function tryRecoverAgentRun(
  *  failed, so the wording tells the user to retry rather than implying
  *  an auto-reconnect is in progress. */
 function friendlyNetworkError(raw: string): string {
-  if (/load failed|failed to fetch|networkerror|network request failed|network connection was lost/i.test(raw)) {
+  if (/load failed|failed to fetch|network\s?error|network request failed|network connection was lost/i.test(raw)) {
     return "Connection lost — please check your network and try again.";
   }
   return raw;
@@ -765,10 +866,13 @@ function connectAgentSSE(
           callbacks.onStreamInterrupted?.();
           const recovered = await tryRecoverAgentRun(runId, callbacks);
           if (recovered) return;
+          // Give-up is on the record: the agent may still land a result we can
+          // rescue the next time this conversation loads.
+          rememberAbandonedRun(runId);
           captureFailure("read_error", readErr instanceof Error ? readErr.message : "Stream read failed");
           callbacks.onError(friendlyNetworkError(
             readErr instanceof Error ? readErr.message : "Stream read failed",
-          ));
+          ), "DISCONNECTED");
           return;
         }
         if (done) break;
@@ -871,8 +975,9 @@ function connectAgentSSE(
         callbacks.onStreamInterrupted?.();
         const recovered = await tryRecoverAgentRun(runId, callbacks);
         if (!recovered) {
+          rememberAbandonedRun(runId);
           captureFailure("closed_no_terminal", "Stream closed without done/error event");
-          callbacks.onError("Connection closed unexpectedly. Try again.");
+          callbacks.onError("Connection closed unexpectedly. Try again.", "DISCONNECTED");
         }
       }
     })
@@ -884,11 +989,12 @@ function connectAgentSSE(
       callbacks.onStreamInterrupted?.();
       const recovered = await tryRecoverAgentRun(runId, callbacks);
       if (!recovered) {
+        rememberAbandonedRun(runId);
         const raw = err instanceof Error ? err.message : "Connection failed";
         const isNetworkError =
           /load failed|failed to fetch|networkerror|network request failed|network connection was lost/i.test(raw);
         captureFailure(isNetworkError ? "network" : "fetch_other", raw);
-        callbacks.onError(friendlyNetworkError(raw));
+        callbacks.onError(friendlyNetworkError(raw), "DISCONNECTED");
       }
     });
 
@@ -1006,7 +1112,7 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
   const activeRun = () => active() && isActiveStudioRunScope(scope, streamRunId);
   const activeStream = () => active() && isActiveStudioStreamScope(scope, streamRunId);
   const ended = { isChatStreaming: false, chatStreamContent: "", isAgentWorking: false,
-    isRecovering: false, isResumingCredits: false, agentIteration: 0, toolGenName: null,
+    isRecovering: false, isReconnecting: false, isResumingCredits: false, agentIteration: 0, toolGenName: null,
     toolGenChars: 0, _agentAbortController: null, _currentRunId: null };
   return {
     scope, isActive: active,
@@ -1043,7 +1149,20 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
     onApplied: data => {
       if (activeRun()) set(s => ({ appliedCount: s.appliedCount + (Number.isFinite(data.changes) ? data.changes : 1) }));
     },
-    onStreamInterrupted: () => { if (activeStream()) set({ isRecovering: true }); },
+    onStreamInterrupted: () => {
+      if (activeStream()) set({ isRecovering: true });
+    },
+    onRecoveryProgress: data => {
+      // The run is alive but silent. Feed the server's step counter into the same
+      // fields the live banner reads, so a disconnected user sees the agent move.
+      if (!activeStream()) return;
+      set(s => ({
+        // A poll came back, so a pending Reconnect press has been answered.
+        isReconnecting: false,
+        agentIteration: data.iteration > 0 ? data.iteration : s.agentIteration,
+        agentMaxIterations: data.maxIterations > 0 ? data.maxIterations : s.agentMaxIterations,
+      }));
+    },
     onProposal: data => {
       if (!activeRun()) return;
       flushStreamNow();
@@ -1120,12 +1239,25 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
       flushStreamNow();
       const current = useStudioStore.getState().creditPause;
       const pause = current && current.worldId === scope.worldId && current.conversationId === scope.conversationId ? current : null;
+      const disconnected = code === "DISCONNECTED" || code === "RECOVERY_FAILED";
       set(s => ({ ...ended,
         ...(pause ? { creditPause: { ...pause,
           ...(code === "STALE_WORLD" ? { reason: code, resumable: false } : {}),
           ...(code === "BILLING_DETAILS_MISSING" ? { billingUnavailable: true, resumable: false } : {}),
         }, creditPauseError: creditPauseFailure(code) }
-          : { chatMessages: [...s.chatMessages, { id: nextMsgId(), role: "assistant" as const, content: `Error: ${error}` }] }),
+          : { chatMessages: [...s.chatMessages, disconnected
+            // A dropped stream is not a failed task. The agent usually finishes
+            // server-side, so offer to re-attach to THAT run rather than leaving
+            // "Error: network error" whose only exit is a second, billed run.
+            ? { id: nextMsgId(), role: "assistant" as const,
+                content: tr("editor:studio.aiChat.disconnectedBody",
+                  "Connection dropped. The assistant may have finished in the background."),
+                // Tagged with the run so Resend (undo + re-send) rolls back whatever
+                // that run already applied to the card. Reconnect strips this card
+                // before polling, so the tag never blocks the rescue path.
+                ...(streamRunId ? { agentRunId: streamRunId } : {}),
+                disconnected: { ...(streamRunId ? { runId: streamRunId } : {}) } }
+            : { id: nextMsgId(), role: "assistant" as const, content: `Error: ${error}` }] }),
       }));
       flushRefresh();
       // Read-only reconciliation can recover a pause that was committed just
@@ -1160,6 +1292,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   creditPause: null,
   isResumingCredits: false,
   isRefreshingCreditPause: false,
+  isReconnecting: false,
   creditPauseError: null,
 
   // Approval state (server-side)
@@ -1304,6 +1437,46 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     }
   },
 
+  nudgeRecovery: () => {
+    // The banner case: a poller is already attached to this run, so the honest
+    // action is "ask right now" rather than starting anything. The spinner stays
+    // until onRecoveryProgress (or a terminal callback) reports the answer.
+    if (!get().isRecovering || get().isReconnecting) return;
+    set({ isReconnecting: true });
+    window.dispatchEvent(new Event(AGENT_RECOVERY_NUDGE));
+  },
+
+  reconnectAgent: async (worldId, conversationId = null, runId) => {
+    if (get().isReconnecting || get().isAgentWorking) return;
+    // Drop the card first. It is the thing being answered, and the rescue path
+    // in refreshCreditPause deliberately refuses to hydrate a run that already
+    // has a bubble in this transcript.
+    const before = get().chatMessages.filter(message => !message.disconnected);
+    set({ chatMessages: before, isReconnecting: true });
+    try {
+      await get().refreshCreditPause(worldId, conversationId, runId);
+      const after = useStudioStore.getState();
+      const reattached = after.isAgentWorking || !!after.creditPause;
+      const recovered = after.chatMessages.length > before.length;
+      if (reattached || recovered) {
+        // Whatever the run spent is now reflected in the transcript, and the
+        // context meter is derived from it. Pull the wallet so the mushroom
+        // balance in the header agrees with what actually ran.
+        void useCreditStore.getState().fetchCredits(0); // 0 = ignore the cache TTL
+        return;
+      }
+      // Nothing on the server: say so plainly and leave only the honest option.
+      set(state => ({ chatMessages: [...state.chatMessages, {
+        id: nextMsgId(), role: "assistant" as const,
+        content: tr("editor:studio.aiChat.disconnectedDeadBody",
+          "That task did not finish, and the card was not changed."),
+        disconnected: { dead: true },
+      }] }));
+    } finally {
+      set({ isReconnecting: false });
+    }
+  },
+
   refreshCreditPause: async (worldId, conversationId = null, runId) => {
     const scope = { worldId, conversationId };
     if (!isActiveStudioChatScope(scope) || get().isAgentWorking || get().isResumingCredits) return;
@@ -1326,9 +1499,27 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         reason: rememberedReason === "STALE_WORLD" ? rememberedReason : rawPause.reason ?? (data.error === "STALE_WORLD" ? data.error : rememberedReason),
         ...(rememberedReason === "STALE_WORLD" ? { resumable: false } : {}),
       }, scope, data.id) : null;
-      // Ordinary completed history is loaded by the conversation endpoint,
-      // which respects deleted/undone messages. Only hydrate a pending task here.
-      const turns = pause && data.status !== "completed" && data.status !== "awaiting_user" && Array.isArray(data.committedTurns)
+      // Ordinary completed history is loaded by the conversation endpoint, which
+      // respects deleted/undone messages, so a finished run is NOT replayed here
+      // by default.
+      //
+      // One exception, and it is worth the extra conditions: the conversation
+      // record is written by the CLIENT. When the stream drops and recovery
+      // eventually gives up, the client stops writing — but the agent finishes
+      // server-side minutes later, and its answer (plus the card edits it already
+      // applied) then exist only in agent_runs. Reloading showed the creator a
+      // dangling question, no reply, and a card that had in fact been edited.
+      // Replaying is safe exactly when the stored conversation still ends on that
+      // unanswered user turn: undo trims the user message too, so an undone turn
+      // never leaves this shape.
+      const terminal = data.status === "completed" || data.status === "awaiting_user";
+      const abandonedResult = terminal && !pause
+        && wasAbandonedHere(data.id)
+        && Array.isArray(data.committedTurns) && data.committedTurns.length > 0
+        && !/stopped by user|superseded/i.test(String(data.error ?? ""))
+        && !get().chatMessages.some(message => message.agentRunId === data.id);
+      if (abandonedResult) forgetAbandonedRun(data.id);
+      const turns = ((pause && !terminal) || abandonedResult) && Array.isArray(data.committedTurns)
         ? data.committedTurns : [];
       set(state => {
         const messages = [...state.chatMessages];
@@ -1351,13 +1542,35 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           isAgentWorking: true, isChatStreaming: true, isRecovering: true });
         const callbacks = studioAgentCallbacks(scope, data.id);
         void tryRecoverAgentRun(data.id, callbacks).then(recovered => {
-          if (!recovered && callbacks.isActive?.()) callbacks.onError("Unable to recover this task yet", "RECOVERY_FAILED");
+          if (!recovered && callbacks.isActive?.()) {
+            rememberAbandonedRun(data.id);
+            callbacks.onError("Unable to recover this task yet", "RECOVERY_FAILED");
+          }
         });
       } else if (pause && (pause.billingUnavailable || pause.reason === "STALE_WORLD")
         && data.status !== "completed" && data.status !== "awaiting_user") {
         set({ creditPause: pause, creditPauseError: creditPauseFailure(pause.billingUnavailable ? "BILLING_DETAILS_MISSING" : "STALE_WORLD") });
       } else {
         set({ creditPause: null, creditPauseError: null });
+        // A long run whose stream died while the tab was away is still alive on
+        // the server — the heartbeat bumps updatedAt every 5s, so a fresh
+        // timestamp means it is mid-edit right now. Re-attach the poller instead
+        // of leaving the panel looking idle while the card is being rewritten.
+        // Until now only credit-paused runs got this treatment.
+        const liveRun = data.status === "running"
+          && Date.now() - new Date(data.updatedAt ?? 0).getTime() < 2 * 60_000
+          && !/stopped by user|superseded/i.test(String(data.error ?? ""));
+        if (liveRun && !get().isAgentWorking) {
+          set({ _currentRunId: data.id, isAgentWorking: true, isChatStreaming: true,
+            isRecovering: true });
+          const callbacks = studioAgentCallbacks(scope, data.id);
+          void tryRecoverAgentRun(data.id, callbacks).then(recovered => {
+            if (!recovered && callbacks.isActive?.()) {
+              rememberAbandonedRun(data.id);
+              callbacks.onError("Unable to recover this task yet", "RECOVERY_FAILED");
+            }
+          });
+        }
       }
     } catch {
       if (current()) set({ creditPauseError: creditPauseFailure() });

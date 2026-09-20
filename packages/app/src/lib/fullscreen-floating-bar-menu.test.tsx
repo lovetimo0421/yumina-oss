@@ -83,11 +83,13 @@ test("story dock keeps extensions in a menu and fullscreen primary", async () =>
           moreLabel: "More actions",
           modelLabel: "Model",
           memoryLabel: "Memory",
+          stateGuardLabel: "State Update Guard",
           fullscreenLabel: "Return to fullscreen",
           showActions: true,
           onBack: () => calls.push("back"),
           onModel: () => calls.push("model"),
           onMemory: () => calls.push("memory"),
+          onStateGuard: () => calls.push("guard"),
           onFullscreen: () => calls.push("fullscreen"),
           onInteractionStart: () => calls.push("interaction"),
           onMenuOpenChange: (open) => menuTransitions.push(open),
@@ -109,6 +111,7 @@ test("story dock keeps extensions in a menu and fullscreen primary", async () =>
     for (const [label, expected] of [
       ["Model", "model"],
       ["Memory", "memory"],
+      ["State Update Guard", "guard"],
     ] as const) {
       const menu = await openMenu();
       assert.equal(menuTransitions.at(-1), true);

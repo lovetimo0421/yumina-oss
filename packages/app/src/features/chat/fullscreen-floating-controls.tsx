@@ -1,4 +1,4 @@
-import { ArrowLeft, Brain, Cpu, Maximize, MoreHorizontal } from "lucide-react";
+import { ArrowLeft, Brain, Cpu, Maximize, MoreHorizontal, ShieldCheck } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,6 +11,8 @@ interface FullscreenFloatingControlsProps {
   moreLabel: string;
   modelLabel: string;
   memoryLabel?: string;
+  stateGuardLabel?: string;
+  onStateGuard?: () => void;
   fullscreenLabel: string;
   showActions: boolean;
   onBack: () => void;
@@ -30,6 +32,8 @@ export function FullscreenFloatingControls({
   moreLabel,
   modelLabel,
   memoryLabel,
+  stateGuardLabel,
+  onStateGuard,
   fullscreenLabel,
   showActions,
   onBack,
@@ -82,6 +86,12 @@ export function FullscreenFloatingControls({
                 >
                   <Brain className="h-4 w-4 text-gold" />
                   {memoryLabel}
+                </DropdownMenuItem>
+              )}
+              {stateGuardLabel && onStateGuard && (
+                <DropdownMenuItem onSelect={onStateGuard} className="min-h-11 gap-2.5 rounded-lg px-3 focus:bg-gold/[0.10] focus:text-foreground">
+                  <ShieldCheck className="h-4 w-4 text-gold" />
+                  {stateGuardLabel}
                 </DropdownMenuItem>
               )}
             </DropdownMenuContent>

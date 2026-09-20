@@ -17,6 +17,8 @@ import {
   GripHorizontal,
   Undo2,
   RefreshCw,
+  PlugZap,
+  AlertTriangle,
   ChevronDown,
   Check,
 } from "lucide-react";
@@ -63,6 +65,67 @@ function formatTokens(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(n >= 100_000 ? 0 : 1)}K`;
   return `${n}`;
 }
+/** Replaces the chat bubble when the stream died mid-run.
+ *
+ *  The agent normally survives a dropped stream: the server keeps iterating and
+ *  writes its result to agent_runs. So the leading action is Reconnect, which is
+ *  read-only (a status poll, never a model call) and therefore free. Resend is
+ *  demoted and says out loud that it charges again, because it used to be the
+ *  only thing on offer and it re-does work the server had already finished. */
+function DisconnectedCard({ dead, busy, onReconnect, onResend }: {
+  dead: boolean;
+  busy: boolean;
+  onReconnect: () => void;
+  onResend: () => void;
+}) {
+  const { t } = useTranslation("editor");
+  const tone = dead
+    ? { border: "border-destructive/25", bg: "bg-destructive/5", title: "text-destructive", body: "text-destructive/75" }
+    : { border: "border-amber-500/25", bg: "bg-amber-500/5", title: "text-amber-300", body: "text-amber-200/70" };
+  return (
+    <div className={cn("rounded-lg border px-3 py-2.5", tone.border, tone.bg)}>
+      <div className={cn("flex items-center gap-1.5 text-[11px] font-semibold", tone.title)}>
+        <AlertTriangle className="h-3 w-3 shrink-0" />
+        {t(dead ? "studio.aiChat.disconnectedDeadTitle" : "studio.aiChat.disconnectedTitle")}
+      </div>
+      <p className={cn("mt-0.5 text-[10.5px] leading-relaxed", tone.body)}>
+        {t(dead ? "studio.aiChat.disconnectedDeadBody" : "studio.aiChat.disconnectedBody")}
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {!dead && (
+          <button
+            onClick={onReconnect}
+            disabled={busy}
+            className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-60"
+          >
+            {busy
+              ? <Loader2 className="h-3 w-3 animate-spin" />
+              : <PlugZap className="h-3 w-3" />}
+            {t("studio.aiChat.reconnect")}
+          </button>
+        )}
+        <button
+          onClick={onResend}
+          disabled={busy}
+          className={cn(
+            "rounded-md px-2.5 py-1 text-[11px] transition-colors disabled:opacity-60",
+            dead
+              ? "bg-primary font-semibold text-primary-foreground hover:opacity-90"
+              : "border border-border text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {t("studio.aiChat.resend")}
+        </button>
+        {!dead && (
+          <span className="text-[9.5px] text-muted-foreground/70">
+            {t("studio.aiChat.resendCharges")}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const MAX_INPUT_HEIGHT = 320;
 
 /** Memoized markdown renderer for historical messages.
@@ -208,6 +271,9 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
   const removeChatAttachment = useStudioStore(s => s.removeChatAttachment);
   const undoLastTurn = useStudioStore(s => s.undoLastTurn);
   const regenerateLastTurn = useStudioStore(s => s.regenerateLastTurn);
+  const reconnectAgent = useStudioStore(s => s.reconnectAgent);
+  const nudgeRecovery = useStudioStore(s => s.nudgeRecovery);
+  const isReconnecting = useStudioStore(s => s.isReconnecting);
   const serverWorldId = useEditorStore(s => s.serverWorldId);
   const fetchCredits = useCreditStore(s => s.fetchCredits);
   const creditBalance = useCreditStore(s => s.balance);
@@ -221,6 +287,11 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
 
   // Elapsed time counter for agent working indicator
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  // Runs can legitimately last half an hour. Past a minute a raw second count
+  // stops reading as progress, so switch to m:ss.
+  const elapsedLabel = elapsedSeconds < 60
+    ? `${elapsedSeconds}s`
+    : `${Math.floor(elapsedSeconds / 60)}:${String(elapsedSeconds % 60).padStart(2, "0")}`;
   const agentStartRef = useRef<number>(0);
   useEffect(() => {
     if (!isAgentWorking) {
@@ -712,7 +783,21 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
           </div>
         )}
 
-        {chatMessages.map((msg, msgIdx) => (
+        {chatMessages.map((msg, msgIdx) => msg.disconnected ? (
+          // Not model output, so it gets no chat bubble: a dropped stream is a
+          // state the creator has to act on, and the action that matters
+          // (re-attach to the run the server may have already finished) has to
+          // outrank the one that silently bills them again.
+          <DisconnectedCard
+            key={msg.id}
+            dead={msg.disconnected.dead === true}
+            busy={isReconnecting}
+            onReconnect={() => {
+              if (serverWorldId) void reconnectAgent(serverWorldId, activeConversationId, msg.disconnected?.runId);
+            }}
+            onResend={() => { if (serverWorldId) void regenerateLastTurn(serverWorldId, model, activeConversationId); }}
+          />
+        ) : (
           <div key={msg.id}>
           <div
             className={cn(
@@ -881,22 +966,49 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
       {/* Agent status bar */}
       {isAgentWorking && !hasPendingApproval && (
         isRecovering ? (
-          // SSE dropped but agent may still be running server-side — muted amber
-          // banner signals "no live progress right now, but we haven't given up".
-          // Once recovery resolves, onDone/onProposal/onError clears isRecovering
-          // and this flips back to the normal working bar or closes out.
-          <div className="flex items-center gap-2 border-t border-amber-500/20 bg-amber-500/5 px-3 py-1.5">
-            <Loader2 className="h-3 w-3 animate-spin text-amber-600" />
-            <span className="text-[11px] text-amber-700 font-medium">
-              {t("studio.aiChat.recovering")}
-            </span>
-            <button
-              onClick={stopAgent}
-              className="ml-auto flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Square className="h-2.5 w-2.5" />
-              {t("studio.aiChat.stop")}
-            </button>
+          // SSE dropped, but the agent keeps iterating server-side and the recovery
+          // poller reads its real progress every 5s. Show that progress. An
+          // information-free spinner reads as "hung": creators were hitting Stop on
+          // healthy runs sitting at step 7/50, and the run they killed was editing
+          // their card at the time. Step counter + clock + a plain sentence about
+          // what is actually happening is the whole fix.
+          // (Colors match the rest of this panel — the app ships dark-only, and
+          // amber-700 on this surface measures ~3.5:1, under the 4.5:1 AA floor
+          // for 11px text. amber-300 is ~13:1.)
+          <div className="border-t border-amber-500/20 bg-amber-500/5 px-3 py-1.5">
+            <div className="flex items-center gap-2">
+              <Loader2 className="h-3 w-3 shrink-0 animate-spin text-amber-400" />
+              <span className="text-[11px] text-amber-300 font-medium">
+                {agentIteration > 0
+                  ? t("studio.aiChat.thinkingStep", { step: agentIteration, max: agentMaxIterations })
+                  : t("studio.aiChat.recovering")}
+              </span>
+              <span className="text-[10px] text-amber-300/60 tabular-nums">{elapsedLabel}</span>
+              <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                {/* Ask now instead of waiting out the 5s poll, and clear the
+                    give-up budget. Read-only, so pressing it costs nothing. */}
+                <button
+                  onClick={nudgeRecovery}
+                  disabled={isReconnecting}
+                  className="flex items-center gap-1 rounded-md bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary transition-colors hover:bg-primary/25 disabled:opacity-60"
+                >
+                  {isReconnecting
+                    ? <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                    : <PlugZap className="h-2.5 w-2.5" />}
+                  {t("studio.aiChat.reconnect")}
+                </button>
+                <button
+                  onClick={stopAgent}
+                  className="flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <Square className="h-2.5 w-2.5" />
+                  {t("studio.aiChat.stop")}
+                </button>
+              </div>
+            </div>
+            <p className="mt-0.5 pl-5 text-[10px] leading-snug text-amber-200/70">
+              {t("studio.aiChat.recoveringDetail")}
+            </p>
           </div>
         ) : (
           <div className="flex items-center gap-2 border-t border-primary/20 bg-primary/5 px-3 py-1.5">

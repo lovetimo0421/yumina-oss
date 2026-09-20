@@ -801,6 +801,33 @@ export async function settleStudioCreditReservation(
 // ─── Monthly Credit Refresh ─────────────────────────────────────────
 
 /**
+ * Ledger row for the unused MONTHLY mushies a reset discards: everything above
+ * the addon bucket (saved + bonus, which a reset keeps). Call inside the reset
+ * transaction, under the wallet lock, BEFORE the grant row, with the balances
+ * read off the locked row. No-op when nothing is left to expire.
+ */
+async function recordMonthlyExpiry(
+  tx: LedgerDatabase,
+  walletId: string,
+  balanceBefore: number,
+  addonBalance: number,
+  description: string,
+  referenceId: string | null,
+): Promise<number> {
+  const expired = Math.max(0, balanceBefore - Math.max(0, addonBalance));
+  if (expired <= 0.005) return 0;
+  await insertHashedTransaction({
+    walletId,
+    amount: -expired,
+    type: "monthly_expiry",
+    referenceId,
+    balanceAfter: balanceBefore - expired,
+    description,
+  }, tx);
+  return expired;
+}
+
+/**
  * Lazy monthly credit renewal. Called before each balance check.
  * If the current period has expired, resets balance to monthly grant.
  * Credits do NOT roll over — expired balance is replaced, not added to.
@@ -859,6 +886,14 @@ export async function refreshMonthlyCredits(
   // Lost the boundary race — another request already renewed. No-op: don't log
   // a second plan_grant for the same period.
   if (!updated) return false;
+
+  // Every mushie movement is a ledger row (owner mandate 2026-09-19). The unused
+  // monthly mushies this reset discards are written down BEFORE the grant, so
+  // the chain reads old → −expired → addon → +grant → new and a user can see
+  // where the leftover went. Addon (saved/bonus) mushies are never touched here.
+  // Before this row existed, renewals were the one place the ledger broke:
+  // ~194k mushies a week vanished between "+2,000" rows.
+  await recordMonthlyExpiry(tx, wallet.id, locked.balance, locked.addonBalance, "Unused monthly mushies expired at renewal", null);
 
   // Log the grant (hash-chained). balanceAfter must be the REAL post-reset
   // balance (monthly + addon) — logging bare monthlyCredits made the ledger
@@ -978,6 +1013,19 @@ export async function syncPlan(
       periodStart: locked.periodStart,
       balance: locked.balance,
     }, now);
+  }
+
+  // A reset discards the unused monthly mushies; write them down before the
+  // grant so the ledger explains the whole move (see refreshMonthlyCredits).
+  if (!additive) {
+    await recordMonthlyExpiry(
+      tx,
+      wallet.id,
+      locked.balance,
+      locked.addonBalance,
+      newPlan === "free" ? "Unused monthly mushies expired when the plan ended" : "Unused monthly mushies expired at plan change",
+      options?.referenceId ? `${options.referenceId}:expiry` : null,
+    );
   }
 
   const balanceExpr = additive

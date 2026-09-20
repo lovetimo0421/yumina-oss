@@ -19,6 +19,7 @@ const BACKGROUND_BILLING_LABELS: Record<string, string> = {
   "story-compaction": "Story summary compaction",
   "session-memory": "Session memory update",
   "summaryception": "Layered summary",
+  "state-update-guard": "State update correction",
 };
 
 export function backgroundBillingLabel(endpoint: string): string {
@@ -29,6 +30,7 @@ export function backgroundBillingLabel(endpoint: string): string {
  *  Lands in summaryError / sessionMemoryError, so the memory panel shows the
  *  real reason instead of a cryptic INSUFFICIENT_CREDITS. */
 export function notEnoughMushiesMessage(endpoint: string): string {
+  if (endpoint === "state-update-guard") return "Not enough mushies for the state update correction. Choose Use free model in State Update Guard or top up, then retry. Your previous state is saved and this reply was not charged.";
   return `Not enough mushies to run the ${backgroundBillingLabel(endpoint).toLowerCase()}. It is paused until you top up or check in — then run it again from the memory panel.`;
 }
 
@@ -48,6 +50,14 @@ async function effectivePlanFor(userId: string): Promise<{ plan: PlanId; balance
 export async function backgroundBillingApplies(userId: string): Promise<boolean> {
   const { plan } = await effectivePlanFor(userId);
   return !PLANS[plan]?.unlimited;
+}
+
+/** Prepare outside a caller's state transaction; debit can then join its commit. */
+export async function backgroundUsageCost(args: {
+  userId: string; model: string; promptTokens: number; completionTokens: number; providerCostUsd?: number;
+}): Promise<number> {
+  if (!await backgroundBillingApplies(args.userId)) return 0;
+  return calculateCost(args.model, args.promptTokens, args.completionTokens, { providerCostUsd: args.providerCostUsd });
 }
 
 /** Pre-gate for a multi-call run: false when the wallet clearly can't cover

@@ -72,8 +72,21 @@ function ExtensionPreviewContent({
 
   // Escape to close + lock body scroll while open.
   useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    modalRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
+      const modal = modalRef.current;
+      if (e.key !== "Tab" || !modal?.contains(document.activeElement)) return;
+      const focusable = [...modal.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex="0"]')];
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) { e.preventDefault(); modal.focus(); return; }
+      if (e.shiftKey && (document.activeElement === first || document.activeElement === modal)) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || document.activeElement === modal)) {
+        e.preventDefault(); first.focus();
+      }
     };
     document.addEventListener("keydown", onKey);
     const prevOverflow = document.body.style.overflow;
@@ -81,6 +94,7 @@ function ExtensionPreviewContent({
     return () => {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
+      if (previouslyFocused?.isConnected) previouslyFocused.focus();
     };
   }, [onClose]);
 
@@ -131,6 +145,10 @@ function ExtensionPreviewContent({
 
       <div
         ref={modalRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={localized.name}
+        tabIndex={-1}
         className="relative flex w-full max-w-[820px] flex-col overflow-hidden rounded-[1.75rem] border border-white/[0.08] bg-[#1F1D21] shadow-[0_32px_80px_rgba(0,0,0,0.8),0_0_0_1px_rgba(255,255,255,0.03)] animate-in fade-in zoom-in-95 duration-200"
         style={{
           maxHeight: "calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 5rem)",
@@ -149,6 +167,7 @@ function ExtensionPreviewContent({
             <div className="absolute top-3 right-3 z-10 md:top-4 md:right-4">
               <button
                 onClick={onClose}
+                aria-label={t("common:action.close", { defaultValue: "Close" })}
                 className="rounded-full p-2 bg-black/40 backdrop-blur-md border border-white/10 text-white/70 hover:text-white hover:bg-black/60 transition-all"
               >
                 <X className="h-4 w-4" />

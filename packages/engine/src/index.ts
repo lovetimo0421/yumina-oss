@@ -341,3 +341,6 @@ export type {
   TurnResult,
 } from "./combat/resolve-turn.js";
 export * from "./social/simulator.js";
+export { parseGuardedResponse, validateAiBatch } from "./parser/guarded-response.js";
+export type { GuardedParseResult, StateDiagnostic } from "./parser/guarded-response.js";
+export { StateReceiptFilter, stripStateReceipts } from "./parser/state-receipt.js";

@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { lazyRouteComponent } from "@/lib/lazy-route-component";
+import { validateExtensionsSearch } from "@/features/extensions/extension-search";
 
 const ExtensionsPage = lazyRouteComponent(
   () => import("@/features/extensions/extensions-page"),
@@ -8,9 +9,7 @@ const ExtensionsPage = lazyRouteComponent(
 );
 
 export const Route = createFileRoute("/app/extensions")({
-  validateSearch: (search: Record<string, unknown>): { tab?: "discover" | "manage" } => ({
-    tab: search.tab === "manage" ? "manage" : search.tab === "discover" ? "discover" : undefined,
-  }),
+  validateSearch: validateExtensionsSearch,
   component: () => (
     <Suspense
       fallback={

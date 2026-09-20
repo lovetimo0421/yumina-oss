@@ -15,6 +15,7 @@ import { Brain } from "lucide-react";
 import { useYumina } from "../../sandbox-context";
 import { pickLang } from "../../chat/i18n";
 import { ToolMenuRow } from "../../chat/composer-tool-menu";
+import { ExtensionToolbarButton } from "../../chat/extension-toolbar-button";
 import { SessionMemoryModal } from "./session-memory-modal";
 import type { ExtensionClientContext } from "../registry";
 
@@ -47,16 +48,12 @@ function SessionMemoryToolbarItem() {
   const lang = pickLang(api.language);
   return (
     <>
-      <button
+      <ExtensionToolbarButton
+        icon={Brain}
+        label={PILL_LABEL[lang] ?? PILL_LABEL.en!}
         onClick={() => setOpen(true)}
-        className="group mx-auto flex shrink-0 items-center gap-2 rounded-full border border-white/[0.12] bg-white/[0.05] px-3 py-1.5 transition-all hover:border-white/20 hover:bg-white/[0.09]"
         title={ROW_LABEL[lang] ?? ROW_LABEL.en}
-      >
-        <Brain className="h-3.5 w-3.5 text-primary/70 group-hover:text-primary" />
-        <span className="text-[11px] font-medium text-white/70 group-hover:text-white transition-colors">
-          {PILL_LABEL[lang] ?? PILL_LABEL.en}
-        </span>
-      </button>
+      />
       {open && <SessionMemoryModal open={open} onClose={() => setOpen(false)} />}
     </>
   );

@@ -238,7 +238,11 @@
       "referral_reward": "邀請好友獎勵",
       "event_reward": "活動獎勵",
       "mushie_gift_received": "收到贈送",
-      "mushie_gift_sent": "贈送支出"
+      "mushie_gift_sent": "贈送支出",
+      "monthly_expiry": "月度重置",
+      "bonus_expiry": "獎勵已過期",
+      "usage_refund": "退款",
+      "reconciliation": "賬本校正"
     },
     "verified": "鏈已驗證",
     "messagesToday": "今日訊息",
@@ -391,7 +395,13 @@
       "retry": "重試"
     },
     "recommendedPlan": "為你推薦：{{plan}}",
-    "avgCostPerChatRange": "通常 {{typical}} · 最多 {{heavy}} 蘑菇幣 / 回覆"
+    "avgCostPerChatRange": "通常 {{typical}} · 最多 {{heavy}} 蘑菇幣 / 回覆",
+    "monthlyExpiryRenewal": "續訂時未使用的月度蘑菇幣已過期",
+    "monthlyExpiryPlanChange": "更換方案時未使用的月度蘑菇幣已過期",
+    "monthlyExpiryPlanEnded": "方案結束時未使用的月度蘑菇幣已過期",
+    "bonusExpired": "未使用的獎勵蘑菇幣已按到期日過期",
+    "ledgerReconciliation": "賬本校正：餘額已確認，此前有一筆變動未被記錄",
+    "ledgerOpeningBalance": "期初餘額（賬本從這裡開始）"
   },
   "summary": {
     "chooseModel": "選擇模型",

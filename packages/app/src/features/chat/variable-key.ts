@@ -22,7 +22,8 @@ export function makeVariableKeyResolver(
     // A name that already is some variable's id belongs to that variable — never
     // let a display-name collision redirect a write.
     if (!name || name === d.id || ids.has(name)) continue;
-    if (!byName.has(name)) byName.set(name, d.id);
+    // Match GameStateManager and the read-side alias map: last definition wins.
+    byName.set(name, d.id);
   }
   if (byName.size === 0) return (key) => key;
   return (key) => (ids.has(key) ? key : byName.get(key) ?? key);

@@ -291,7 +291,11 @@
       "referral_reward": "邀请好友奖励",
       "event_reward": "活动奖励",
       "mushie_gift_received": "收到赠送",
-      "mushie_gift_sent": "赠送支出"
+      "mushie_gift_sent": "赠送支出",
+      "monthly_expiry": "月度重置",
+      "bonus_expiry": "奖励已过期",
+      "usage_refund": "退款",
+      "reconciliation": "账本校正"
     },
     "verified": "链已验证",
     "messagesToday": "今日消息",
@@ -391,7 +395,13 @@
       "openai_gpt_4_1": "擅长遵循设定，不带额外思考",
       "anthropic_claude_opus_4_5": "旧版 Opus，保留不同文风选择"
     },
-    "avgCostPerChatRange": "通常 {{typical}} · 最多 {{heavy}} 蘑菇币 / 回复"
+    "avgCostPerChatRange": "通常 {{typical}} · 最多 {{heavy}} 蘑菇币 / 回复",
+    "monthlyExpiryRenewal": "续订时未使用的月度蘑菇币已过期",
+    "monthlyExpiryPlanChange": "更换方案时未使用的月度蘑菇币已过期",
+    "monthlyExpiryPlanEnded": "方案结束时未使用的月度蘑菇币已过期",
+    "bonusExpired": "未使用的奖励蘑菇币已按到期日过期",
+    "ledgerReconciliation": "账本校正：余额已确认，此前有一笔变动未被记录",
+    "ledgerOpeningBalance": "期初余额（账本从这里开始）"
   },
   "summary": {
     "chooseModel": "选择模型",

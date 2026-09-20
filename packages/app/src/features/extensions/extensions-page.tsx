@@ -2,16 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearch } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { Blocks, Search, Loader2, PackageOpen } from "lucide-react";
+import { toast } from "sonner";
 import { useExtensionsStore, type ExtensionSort } from "@/stores/extensions";
 import { ExtensionCard } from "./extension-card";
 import { ExtensionManageCard } from "./extension-manage-card";
+import { useExtensionPreview } from "./extension-preview-store";
 
 type Tab = "discover" | "manage";
 const TABS: Tab[] = ["discover", "manage"];
 
 export function ExtensionsPage() {
   const { t } = useTranslation("extensions");
-  const { tab: tabParam } = useSearch({ from: "/app/extensions" });
+  const { tab: tabParam, extension: linkedExtension } = useSearch({ from: "/app/extensions" });
   const [tab, setTab] = useState<Tab>(tabParam ?? "discover");
 
   // Keep the active tab in sync when the URL param changes mid-session (e.g.
@@ -27,6 +29,21 @@ export function ExtensionsPage() {
   const catalog = useExtensionsStore((s) => s.catalog);
   const catalogLoading = useExtensionsStore((s) => s.catalogLoading);
   const fetchCatalog = useExtensionsStore((s) => s.fetchCatalog);
+  const fetchDetail = useExtensionsStore((s) => s.fetchDetail);
+  const openPreview = useExtensionPreview((s) => s.open);
+
+  // Hidden internal betas stay out of Discover but have an explicit opt-in URL.
+  // Never install automatically, and ignore a response after leaving this page.
+  useEffect(() => {
+    if (!linkedExtension) return;
+    let active = true;
+    void fetchDetail(linkedExtension).then((detail) => {
+      if (!active) return;
+      if (detail) openPreview(detail, "overview");
+      else toast.error(t("common:state.error", { defaultValue: "Something went wrong" }));
+    });
+    return () => { active = false; };
+  }, [linkedExtension, fetchDetail, openPreview, t]);
 
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");

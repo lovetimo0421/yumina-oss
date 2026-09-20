@@ -232,7 +232,11 @@
       "referral_reward": "Recompensa por invitación",
       "event_reward": "Recompensa de evento",
       "mushie_gift_received": "Regalo recibido",
-      "mushie_gift_sent": "Regalo enviado"
+      "mushie_gift_sent": "Regalo enviado",
+      "monthly_expiry": "Reinicio mensual",
+      "bonus_expiry": "Bonus caducado",
+      "usage_refund": "Reembolso",
+      "reconciliation": "Corrección del libro"
     },
     "verified": "Cadena verificada",
     "messagesToday": "Mensajes hoy",
@@ -385,7 +389,13 @@
       "retry": "Reintentar"
     },
     "recommendedPlan": "Sugerido para ti: {{plan}}",
-    "avgCostPerChatRange": "normalmente {{typical}} · hasta {{heavy}} mushies / respuesta"
+    "avgCostPerChatRange": "normalmente {{typical}} · hasta {{heavy}} mushies / respuesta",
+    "monthlyExpiryRenewal": "Mushies mensuales sin usar caducados en la renovación",
+    "monthlyExpiryPlanChange": "Mushies mensuales sin usar caducados al cambiar de plan",
+    "monthlyExpiryPlanEnded": "Mushies mensuales sin usar caducados al terminar el plan",
+    "bonusExpired": "Mushies Bonus sin usar caducados en su fecha",
+    "ledgerReconciliation": "Corrección del libro: saldo confirmado; un movimiento anterior no se había registrado",
+    "ledgerOpeningBalance": "Saldo inicial (el libro empieza aquí)"
   },
   "summary": {
     "chooseModel": "Elegir modelo",

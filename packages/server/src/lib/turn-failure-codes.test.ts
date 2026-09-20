@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { classifyGenerationFailure, FAILURE_CODE } from "./turn-failure-codes.js";
 
+test("unaffordable Guard correction cannot trigger mixed-model automatic retries", () => {
+  const raw = "Not enough mushies for the state update correction. Switch to the free model.";
+  assert.deepEqual(classifyGenerationFailure(raw), { code: FAILURE_CODE.STATE_VALIDATION, message: raw });
+});
+
 // Every raw string below was copied from a real production log line on
 // 2026-07-30. If a provider changes its wording these tests are the tripwire.
 

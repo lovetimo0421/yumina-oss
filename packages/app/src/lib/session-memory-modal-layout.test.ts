@@ -26,7 +26,7 @@ test("all session context model pickers expose the server-backed BYOK provider s
   );
   assert.match(
     pickerSource,
-    /const visibleProviderSwitch = !isExternalModelSelection \|\| allowExternalProviderSwitch/,
+    /const visibleProviderSwitch = allowOfficialModels && \(!isExternalModelSelection \|\| allowExternalProviderSwitch \|\| onSelectionProviderChange\)/,
     "external model selection must expose the normal provider switch when opted in",
   );
   assert.match(

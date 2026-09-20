@@ -42,6 +42,8 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   send_repetitive: "free-by-design",
   regenerate_repetitive: "free-by-design",
   continue_repetitive: "free-by-design",
+  // Official correction charges commit atomically with the saved turn.
+  "state-update-guard": "billed",
   "studio-agent": "billed",
   "studio-playtest": "billed",
   "side-completion": "billed",
@@ -57,6 +59,11 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   // viewer, so charging the one user who happened to trigger it would bill
   // them for shared infrastructure. Platform cost, owner-reviewed 2026-08-12.
   translation: "free-by-design",
+  // Image/video prompt preparation has no separate token charge: generation.ts
+  // runs it before the existing fixed-price job debit, and failed/blocked
+  // preparation is never charged. Register that existing product policy so
+  // these internal calls stay observable without inventing a second charge.
+  "generation-enhance": "free-by-design",
 };
 
 /**

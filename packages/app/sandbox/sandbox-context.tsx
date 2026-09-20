@@ -331,7 +331,7 @@ export interface SandboxedYuminaAPI {
    *  Null = unknown. The model-pill shows this so it's consistent everywhere. */
   balance: number | null;
   setModel: (modelId: string) => void;
-  getModels: () => Promise<{
+  getModels: (provider?: "private") => Promise<{
     models: Array<{ id: string; name: string; provider: string; contextLength: number }>;
     pinnedModels: string[];
     recentlyUsed: string[];
@@ -347,6 +347,8 @@ export interface SandboxedYuminaAPI {
   togglePoolLock: (modelId: string) => void;
 
   // ─── Session memory ────────────────────────────────────────────────────
+  getStateGuardSettings: () => Promise<import("@yumina/shared").StateGuardSettings>;
+  setStateGuardSettings: (patch: Partial<import("@yumina/shared").StateGuardSettings>) => Promise<import("@yumina/shared").StateGuardSettings>;
   getSessionMemory: () => Promise<SessionMemoryPayload>;
   saveSessionMemory: (memory: SessionMemory, model?: string) => Promise<SessionMemoryPayload>;
   /** Player-pinned notes: never rewritten by the updater, always injected. `null` clears. */
@@ -668,6 +670,8 @@ const defaultAPI: SandboxedYuminaAPI = {
   addToPool: () => {},
   removeFromPool: () => {},
   setPoolWeight: () => {},
+  getStateGuardSettings: () => Promise.reject(new Error("No active session")),
+  setStateGuardSettings: () => Promise.reject(new Error("No active session")),
   getSessionMemory: () =>
     noopPromise(emptySessionMemoryPayload()),
   saveSessionMemory: (_memory, _model) =>
@@ -1049,13 +1053,15 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     language: state.language ?? "en",
     balance: state.balance ?? null,
     setModel: (modelId) => postToParent("setModel", [modelId]),
-    getModels: () => callParent("getModels", []),
+    getModels: (provider) => callParent("getModels", provider ? [provider] : []),
     pinModel: (modelId) => callParent("pinModel", [modelId]),
     unpinModel: (modelId) => callParent("unpinModel", [modelId]),
     setMixMode: (enabled) => postToParent("setMixMode", [enabled]),
     addToPool: (modelId) => postToParent("addToPool", [modelId]),
     removeFromPool: (modelId) => postToParent("removeFromPool", [modelId]),
     setPoolWeight: (modelId, weight) => postToParent("setPoolWeight", [modelId, weight]),
+    getStateGuardSettings: () => sessionApisAvailable ? callParent("getStateGuardSettings", []) : Promise.reject(new Error("No active session")),
+    setStateGuardSettings: (patch) => sessionApisAvailable ? callParent("setStateGuardSettings", [patch]) : Promise.reject(new Error("No active session")),
     getSessionMemory: () =>
       sessionApisAvailable
         ? callParent<SessionMemoryPayload>("getSessionMemory", [])

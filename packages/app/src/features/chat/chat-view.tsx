@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { StateGuardHost, StateGuardHostButton } from "./state-guard-host";
+import { guardLabels } from "../../../sandbox/extensions/state-update-guard/details";
 import { useTranslation } from "react-i18next";
 import { useRouter } from "@tanstack/react-router";
 import { ChevronDown, Maximize, Minimize } from "lucide-react";
@@ -727,6 +729,8 @@ export function ChatView({
         />
       )}
       {theaterMode && <ImmersiveExitButton />}
+      <StateGuardHost />
+      {!fullScreenMode && <StateGuardHostButton />}
       {!fullScreenMode && !theaterMode && <SessionHeader showSidebarToggle={false} onBack={navigateBackFromPlay} />}
       <WorldRenderer
         entryFile={rc.entryFile}
@@ -1053,6 +1057,8 @@ function FullscreenFloatingBar({
   const { t } = useTranslation("chat");
   const { toggle } = useImmersiveMode();
   const reviewGroupKey = moderationGroupKey;
+  const guardInstalled = useExtensionsStore((s) => s.installState["state-update-guard"] === "installed");
+  const { i18n } = useTranslation();
   const isTouch = useTouchDevice();
   const [visible, setVisible] = useState(false);
   const [modelBrowserOpen, setModelBrowserOpen] = useState(false);
@@ -1212,6 +1218,11 @@ function FullscreenFloatingBar({
           moreLabel={t("header.moreActions")}
           modelLabel={t("view.switchModel")}
           memoryLabel={memorySummaryEnabled ? t("view.memoryPanel") : undefined}
+          stateGuardLabel={guardInstalled ? guardLabels(i18n.language)[0] : undefined}
+          onStateGuard={() => {
+            window.dispatchEvent(new CustomEvent("yumina:request-state-guard"));
+            setVisible(false);
+          }}
           fullscreenLabel={t("view.returnToFullscreen")}
           showActions={!(isTouch && reviewGroupKey)}
           onBack={onBack}

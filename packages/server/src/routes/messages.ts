@@ -2,6 +2,8 @@ import { usageObservation } from "../lib/usage-observation.js";
 import { edition } from "../edition/index.js";
 import { Hono } from "hono";
 import { setImmediate as yieldForIO } from "node:timers/promises";
+import { guardPrompt, TurnOutputAttempt, appendTurnStateChanges } from "../lib/turn-output-validation.js";
+import type { StateValidationAudit } from "@yumina/shared";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { eq, and, or, desc, gt, lt, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -55,6 +57,7 @@ import {
   StructuredResponseParser,
   IncrementalSegmentExtractor,
   ThinkingTagFilter,
+  StateReceiptFilter,
   migrateWorldDefinition,
   ReactionEvaluator,
   buildMessageUserEvent,
@@ -138,6 +141,7 @@ async function resolveModel(requestedModel: string | undefined): Promise<string>
 
 type SwipeWithUsage = {
   modelFallback?: import("@yumina/shared").ModelFallbackRecord;
+  stateValidation?: StateValidationAudit;
   content: string;
   rawContent?: string;
   stateChanges?: Record<string, unknown>;
@@ -442,6 +446,7 @@ async function loadSessionContext(sessionId: string, userId: string) {
   // immediately for them. Players and non-creators never enter this branch and
   // keep getting the approved live worldDef above. Cheap probe (updatedAt only)
   // gates the multi-MB schema fetch + migrate to a pending-cache miss.
+  let pendingVersion: string | null = null;
   if (viewerSeesWorkingCopy(row.worldStatus, row.worldCreatorId, userId)) {
     const [pendMeta] = await db
       .select({ updatedAt: worldPendingEdits.updatedAt })
@@ -449,6 +454,7 @@ async function loadSessionContext(sessionId: string, userId: string) {
       .where(eq(worldPendingEdits.worldId, row.worldId))
       .limit(1);
     if (pendMeta) {
+      pendingVersion = pendMeta.updatedAt?.toISOString() ?? null;
       let pendingDef = getCachedPendingDef(row.worldId, pendMeta.updatedAt);
       if (!pendingDef) {
         const [pendFull] = await db
@@ -476,6 +482,8 @@ async function loadSessionContext(sessionId: string, userId: string) {
     worldAllowEdit: row.worldAllowEdit,
     worldAllowCustomApi: row.worldAllowCustomApi,
     sourceWorldTakenDown,
+    worldVersion: row.worldUpdatedAt?.toISOString() ?? null,
+    pendingVersion,
   };
 }
 
@@ -540,6 +548,7 @@ messageRoutes.get("/sessions/:sessionId/messages", async (c) => {
       // in this column. See lib/turn-failure.ts.
       errorMessage: messages.errorMessage,
       stateChanges: messages.stateChanges,
+      stateValidation: messages.stateValidation,
       swipes: messages.swipes,
       activeSwipeIndex: messages.activeSwipeIndex,
       model: messages.model,
@@ -557,6 +566,14 @@ messageRoutes.get("/sessions/:sessionId/messages", async (c) => {
 
   const hasMore = pageDesc.length > limit;
   const result = (hasMore ? pageDesc.slice(0, limit) : pageDesc).reverse();
+
+  // A dead process cannot leave a permanent validation spinner on reload.
+  for (const message of result) {
+    const audit = message.stateValidation;
+    if (audit && ["validating", "repairing"].includes(audit.outcome) && Date.now() - Date.parse(audit.startedAt) > 180_000) {
+      message.stateValidation = { ...audit, outcome: "stale", diagnostics: [...audit.diagnostics, "interrupted"].slice(-32) };
+    }
+  }
 
   return c.json({ data: result, meta: { hasMore } });
 });
@@ -926,6 +943,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
     session: context.session,
     suppressSummaryBlocks: Boolean(characterCreation),
   });
+  const outputContract = guardPrompt(turnMemory.dispatch);
   // No awaited compaction anywhere on this path: the post-turn background job
   // owns threshold compaction (a one-turn summary lag by design), and the
   // final-budget overflow pass below only SCHEDULES background compaction —
@@ -1098,17 +1116,18 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
   const chatMessages = await promptBuilder.buildMessageHistoryAsync(
     contextMessages,
     yieldForIO,
-    maxContext,
+    maxContext - outputContract.reserve,
     historyStart,
     suffixCount,
     model
   );
 
+  if (outputContract.content) chatMessages.push({ role: "system", content: outputContract.content });
   // Cache breakpoint: offset messages back from the end of chat history. Offset is adaptive
   // (max of MIN_CACHE_DEPTH_OFFSET and deepest keyword-triggered depth + 1) so every
   // volatile depth entry lands in the uncached tail.
   const cacheDepthOffset = computeCacheDepthOffset(worldDef);
-  const cacheBreakpointIndex = chatMessages.length - 1 - suffixCount - cacheDepthOffset;
+  const cacheBreakpointIndex = chatMessages.length - 1 - suffixCount - (outputContract.content ? 1 : 0) - cacheDepthOffset;
 
   // Two-breakpoint caching: (1) end of stable prefix (cheap insurance if triggered system
   // entries ever fire — always-send content stays cached), (2) depth-resilient floor.
@@ -1146,6 +1165,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
   // to ~50s) instead of killing it mid-stream. See lib/stream-registry.ts.
   // Session-keyed so POST /sessions/:sessionId/messages/stop can abort it.
   const unregisterStream = registerStream(abortController, sessionId);
+  const outputAttempt = new TurnOutputAttempt({ dispatch: turnMemory.dispatch, userId: currentUser.id, sessionId: sessionId, targetId: userMsg?.id ?? historyRows.at(-1)?.id ?? "", path: "send", world: worldDef, baseline: effectiveGameState, model, apiKeyTier: resolved.apiKeyTier, startedAt: startTime, worldVersion: context.worldVersion, pendingVersion: context.pendingVersion, signal: abortController.signal, worldId: context.session.worldId, checkPending: viewerSeesWorkingCopy(context.worldStatus, context.worldCreatorId, currentUser.id) });
 
   // Signal to reverse proxies that this is a long-lived LLM stream
   c.header("X-Accel-Buffering", "no");
@@ -1178,6 +1198,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
     const structuredParser = new StructuredResponseParser();
     const segmentExtractor = new IncrementalSegmentExtractor();
     const thinkingFilter = new ThinkingTagFilter();
+    const receiptFilter = new StateReceiptFilter();
 
     // Mid-stream credit tracking: estimate cost as tokens stream in,
     // abort if balance is exceeded. Zero DB queries during streaming.
@@ -1199,6 +1220,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
     // be settled against the provider's billed cost (lib/stopped-generation.ts).
     let observedProviderRequestId: string | undefined;
     let pendingFallbackError: ReturnType<typeof modelFallbackError> = null;
+    let correctionModel = model;
     // Set when Yumina Free's pool was exhausted upstream and the provider
     // re-ran this turn on the paid fallback. It keeps the turn billed at
     // Free's zero rate — see FREE_ROUTER_FALLBACK_MODEL.
@@ -1229,6 +1251,8 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
         }
       }
 
+      await outputAttempt.begin();
+      if (outputAttempt.started) await sse({ event: "state-validation", data: JSON.stringify(outputAttempt.audit) });
       for await (const chunk of provider.generateStream({
         conversationId: `play:${sessionId}`,
         model,
@@ -1263,6 +1287,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
       })) {
         chunkCount++;
         if (chunk.model) {
+          correctionModel = chunk.model;
           if (isFreeRouterFallback(model, chunk.model)) {
             // Deliberately do NOT promote chunk.model here: leaving actualModel
             // as openrouter/free is what keeps the turn free (0/0 pricing) and
@@ -1329,7 +1354,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
           }
 
           // Filter out leaked thinking blocks (e.g. Gemini Flash Lite <fiction-mode> reasoning)
-          const filtered = thinkingFilter.push(chunk.content);
+          const filtered = receiptFilter.push(thinkingFilter.push(chunk.content));
           if (filtered) {
             await sse({
               event: "text",
@@ -1388,6 +1413,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
         }
 
         if (chunk.type === "done") {
+          if (replyPersisted) break;
           // Only an EXPLICIT user stop aborts the controller now (disconnects
           // just set clientGone and generation keeps going) — so reaching done
           // with an aborted signal means the user hit stop right as the reply
@@ -1414,16 +1440,22 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
           const generationTimeMs = Date.now() - startTime;
 
           // Parse response — use structured parser for JSON responses, regex for others
-          const parseResult = structuredParser.isStructuredResponse(fullContent)
+          const legacyParsed = structuredParser.isStructuredResponse(fullContent)
             ? structuredParser.parse(fullContent)
             : responseParser.parse(fullContent);
+          const { parsed: parseResult } = await outputAttempt.validate({
+            world: worldDef, state: stateManager.getSnapshot(), raw: fullContent, parsed: legacyParsed,
+            provider: provider, model: correctionModel, maxContext: maxContext, signal: abortController.signal,
+            stopReason: chunk.stopReason, history: providerMessages,
+            cacheEnabled: breakpoints.length > 0, stream: body.overrides?.streaming,
+          }, async (audit) => { await sse({ event: "state-validation", data: JSON.stringify(audit) }); });
           let cleanText = parseResult.cleanText;
           const effects = parseResult.effects;
           const choices: string[] = [];
           const parserAudioEffects = filterAiAudioEffects(worldDef.audioTracks ?? [], parseResult.audioEffects);
 
           // Fallback: if no effects but content looks like it has segments, use incremental extractor
-          if (effects.length === 0 && fullContent.includes('"segments"')) {
+          if (!outputAttempt.enabled && effects.length === 0 && fullContent.includes('"segments"')) {
             console.warn("[Messages] No effects from parser — attempting fallback segment extraction");
             const fallbackExtractor = new IncrementalSegmentExtractor();
             const stripped = fullContent.replace(/^```(?:json|JSON)?\s*\n?/, "").replace(/\n?\s*```\s*$/, "");
@@ -1492,6 +1524,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
           );
           const ruleChanges = systemResult.changes;
           const allChanges = [...seedChanges, ...changes, ...ruleChanges];
+          outputAttempt.recordChanges(changes, ruleChanges);
 
           // Collect all audio effects (from parser + from @ system effects)
           const allAudioEffects = [...parserAudioEffects, ...systemResult.audioEffects];
@@ -1629,6 +1662,13 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
           }
 
           // Save assistant message + update session state atomically
+          outputAttempt.audit.appliedCount = changes.length;
+          if (useProtections && !planConfig.unlimited && hasVisibleContent && !(grokTrialBypass && actualModel === GROK_TRIAL_MODEL)
+            && ((chunk.usage?.promptTokens ?? 0) > 0 || (chunk.usage?.completionTokens ?? 0) > 0)
+            && chunk.stopReason !== "content_filter" && chunk.stopReason !== "SAFETY") {
+            await outputAttempt.prepareStoryCharge({ model: actualModel, promptTokens: chunk.usage?.promptTokens ?? 0,
+              completionTokens: chunk.usage?.completionTokens ?? 0, providerCostUsd: freeRouterFallbackServed ? undefined : chunk.usage?.providerCostUsd });
+          }
           const { assistantMsg, persistedState } = await db.transaction(async (tx) => {
             // Lock + re-read the session row BEFORE writing. A card's custom UI
             // patches state through PATCH /:id/state while this turn streams
@@ -1639,6 +1679,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
               sql`SELECT state FROM play_sessions WHERE id = ${sessionId} FOR UPDATE`,
             );
             const liveState = (lockedSession.rows[0] as { state: Record<string, unknown> } | undefined)?.state;
+            await outputAttempt.checkCommit(tx, liveState, finalState);
             const turnState = reconcileTurnState(worldDef, liveState, effectiveGameState, finalState);
             const generationSnapshot = thinSnapshotForStorage(
               generationBaseline(worldDef, liveState, effectiveGameState, snapshot, finalState) as unknown as Record<string, unknown>,
@@ -1653,6 +1694,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
                 sessionId,
                 role: "assistant",
                 content: cleanText,
+                stateValidation: outputAttempt.enabled ? outputAttempt.audit : null,
                 stateChanges:
                   allChanges.length > 0
                     ? (allChanges as unknown as Record<string, unknown>)
@@ -1665,6 +1707,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
                   {
                     content: cleanText,
                     rawContent: fullContent,
+                    stateValidation: outputAttempt.enabled ? outputAttempt.audit : undefined,
                     stateChanges:
                       allChanges.length > 0
                         ? (allChanges as unknown as Record<string, unknown>)
@@ -1692,6 +1735,8 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
             return { assistantMsg: assistantMsgResult[0]!, persistedState: turnState };
           });
           replyPersisted = true;
+          outputAttempt.markCommitted();
+          if (outputAttempt.started) await sse({ event: "state-validation", data: JSON.stringify(outputAttempt.audit) });
 
           // The mix-mode retry path reuses a dangling user row instead of
           // inserting a duplicate, so a row that failed earlier can succeed
@@ -1713,7 +1758,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
           });
 
           // Always log usage (including BYOK) for admin visibility
-          const usageLogId = crypto.randomUUID();
+          const usageLogId = outputAttempt.trackNarrativeUsage();
           const pTokens = chunk.usage?.promptTokens ?? 0;
           const cTokens = chunk.usage?.completionTokens ?? 0;
           await recordUsageLog({
@@ -1754,7 +1799,11 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
           let creditsBalance: number | undefined;
           let grokTrialUsed = false;
           const wasFiltered = chunk.stopReason === "content_filter" || chunk.stopReason === "SAFETY";
-          if (useProtections && !planConfig.unlimited && !isClientAbort(abortController.signal) && !wasFiltered && (pTokens > 0 || cTokens > 0) && hasVisibleContent) {
+          if (outputAttempt.storyCharge) {
+            await refundTrialIfClaimed();
+            creditsCost = outputAttempt.storyCharge.cost;
+            creditsBalance = outputAttempt.storyCharge.balance;
+          } else if (useProtections && !planConfig.unlimited && !isClientAbort(abortController.signal) && !wasFiltered && (pTokens > 0 || cTokens > 0) && hasVisibleContent) {
             if (grokTrialBypass && actualModel === GROK_TRIAL_MODEL) {
               try {
                 const wallet = await db.select({ id: creditWallets.id, balance: creditWallets.balance })
@@ -1804,6 +1853,8 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
             creditsCost = 0;
             creditsBalance = walletCheck?.balance;
           }
+          // A paid correction can use Yumina while the story uses BYOK/free.
+          creditsBalance = creditsCost ? creditsBalance ?? outputAttempt.correctionBalance : outputAttempt.correctionBalance ?? creditsBalance;
           if (creditsCost != null) {
             await persistSwipeCredits(assistantMsg.id, 0, creditsCost, creditsBalance, "set");
           }
@@ -1830,6 +1881,8 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
               // server just persisted so the "view raw" toggle works without
               // a page refresh (it reads swipes[active].rawContent).
               rawContent: fullContent,
+              generationState: thinSnapshotForStorage(snapshot as unknown as Record<string, unknown>),
+              stateValidation: outputAttempt.enabled ? outputAttempt.audit : undefined,
               stateChanges: allChanges,
               state: persistedState,
               model: actualModel,
@@ -1880,7 +1933,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
       // charge users for "卡住" experiences. Still log usage for visibility
       // so we can spot regressions in the failure rate.
       if (streamedOutputChars > 0) {
-        const usageLogId = crypto.randomUUID();
+        const usageLogId = outputAttempt.trackNarrativeUsage();
         await recordUsageLog({
               ...usageObservation(undefined),
               analyticsWorldId: context.session.worldId,
@@ -1920,6 +1973,9 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
         });
       } catch { /* client disconnected */ }
     } finally {
+      await outputAttempt.finish(abortController.signal).catch((error) => console.warn("[StateGuard] Failed to persist final audit", error instanceof Error ? error.name : "error"));
+      if (outputAttempt.started) await sse({ event: "state-validation", data: JSON.stringify(outputAttempt.audit) });
+      if (!replyPersisted) await refundTrialIfClaimed();
       unregisterStream();
       stopKeepalive();
       if (useProtections) await releaseConcurrency(currentUser.id);
@@ -1969,7 +2025,7 @@ messageRoutes.patch("/messages/:id", async (c) => {
 
   const result = await db
     .update(messages)
-    .set(messageContentUpdate(body.content))
+    .set({ ...messageContentUpdate(body.content), stateValidation: null })
     .where(eq(messages.id, messageId))
     .returning();
 
@@ -2202,6 +2258,8 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     session: context.session,
   });
 
+  const outputContract = guardPrompt(regenTurnMemory.dispatch);
+
   // Get non-compacted messages up to (but not including) the one being
   // regenerated. Bounded window — `upTo` anchors it at the target message's
   // timestamp so the target is always inside the window even on mega sessions.
@@ -2369,15 +2427,16 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   const chatMessages = await promptBuilder.buildMessageHistoryAsync(
     regenContextMessages,
     yieldForIO,
-    regenMaxContext,
+    regenMaxContext - outputContract.reserve,
     regenHistoryStart,
     regenSuffixCount,
     model
   );
 
   // Two-breakpoint caching (see send path for rationale): stable prefix + depth-resilient floor.
+  if (outputContract.content) chatMessages.push({ role: "system", content: outputContract.content });
   const regenCacheDepthOffset = computeCacheDepthOffset(worldDef);
-  const regenCacheBreakpointIndex = chatMessages.length - 1 - regenSuffixCount - regenCacheDepthOffset;
+  const regenCacheBreakpointIndex = chatMessages.length - 1 - regenSuffixCount - (outputContract.content ? 1 : 0) - regenCacheDepthOffset;
   const regenBreakpoints = Array.from(new Set([regenStablePrefixEnd, regenCacheBreakpointIndex].filter((i) => i >= 0))).sort((a, b) => a - b);
 
   const regenProvider = resolved.provider;
@@ -2387,6 +2446,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   // to ~50s) instead of killing it mid-stream. See lib/stream-registry.ts.
   // Session-keyed so the stop endpoint can abort it.
   const unregisterStream = registerStream(abortController, msg.sessionId);
+  const outputAttempt = new TurnOutputAttempt({ dispatch: regenTurnMemory.dispatch, userId: currentUser.id, sessionId: msg.sessionId, targetId: msg.id, path: "regenerate", world: worldDef, baseline: gameState, model, apiKeyTier: resolved.apiKeyTier, startedAt: startTime, worldVersion: context.worldVersion, pendingVersion: context.pendingVersion, signal: abortController.signal, worldId: context.session.worldId, checkPending: viewerSeesWorkingCopy(context.worldStatus, context.worldCreatorId, currentUser.id) });
 
   // Mid-stream credit tracking for regenerate (mirrors send path)
   const regenPromptChars = chatMessages.reduce((sum, m) => sum + (typeof m.content === "string" ? m.content : JSON.stringify(m.content)).length, 0);
@@ -2419,6 +2479,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     const structuredParser = new StructuredResponseParser();
     const segmentExtractor = new IncrementalSegmentExtractor();
     const thinkingFilter = new ThinkingTagFilter();
+    const receiptFilter = new StateReceiptFilter();
 
     const stopKeepalive = startKeepalive(stream);
     let actualModel = model;
@@ -2426,6 +2487,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     // be settled against the provider's billed cost (lib/stopped-generation.ts).
     let observedProviderRequestId: string | undefined;
     let pendingFallbackError: ReturnType<typeof modelFallbackError> = null;
+    let correctionModel = model;
     // Set when Yumina Free's pool was exhausted upstream and the provider
     // re-ran this turn on the paid fallback. It keeps the turn billed at
     // Free's zero rate — see FREE_ROUTER_FALLBACK_MODEL.
@@ -2448,6 +2510,8 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
         });
         return;
       }
+      await outputAttempt.begin();
+      if (outputAttempt.started) await sse({ event: "state-validation", data: JSON.stringify(outputAttempt.audit) });
       for await (const chunk of regenProvider.generateStream({
         conversationId: `play:${msg.sessionId}`,
         model,
@@ -2477,6 +2541,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
         signal: abortController.signal,
       })) {
         if (chunk.model) {
+          correctionModel = chunk.model;
           if (isFreeRouterFallback(model, chunk.model)) {
             // Deliberately do NOT promote chunk.model here: leaving actualModel
             // as openrouter/free is what keeps the turn free (0/0 pricing) and
@@ -2533,7 +2598,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             return;
           }
 
-          const filtered = thinkingFilter.push(chunk.content);
+          const filtered = receiptFilter.push(thinkingFilter.push(chunk.content));
           if (filtered) {
             await sse({
               event: "text",
@@ -2572,6 +2637,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
         }
 
         if (chunk.type === "done") {
+          if (replyPersisted) break;
           // Explicit user stop only — disconnects keep generating and persist.
           if (isClientAbort(abortController.signal)) {
             console.log("[Messages] Regenerate completed after user stop; skipping persistence");
@@ -2589,9 +2655,15 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           const generationTimeMs = Date.now() - startTime;
 
           // Parse response — use structured parser for JSON responses, regex for others
-          const regenParseResult = structuredParser.isStructuredResponse(fullContent)
+          const legacyParsed = structuredParser.isStructuredResponse(fullContent)
             ? structuredParser.parse(fullContent)
             : responseParser.parse(fullContent);
+          const { parsed: regenParseResult } = await outputAttempt.validate({
+            world: worldDef, state: stateManager.getSnapshot(), raw: fullContent, parsed: legacyParsed,
+            provider: regenProvider, model: correctionModel, maxContext: regenMaxContext, signal: abortController.signal,
+            stopReason: chunk.stopReason, history: chatMessages,
+            cacheEnabled: regenBreakpoints.length > 0, stream: body.overrides?.streaming,
+          }, async (audit) => { await sse({ event: "state-validation", data: JSON.stringify(audit) }); });
           const cleanText = regenParseResult.cleanText;
           const effects = regenParseResult.effects;
           const choices: string[] = [];
@@ -2614,6 +2686,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           if (rejectedWrites.length > 0) {
             console.log(`[Messages] Refused ${rejectedWrites.length} malformed JSON write(s): ${rejectedWrites.map((w) => w.variableId).join(", ")}`);
           }
+          outputAttempt.audit.appliedCount = changes.length;
 
           // Replace the whole turn, including user/start reactions undone by the rewind.
           const regenEvents: GameEvent[] = [
@@ -2635,6 +2708,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           );
           const ruleChanges = regenSystemResult.changes;
           const allChanges = [...changes, ...ruleChanges];
+          outputAttempt.recordChanges(changes, ruleChanges);
 
           const allRegenAudioEffects = [...regenParserAudioEffects, ...regenSystemResult.audioEffects];
           // Persist the looping subset only — see the send path for why.
@@ -2698,6 +2772,8 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           const newSwipe = {
             content: cleanText,
             rawContent: fullContent,
+            generationState: thinSnapshotForStorage(snapshot as unknown as Record<string, unknown>),
+            stateValidation: outputAttempt.enabled ? outputAttempt.audit : undefined,
             stateChanges:
               allChanges.length > 0
                 ? (allChanges as unknown as Record<string, unknown>)
@@ -2723,6 +2799,12 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             return;
           }
 
+          if (useProtections && !planConfig.unlimited && hasVisibleContent && !(grokTrialBypass && actualModel === GROK_TRIAL_MODEL)
+            && ((chunk.usage?.promptTokens ?? 0) > 0 || (chunk.usage?.completionTokens ?? 0) > 0)
+            && chunk.stopReason !== "content_filter" && chunk.stopReason !== "SAFETY") {
+            await outputAttempt.prepareStoryCharge({ model: actualModel, promptTokens: chunk.usage?.promptTokens ?? 0,
+              completionTokens: chunk.usage?.completionTokens ?? 0, providerCostUsd: freeRouterFallbackServed ? undefined : chunk.usage?.providerCostUsd });
+          }
           // Save updated message + session state atomically
           const persistedState = await db.transaction(async (tx) => {
             // Same lost-update guard as the send path: reconcile against
@@ -2732,6 +2814,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
               sql`SELECT state FROM play_sessions WHERE id = ${msg.sessionId} FOR UPDATE`,
             );
             const liveState = (lockedSession.rows[0] as { state: Record<string, unknown> } | undefined)?.state;
+            await outputAttempt.checkCommit(tx, liveState, finalState);
             const turnState = reconcileTurnState(worldDef, liveState, gameState, finalState);
             // Preserve concurrent UI writes in this swipe's baseline, too.
             const generationSnapshot = thinSnapshotForStorage(
@@ -2744,6 +2827,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
               .update(messages)
               .set({
                 content: cleanText,
+                stateValidation: outputAttempt.enabled ? outputAttempt.audit : null,
                 stateChanges:
                   allChanges.length > 0
                     ? (allChanges as unknown as Record<string, unknown>)
@@ -2772,9 +2856,11 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             return turnState;
           });
           replyPersisted = true;
+          outputAttempt.markCommitted();
+          if (outputAttempt.started) await sse({ event: "state-validation", data: JSON.stringify(outputAttempt.audit) });
 
           // Always log usage (including BYOK) for admin visibility
-          const usageLogId = crypto.randomUUID();
+          const usageLogId = outputAttempt.trackNarrativeUsage();
           const pTokens = chunk.usage?.promptTokens ?? 0;
           const cTokens = chunk.usage?.completionTokens ?? 0;
           await recordUsageLog({
@@ -2802,7 +2888,11 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           let creditsBalance: number | undefined;
           let grokTrialUsed = false;
           const wasFiltered = chunk.stopReason === "content_filter" || chunk.stopReason === "SAFETY";
-          if (useProtections && !planConfig.unlimited && !isClientAbort(abortController.signal) && !wasFiltered && (pTokens > 0 || cTokens > 0) && hasVisibleContent) {
+          if (outputAttempt.storyCharge) {
+            await refundTrialIfClaimed();
+            creditsCost = outputAttempt.storyCharge.cost;
+            creditsBalance = outputAttempt.storyCharge.balance;
+          } else if (useProtections && !planConfig.unlimited && !isClientAbort(abortController.signal) && !wasFiltered && (pTokens > 0 || cTokens > 0) && hasVisibleContent) {
             if (grokTrialBypass && actualModel === GROK_TRIAL_MODEL) {
               try {
                 const wallet = await db.select({ id: creditWallets.id, balance: creditWallets.balance })
@@ -2841,6 +2931,8 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             creditsCost = 0;
             creditsBalance = walletCheck?.balance;
           }
+          // A paid correction can use Yumina while the story uses BYOK/free.
+          creditsBalance = creditsCost ? creditsBalance ?? outputAttempt.correctionBalance : outputAttempt.correctionBalance ?? creditsBalance;
           if (creditsCost != null) {
             await persistSwipeCredits(messageId, updatedSwipes.length - 1, creditsCost, creditsBalance, "set");
           }
@@ -2865,6 +2957,8 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
               // Raw pre-parse LLM output — lets the client append the new
               // swipe locally (count + "view raw") without a refresh.
               rawContent: fullContent,
+              generationState: thinSnapshotForStorage(snapshot as unknown as Record<string, unknown>),
+              stateValidation: outputAttempt.enabled ? outputAttempt.audit : undefined,
               stateChanges: allChanges,
               state: persistedState,
               model: actualModel,
@@ -2903,7 +2997,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
       // Upstream error or network failure mid-stream. Policy (2026-05-14):
       // do NOT charge — log usage for failure-rate tracking, but eat the cost.
       if (regenTracker?.active && regenTracker.streamedChars > 0) {
-        const usageLogId = crypto.randomUUID();
+        const usageLogId = outputAttempt.trackNarrativeUsage();
         await recordUsageLog({
               ...usageObservation(undefined),
               analyticsWorldId: context.session.worldId,
@@ -2926,6 +3020,9 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
         });
       } catch { /* client disconnected */ }
     } finally {
+      await outputAttempt.finish(abortController.signal).catch((error) => console.warn("[StateGuard] Failed to persist final audit", error instanceof Error ? error.name : "error"));
+      if (outputAttempt.started) await sse({ event: "state-validation", data: JSON.stringify(outputAttempt.audit) });
+      if (!replyPersisted) await refundTrialIfClaimed();
       unregisterStream();
       stopKeepalive();
       if (useProtections) await releaseConcurrency(currentUser.id);
@@ -3102,6 +3199,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     sessionId,
     session: context.session,
   });
+  const outputContract = guardPrompt(contTurnMemory.dispatch);
   // No awaited pre-history compaction here — same rationale as the send path:
   // background owns threshold compaction; the final-budget overflow pass below
   // only schedules background compaction (this turn trims).
@@ -3241,11 +3339,12 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     nonRawHistoryMessages: depthEntries.map((entry) => ({ role: entry.apiRole, content: entry.content })),
     indices: contMemoryIndices,
   });
-  const chatMessages = await promptBuilder.buildMessageHistoryAsync(contextMessages, yieldForIO, maxContext, contHistoryStart, contSuffixCount, model);
+  const chatMessages = await promptBuilder.buildMessageHistoryAsync(contextMessages, yieldForIO, maxContext - outputContract.reserve, contHistoryStart, contSuffixCount, model);
 
   // Two-breakpoint caching (see send path for rationale): stable prefix + depth-resilient floor.
+  if (outputContract.content) chatMessages.push({ role: "system", content: outputContract.content });
   const contCacheDepthOffset = computeCacheDepthOffset(worldDef);
-  const contCacheBreakpointIndex = chatMessages.length - 1 - contSuffixCount - contCacheDepthOffset;
+  const contCacheBreakpointIndex = chatMessages.length - 1 - contSuffixCount - (outputContract.content ? 1 : 0) - contCacheDepthOffset;
   const contBreakpoints = Array.from(new Set([contStablePrefixEnd, contCacheBreakpointIndex].filter((i) => i >= 0))).sort((a, b) => a - b);
 
   // The last message in chatMessages should be the assistant's existing content.
@@ -3259,6 +3358,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   // to ~50s) instead of killing it mid-stream. See lib/stream-registry.ts.
   // Session-keyed so the stop endpoint can abort it.
   const unregisterStream = registerStream(abortController, sessionId);
+  const outputAttempt = new TurnOutputAttempt({ dispatch: contTurnMemory.dispatch, userId: currentUser.id, sessionId: sessionId, targetId: lastAssistantMsg.id, path: "continue", world: worldDef, baseline: gameState, model, apiKeyTier: resolved.apiKeyTier, startedAt: startTime, worldVersion: context.worldVersion, pendingVersion: context.pendingVersion, signal: abortController.signal, worldId: context.session.worldId, checkPending: viewerSeesWorkingCopy(context.worldStatus, context.worldCreatorId, currentUser.id) });
 
   // Mid-stream credit tracking for continue (mirrors send path)
   const contPromptChars = chatMessages.reduce((sum, m) => sum + (typeof m.content === "string" ? m.content : JSON.stringify(m.content)).length, 0);
@@ -3292,6 +3392,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     const structuredParser = new StructuredResponseParser();
     const segmentExtractor = new IncrementalSegmentExtractor();
     const thinkingFilter = new ThinkingTagFilter();
+    const receiptFilter = new StateReceiptFilter();
 
     const stopKeepalive = startKeepalive(stream);
     let actualModel = model;
@@ -3299,12 +3400,15 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     // be settled against the provider's billed cost (lib/stopped-generation.ts).
     let observedProviderRequestId: string | undefined;
     let pendingFallbackError: ReturnType<typeof modelFallbackError> = null;
+    let correctionModel = model;
     // Set when Yumina Free's pool was exhausted upstream and the provider
     // re-ran this turn on the paid fallback. It keeps the turn billed at
     // Free's zero rate — see FREE_ROUTER_FALLBACK_MODEL.
     let freeRouterFallbackServed = false;
 
     try {
+      await outputAttempt.begin();
+      if (outputAttempt.started) await sse({ event: "state-validation", data: JSON.stringify(outputAttempt.audit) });
       for await (const chunk of provider.generateStream({
         conversationId: `play:${sessionId}`,
         model,
@@ -3334,6 +3438,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
         signal: abortController.signal,
       })) {
         if (chunk.model) {
+          correctionModel = chunk.model;
           if (isFreeRouterFallback(model, chunk.model)) {
             // Deliberately do NOT promote chunk.model here: leaving actualModel
             // as openrouter/free is what keeps the turn free (0/0 pricing) and
@@ -3390,7 +3495,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
             return;
           }
 
-          const filtered = thinkingFilter.push(chunk.content);
+          const filtered = receiptFilter.push(thinkingFilter.push(chunk.content));
           if (filtered) {
             await sse({
               event: "text",
@@ -3429,6 +3534,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
         }
 
         if (chunk.type === "done") {
+          if (replyPersisted) break;
           // Explicit user stop only — disconnects keep generating and persist.
           if (isClientAbort(abortController.signal)) {
             console.log("[Messages] Continue completed after user stop; skipping persistence");
@@ -3446,9 +3552,15 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           const generationTimeMs = Date.now() - startTime;
 
           // Parse the continuation — use structured parser for JSON responses, regex for others
-          const contParseResult = structuredParser.isStructuredResponse(continuationContent)
+          const legacyParsed = structuredParser.isStructuredResponse(continuationContent)
             ? structuredParser.parse(continuationContent)
             : responseParser.parse(continuationContent);
+          const { parsed: contParseResult } = await outputAttempt.validate({
+            world: worldDef, state: stateManager.getSnapshot(), raw: continuationContent, parsed: legacyParsed,
+            provider: provider, model: correctionModel, maxContext: maxContext, signal: abortController.signal,
+            stopReason: chunk.stopReason, history: chatMessages,
+            cacheEnabled: contBreakpoints.length > 0, stream: body.overrides?.streaming,
+          }, async (audit) => { await sse({ event: "state-validation", data: JSON.stringify(audit) }); });
           const cleanContinuation = contParseResult.cleanText;
           const effects = contParseResult.effects;
           const contAudioEffects = filterAiAudioEffects(worldDef.audioTracks ?? [], contParseResult.audioEffects);
@@ -3470,6 +3582,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           if (rejectedWrites.length > 0) {
             console.log(`[Messages] Refused ${rejectedWrites.length} malformed JSON write(s): ${rejectedWrites.map((w) => w.variableId).join(", ")}`);
           }
+          outputAttempt.audit.appliedCount = changes.length;
 
           // Evaluate reactions via event-based dispatch (continue: no user message)
           const contEvents: GameEvent[] = [
@@ -3488,6 +3601,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           );
           const ruleChanges = contSystemResult.changes;
           const allChanges = [...changes, ...ruleChanges];
+          outputAttempt.recordChanges(changes, ruleChanges);
 
           const allAudioEffects = [...contAudioEffects, ...contSystemResult.audioEffects];
           // Persist the looping subset only — see the send path for why.
@@ -3555,10 +3669,8 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
                         ...swipe,
                         content: finalContent,
                         rawContent: (swipe.rawContent ?? "") + continuationContent,
-                        stateChanges:
-                          allChanges.length > 0
-                            ? (allChanges as unknown as Record<string, unknown>)
-                            : swipe.stateChanges,
+                        stateValidation: outputAttempt.enabled ? outputAttempt.audit : undefined,
+                        stateChanges: appendTurnStateChanges(swipe.stateChanges, allChanges),
                         stateSnapshot: thinSnapshotForStorage(
                           finalState as unknown as Record<string, unknown>,
                         ),
@@ -3574,10 +3686,8 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
                   {
                     content: finalContent,
                     rawContent: continuationContent,
-                    stateChanges:
-                      allChanges.length > 0
-                        ? (allChanges as unknown as Record<string, unknown>)
-                        : undefined,
+                    stateValidation: outputAttempt.enabled ? outputAttempt.audit : undefined,
+                    stateChanges: appendTurnStateChanges(lastAssistantMsg.stateChanges, allChanges),
                     stateSnapshot: thinSnapshotForStorage(
                       finalState as unknown as Record<string, unknown>,
                     ),
@@ -3613,6 +3723,12 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
             stateChanges: originalSwipe?.stateChanges ?? lastAssistantMsg.stateChanges,
           }, previousRows[0]?.stateSnapshot);
 
+          if (useProtections && !planConfig.unlimited && hasVisibleContent && !(grokTrialBypass && actualModel === GROK_TRIAL_MODEL)
+            && ((chunk.usage?.promptTokens ?? 0) > 0 || (chunk.usage?.completionTokens ?? 0) > 0)
+            && chunk.stopReason !== "content_filter" && chunk.stopReason !== "SAFETY") {
+            await outputAttempt.prepareStoryCharge({ model: actualModel, promptTokens: chunk.usage?.promptTokens ?? 0,
+              completionTokens: chunk.usage?.completionTokens ?? 0, providerCostUsd: freeRouterFallbackServed ? undefined : chunk.usage?.providerCostUsd });
+          }
           // Update the existing assistant message + session state atomically.
           // Same lost-update guard as the send path: a card's PATCH /:id/state
           // burst can land while this continuation streams, so reconcile
@@ -3622,6 +3738,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
               sql`SELECT state FROM play_sessions WHERE id = ${sessionId} FOR UPDATE`,
             );
             const liveState = (lockedSession.rows[0] as { state: Record<string, unknown> } | undefined)?.state;
+            await outputAttempt.checkCommit(tx, liveState, finalState);
             const turnState = reconcileTurnState(worldDef, liveState, gameState, finalState);
             const generationSnapshot = thinSnapshotForStorage(
               generationBaseline(worldDef, liveState, gameState, originalBaseline, finalState) as unknown as Record<string, unknown>,
@@ -3633,10 +3750,8 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
               .update(messages)
               .set({
                 content: finalContent,
-                stateChanges:
-                  allChanges.length > 0
-                    ? (allChanges as unknown as Record<string, unknown>)
-                    : lastAssistantMsg.stateChanges,
+                stateValidation: outputAttempt.enabled ? outputAttempt.audit : null,
+                stateChanges: appendTurnStateChanges(lastAssistantMsg.stateChanges, allChanges),
                 stateSnapshot: turnSnapshot,
                 swipes: updatedSwipes.map((swipe, index) =>
                   index === (existingSwipes.length > 0 ? activeSwipeIndex : 0)
@@ -3660,9 +3775,11 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
             return turnState;
           });
           replyPersisted = true;
+          outputAttempt.markCommitted();
+          if (outputAttempt.started) await sse({ event: "state-validation", data: JSON.stringify(outputAttempt.audit) });
 
           // Always log usage (including BYOK) for admin visibility
-          const usageLogId = crypto.randomUUID();
+          const usageLogId = outputAttempt.trackNarrativeUsage();
           const pTokens = chunk.usage?.promptTokens ?? 0;
           const cTokens = chunk.usage?.completionTokens ?? 0;
           await recordUsageLog({
@@ -3684,7 +3801,11 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           let creditsBalance: number | undefined;
           let grokTrialUsed = false;
           const wasFiltered = chunk.stopReason === "content_filter" || chunk.stopReason === "SAFETY";
-          if (useProtections && !planConfig.unlimited && !isClientAbort(abortController.signal) && !wasFiltered && (pTokens > 0 || cTokens > 0) && hasVisibleContent) {
+          if (outputAttempt.storyCharge) {
+            await refundTrialIfClaimed();
+            creditsCost = outputAttempt.storyCharge.cost;
+            creditsBalance = outputAttempt.storyCharge.balance;
+          } else if (useProtections && !planConfig.unlimited && !isClientAbort(abortController.signal) && !wasFiltered && (pTokens > 0 || cTokens > 0) && hasVisibleContent) {
             if (grokTrialBypass && actualModel === GROK_TRIAL_MODEL) {
               try {
                 const wallet = await db.select({ id: creditWallets.id, balance: creditWallets.balance })
@@ -3723,6 +3844,8 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
             creditsCost = 0;
             creditsBalance = walletCheck?.balance;
           }
+          // A paid correction can use Yumina while the story uses BYOK/free.
+          creditsBalance = creditsCost ? creditsBalance ?? outputAttempt.correctionBalance : outputAttempt.correctionBalance ?? creditsBalance;
           if (creditsCost != null) {
             await persistSwipeCredits(
               lastAssistantMsg.id,
@@ -3785,7 +3908,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
       // Upstream error or network failure mid-stream. Policy (2026-05-14):
       // do NOT charge — log usage for failure-rate tracking, but eat the cost.
       if (contTracker?.active && contTracker.streamedChars > 0) {
-        const usageLogId = crypto.randomUUID();
+        const usageLogId = outputAttempt.trackNarrativeUsage();
         await recordUsageLog({
               ...usageObservation(undefined),
               analyticsWorldId: context.session.worldId,
@@ -3808,6 +3931,9 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
         });
       } catch { /* client disconnected */ }
     } finally {
+      await outputAttempt.finish(abortController.signal).catch((error) => console.warn("[StateGuard] Failed to persist final audit", error instanceof Error ? error.name : "error"));
+      if (outputAttempt.started) await sse({ event: "state-validation", data: JSON.stringify(outputAttempt.audit) });
+      if (!replyPersisted) await refundTrialIfClaimed();
       unregisterStream();
       stopKeepalive();
       if (useProtections) await releaseConcurrency(currentUser.id);
@@ -3857,6 +3983,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
   if (typeof body.index === "number") {
     const swipes = (msg.swipes ?? []) as Array<{
       content: string;
+      stateValidation?: StateValidationAudit;
       stateChanges?: Record<string, unknown>;
       stateSnapshot?: Record<string, unknown>;
       createdAt: string;
@@ -3875,6 +4002,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
       .set({
         content: swipe.content,
         activeSwipeIndex: targetIndex,
+        stateValidation: swipe.stateValidation ?? null,
         stateChanges: swipe.stateChanges ?? null,
         stateSnapshot: restoredState ?? msg.stateSnapshot,
         model: swipe.model ?? null,
@@ -3931,6 +4059,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
         activeSwipeIndex: targetIndex,
         totalSwipes: swipes.length,
         content: swipe.content,
+        stateValidation: swipe.stateValidation ?? null,
         stateChanges: swipe.stateChanges,
         state: adoptedSessionState ?? restoredState ?? currentSessionState,
         stateRestored: !!restoredState,
@@ -3960,6 +4089,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
 
   const swipes = (msg.swipes ?? []) as Array<{
     content: string;
+    stateValidation?: StateValidationAudit;
     stateChanges?: Record<string, unknown>;
     stateSnapshot?: Record<string, unknown>;
     createdAt: string;
@@ -3983,6 +4113,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
       .set({
         content: swipe.content,
         activeSwipeIndex: newIndex,
+        stateValidation: swipe.stateValidation ?? null,
         stateChanges: swipe.stateChanges ?? null,
         stateSnapshot: restoredState ?? msg.stateSnapshot,
         model: swipe.model ?? null,
@@ -4001,6 +4132,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
         activeSwipeIndex: newIndex,
         totalSwipes: swipes.length,
         content: swipe.content,
+        stateValidation: swipe.stateValidation ?? null,
         stateChanges: swipe.stateChanges,
         state: restoredState ?? currentSessionState,
         stateRestored: !!restoredState,
@@ -4022,6 +4154,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
       .set({
         content: swipe.content,
         activeSwipeIndex: newIndex,
+        stateValidation: swipe.stateValidation ?? null,
         stateChanges: swipe.stateChanges ?? null,
         stateSnapshot: restoredState ?? msg.stateSnapshot,
         model: swipe.model ?? null,
@@ -4040,6 +4173,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
         activeSwipeIndex: newIndex,
         totalSwipes: swipes.length,
         content: swipe.content,
+        stateValidation: swipe.stateValidation ?? null,
         stateChanges: swipe.stateChanges,
         state: restoredState ?? currentSessionState,
         stateRestored: !!restoredState,

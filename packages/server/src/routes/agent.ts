@@ -1610,8 +1610,13 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           .finally(() => controller.abort());
         return;
       }
+      // `iteration` rides along with the liveness bump. It costs nothing (the
+      // UPDATE already fires every 5s) and it is the only way a client whose SSE
+      // has dropped can tell "step 7 of 50, still moving" from "hung": until
+      // now the column was written only when a run paused for approval, so a
+      // recovering client polled a step counter frozen at its starting value.
       db.update(agentRuns)
-        .set({ updatedAt: new Date() })
+        .set({ updatedAt: new Date(), iteration })
         .where(ownedRunWhere())
         .catch(() => {});
       heartbeatTicks++;

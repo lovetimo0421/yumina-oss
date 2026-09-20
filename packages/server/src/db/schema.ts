@@ -366,6 +366,8 @@ export const playSessions = pgTable("play_sessions", {
   /** Explicit opt-in. Historical session_persona snapshots stay unlocked. */
   personaLocked: boolean("persona_locked").notNull().default(false),
   state: jsonb("state").notNull().$type<Record<string, unknown>>().default({}),
+  stateGuardEnabled: boolean("state_guard_enabled").notNull().default(true),
+  stateGuardModel: text("state_guard_model"),
   /** Structured summary of compacted (older) messages */
   summary: text("summary"),
   summaryUpdatedAt: timestamp("summary_updated_at"),
@@ -497,6 +499,7 @@ export const messages = pgTable("messages", {
     .default("complete"),
   errorMessage: text("error_message"),
   stateChanges: jsonb("state_changes").$type<Record<string, unknown>>(),
+  stateValidation: jsonb("state_validation").$type<import("@yumina/shared").StateValidationAudit>(),
   swipes: jsonb("swipes")
     .$type<
       Array<{
@@ -505,6 +508,7 @@ export const messages = pgTable("messages", {
          *  swipes leave this undefined and the UI hides the "view raw"
          *  toggle when it equals `content`. */
         rawContent?: string;
+        stateValidation?: import("@yumina/shared").StateValidationAudit;
         stateChanges?: Record<string, unknown>;
         stateSnapshot?: Record<string, unknown>;
         /** State before this reply, for replacement rather than cumulative regeneration. */

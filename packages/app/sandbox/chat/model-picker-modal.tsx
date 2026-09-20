@@ -519,6 +519,11 @@ interface ModelPickerModalProps {
   allowExternalProviderSwitch?: boolean;
   /** A protected world can require the official catalog for this choice. */
   providerOverride?: "official" | "private";
+  /** Controlled extension-only source: switching this never changes story settings. */
+  selectionProvider?: "official" | "private";
+  /** A BYOK-only edition must never offer or resolve the platform catalog. */
+  allowOfficialModels?: boolean;
+  onSelectionProviderChange?: (provider: "official" | "private") => void;
 }
 
 export function ModelPickerModal({
@@ -530,9 +535,13 @@ export function ModelPickerModal({
   subtitle,
   allowExternalProviderSwitch = false,
   providerOverride,
+  selectionProvider,
+  allowOfficialModels = true,
+  onSelectionProviderChange,
 }: ModelPickerModalProps) {
   const api = useYumina();
-  const { preferredProvider, language } = api;
+  const { language } = api;
+  const preferredProvider = allowOfficialModels ? selectionProvider ?? api.preferredProvider : "private";
   const activeModel = selectedModelProp ?? api.selectedModel;
   const t = useMemo(() => makeT(language), [language]);
   const isExternalModelSelection = Boolean(onSelectModel);
@@ -557,9 +566,10 @@ export function ModelPickerModal({
 
   const requestProvider = useCallback((provider: "official" | "private") => {
     if (provider === preferredProvider || switchingProvider) return;
+    if (onSelectionProviderChange) { onSelectionProviderChange(provider); return; }
     setSwitchError(null);
     setConfirmProvider(provider);
-  }, [preferredProvider, switchingProvider]);
+  }, [preferredProvider, switchingProvider, onSelectionProviderChange]);
 
   const confirmProviderSwitch = useCallback(async () => {
     if (!confirmProvider || switchingProvider) return;
@@ -601,7 +611,7 @@ export function ModelPickerModal({
       privateLabel={t("privateApiKey")}
     />
   );
-  const visibleProviderSwitch = !isExternalModelSelection || allowExternalProviderSwitch
+  const visibleProviderSwitch = allowOfficialModels && (!isExternalModelSelection || allowExternalProviderSwitch || onSelectionProviderChange)
     ? providerSwitch
     : undefined;
 
@@ -653,7 +663,7 @@ export function ModelPickerModal({
           >
             {showMix && !isExternalModelSelection ? (
               <SandboxMixConfig onBack={() => setShowMix(false)} onClose={onClose} t={t} />
-            ) : (providerOverride ?? preferredProvider) === "official" ? (
+            ) : allowOfficialModels && (providerOverride ?? preferredProvider) === "official" ? (
               <OfficialPicker
                 onClose={onClose}
                 t={t}
@@ -682,6 +692,7 @@ export function ModelPickerModal({
                 onSelectModel={handleSelectModel}
                 title={title}
                 subtitle={subtitle}
+                independentProvider={!allowOfficialModels || Boolean(onSelectionProviderChange)}
               />
             )}
           </div>
@@ -946,6 +957,7 @@ function ByokPicker({
   onSelectModel,
   title,
   subtitle,
+  independentProvider = false,
 }: {
   onClose: () => void;
   t: T;
@@ -955,6 +967,7 @@ function ByokPicker({
   onSelectModel: (modelId: string) => void;
   title?: string;
   subtitle?: string;
+  independentProvider?: boolean;
 }) {
   const { getModels, pinModel, unpinModel, mixMode, modelPool } = useYumina();
   const isMixActive = Boolean(onMixMode && mixMode && modelPool && modelPool.length >= 2);
@@ -968,7 +981,7 @@ function ByokPicker({
 
   useEffect(() => {
     setLoading(true);
-    getModels().then((data) => {
+    getModels(independentProvider ? "private" : undefined).then((data) => {
       setModels(data.models ?? []);
       setPinnedIds(data.pinnedModels ?? []);
       setRecentIds(data.recentlyUsed ?? []);
@@ -1060,7 +1073,7 @@ function ByokPicker({
             <button>, and nested interactive elements are invalid HTML with
             flaky tap behavior. Touch devices get a resting tint (hover can
             never reveal it there) and a larger hit box. */}
-        <span
+        {!independentProvider && <span
           role="button"
           tabIndex={0}
           aria-label="Pin model"
@@ -1078,7 +1091,7 @@ function ByokPicker({
           }`}
         >
           <Star className={`h-3 w-3 ${isPinned ? "fill-current" : ""}`} />
-        </span>
+        </span>}
 
         {/* Model info */}
         <div className="flex-1 min-w-0">
@@ -1543,8 +1556,9 @@ export function BalanceTag({
   );
 }
 
-export function ModelTrigger({ onClick, model, className }: { onClick: () => void; model?: string; className?: string }) {
-  const { selectedModel, preferredProvider, mixMode, modelPool, language } = useYumina();
+export function ModelTrigger({ onClick, model, className, provider, showBalance = true }: { onClick: () => void; model?: string; className?: string; provider?: "official" | "private"; showBalance?: boolean }) {
+  const { selectedModel, preferredProvider: storyProvider, mixMode, modelPool, language } = useYumina();
+  const preferredProvider = provider ?? storyProvider;
   const currentModel = model || selectedModel;
   const lang: Lang = pickLang(language);
   const s = STRINGS[lang];
@@ -1598,7 +1612,7 @@ export function ModelTrigger({ onClick, model, className }: { onClick: () => voi
         <span className="text-[11px] font-medium text-primary/80 group-hover:text-primary transition-colors">
           {s.mixModels} · {modelPool.length}
         </span>
-        {balance != null && <BalanceTag balance={balance} language={language} dividerClass="bg-primary/20" />}
+        {showBalance && balance != null && <BalanceTag balance={balance} language={language} dividerClass="bg-primary/20" />}
         <ChevronRight className="h-3 w-3 text-primary/45 group-hover:text-primary/70 transition-colors" />
       </button>
     );
@@ -1619,7 +1633,7 @@ export function ModelTrigger({ onClick, model, className }: { onClick: () => voi
       <span className="truncate text-[11px] font-medium text-white/75 transition-colors group-hover:text-white">
         {displayName}
       </span>
-      {balance != null && <BalanceTag balance={balance} language={language} />}
+      {showBalance && balance != null && <BalanceTag balance={balance} language={language} />}
       <ChevronRight className="h-3 w-3 text-white/45 group-hover:text-white/70 transition-colors" />
     </button>
   );

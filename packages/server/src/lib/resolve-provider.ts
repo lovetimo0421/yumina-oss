@@ -158,6 +158,8 @@ export async function resolveProviderForModel(
   modelId: string,
   options?: {
     forceOfficial?: boolean;
+    /** Explicit extension selection; never changes the account preference. */
+    forcePrivate?: boolean;
     allowNonPriced?: boolean;
     /** Chat callers must reject these models before inference. Allows a saved
      * retired selection to reach the unavailable-model error, not a key error. */
@@ -168,7 +170,9 @@ export async function resolveProviderForModel(
   }
 ): Promise<ResolvedProvider | null> {
   const providerName = inferProvider(modelId);
-  const { plan, preferredProvider } = await getUserMeta(userId);
+  const meta = await getUserMeta(userId);
+  const { plan } = meta;
+  const preferredProvider = options?.forcePrivate ? "private" : meta.preferredProvider;
   const retiredAccessCheck = options?.allowRetiredForAccessCheck && RETIRED_PLAY_MODEL_IDS.has(modelId);
 
   // Force official keys (e.g., protected worlds with allowEdit=false)
@@ -211,6 +215,7 @@ export async function resolveProviderForModel(
         return { provider: createByokProvider("openrouter", orKey), providerName: "openrouter" as ProviderName, isByok: true, apiKeyTier: "byok" };
       }
     }
+    if (options?.forcePrivate) return null;
     if (!allowsOfficialKeyFallback(preferredProvider, options?.allowOfficialFallback)) return null;
     // Fall through to official keys
   }

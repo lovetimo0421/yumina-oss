@@ -226,7 +226,11 @@
       "referral_reward": "友達招待報酬",
       "event_reward": "イベント報酬",
       "mushie_gift_received": "ギフト受取",
-      "mushie_gift_sent": "ギフト送信"
+      "mushie_gift_sent": "ギフト送信",
+      "monthly_expiry": "月次リセット",
+      "bonus_expiry": "ボーナス期限切れ",
+      "usage_refund": "返金",
+      "reconciliation": "台帳の修正"
     },
     "verified": "チェーン検証済み",
     "messagesToday": "本日のメッセージ",
@@ -379,7 +383,13 @@
       "retry": "再試行"
     },
     "recommendedPlan": "おすすめ：{{plan}}",
-    "avgCostPerChatRange": "通常 {{typical}} · 最大 {{heavy}} Mushies / 返信"
+    "avgCostPerChatRange": "通常 {{typical}} · 最大 {{heavy}} Mushies / 返信",
+    "monthlyExpiryRenewal": "更新時に未使用の月次 Mushie が期限切れ",
+    "monthlyExpiryPlanChange": "プラン変更時に未使用の月次 Mushie が期限切れ",
+    "monthlyExpiryPlanEnded": "プラン終了時に未使用の月次 Mushie が期限切れ",
+    "bonusExpired": "未使用のボーナス Mushie が期限日に期限切れ",
+    "ledgerReconciliation": "台帳の修正：残高を確認。以前の変動が記録されていませんでした",
+    "ledgerOpeningBalance": "期首残高（ここから台帳を開始）"
   },
   "summary": {
     "chooseModel": "モデルを選択",

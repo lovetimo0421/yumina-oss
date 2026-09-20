@@ -6,6 +6,7 @@
 /** Emitted to the client so the UI can offer the one action that actually helps. */
 export const FAILURE_CODE = {
   MODEL_FALLBACK_REQUIRED: "MODEL_FALLBACK_REQUIRED",
+  STATE_VALIDATION: "STATE_VALIDATION",
   /** OpenRouter's account-wide daily cap on free models. Retrying the same
    *  model cannot succeed — only switching models (or waiting) does. */
   FREE_POOL_EXHAUSTED: "FREE_POOL_EXHAUSTED",
@@ -36,6 +37,9 @@ export interface ClassifiedFailure {
  */
 export function classifyGenerationFailure(raw: string): ClassifiedFailure {
   const text = raw ?? "";
+  if (text.startsWith("State update check failed") || text.startsWith("Not enough mushies for the state update correction")) {
+    return { code: FAILURE_CODE.STATE_VALIDATION, message: text };
+  }
 
   // Observed: "OpenRouter error (429): Rate limit exceeded: free-models-per-day-high-balance."
   // Checked before the generic rate-limit branch below — this one is NOT

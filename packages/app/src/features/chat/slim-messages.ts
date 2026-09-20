@@ -24,11 +24,15 @@
  * tested. Returns the input array unchanged (same ref) when nothing was
  * stripped, so memoization stays stable for swipe-free chats.
  */
+import { displayAudit } from "../../../sandbox/extensions/state-update-guard/audit-records";
+import type { StateValidationAudit } from "@yumina/shared";
 type Msg = Record<string, unknown>;
 
-export function slimMessages(messages: ReadonlyArray<Msg>): Msg[] {
+export function slimMessages(messages: ReadonlyArray<Msg>, defs?: ReadonlyArray<{ id: string; name?: string }>): Msg[] {
   let changed = false;
   const out = messages.map((m) => {
+    const audit = m.stateValidation as StateValidationAudit | undefined;
+    if (audit?.version === 1) { m = { ...m, stateValidation: displayAudit(audit, undefined, defs) }; changed = true; }
     const swipes = m.swipes;
     if (!Array.isArray(swipes) || swipes.length === 0) return m;
     const activeIdx =
@@ -36,7 +40,9 @@ export function slimMessages(messages: ReadonlyArray<Msg>): Msg[] {
     const slimSwipes = swipes.map((s, i) => {
       if (s == null || typeof s !== "object") return s;
       // Drop swipe-level stateSnapshot for every swipe.
-      const { stateSnapshot: _drop, ...rest } = s as Msg;
+      const { stateSnapshot: _drop, generationState: _baseline, ...rest } = s as Msg;
+      const swipeAudit = rest.stateValidation as StateValidationAudit | undefined;
+      if (swipeAudit?.version === 1) rest.stateValidation = displayAudit(swipeAudit, rest.rawContent, defs);
       if (i === activeIdx) return rest; // active swipe keeps content + rawContent
       // Non-active swipe: drop the big display strings too (not rendered).
       const { content: _c, rawContent: _r, ...scalars } = rest;

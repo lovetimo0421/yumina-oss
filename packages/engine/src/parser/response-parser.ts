@@ -1,6 +1,7 @@
 import type { Effect, AudioEffect } from "../types/index.js";
 import { ThinkingTagFilter } from "./thinking-tag-filter.js";
 import { parseLeadingSpeakerTag } from "../prompts/speaker-tag.js";
+import { stripStateReceipts } from "./state-receipt.js";
 
 export interface ParseResult {
   cleanText: string;
@@ -43,7 +44,7 @@ export class ResponseParser {
     this.audioPattern.lastIndex = 0;
 
     // Strip leaked thinking/reasoning blocks (e.g. Gemini Flash Lite outputs <fiction-mode>...</fiction-mode>)
-    const stripped = ThinkingTagFilter.strip(responseText);
+    const stripped = stripStateReceipts(ThinkingTagFilter.strip(responseText));
 
     // The speaker tag sits at the very start and must never reach the
     // standard directive pattern below, which would read it as `[speaker: set …]`.
@@ -370,7 +371,7 @@ export class ResponseParser {
   }
 
   /** Parse a fence body as a directive object/array, or null if it isn't one. */
-  private tryParseDirectiveBlock(body: string): Effect[] | null {
+  tryParseDirectiveBlock(body: string): Effect[] | null {
     const trimmed = body.trim();
     if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return null;
     let parsed: unknown;

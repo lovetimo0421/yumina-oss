@@ -407,6 +407,7 @@ export function WorldRenderer({
               store.updateMessage(swipeMsgId, {
                 content: data.content,
                 activeSwipeIndex: data.activeSwipeIndex,
+                stateValidation: Object.hasOwn(data, "stateValidation") ? data.stateValidation : store.messages.find((message) => message.id === swipeMsgId)?.swipes?.[data.activeSwipeIndex]?.stateValidation ?? null,
               });
             }
             if (data.state && data.stateRestored !== false) {
@@ -600,6 +601,7 @@ export function WorldRenderer({
             if (!r.ok) return false;
             const { data } = await r.json();
             const store = (await import("@/stores/chat")).useChatStore.getState();
+            if (store.session?.id !== sid) return false;
             store.updateMessage(messageId, data);
             const msgs = store.messages;
             const lastMsg = msgs[msgs.length - 1];
@@ -723,6 +725,9 @@ export function WorldRenderer({
             import("@/stores/models"),
             import("@/stores/config"),
           ]).then(async ([modelsModule, configModule]) => {
+            if (args[0] === "private") return {
+              models: await modelsModule.fetchPrivateModelCatalog(), pinnedModels: [], recentlyUsed: [],
+            };
             await modelsModule.useModelsStore.getState().fetchModels();
             const modelsState = modelsModule.useModelsStore.getState();
             const configState = configModule.useConfigStore.getState();
@@ -737,6 +742,13 @@ export function WorldRenderer({
               recentlyUsed: modelsState.recentlyUsed,
             };
           });
+        }
+        case "getStateGuardSettings":
+        case "setStateGuardSettings": {
+          const sid = sessionIdRef.current;
+          if (!sid || mode !== "session") return Promise.reject(new Error("No active session"));
+          return import("@/lib/state-guard-settings").then(({ requestStateGuardSettings }) =>
+            requestStateGuardSettings(sid, method === "setStateGuardSettings" ? args[0] as Partial<import("@yumina/shared").StateGuardSettings> : undefined));
         }
         case "getSessionMemory":
         case "saveSessionMemory":
@@ -1598,7 +1610,7 @@ export function WorldRenderer({
   // drops swipe data the iframe never renders. Memoized on api.messages so the
   // heavy messages-channel push below only re-runs when messages actually change,
   // not on every parent render (e.g. each streaming delta).
-  const slimmedMessages = useMemo(() => slimMessages(api.messages ?? []), [api.messages]);
+  const slimmedMessages = useMemo(() => slimMessages(api.messages ?? [], variableDefs), [api.messages, variableDefs]);
 
   // Display name → id, for names that aren't already an id. Memoized on the
   // defs so the channel payload stays reference-stable between pushes.

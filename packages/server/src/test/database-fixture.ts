@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { generateDrizzleJson, generateMigration } from "drizzle-kit/api";
 import * as schema from "../db/schema.js";
@@ -18,3 +19,7 @@ const statements = await generateMigration(empty, current);
 for (const statement of statements) await db.$client.exec(statement);
 await ensureMessagesSwipeCount();
 await ensureWorldsSchemaDerived();
+// Production refuses any wallet balance change without a matching ledger row
+// (scripts/install-ledger-guard.sql). Tests run under the same rule, so a code
+// path that forgets the ledger fails here, not in prod.
+await db.$client.exec(readFileSync(new URL("../../scripts/install-ledger-guard.sql", import.meta.url), "utf8"));

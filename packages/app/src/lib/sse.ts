@@ -79,6 +79,7 @@ export interface SSEErrorMeta {
 }
 
 export interface SSECallbacks {
+  onStateValidation?: (audit: import("@yumina/shared").StateValidationAudit) => void;
   onText: (content: string) => void;
   onReasoning?: (content: string) => void;
   onSegment?: (data: { segment: Record<string, unknown> }) => void;
@@ -204,6 +205,9 @@ export function connectSSE(
               switch (currentEvent) {
                 case "text":
                   options.callbacks.onText(parsed.content ?? "");
+                  break;
+                case "state-validation":
+                  options.callbacks.onStateValidation?.(parsed);
                   break;
                 case "reasoning":
                   options.callbacks.onReasoning?.(parsed.content ?? "");

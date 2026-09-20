@@ -251,6 +251,16 @@ async function fetchLivePrivateModels(
   return dedupeModels(models.flat());
 }
 
+/** Read the private catalog for an extension without changing story/provider state. */
+export async function fetchPrivateModelCatalog(): Promise<ModelInfo[]> {
+  const preferences = useUserProfileStore.getState().profile?.preferences;
+  const activeKeyId = typeof preferences?.activeApiKeyId === "string" ? preferences.activeApiKeyId : null;
+  const source = { kind: "private" as const, activeKeyId };
+  const entries = await fetchApiKeyEntries();
+  const cached = savedPrivateModels(source, entries);
+  return cached.length ? cached : fetchLivePrivateModels(source, entries);
+}
+
 export const useModelsStore = create<ModelsState>((set, get) => ({
   models: [],
   curated: [],

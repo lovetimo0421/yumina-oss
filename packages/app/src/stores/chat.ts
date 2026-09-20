@@ -91,6 +91,9 @@ const MIX_NO_RETRY_CODES = new Set([
   // quality gate runs. Retrying it as a fresh send would duplicate that turn;
   // let the user regenerate the discarded assistant reply instead.
   "REPETITIVE_REPLY",
+  // The guard already spent its one bounded correction attempt. Never start
+  // new narrative/model attempts behind the user's back after this failure.
+  "STATE_VALIDATION",
 ]);
 
 export interface Attachment {
@@ -101,6 +104,7 @@ export interface Attachment {
 }
 
 export interface Message {
+  stateValidation?: import("@yumina/shared").StateValidationAudit | null;
   id: string;
   sessionId: string;
   role: "user" | "assistant" | "system";
@@ -116,6 +120,7 @@ export interface Message {
      *  parsing eats narrative or directives. Optional for backwards-compat
      *  with messages persisted before 2026-05. */
     rawContent?: string;
+    stateValidation?: import("@yumina/shared").StateValidationAudit;
     stateChanges?: Record<string, unknown>;
     stateSnapshot?: Record<string, unknown>;
     createdAt: string;
@@ -1063,6 +1068,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           ...(isMixRetry && { mixRetry: true }),
         },
         callbacks: {
+          onStateValidation: (audit) => {
+            set((state) => ({ messages: state.messages.map((message, index) =>
+              message.id === audit.targetMessageId || (audit.path === "send" && index === state.messages.length - 1 && message.role === "user")
+                ? { ...message, stateValidation: audit } : message) }));
+          },
           onText: (text) => {
             enqueueStreamingContent(text);
           },
@@ -1094,6 +1104,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               sessionId: session.id,
               role: "assistant",
               content: doneContent,
+              stateValidation: data.stateValidation as Message["stateValidation"],
               stateChanges: data.stateChanges as Record<string, unknown> | null,
               stateSnapshot: (data.state as Record<string, unknown>) ?? null,
               model: (data.model as string) ?? null,
@@ -1429,6 +1440,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           },
         },
         callbacks: {
+          onStateValidation: (audit) => {
+            set((state) => ({ messages: state.messages.map((message, index) =>
+              message.id === audit.targetMessageId || (audit.path === "send" && index === state.messages.length - 1 && message.role === "user")
+                ? { ...message, stateValidation: audit } : message) }));
+          },
           onText: (text) => {
             enqueueStreamingContent(text);
           },
@@ -1651,6 +1667,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
           },
         },
         callbacks: {
+          onStateValidation: (audit) => {
+            set((state) => ({ messages: state.messages.map((message, index) =>
+              message.id === audit.targetMessageId || (audit.path === "send" && index === state.messages.length - 1 && message.role === "user")
+                ? { ...message, stateValidation: audit } : message) }));
+          },
           onText: (text) => {
             enqueueStreamingContent(text);
           },
@@ -1856,6 +1877,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         messages: s.messages,
       }));
       reconcileMessagesWithRetry(get().refreshMessages);
+      // The stopped turn is settled server-side a few seconds later, once the
+      // provider reports what the partial reply actually cost (up to ~15s of
+      // lookup). Refresh the balance then, so the charge shows up together with
+      // its ledger row instead of surfacing on some later poll with no receipt.
+      for (const delay of [6_000, 18_000]) {
+        setTimeout(() => { void useCreditStore.getState().forceFetchCredits(); }, delay);
+      }
     }
   },
 

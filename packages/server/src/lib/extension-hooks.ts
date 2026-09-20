@@ -22,6 +22,34 @@ import { eq, type SQL } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { playSessions } from "../db/schema.js";
 import { getInstalledExtensions } from "./extensions.js";
+import type { GameState, WorldDefinition } from "@yumina/engine";
+import type { StateValidationAudit } from "@yumina/shared";
+import type { ParseResult } from "@yumina/engine";
+import type { LLMProvider } from "./llm/types.js";
+
+export interface TurnOutputContext {
+  world: WorldDefinition;
+  state: GameState;
+  raw: string;
+  parsed: ParseResult;
+  provider: LLMProvider;
+  model: string;
+  maxContext: number;
+  /** Preserve the original provider's caching/routing and transport policy. */
+  cacheEnabled?: boolean;
+  stream?: boolean;
+  /** Resolved lazily: valid primary output never needs another provider. */
+  resolveCorrection?: () => Promise<{ provider: LLMProvider; model: string; maxContext: number; apiKeyTier: string }>;
+  signal: AbortSignal;
+  stopReason?: string;
+  audit: StateValidationAudit;
+  history: Array<{ role: string; content: unknown }>;
+  mayCorrect: () => Promise<boolean>;
+  progress: (audit: StateValidationAudit) => Promise<void>;
+  recordUsage: (usage: { promptTokens: number; completionTokens: number; totalTokens: number; providerCostUsd?: number }, model: string) => Promise<string>;
+}
+
+export interface ValidatedTurnOutput { parsed: ParseResult; audit?: StateValidationAudit }
 
 // ─── Contexts ───────────────────────────────────────────────────────
 
@@ -138,8 +166,14 @@ export interface ExtensionInvalidation {
 }
 
 export interface ExtensionHookHandlers {
+  /** Trusted final instructions, reserved outside the trimmable history. */
+  turnOutputInstructions?: () => string;
+  /** Awaited, fail-closed, before effects/reactions. Returns data only. */
+  validateTurnOutput?: (ctx: TurnOutputContext) => Promise<ValidatedTurnOutput>;
   /** Which of the extension's capabilities are active for this session. */
-  resolveCapabilities?: (ctx: ResolveCapabilitiesContext) => string[] | Promise<string[]>;
+  /** null disables this extension for this turn (settings snapshot). */
+  resolveCapabilities?: (ctx: ResolveCapabilitiesContext) => string[] | null | Promise<string[] | null>;
+  resolveOutputModel?: (ctx: ResolveCapabilitiesContext) => string | null;
   contributePromptBlocks?: (ctx: PromptBlockContext) => PromptBlock[] | Promise<PromptBlock[]>;
   /** Extra raw-history WHERE conditions (e.g. exclude compacted messages). */
   filterHistory?: (ctx: PromptBlockContext) => SQL[];
@@ -180,6 +214,20 @@ export function __setInstalledLookupForTests(lookup: InstalledLookup | null): vo
 export interface TurnHookDispatch {
   /** Extension key → its active capabilities (installed extensions only). */
   activeExtensions: Map<string, ReadonlySet<string>>;
+  outputModels?: Map<string, string>;
+}
+
+export function turnOutputInstructions(dispatch: TurnHookDispatch): string {
+  return [...dispatch.activeExtensions.keys()].map((key) => registeredHooks.get(key)?.turnOutputInstructions?.() ?? "").filter(Boolean).join("\n\n");
+}
+
+export async function validateTurnOutput(dispatch: TurnHookDispatch, ctx: TurnOutputContext): Promise<ValidatedTurnOutput> {
+  let result: ValidatedTurnOutput = { parsed: ctx.parsed };
+  for (const key of dispatch.activeExtensions.keys()) {
+    const validate = registeredHooks.get(key)?.validateTurnOutput;
+    if (validate) result = await validate({ ...ctx, parsed: result.parsed });
+  }
+  return result;
 }
 
 /**
@@ -189,14 +237,18 @@ export interface TurnHookDispatch {
  */
 export async function resolveTurnHooks(ctx: ResolveCapabilitiesContext): Promise<TurnHookDispatch> {
   const activeExtensions = new Map<string, ReadonlySet<string>>();
+  const outputModels = new Map<string, string>();
   if (registeredHooks.size === 0) return { activeExtensions };
   const installed = await installedLookup(ctx.ownerUserId);
   for (const [key, handlers] of registeredHooks) {
     if (!installed.has(key)) continue;
     const caps = handlers.resolveCapabilities ? await handlers.resolveCapabilities(ctx) : [];
+    if (caps === null) continue;
     activeExtensions.set(key, new Set(caps));
+    const model = handlers.resolveOutputModel?.(ctx);
+    if (model) outputModels.set(key, model);
   }
-  return { activeExtensions };
+  return { activeExtensions, outputModels };
 }
 
 export async function collectPromptBlocks(

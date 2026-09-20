@@ -93,6 +93,15 @@ export interface StudioChatMessage {
   commitId?: string;
   /** Message was cut short because the user pressed Stop — show a subtle marker. */
   stopped?: boolean;
+  /** This bubble is the "connection dropped" card rather than model output. It
+   *  carries the run it belongs to so Reconnect can re-attach to THAT run
+   *  instead of starting (and charging for) a second one. `dead` means we already
+   *  looked and the server has nothing, so only Resend is left.
+   *
+   *  Deliberately absent from serializeStudioChatMessages: the card is a live
+   *  offer, not history. Reloading re-runs the status check on its own, and a
+   *  persisted card would sit above the answer that check just recovered. */
+  disconnected?: { runId?: string; dead?: boolean };
 }
 
 /** Persist only JSON-safe chat fields used to restore Studio conversations. */

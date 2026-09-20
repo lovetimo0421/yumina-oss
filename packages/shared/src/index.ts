@@ -331,7 +331,12 @@ export {
   SMART_IMAGE_MODELS,
   SMART_IMAGE_MODEL_IDS,
   getSmartImageModel,
+  getSmartImageCapabilities,
+  resolveSmartImageAspect,
+  resolveSmartImageResolution,
   SMART_IMAGE_ASPECTS,
+  SMART_IMAGE_RESOLUTIONS,
+  SMART_IMAGE_4K_COST_FACTOR,
   getEnabledGenerationTemplate,
   getGenerationTemplate,
   MAX_ACTIVE_GENERATION_JOBS,
@@ -359,6 +364,8 @@ export {
 export type {
   GenerationKind,
   SmartImageParams,
+  SmartImageAspect,
+  SmartImageResolution,
   GenerationTemplateInfo,
   GenerationJobStatus,
   ImageSampler,
@@ -369,3 +376,5 @@ export type {
 
 export { blendModelPopularity, type ModelPopularitySnapshot } from "./types/model-popularity.js";
 export { MODEL_POPULARITY_SEED } from "./constants/model-popularity-seed.js";
+export type { StateValidationAudit, StateGuardSettings } from "./types/state-validation.js";
+export { parseStateGuardModel, stateGuardModelSelection, DEFAULT_STATE_GUARD_MODEL, FREE_STATE_GUARD_MODEL } from "./types/state-guard-model.js";

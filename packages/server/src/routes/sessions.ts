@@ -1344,6 +1344,8 @@ export async function branchSession(args: {
         state: normalizedState as unknown as Record<string, unknown>,
         summary: keepSummary ? parent.summary : null,
         summaryModel: parent.summaryModel,
+        stateGuardEnabled: parent.stateGuardEnabled,
+        stateGuardModel: parent.stateGuardModel,
         summaryceptionModel: parent.summaryceptionModel,
         summaryImplementation: parent.summaryImplementation,
         summaryMode: parent.summaryMode,
