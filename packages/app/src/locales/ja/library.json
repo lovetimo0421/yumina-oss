@@ -696,7 +696,7 @@
       "PRICING_UPDATED": "画像生成の課金方式が更新されました。再読み込みしてお試しください。",
       "PROVIDER_UNAVAILABLE": "画像サービスを一時的に利用できません。しばらくしてからお試しください。",
       "PROVIDER_REQUEST": "モデルがこの設定を受け付けませんでした。モデルまたは画像設定を変更してください。",
-      "CONTENT_FILTERED": "モデルサービスがこの内容を拒否しました。説明または参考画像を変更してください。"
+      "CONTENT_FILTERED": "モデル提供元がこの内容を拒否しました（Yumina 側の制限ではありません）。課金は発生していません。別のモデルを選ぶか、説明を変えてお試しください。"
     },
     "queue": {
       "waiting": "順番待ち中…",
@@ -711,6 +711,7 @@
       "resolutionUse_1K": "カード内の挿絵",
       "resolutionUse_2K": "表紙",
       "resolutionUse_4K": "印刷用",
+      "resolutionUnavailable": "このモデルでは {{size}} を出せません。他のモデルを試してみてください。",
       "approxSize": "約 {{width}} × {{height}} px",
       "count": "枚数",
       "hint": "参考画像に対応。待機中はキャンセル可能です。生成開始後は結果をお待ちください。",

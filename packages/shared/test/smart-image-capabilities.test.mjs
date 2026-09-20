@@ -74,8 +74,30 @@ test("jobs created before the picker existed still resolve", () => {
   assert.equal(resolveSmartImageResolution(SMART_IMAGE_MODEL, undefined), "2K");
 });
 
-test("the default model leads the list the picker renders", () => {
-  assert.equal(SMART_IMAGE_MODELS[0].id, SMART_IMAGE_MODEL);
+test("the default model is one the picker can actually show", () => {
+  assert.ok(SMART_IMAGE_MODELS.some(model => model.id === SMART_IMAGE_MODEL),
+    "SMART_IMAGE_MODEL must name a model in the registry");
+});
+
+test("the picker lists models cheapest first", () => {
+  // Position is not how the picker decides what is selected — it renders the
+  // resolved model's id — so the order is free to be the one that helps a
+  // creator: ascending price, with the default sitting wherever it belongs.
+  const prices = SMART_IMAGE_MODELS.map(model => model.estimatedCostUsd);
+  assert.deepEqual(prices, [...prices].sort((a, b) => a - b),
+    "a model was added out of price order");
+});
+
+test("a tier no model can render would be a dead option everywhere", () => {
+  // The picker shows all four tiers and greys out the ones the chosen model
+  // cannot do. That is only honest if every tier is reachable on *some* model,
+  // otherwise the hint "try another model" points nowhere.
+  for (const tier of SMART_IMAGE_RESOLUTIONS) {
+    assert.ok(
+      SMART_IMAGE_MODELS.some(model => model.resolutions.includes(tier)),
+      `no model can render ${tier}, so offering it at all is a dead end`,
+    );
+  }
 });
 
 test("capabilities still match OpenRouter (opt-in: CHECK_OPENROUTER_CAPS=1)", { skip: !process.env.CHECK_OPENROUTER_CAPS }, async () => {

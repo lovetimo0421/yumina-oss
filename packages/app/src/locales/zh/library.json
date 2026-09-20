@@ -698,7 +698,7 @@
       "PRICING_UPDATED": "生图计费已更新，请刷新页面后重试。",
       "PROVIDER_UNAVAILABLE": "模型服务暂时不可用，请稍后再试。",
       "PROVIDER_REQUEST": "模型未接受这组设置，请更换模型或调整图片设置。",
-      "CONTENT_FILTERED": "模型服务拒绝了这次内容，请修改描述或参考图。"
+      "CONTENT_FILTERED": "这张图被模型方拒绝了，不是 Yumina 的限制。未扣款，可以换个模型或调整描述再试。"
     },
     "queue": {
       "waiting": "排队中…",
@@ -713,6 +713,7 @@
       "resolutionUse_1K": "卡内插图",
       "resolutionUse_2K": "封面",
       "resolutionUse_4K": "印刷级",
+      "resolutionUnavailable": "当前模型出不了 {{size}}，可以试试其他模型哦～",
       "approxSize": "约 {{width}} × {{height}} 像素",
       "count": "生成张数",
       "hint": "支持参考图。排队时可取消；开始生成后请等待结果。",

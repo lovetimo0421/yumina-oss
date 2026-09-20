@@ -71,6 +71,12 @@ export const MAX_ACTIVE_GENERATION_JOBS = 2;
 
 export const MAX_GENERATION_PROMPT_LENGTH = 2000;
 
+/** The model a creator gets without choosing one, and what the Studio assistant
+ *  falls back to. Seedream Lite is the cheapest by a wide margin and holds up
+ *  across ordinary illustration work, so it stays the default; the sizes it
+ *  cannot render are shown in the picker as unavailable rather than hidden, so
+ *  a creator who wants a 512px icon is told which way to go instead of never
+ *  learning the option exists. */
 export const SMART_IMAGE_MODEL = "bytedance-seed/seedream-5-0-lite";
 
 /** Every aspect ratio any of our models accepts. The UI shows the intersection

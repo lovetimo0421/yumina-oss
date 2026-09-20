@@ -47,8 +47,15 @@ export interface StudioImageProposal {
   prompt: string;
   purpose?: string;
   aspectRatio: string;
+  /** Output size tier the assistant asked for. Absent when the chosen model
+   *  has no size knob (GPT Image is sized by `quality`). */
+  resolution?: string;
   batchSize: number;
   model: string;
+  /** Why the assistant picked that generator, in the creator's language. Shown
+   *  on the confirmation card in a fixed slot: the disclosure is part of the
+   *  card rather than something the assistant has to remember to say. */
+  modelReason?: string;
   /** Estimated mushies for one image (server-side estimate, not the charge). */
   unitMushies: number;
   estimatedMushies: number;

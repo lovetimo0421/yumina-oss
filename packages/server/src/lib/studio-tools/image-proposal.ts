@@ -1,4 +1,5 @@
-import { SMART_IMAGE_ASPECTS, SMART_IMAGE_MODEL, resolveSmartImageAspect, resolveSmartImageResolution } from "@yumina/shared";
+import { SMART_IMAGE_ASPECTS, SMART_IMAGE_MODEL, SMART_IMAGE_MODEL_IDS, getSmartImageModel,
+  resolveSmartImageAspect, resolveSmartImageResolution } from "@yumina/shared";
 import { eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { generationJobs } from "../../db/schema.js";
@@ -20,8 +21,15 @@ export interface ImageProposal {
   prompt: string;
   /** What the picture is for, in the creator's words — shown on the card. */
   purpose?: string;
+  /** Which generator to run. The assistant chooses; an unknown value falls back
+   *  to the default rather than reaching a provider that does not exist. */
+  model: string;
+  /** Why that generator, in the creator's language. Rendered on the card in a
+   *  fixed slot rather than left to the assistant's prose, so the disclosure
+   *  happens every time and reads the same way. */
+  modelReason?: string;
   aspectRatio: ImageAspect;
-  /** Output size tier. Absent means the pinned model's default. */
+  /** Output size tier. Absent means the chosen model's own default. */
   resolution?: string;
   batchSize: number;
 }
@@ -34,18 +42,25 @@ export function normalizeImageProposal(raw: unknown): ImageProposal | null {
   const r = raw as Record<string, unknown>;
   const prompt = typeof r.prompt === "string" ? r.prompt.trim().slice(0, MAX_PROMPT) : "";
   if (!prompt) return null;
-  // Narrow to what the pinned model accepts rather than to the union: a model
-  // rejects a ratio it does not know, and the creator would see the card fail
-  // after confirming it.
-  const aspect = resolveSmartImageAspect(SMART_IMAGE_MODEL,
+  // Resolve the model first: everything else is narrowed against IT, not against
+  // the union the schema advertises. A model rejects a ratio it does not know,
+  // and the creator would only find out after confirming the card.
+  const model = typeof r.model === "string" && (SMART_IMAGE_MODEL_IDS as readonly string[]).includes(r.model)
+    && getSmartImageModel(r.model)
+    ? r.model
+    : SMART_IMAGE_MODEL;
+  const aspect = resolveSmartImageAspect(model,
     typeof r.aspectRatio === "string" ? r.aspectRatio : undefined) as ImageAspect;
-  const resolution = resolveSmartImageResolution(SMART_IMAGE_MODEL,
+  const resolution = resolveSmartImageResolution(model,
     typeof r.resolution === "string" ? r.resolution : undefined);
   void SMART_IMAGE_ASPECTS;
   const batchRaw = typeof r.batchSize === "number" ? r.batchSize : Number(r.batchSize ?? 1);
   const batchSize = Number.isFinite(batchRaw) ? Math.min(4, Math.max(1, Math.round(batchRaw))) : 1;
   const purpose = typeof r.purpose === "string" && r.purpose.trim() ? r.purpose.trim().slice(0, 200) : undefined;
-  return { prompt, purpose, aspectRatio: aspect, ...(resolution ? { resolution } : {}), batchSize };
+  const modelReason = typeof r.modelReason === "string" && r.modelReason.trim()
+    ? r.modelReason.trim().slice(0, 160) : undefined;
+  return { prompt, purpose, model, ...(modelReason ? { modelReason } : {}),
+    aspectRatio: aspect, ...(resolution ? { resolution } : {}), batchSize };
 }
 
 export function imageToolMessages(call: ToolCall, result: Omit<ToolResult, "tool_call_id" | "name">): ChatMessage[] {

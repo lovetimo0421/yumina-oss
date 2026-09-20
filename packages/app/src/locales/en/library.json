@@ -715,7 +715,7 @@
       "PRICING_UPDATED": "Image billing has changed. Refresh the page and try again.",
       "PROVIDER_UNAVAILABLE": "The image service is temporarily unavailable. Try again later.",
       "PROVIDER_REQUEST": "The model did not accept these settings. Change the model or image settings.",
-      "CONTENT_FILTERED": "The model service rejected this content. Change the description or reference image."
+      "CONTENT_FILTERED": "The model provider refused this one — not a Yumina restriction. You were not charged; try another model or reword the description."
     },
     "queue": {
       "waiting": "Waiting in queue…",
@@ -730,6 +730,7 @@
       "resolutionUse_1K": "In-card art",
       "resolutionUse_2K": "Covers",
       "resolutionUse_4K": "Print",
+      "resolutionUnavailable": "This model can't do {{size}} — try another one.",
       "approxSize": "About {{width}} × {{height}} px",
       "count": "Images",
       "hint": "Supports reference images. Cancel while queued; once generation starts, please wait for the result.",

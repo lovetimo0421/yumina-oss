@@ -32,15 +32,27 @@ export function CreditPauseCard({ pause, resuming, refreshing, error, onTopUp, o
   const shortfall = knowsBalance ? Math.max(0, pause.requiredCredits - available) : 0;
   const cost = generated ? pause.cost ?? pause.requiredCredits : pause.requiredCredits;
   const canContinue = !blocked && enough;
+  const restarted = pause.reason === "SERVER_RESTART";
+  const interrupted = restarted || pause.reason === "GENERATION_FAILED";
+  const retryFailed = !!error && canContinue;
   const title = pause.billingUnavailable ? t("studio.aiChat.creditPause.billing")
-    : stale || budgetUnavailable || waiting ? t("studio.aiChat.creditPause.unavailable")
+    : stale || budgetUnavailable || waiting || (!knowsBalance && !settled) ? t("studio.aiChat.creditPause.unavailable")
+      : retryFailed ? t("studio.aiChat.creditPause.retryFailed")
+      : canContinue && restarted ? t("studio.aiChat.creditPause.restart")
+      : canContinue && interrupted ? t("studio.aiChat.creditPause.interrupted")
       : canContinue ? t("studio.aiChat.creditPause.ready")
         : generated ? t("studio.aiChat.creditPause.saved") : t("studio.aiChat.creditPause.paused");
-  const detail = pause.billingUnavailable ? t("studio.aiChat.creditPause.billingDetail")
+  const detail = resuming ? t("studio.aiChat.creditPause.resumingDetail")
+    : pause.billingUnavailable ? t("studio.aiChat.creditPause.billingDetail")
     : stale ? t("studio.aiChat.creditPause.errorStale")
       : waiting ? t("studio.aiChat.creditPause.errorActive")
         : budgetUnavailable ? t("studio.aiChat.creditPause.budgetDetail")
-        : generated && !settled ? t("studio.aiChat.creditPause.savedDetail")
+        : !knowsBalance && !settled ? t("studio.aiChat.creditPause.balanceUnknown")
+        : retryFailed ? ""
+        : generated && !settled ? t(restarted ? "studio.aiChat.creditPause.restartSavedDetail" : "studio.aiChat.creditPause.savedDetail")
+        : restarted && !canContinue ? t("studio.aiChat.creditPause.restartBudgetDetail")
+        : canContinue && restarted ? t("studio.aiChat.creditPause.restartDetail")
+        : canContinue && interrupted ? t("studio.aiChat.creditPause.interruptedDetail")
           : canContinue ? t("studio.aiChat.creditPause.readyDetail") : t("studio.aiChat.creditPause.detail");
   const busy = resuming || refreshing;
   const buttonClass = "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 [@media(pointer:coarse)]:min-h-11";
@@ -73,7 +85,7 @@ export function CreditPauseCard({ pause, resuming, refreshing, error, onTopUp, o
         <p className="mt-1 text-muted-foreground">
           {settled ? t("studio.aiChat.creditPause.settledNote")
             : generated ? t("studio.aiChat.creditPause.settleNote", { amount: format(cost) })
-              : t("studio.aiChat.creditPause.estimateNote")}
+              : t(interrupted ? "studio.aiChat.creditPause.retryNote" : "studio.aiChat.creditPause.estimateNote")}
         </p>
       )}
       {error && error !== detail && <p className="mt-2 break-words text-destructive" role="alert">{error}</p>}
@@ -89,7 +101,7 @@ export function CreditPauseCard({ pause, resuming, refreshing, error, onTopUp, o
               {resuming && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
               {resuming ? t("studio.aiChat.creditPause.resuming")
                 : !canContinue ? t("studio.aiChat.creditPause.topUp")
-                  : generated && !settled ? t("studio.aiChat.creditPause.settleResume") : t("studio.aiChat.creditPause.resume")}
+                  : retryFailed ? t("studio.aiChat.creditPause.retryResume") : generated && !settled ? t("studio.aiChat.creditPause.settleResume") : t("studio.aiChat.creditPause.resume")}
             </button>
             {!canContinue && <button type="button" disabled className={cn(buttonClass, "border-border bg-background text-muted-foreground")}>{t("studio.aiChat.creditPause.resume")}</button>}
             {!canContinue && shortfall > 0 && <span className="ml-auto text-primary tabular-nums">{t("studio.aiChat.creditPause.shortfall", { amount: format(shortfall) })}</span>}

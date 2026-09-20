@@ -1,11 +1,34 @@
-import { getSmartImageCapabilities, SMART_IMAGE_MODEL } from "@yumina/shared";
+import { getSmartImageCapabilities, SMART_IMAGE_MODEL, SMART_IMAGE_MODELS,
+  SMART_IMAGE_ASPECTS, SMART_IMAGE_RESOLUTIONS } from "@yumina/shared";
 import type { ToolDefinition } from "../llm/types.js";
 
-/** What the assistant may offer, taken from the one model it is pinned to
- *  (agent.ts submits generate_image as SMART_IMAGE_MODEL). Reading it from the
- *  shared table means adding a ratio or a size tier reaches the assistant in the
- *  same commit as it reaches the creator's own picker. */
-const IMAGE_TOOL_CAPABILITIES = getSmartImageCapabilities(SMART_IMAGE_MODEL);
+/** The assistant picks its own model, so the schema advertises the union across
+ *  all of them and normalizeImageProposal narrows the pair down to what the
+ *  chosen model really accepts. Advertising one model's list would hide shapes
+ *  and sizes the others can do; advertising the union without narrowing would
+ *  let a combination reach a provider that rejects it.
+ *
+ *  Read from the shared table rather than retyped, so a ratio or tier added
+ *  there reaches the assistant in the same commit as the creator's own picker. */
+/** One line of verifiable fact per model — price, sizes, shapes, seed support.
+ *  Deliberately no claim about which draws better: nobody has measured that
+ *  here, and inventing it would be spending the creator's money on a guess.
+ *  The assistant weighs these and says out loud what it picked and why. */
+const IMAGE_TOOL_MODELS = SMART_IMAGE_MODELS.map(model => {
+  const caps = getSmartImageCapabilities(model.id);
+  const facts = [
+    `~${Math.round(model.estimatedCostUsd * 1000)} mushies/image`,
+    caps.resolutions.length ? `sizes ${caps.resolutions.join("/")}` : "one fixed size",
+    `${caps.aspectRatios.length} shapes`,
+    model.supportsSeed ? "seed supported" : "no seed",
+  ];
+  return { id: model.id, name: model.name, line: `${model.id} — ${model.name}: ${facts.join(", ")}` };
+});
+const IMAGE_TOOL_CAPABILITIES = {
+  aspectRatios: SMART_IMAGE_ASPECTS.filter(ratio =>
+    SMART_IMAGE_MODELS.some(model => (model.aspectRatios as readonly string[]).includes(ratio))),
+  resolutions: SMART_IMAGE_RESOLUTIONS,
+};
 
 // ── Studio AI: 8-tool agent (Claude Code pattern) ──
 //
@@ -437,6 +460,18 @@ const CONTROL_TOOLS: ToolDefinition[] = [
             type: "string",
             description: "The visual description to generate from (English, concrete, no text in the image).",
           },
+          model: {
+            type: "string",
+            enum: IMAGE_TOOL_MODELS.map(model => model.id),
+            description:
+              "Which generator to run. Judge it yourself from what the picture is for; these are the facts, not a ranking:\n"
+              + IMAGE_TOOL_MODELS.map(model => `  ${model.line}`).join("\n")
+              + `\nA size or shape a model does not list falls back to that model's default, so choose the size and shape the picture needs first, then a model that offers them. Default ${SMART_IMAGE_MODEL}. Give your reason in modelReason; the confirmation card shows it to the creator next to the price.`,
+          },
+          modelReason: {
+            type: "string",
+            description: "One short line, in the creator's language, saying why this generator for this picture (e.g. '要 512 的小图标，只有它能直接出' or '普通插画，选了最便宜的'). The confirmation card shows it beside the model name and price, so the creator can judge the spend before agreeing.",
+          },
           purpose: {
             type: "string",
             description: "One short line, in the creator's language, saying what the image is for (e.g. 'Map of the northern kingdom for the travel panel'). Shown on the confirmation card.",
@@ -452,7 +487,7 @@ const CONTROL_TOOLS: ToolDefinition[] = [
           resolution: {
             type: "string",
             enum: [...IMAGE_TOOL_CAPABILITIES.resolutions],
-            description: "Output size. 2K suits covers and scene art; 4K only when the creator asks for print-scale detail, since it costs more and takes longer. Default 2K.",
+            description: "Output size. 512 for icons and avatars, 1K for in-card art, 2K for covers and scene art; 4K only when the creator asks for print-scale detail, since it costs more and takes longer. Not every model offers every size — an unsupported pick falls back to that model's default. Default 2K.",
           },
           batchSize: {
             type: "integer",

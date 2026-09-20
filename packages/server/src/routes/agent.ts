@@ -940,7 +940,7 @@ agentRoutes.post("/:worldId/agent/generate-image", async (c) => {
         submitted = await submitSmartGeneration(currentUser.id, {
           prompt: proposal.prompt,
           requestId,
-          cloud: { billing: "actual-v1", model: SMART_IMAGE_MODEL, aspectRatio: proposal.aspectRatio,
+          cloud: { billing: "actual-v1", model: proposal.model as never, aspectRatio: proposal.aspectRatio,
             ...(proposal.resolution ? { resolution: proposal.resolution as never } : {}), batchSize: proposal.batchSize },
           ...(folderId ? { folderId } : {}),
         });
@@ -1392,7 +1392,7 @@ function publicCreditPause(checkpoint: StudioCreditCheckpoint | null) {
   if (!checkpoint) return null;
   const reason = checkpoint.reason === undefined ? undefined
     : new Set(["INSUFFICIENT_CREDITS", "insufficient_credits", "pricing_unavailable", "output_limit_too_small",
-      "USAGE_UNAVAILABLE", "BILLING_DETAILS_MISSING", "STALE_WORLD", "GENERATION_FAILED"]).has(checkpoint.reason)
+      "USAGE_UNAVAILABLE", "BILLING_DETAILS_MISSING", "STALE_WORLD", "SERVER_RESTART", "GENERATION_FAILED"]).has(checkpoint.reason)
       ? checkpoint.reason : "GENERATION_FAILED";
   return {
     phase: checkpoint.phase, requiredCredits: checkpoint.requiredCredits,
@@ -2253,7 +2253,9 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             continue;
           }
           const estimates = await smartImageEstimates();
-          const unitMushies = estimates[SMART_IMAGE_MODEL] ?? 0;
+          // Price the model the assistant actually picked, so the confirmation
+          // card quotes what pressing Generate will cost.
+          const unitMushies = estimates[proposal.model] ?? estimates[SMART_IMAGE_MODEL] ?? 0;
           const estimatedMushies = Math.ceil(unitMushies * proposal.batchSize * 10) / 10;
           console.log(`[Agent] Iteration ${iteration}: generate_image proposed (${proposal.aspectRatio} ×${proposal.batchSize}, est. ${estimatedMushies}) — awaiting creator.`);
           // The assistant's own words stay a real turn; the card renders beneath them.
@@ -2268,7 +2270,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             iteration,
           });
           await safeSend("image_proposal", JSON.stringify({
-            runId, toolCallId: imageCall.id, textContent, ...proposal, model: SMART_IMAGE_MODEL, unitMushies, estimatedMushies,
+            runId, toolCallId: imageCall.id, textContent, ...proposal, unitMushies, estimatedMushies,
           }));
           return;
         }

@@ -3,9 +3,8 @@ import { ImagePlus, Loader2, Sparkles, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { resolveImageUrl } from "@/lib/asset-url";
+import { getSmartImageCapabilities, getSmartImageModel } from "@yumina/shared";
 import type { StudioImageProposal } from "../lib/types";
-
-const ASPECTS = ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"] as const;
 
 interface ImageProposalCardProps {
   proposal: StudioImageProposal;
@@ -23,6 +22,13 @@ export function ImageProposalCard({ proposal, interactive, onConfirm, onDecline 
   const [aspectRatio, setAspectRatio] = useState(proposal.aspectRatio);
   const [batchSize, setBatchSize] = useState(proposal.batchSize);
   useEffect(() => { setPrompt(proposal.prompt); setAspectRatio(proposal.aspectRatio); setBatchSize(proposal.batchSize); }, [proposal.prompt, proposal.aspectRatio, proposal.batchSize]);
+  // The assistant chooses the generator, and they differ by about four times in
+  // price and in which shapes they can draw — so name it, and offer exactly the
+  // ratios THAT model accepts. A hardcoded list here used to show seven while
+  // the generator had grown to fourteen, which left the assistant's own pick
+  // rendering as a blank dropdown.
+  const model = getSmartImageModel(proposal.model);
+  const aspectOptions = getSmartImageCapabilities(proposal.model).aspectRatios;
   const format = (value: number) => new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 1 }).format(value);
   const estimate = Math.ceil(proposal.unitMushies * batchSize * 10) / 10;
   const pending = proposal.status === "pending";
@@ -66,7 +72,7 @@ export function ImageProposalCard({ proposal, interactive, onConfirm, onDecline 
               {t("studio.aiChat.imageProposal.aspect")}
               <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)} disabled={!interactive}
                 className="min-h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground">
-                {ASPECTS.map((a) => <option key={a} value={a}>{a}</option>)}
+                {aspectOptions.map((a) => <option key={a} value={a}>{a}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
@@ -76,10 +82,26 @@ export function ImageProposalCard({ proposal, interactive, onConfirm, onDecline 
                 {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}
               </select>
             </label>
-            <span className="ml-auto tabular-nums text-foreground">
-              {t("studio.aiChat.imageProposal.estimate", { amount: format(estimate) })}
+            <span className="ml-auto flex flex-col items-end gap-0.5 text-right">
+              <span className="tabular-nums text-foreground">
+                {t("studio.aiChat.imageProposal.estimate", { amount: format(estimate) })}
+              </span>
+              <span className="text-[10px] text-muted-foreground">
+                {model?.name ?? proposal.model}
+                {proposal.resolution ? ` · ${proposal.resolution === "512" ? "0.5K" : proposal.resolution}` : ""}
+              </span>
             </span>
           </div>
+          {proposal.modelReason && (
+            // Fixed disclosure: which generator, and why, every time — the
+            // prices differ by more than ten times, and a creator agreeing to
+            // spend should not have to dig it out of the assistant's prose.
+            <p className="mt-1.5 rounded-md border border-border/60 bg-muted/40 px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
+              <span className="font-medium text-foreground">{model?.name ?? proposal.model}</span>
+              {" · "}
+              {proposal.modelReason}
+            </p>
+          )}
           <p className="mt-1 text-muted-foreground">{t("studio.aiChat.imageProposal.estimateNote")}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button type="button" disabled={!canConfirm} onClick={() => onConfirm({ prompt: prompt.trim(), aspectRatio, batchSize })}

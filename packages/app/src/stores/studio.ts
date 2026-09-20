@@ -1098,8 +1098,12 @@ function syncStudioCreditBalance(data: Record<string, unknown>) {
 }
 
 function creditPauseReasonError(pause: StudioCreditPause): string | null {
-  if (pause.billingUnavailable) return creditPauseFailure("BILLING_DETAILS_MISSING");
-  if (!pause.reason || pause.reason === "INSUFFICIENT_CREDITS" || pause.reason === "insufficient_credits") return null;
+  // These describe a saved pause, not a failed attempt to resume. The card
+  // explains the pause; onError still reports actual resume/save failures.
+  if (pause.billingUnavailable || !pause.reason || [
+    "INSUFFICIENT_CREDITS", "insufficient_credits", "SERVER_RESTART", "GENERATION_FAILED",
+    "pricing_unavailable", "output_limit_too_small",
+  ].includes(pause.reason)) return null;
   return creditPauseFailure(pause.reason);
 }
 
@@ -1549,7 +1553,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         });
       } else if (pause && (pause.billingUnavailable || pause.reason === "STALE_WORLD")
         && data.status !== "completed" && data.status !== "awaiting_user") {
-        set({ creditPause: pause, creditPauseError: creditPauseFailure(pause.billingUnavailable ? "BILLING_DETAILS_MISSING" : "STALE_WORLD") });
+        set({ creditPause: pause, creditPauseError: creditPauseReasonError(pause) });
       } else {
         set({ creditPause: null, creditPauseError: null });
         // A long run whose stream died while the tab was away is still alive on

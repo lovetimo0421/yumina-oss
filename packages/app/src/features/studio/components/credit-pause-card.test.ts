@@ -34,6 +34,29 @@ const pause = (overrides: Partial<StudioCreditPause> = {}): StudioCreditPause =>
   ...overrides,
 });
 
+const recoveryScenarios: Array<{
+  name: string; pause?: Partial<StudioCreditPause>; error?: string;
+  resuming?: boolean; refreshing?: boolean; title: string; action?: string;
+  detail?: string; debitNote?: string;
+}> = [
+  { name: "deployment interruption", title: "restart", action: "resume", detail: "restartDetail", debitNote: "retryNote" },
+  { name: "other generation interruption", pause: { reason: "GENERATION_FAILED" }, title: "interrupted", action: "resume", debitNote: "retryNote" },
+  { name: "failed resume request", error: "errorFailed", title: "retryFailed", action: "retryResume" },
+  { name: "resume in flight", resuming: true, title: "resuming", detail: "resumingDetail" },
+  { name: "insufficient preflight funds", pause: { reason: "INSUFFICIENT_CREDITS", balance: 6.2, availableCredits: 6.2 }, title: "paused", action: "topUp" },
+  { name: "deployment and insufficient funds", pause: { balance: 6.2, availableCredits: 6.2 }, title: "paused", action: "topUp", detail: "restartBudgetDetail" },
+  { name: "saved unpaid result", pause: { phase: "generated", hasSavedResult: true, cost: 9.5 }, title: "restart", action: "settleResume", detail: "restartSavedDetail", debitNote: "settleNote" },
+  { name: "paid result with zero funds", pause: { phase: "generated", hasSavedResult: true, settled: true, requiredCredits: 0, cost: 9.5, balance: 0, availableCredits: 0 }, title: "restart", action: "resume", debitNote: "settledNote" },
+  { name: "unconfirmed billing", pause: { phase: "generated", billingUnavailable: true, reason: "BILLING_DETAILS_MISSING", requiredCredits: 0, cost: 0, resumable: false }, title: "billing", action: "refresh", detail: "billingDetail" },
+  { name: "world changed", pause: { reason: "STALE_WORLD", resumable: false }, error: "errorStale", title: "unavailable", action: "refresh", detail: "errorStale" },
+  { name: "live claim", pause: { reason: undefined, resumable: false }, title: "unavailable", action: "refresh", detail: "errorActive" },
+  { name: "unknown step budget", pause: { reason: "pricing_unavailable", requiredCredits: 0 }, title: "unavailable", action: "retryStep", detail: "budgetDetail" },
+  { name: "saved result and insufficient funds", pause: { phase: "generated", hasSavedResult: true, cost: 9.5, reason: "INSUFFICIENT_CREDITS", balance: 6.2, availableCredits: 6.2 }, title: "saved", action: "topUp", debitNote: "settleNote" },
+  { name: "unknown balance", pause: { balance: undefined, availableCredits: undefined }, title: "unavailable", action: "refresh", detail: "balanceUnknown" },
+  { name: "refresh in flight", pause: { reason: undefined, resumable: false }, refreshing: true, title: "unavailable" },
+  { name: "unsaved editor changes", error: "errorSave", title: "retryFailed", action: "retryResume" },
+];
+
 async function withCard(initial: Partial<CardProps>, check: (view: {
   document: Document;
   calls: { topUp: number; resume: number; refresh: number };
@@ -152,3 +175,38 @@ for (const busy of ["resuming", "refreshing"] as const) {
     });
   });
 }
+
+for (const scenario of recoveryScenarios) {
+  test(`approved recovery scenario: ${scenario.name}`, async () => {
+    const key = (name: string) => `studio.aiChat.creditPause.${name}`;
+    await withCard({ pause: pause({ phase: "preflight", hasSavedResult: false, cost: undefined,
+      reason: "SERVER_RESTART", resumable: true, balance: 46.2, availableCredits: 46.2, ...scenario.pause }),
+      resuming: !!scenario.resuming, refreshing: !!scenario.refreshing,
+      error: scenario.error ? translate(key(scenario.error)) : null }, async view => {
+      assert.equal(view.document.querySelector('[role="status"]')?.textContent, translate(key(scenario.title)));
+      const enabled = Array.from(view.document.querySelectorAll("button")).filter(button => !button.disabled);
+      assert.deepEqual(enabled.map(button => button.textContent), scenario.action ? [translate(key(scenario.action))] : []);
+      if (scenario.detail) assert.ok(view.document.body.textContent?.includes(translate(key(scenario.detail))));
+      if (scenario.debitNote) assert.ok(view.document.body.textContent?.includes(translate(key(scenario.debitNote), { amount: "9.5" })));
+      const alert = view.document.querySelector('[role="alert"]');
+      assert.equal(alert?.textContent ?? null, scenario.error && scenario.error !== scenario.detail ? translate(key(scenario.error)) : null);
+      if (scenario.action) {
+        await view.click(scenario.action);
+        assert.deepEqual(view.calls, {
+          topUp: scenario.action === "topUp" ? 1 : 0,
+          refresh: scenario.action === "refresh" ? 1 : 0,
+          resume: ["resume", "settleResume", "retryResume", "retryStep"].includes(scenario.action) ? 1 : 0,
+        });
+      }
+    });
+  });
+}
+
+test("recovery messages have translations in every supported locale", () => {
+  const keys = ["restart", "restartDetail", "interrupted", "interruptedDetail", "restartBudgetDetail",
+    "restartSavedDetail", "retryNote", "retryFailed", "retryResume", "resumingDetail", "balanceUnknown", "errorFailed"];
+  for (const locale of ["zh", "zh-Hant", "en", "ja", "es"]) {
+    const messages = JSON.parse(readFileSync(new URL(`../../../locales/${locale}/editor.json`, import.meta.url), "utf8")).studio.aiChat.creditPause;
+    for (const key of keys) assert.ok(typeof messages[key] === "string" && messages[key].trim(), `${locale}/${key}`);
+  }
+});

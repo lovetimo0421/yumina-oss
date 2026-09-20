@@ -716,7 +716,7 @@
       "PRICING_UPDATED": "El cobro de imágenes ha cambiado. Actualiza la página e inténtalo de nuevo.",
       "PROVIDER_UNAVAILABLE": "El servicio de imágenes no está disponible temporalmente. Inténtalo más tarde.",
       "PROVIDER_REQUEST": "El modelo no aceptó estos ajustes. Cambia el modelo o los ajustes de imagen.",
-      "CONTENT_FILTERED": "El servicio del modelo rechazó este contenido. Cambia la descripción o la imagen de referencia."
+      "CONTENT_FILTERED": "El proveedor del modelo rechazó esta imagen, no es una restricción de Yumina. No se te cobró; prueba con otro modelo o reformula la descripción."
     },
     "queue": {
       "waiting": "Esperando en la cola…",
@@ -731,6 +731,7 @@
       "resolutionUse_1K": "Arte de la carta",
       "resolutionUse_2K": "Portadas",
       "resolutionUse_4K": "Impresión",
+      "resolutionUnavailable": "Este modelo no puede hacer {{size}}; prueba con otro.",
       "approxSize": "Unos {{width}} × {{height}} px",
       "count": "Imágenes",
       "hint": "Admite referencias. Puedes cancelar en la cola; una vez iniciada la generación, espera el resultado.",
