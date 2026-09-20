@@ -675,9 +675,10 @@ async function start() {
   edition.afterListen();
 
   // Graceful shutdown — drain in-flight generations before exiting.
-  // Railway sends SIGTERM and waits railway.toml shutdownTimeoutSeconds (60s)
-  // before SIGKILL. We spend up to 50s of that letting active LLM generations
-  // finish naturally, then abort stragglers with a distinct shutdown reason —
+  // Railway's web service drainingSeconds is 90 (.railway/railway.ts).
+  // Allow 50s for natural completion and 10s for aborted handlers to persist
+  // their checkpoints before process.exit; the remainder covers other cleanup.
+  // Abort stragglers with a distinct shutdown reason —
   // handlers log their usage and send the client a clean SERVER_RESTART error
   // instead of a dead connection (see lib/stream-registry.ts).
   process.on("SIGTERM", async () => {
@@ -691,7 +692,7 @@ async function start() {
     stopRateLimitCleanup();
     server.close();
     const [{ finishedNaturally, abortedCount }] = await Promise.all([
-      drainStreams(50_000), edition.drain(50_000),
+      drainStreams(50_000, 10_000), edition.drain(50_000),
     ]);
     console.log(
       finishedNaturally

@@ -1,4 +1,4 @@
-import { SMART_IMAGE_ASPECTS } from "@yumina/shared";
+import { SMART_IMAGE_ASPECTS, SMART_IMAGE_MODEL, resolveSmartImageAspect, resolveSmartImageResolution } from "@yumina/shared";
 import { eq } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { generationJobs } from "../../db/schema.js";
@@ -21,6 +21,8 @@ export interface ImageProposal {
   /** What the picture is for, in the creator's words — shown on the card. */
   purpose?: string;
   aspectRatio: ImageAspect;
+  /** Output size tier. Absent means the pinned model's default. */
+  resolution?: string;
   batchSize: number;
 }
 
@@ -32,12 +34,18 @@ export function normalizeImageProposal(raw: unknown): ImageProposal | null {
   const r = raw as Record<string, unknown>;
   const prompt = typeof r.prompt === "string" ? r.prompt.trim().slice(0, MAX_PROMPT) : "";
   if (!prompt) return null;
-  const aspect = typeof r.aspectRatio === "string" && (SMART_IMAGE_ASPECTS as readonly string[]).includes(r.aspectRatio)
-    ? (r.aspectRatio as ImageAspect) : "1:1";
+  // Narrow to what the pinned model accepts rather than to the union: a model
+  // rejects a ratio it does not know, and the creator would see the card fail
+  // after confirming it.
+  const aspect = resolveSmartImageAspect(SMART_IMAGE_MODEL,
+    typeof r.aspectRatio === "string" ? r.aspectRatio : undefined) as ImageAspect;
+  const resolution = resolveSmartImageResolution(SMART_IMAGE_MODEL,
+    typeof r.resolution === "string" ? r.resolution : undefined);
+  void SMART_IMAGE_ASPECTS;
   const batchRaw = typeof r.batchSize === "number" ? r.batchSize : Number(r.batchSize ?? 1);
   const batchSize = Number.isFinite(batchRaw) ? Math.min(4, Math.max(1, Math.round(batchRaw))) : 1;
   const purpose = typeof r.purpose === "string" && r.purpose.trim() ? r.purpose.trim().slice(0, 200) : undefined;
-  return { prompt, purpose, aspectRatio: aspect, batchSize };
+  return { prompt, purpose, aspectRatio: aspect, ...(resolution ? { resolution } : {}), batchSize };
 }
 
 export function imageToolMessages(call: ToolCall, result: Omit<ToolResult, "tool_call_id" | "name">): ChatMessage[] {

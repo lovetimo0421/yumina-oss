@@ -11,12 +11,13 @@
  *                       drainStreams(50s): poll until empty, then
  *                       abort stragglers with SHUTDOWN_ABORT_REASON
  *
- * Railway gives 60s between SIGTERM and SIGKILL (railway.toml
- * shutdownTimeoutSeconds). We drain up to ~50s so most generations finish
+ * Railway's web service gets 90s between SIGTERM and SIGKILL (drainingSeconds
+ * in .railway/railway.ts). We drain up to ~50s so most generations finish
  * naturally, then abort the rest with a DISTINCT reason. Handlers branch on
  * that reason: a client abort (explicit stop endpoint / mid-stream credit
  * exhaustion) skips persistence, while a shutdown abort logs usage and sends
  * the client a clean SERVER_RESTART error instead of a dead connection.
+ * After signaling abort, shutdown waits up to 10s for handlers to persist.
  * A plain SSE disconnect (mobile tab suspend, network drop) does NOT abort:
  * the generation finishes server-side and persists, and the client's
  * connection-loss recovery poll picks the reply up (2026-08-06 content-loss
@@ -83,6 +84,7 @@ export function isClientAbort(signal: AbortSignal): boolean {
  */
 export async function drainStreams(
   maxWaitMs: number,
+  cleanupWaitMs = 0,
 ): Promise<{ finishedNaturally: boolean; abortedCount: number }> {
   const deadline = Date.now() + maxWaitMs;
   while (activeStreams.size > 0 && Date.now() < deadline) {
@@ -95,6 +97,13 @@ export async function drainStreams(
     } catch {
       /* an already-aborted controller is fine */
     }
+  }
+  // abort() only signals the handlers; their DB writes/finally blocks are async.
+  // Production must wait for unregister before process.exit, with a bound for
+  // unresponsive providers. Keep the default zero for callers aborting themselves.
+  const cleanupDeadline = Date.now() + cleanupWaitMs;
+  while (stragglers.some(ac => activeStreams.has(ac)) && Date.now() < cleanupDeadline) {
+    await new Promise(resolve => setTimeout(resolve, Math.min(50, Math.max(1, cleanupDeadline - Date.now()))));
   }
   return { finishedNaturally: stragglers.length === 0, abortedCount: stragglers.length };
 }

@@ -940,7 +940,8 @@ agentRoutes.post("/:worldId/agent/generate-image", async (c) => {
         submitted = await submitSmartGeneration(currentUser.id, {
           prompt: proposal.prompt,
           requestId,
-          cloud: { billing: "actual-v1", model: SMART_IMAGE_MODEL, aspectRatio: proposal.aspectRatio, batchSize: proposal.batchSize },
+          cloud: { billing: "actual-v1", model: SMART_IMAGE_MODEL, aspectRatio: proposal.aspectRatio,
+            ...(proposal.resolution ? { resolution: proposal.resolution as never } : {}), batchSize: proposal.batchSize },
           ...(folderId ? { folderId } : {}),
         });
         break;
@@ -1101,7 +1102,7 @@ agentRoutes.post("/:worldId/agent/stop", async (c) => {
 
   await db
     .update(agentRuns)
-    .set({ status: "completed", error: "Stopped by user.", updatedAt: new Date() })
+    .set({ status: "completed", error: "Stopped by user.", creditCheckpoint: null, updatedAt: new Date() })
     .where(
       and(
         eq(agentRuns.id, body.runId),
@@ -1512,19 +1513,36 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         reservationId = undefined;
       }
       if (!creditClaimId) return;
-      await withStudioCreditClaimTransaction(creditScope, creditClaimId, async () => ({
-        value: null, checkpoint: null,
+      const saved = await withStudioCreditClaimTransaction(creditScope, creditClaimId, async (_tx, checkpoint) => ({
+        // Atomically consume the completed result AND journal the next step.
+        // Clearing this between calls left paid progress stranded on deploy.
+        value: null, checkpoint: {
+          version: 1 as const, phase: "preflight" as const, messages: nextMessages,
+          iteration: nextIteration, worldRevision: checkpoint.worldRevision, requiredCredits: 0,
+        },
         runUpdates: { messages: nextMessages as unknown as Array<Record<string, unknown>>, iteration: nextIteration },
       }));
-      creditCheckpoint = null;
-      creditClaimId = undefined;
+      creditCheckpoint = saved.checkpoint;
     };
     const finalizeRun = async (set: Partial<typeof agentRuns.$inferInsert>) => {
       // A deploy is not completion or user cancellation. The finally block
       // restores our saved checkpoint, including any already-settled work.
       if (isShutdownAbort(controller.signal)) return;
-      if (creditClaimId && !controller.signal.aborted && (set.status === "completed" || set.status === "awaiting_user")) {
-        await finishCreditIteration(messages, set.iteration ?? iteration);
+      if (creditClaimId && !controller.signal.aborted &&
+          (set.status === "completed" || set.status === "awaiting_user" || set.status === "awaiting_approval")) {
+        if (reservationId) {
+          await releaseStudioCreditReservation(userId, reservationId);
+          reservationId = undefined;
+        }
+        // Consume the checkpoint and publish the terminal state atomically.
+        // A deploy must never leave a running row without its recovery record.
+        const status = set.status;
+        await withStudioCreditClaimTransaction(creditScope, creditClaimId, async () => ({
+          value: null, checkpoint: null, status, runUpdates: set,
+        }));
+        creditCheckpoint = null;
+        creditClaimId = undefined;
+        return;
       }
       return db.update(agentRuns).set({ ...set, updatedAt: new Date() })
         .where(ownedRunWhere());
@@ -1635,7 +1653,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             if (controller.signal.aborted) return;
             const status = rows[0]?.status;
             const persistedClaimId = readStudioCreditCheckpoint(rows[0]?.creditCheckpoint)?.claim?.id;
-            const claimChanged = creditRecovery && pollingClaimId === creditClaimId && persistedClaimId !== creditClaimId;
+            const claimChanged = creditRecovery && !!pollingClaimId && pollingClaimId === creditClaimId && persistedClaimId !== creditClaimId;
             if ((status && status !== "running") || claimChanged) {
               console.log(`[Agent] Run ${runId} status=${status} detected via heartbeat poll — aborting local controller (cross-replica stop or supersession).`);
               controller.abort();
@@ -1830,6 +1848,13 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           };
           if (!budget.ok) { await pauseForCredits(preflight, budget.reason); return; }
           outputBudget = budget.maxTokens;
+          const staged = await stageStudioCreditIteration(creditScope, preflight, creditClaimId);
+          if (!staged.ok) {
+            await safeSend("error", JSON.stringify({ error: staged.code, code: staged.code }));
+            return;
+          }
+          creditCheckpoint = staged.checkpoint;
+          creditClaimId = staged.claimId;
           try {
             const hold = await reserveStudioCredits({ userId, runId, referenceId: usageLogId, credits: budget.reservationCredits });
             reservationId = hold.id;
@@ -1853,6 +1878,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         const toolCalls: ToolCall[] = [...(replay?.toolCalls ?? [])];
         let iterationUsage: StreamChunk["usage"] = replay?.usage;
         let iterationStopReason: string | undefined = replay?.stopReason;
+        let generationFinished = !!replay;
 
         try {
           if (!replay) for await (const chunk of generateStreamWithRetry(provider, {
@@ -1909,6 +1935,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             }
 
             if (chunk.type === "done") {
+              generationFinished = true;
               if (chunk.usage) iterationUsage = chunk.usage;
               if (chunk.stopReason) iterationStopReason = chunk.stopReason;
             }
@@ -1964,6 +1991,11 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         if (iterationUsage && Number.isFinite(iterationUsage.completionTokens) && iterationUsage.completionTokens >= 0) {
           previousCompletionTokens = iterationUsage.completionTokens;
         }
+
+        // Preserve preflight for an interrupted call, not a billing-blocked
+        // generated result. Usage arrives on done; partial tool arguments
+        // without that completion boundary must never be replayed.
+        if (isShutdownAbort(controller.signal) && !generationFinished) return;
 
         // A missing usage record is not a free generation. Keep its complete
         // result, but never invent an actual charge or execute it for zero.
@@ -2226,9 +2258,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           console.log(`[Agent] Iteration ${iteration}: generate_image proposed (${proposal.aspectRatio} ×${proposal.batchSize}, est. ${estimatedMushies}) — awaiting creator.`);
           // The assistant's own words stay a real turn; the card renders beneath them.
           await commitTextTurn(iteration, textContent, { lane: "answer" });
-          // Release any credit claim first: the resume route re-enters the loop
-          // without one, and a lingering claim would fence its status writes out.
-          await finishCreditIteration(messages, iteration);
+          // Hand off to approval and release the claim in the same transaction.
           await finalizeRun({
             status: "awaiting_approval",
             messages: messages as unknown as Array<Record<string, unknown>>,

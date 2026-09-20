@@ -1,4 +1,11 @@
+import { getSmartImageCapabilities, SMART_IMAGE_MODEL } from "@yumina/shared";
 import type { ToolDefinition } from "../llm/types.js";
+
+/** What the assistant may offer, taken from the one model it is pinned to
+ *  (agent.ts submits generate_image as SMART_IMAGE_MODEL). Reading it from the
+ *  shared table means adding a ratio or a size tier reaches the assistant in the
+ *  same commit as it reaches the creator's own picker. */
+const IMAGE_TOOL_CAPABILITIES = getSmartImageCapabilities(SMART_IMAGE_MODEL);
 
 // ── Studio AI: 8-tool agent (Claude Code pattern) ──
 //
@@ -436,8 +443,16 @@ const CONTROL_TOOLS: ToolDefinition[] = [
           },
           aspectRatio: {
             type: "string",
-            enum: ["1:1", "2:3", "3:2", "3:4", "4:3", "9:16", "16:9"],
-            description: "Picture shape. Portraits 2:3 or 3:4, maps and scenes 3:2 or 16:9, covers 3:4, icons 1:1. Default 1:1.",
+            // Derived, never hand-listed: this enum had drifted to seven ratios
+            // while the generator had grown to thirteen, so the assistant could
+            // not offer shapes the creator could pick themselves.
+            enum: [...IMAGE_TOOL_CAPABILITIES.aspectRatios],
+            description: "Picture shape. Portraits 2:3 or 3:4, maps and scenes 3:2 or 16:9, covers 3:4, icons 1:1, wide banners 21:9 or 2:1, tall side panels 9:21 or 1:2. Default 1:1.",
+          },
+          resolution: {
+            type: "string",
+            enum: [...IMAGE_TOOL_CAPABILITIES.resolutions],
+            description: "Output size. 2K suits covers and scene art; 4K only when the creator asks for print-scale detail, since it costs more and takes longer. Default 2K.",
           },
           batchSize: {
             type: "integer",

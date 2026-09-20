@@ -167,16 +167,16 @@ export async function pauseStudioForCredits(
 }
 
 /**
- * Journal a newly generated result BEFORE its charge or tools execute. This is
- * also used on the first attempt, so a process crash has the same recovery
- * boundary as a resumed attempt. Never advertises a temporary pause.
+ * Journal a funded preflight BEFORE calling the provider, or its generated
+ * result BEFORE charging/applying it. Both carry a worker claim: even SIGKILL
+ * during generation leaves a recoverable step once that worker's lease expires.
  */
 export async function stageStudioCreditIteration(
   scope: StudioCreditScope,
   checkpoint: StudioCreditCheckpoint,
   expectedClaimId?: string,
 ) {
-  if (!readStudioCreditCheckpoint(checkpoint) || checkpoint.phase !== "generated") {
+  if (!readStudioCreditCheckpoint(checkpoint)) {
     throw new StudioCreditCheckpointError("INVALID_CHECKPOINT");
   }
   return db.transaction(async tx => {
@@ -195,7 +195,7 @@ export async function stageStudioCreditIteration(
       // newer editor save. Normal resume will continue to reject this revision.
       await tx.update(agentRuns).set({ status: "awaiting_credits", creditCheckpoint: { ...body, reason: "STALE_WORLD" },
         messages: checkpoint.messages as unknown as Array<Record<string, unknown>>,
-        iteration: checkpoint.iteration, textContent: checkpoint.generated.textContent,
+        iteration: checkpoint.iteration, textContent: checkpoint.phase === "generated" ? checkpoint.generated.textContent : run.textContent,
         error: "STALE_WORLD", updatedAt: new Date(),
       }).where(scopedRun(scope));
       return { ok: false as const, code: "STALE_WORLD" as const };
@@ -205,7 +205,7 @@ export async function stageStudioCreditIteration(
     await tx.update(agentRuns).set({
       creditCheckpoint: claimed as unknown as Record<string, unknown>,
       messages: checkpoint.messages as unknown as Array<Record<string, unknown>>,
-      iteration: checkpoint.iteration, textContent: checkpoint.generated.textContent,
+      iteration: checkpoint.iteration, textContent: checkpoint.phase === "generated" ? checkpoint.generated.textContent : run.textContent,
       updatedAt: new Date(),
     }).where(scopedRun(scope));
     return { ok: true as const, claimId, checkpoint: claimed, workingSchema: current.schema };
@@ -267,8 +267,8 @@ export async function withStudioCreditClaimTransaction<T>(
   work: (tx: StudioCreditTransaction, checkpoint: StudioCreditCheckpoint, workingSchema: Record<string, unknown>) => Promise<{
     value: T;
     checkpoint: StudioCreditCheckpoint | null;
-    status?: "running" | "completed" | "awaiting_credits";
-    runUpdates?: Pick<Partial<typeof agentRuns.$inferInsert>, "messages" | "iteration" | "textContent" | "committedTurns">;
+    status?: "running" | "completed" | "awaiting_credits" | "awaiting_user" | "awaiting_approval";
+    runUpdates?: Pick<Partial<typeof agentRuns.$inferInsert>, "messages" | "iteration" | "textContent" | "committedTurns" | "pendingToolCalls" | "readToolResults" | "error">;
   }>,
 ): Promise<{ value: T; checkpoint: StudioCreditCheckpoint | null }> {
   return db.transaction(async tx => {

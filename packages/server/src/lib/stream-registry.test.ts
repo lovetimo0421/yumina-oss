@@ -61,6 +61,37 @@ test("drain aborts stragglers with the shutdown reason at the deadline", async (
   }
 });
 
+test("drain waits for asynchronous persistence after signaling shutdown", async () => {
+  const ac = new AbortController();
+  const unregister = registerStream(ac);
+  let persisted = false;
+  ac.signal.addEventListener("abort", () => {
+    setTimeout(() => { persisted = true; unregister(); }, 75);
+  }, { once: true });
+  try {
+    const result = await drainStreams(0, 2_000);
+    assert.equal(result.abortedCount, 1);
+    assert.equal(persisted, true, "process exit must wait for the handler's final DB write");
+    assert.equal(activeStreamCount(), 0);
+  } finally {
+    unregister();
+  }
+});
+
+test("shutdown cleanup remains bounded when a provider ignores abort", async () => {
+  const ac = new AbortController();
+  const unregister = registerStream(ac);
+  try {
+    const start = Date.now();
+    await drainStreams(0, 75);
+    assert.ok(Date.now() - start >= 75);
+    assert.ok(Date.now() - start < 2_000);
+    assert.equal(isShutdownAbort(ac.signal), true);
+  } finally {
+    unregister();
+  }
+});
+
 test("client abort semantics: plain abort() and credit-abort are client aborts", () => {
   const plain = new AbortController();
   plain.abort(); // stream.onAbort path — no reason

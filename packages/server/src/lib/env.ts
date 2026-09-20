@@ -126,7 +126,14 @@ const envSchema = z.object({
   // Fleet limits are deploy-time controls, never values supplied by the client.
   // Raising the ceiling requires provider capacity and load-test evidence.
   OPENROUTER_IMAGE_MAX_CONCURRENT: z.coerce.number().int().min(1).max(5000).default(10),
-  OPENROUTER_IMAGE_LOCAL_CONCURRENT: z.coerce.number().int().min(1).max(10).default(4),
+  // Was capped at 10 and defaulted to 4 because each in-flight response cost
+  // roughly five copies of the picture in memory. The reader now decodes as the
+  // bytes arrive (lib/generation/image-response.ts), which measured 81MB -> 30MB
+  // of peak for a typical 2K image, so eight concurrent now costs less than the
+  // old four did. The ceiling is raised well past the new default so this can be
+  // tuned from the environment once the container's real memory is known,
+  // without another deploy.
+  OPENROUTER_IMAGE_LOCAL_CONCURRENT: z.coerce.number().int().min(1).max(64).default(8),
   OPENROUTER_IMAGE_MAX_QUEUED: z.coerce.number().int().min(1).max(50_000).default(100),
   // Daily supplier-cost reservation (USD); isolates image spend from chat.
   OPENROUTER_IMAGE_DAILY_BUDGET_USD: z.coerce.number().positive().default(25),
