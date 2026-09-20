@@ -173,6 +173,8 @@ export interface SandboxedYuminaAPI {
    *  saved its own imported profile must explicitly re-import to change it.
    *  Fire-and-forget. */
   openPersonaManager: () => void;
+  /** Open the shared parent-app model picker used by the play controls. */
+  openModelPicker: () => void;
   /** Read the current session's selected Persona when the player chooses to
    * import it. Null means none selected; failures reject. Private notes are
    * excluded. Copy the result into the run's save to keep identity stable. */
@@ -602,6 +604,7 @@ const defaultAPI: SandboxedYuminaAPI = {
   navigate: () => {},
   toggleImmersive: () => {},
   openPersonaManager: () => {},
+  openModelPicker: () => {},
   getPersonaProfile: () => noopPromise(null),
   sharePlaythrough: () => {},
   openSessionManager: () => {},
@@ -956,6 +959,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     // UI controls
     toggleImmersive: () => postToParent("toggleImmersive", []),
     openPersonaManager: () => postToParent("openPersonaManager", []),
+    openModelPicker: () => postToParent("openModelPicker", []),
     getPersonaProfile: () => callParent("getPersonaProfile", []),
     sharePlaythrough: () => postToParent("sharePlaythrough", []),
     openSessionManager: () => postToParent("openSessionManager", []),

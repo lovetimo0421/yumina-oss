@@ -180,7 +180,9 @@ export const feedback = {
           onClose={() => toast.dismiss(t)}
         />
       ),
-      { duration: durationFor("persistent"), id: opts?.id },
+      // Sonner spreads options over its generated ID. An undefined ID would
+      // replace it, leaving the close handlers pointing at a different toast.
+      { duration: durationFor("persistent"), ...(opts?.id ? { id: opts.id } : {}) },
     );
     return dismissAfter(id);
   },

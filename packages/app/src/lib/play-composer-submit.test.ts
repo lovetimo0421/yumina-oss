@@ -19,21 +19,30 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
   const noop = () => {};
   const empty = () => null;
   const sent: string[] = [];
+  let modelPickerRequests = 0;
+  let narrow = false;
   const api = {
     isStreaming: false, pendingChoices: [], readOnly: false, language: "en",
     composerSendKey: "enter", sendMessage: (content: string) => sent.push(content),
     stopGeneration: noop, continueLastMessage: noop, restartChat: noop,
     clearPendingChoices: noop, showToast: noop, openPersonaManager: noop,
     openSessionManager: noop, messages: [], getBranchContext: noop,
+    openModelPicker: () => { modelPickerRequests++; },
     branchFromMessage: noop, navigate: noop,
   };
   const require = createRequire(import.meta.url);
   const mocks: Record<string, unknown> = {
     "../sandbox-context": { useYumina: () => api, COMPOSER_DRAFT_EVENT: "synthetic-composer-draft" },
-    "./model-picker-modal": { ModelPickerModal: empty, ModelTrigger: empty },
+    "./model-picker-modal": {
+      ModelPickerModal: ({ open }: { open: boolean }) => open ? createElement("div", { "data-legacy-picker": true }) : null,
+      ModelTrigger: ({ onClick }: { onClick: () => void }) => createElement("button", { onClick, "data-model-trigger": true }, "Model"),
+    },
     "./i18n": { makeChatT: () => (key: string) => key },
     "../extensions/registry": { SlotOutlet: empty, useToolMenuCount: () => 0 },
-    "./composer-tool-menu": { ComposerToolMenu: empty, useIsNarrow: () => false },
+    "./composer-tool-menu": {
+      ComposerToolMenu: ({ onOpenModelPicker }: { onOpenModelPicker: () => void }) => createElement("button", { onClick: onOpenModelPicker, "data-model-trigger": true }, "Model menu"),
+      useIsNarrow: () => narrow,
+    },
     "../protocol": { postToParentWindow: noop, wrapMessage: (value: unknown) => value },
     "../../src/lib/composer-message-limit": {
       clampComposerMessage: (value: string) => value,
@@ -94,6 +103,21 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
   };
 
   try {
+    for (const compact of [false, true]) {
+      await t.test(`${compact ? "narrow tool menu" : "desktop model pill"} opens the shared host picker without replacing the draft`, async () => {
+        narrow = compact;
+        modelPickerRequests = 0;
+        await withComposer({}, async input => {
+          const trigger = win.document.querySelector<HTMLButtonElement>("[data-model-trigger]");
+          assert.ok(trigger);
+          await act(async () => trigger.click());
+          assert.equal(modelPickerRequests, 1);
+          assert.equal(win.document.querySelector("[data-legacy-picker]"), null);
+          assertDraft(input);
+        });
+      });
+    }
+    narrow = false;
     for (const [name, device] of [
       ["ordinary desktop", {}],
       ["fine pointer with touchscreen hardware", { touchPoints: 10 }],

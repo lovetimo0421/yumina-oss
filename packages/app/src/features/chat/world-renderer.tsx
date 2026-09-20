@@ -39,6 +39,8 @@ import { useAudioStore, onAudioTrackEnded } from "@/stores/audio";
 import { useUiStore, FONT_SIZE_SCALE } from "@/stores/ui";
 import { useCreditStore } from "@/edition/slots.state";
 import { useChatStore } from "@/stores/chat";
+import { useConfigStore } from "@/stores/config";
+import { ModelBrowser } from "./model-browser";
 import { fetchApiKeyModelProfiles, resolveOfficialSelectedModel, resolvePrivateSelectedModel } from "@/lib/provider-model-selection";
 import {
   setComposerDraft,
@@ -195,6 +197,17 @@ export function WorldRenderer({
   loreUiBindings,
   worldbooks,
 }: WorldRendererProps) {
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const selectedModel = useConfigStore((s) => s.selectedModel);
+  const contextTokens = useChatStore((s) => {
+    if (s.session?.id !== sessionId) return null;
+    for (let i = s.messages.length - 1; i >= 0; i--) {
+      const count = s.messages[i]?.tokenCount;
+      if (typeof count === "number" && count > 0) return count;
+    }
+    return null;
+  });
+  useEffect(() => { setModelPickerOpen(false); }, [sessionId, isActive]);
   const modelFallback = useChatStore((s) => s.modelFallback?.sessionId === sessionId ? s.modelFallback : null);
   const bgmVolume = useAudioStore((s) => s.bgmVolume);
   const sfxVolume = useAudioStore((s) => s.sfxVolume);
@@ -696,6 +709,9 @@ export function WorldRenderer({
           return import("@/stores/chat").then(m => m.useChatStore.getState().deleteCheckpoint(args[0] as string));
         }
         // ── Model picker ──
+        case "openModelPicker":
+          setModelPickerOpen(true);
+          return;
         case "resolveModelFallback": {
           const store = useChatStore.getState();
           if (store.modelFallback?.sessionId !== sessionIdRef.current) return null;
@@ -1776,6 +1792,15 @@ export function WorldRenderer({
           transition: "opacity 150ms ease",
         }}
       />
+      {isActive && modelPickerOpen && (
+        <ModelBrowser
+          open
+          selectedModel={selectedModel}
+          contextTokens={contextTokens}
+          onClose={() => setModelPickerOpen(false)}
+          onSelect={(modelId) => useConfigStore.getState().setConfig("selectedModel", modelId)}
+        />
+      )}
       {!revealed && (
         <div
           className="absolute inset-0 flex items-center justify-center"

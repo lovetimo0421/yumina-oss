@@ -20,7 +20,7 @@ import {
   type BranchContext,
   type BranchNode,
 } from "../sandbox-context";
-import { ModelPickerModal, ModelTrigger } from "./model-picker-modal";
+import { ModelTrigger } from "./model-picker-modal";
 import { makeChatT } from "./i18n";
 import { SlotOutlet, useToolMenuCount } from "../extensions/registry";
 import { ComposerToolMenu, useIsNarrow } from "./composer-tool-menu";
@@ -52,6 +52,7 @@ export function MessageInput() {
     clearPendingChoices,
     showToast,
     openPersonaManager,
+    openModelPicker,
     openSessionManager,
     sharePlaythrough,
     messages,
@@ -68,7 +69,6 @@ export function MessageInput() {
   const messageLimitState = getComposerMessageLimitState(content);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
-  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [branchOpen, setBranchOpen] = useState(false);
   const [branchCtx, setBranchCtx] = useState<BranchContext | null>(null);
   const [branchLoading, setBranchLoading] = useState(false);
@@ -619,10 +619,10 @@ export function MessageInput() {
                   with the model row + every extension's own settings button).
                   Wider toolbars keep the inline pills. */}
               {collapseTools ? (
-                <ComposerToolMenu onOpenModelPicker={() => setModelPickerOpen(true)} />
+                <ComposerToolMenu onOpenModelPicker={openModelPicker} />
               ) : (
                 <>
-                  <ModelTrigger onClick={() => setModelPickerOpen(true)} />
+                  <ModelTrigger onClick={openModelPicker} />
                   {/* Installed extensions' composer contributions (e.g. the
                       session-memory Context button) — see sandbox/extensions/. */}
                   <SlotOutlet point="chat.composer.toolbar" />
@@ -667,8 +667,6 @@ export function MessageInput() {
         </div>
       </div>
 
-      {/* Model picker modal */}
-      <ModelPickerModal open={modelPickerOpen} onClose={() => setModelPickerOpen(false)} />
     </div>
   );
 }

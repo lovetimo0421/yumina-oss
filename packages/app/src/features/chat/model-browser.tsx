@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
-import { X, Search, Loader2, Clock, Star, Lock, Unlock, Key, Sparkles, Layers, Shuffle, Plus, ArrowLeft, ChevronDown, Info, Check, Globe, ArrowDownWideNarrow } from "lucide-react";
+import { X, Search, Loader2, Clock, Star, Lock, Unlock, Key, Sparkles, Layers, Shuffle, Plus, ArrowLeft, ChevronDown, Info, Check, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTransientFlag } from "@/hooks/use-transient-flag";
 import {
@@ -33,6 +33,7 @@ import { getPoolPercentages, MAX_POOL_SIZE } from "@/lib/model-mix";
 import { estimateReplyCost, formatCostEstimate } from "@yumina/shared";
 import { CostEstimateInfo } from "./cost-estimate-info";
 import { orderOfficialModels, type OfficialModelSort } from "@/lib/official-model-order";
+import { ModelPickerDropdown } from "./model-picker-dropdown";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
@@ -125,6 +126,17 @@ export function ModelBrowser({
   const [switching, setSwitching] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [showMix, setShowMix] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // The composer lives in an iframe. Move keyboard events into this document
+  // while its picker is open, then return focus to the story on dismissal.
+  useEffect(() => {
+    if (!open) return;
+    const opener = document.activeElement as HTMLElement | null;
+    if (opener?.tagName !== "IFRAME") return;
+    dialogRef.current?.focus({ preventScroll: true });
+    return () => { if (opener.isConnected) opener.focus({ preventScroll: true }); };
+  }, [open]);
 
   const provider = useCreditStore((s) => s.provider);
   const creditLastFetched = useCreditStore((s) => s.lastFetched);
@@ -164,6 +176,8 @@ export function ModelBrowser({
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopPropagation();
       if (confirmProvider && !switching) {
         setConfirmProvider(null);
         setSwitchError(null);
@@ -238,16 +252,17 @@ export function ModelBrowser({
   );
 
   const compactProviderSwitch = (selectionOnly || privateOnly) ? null : (
-    <div className="relative ml-auto min-w-0 max-w-[125px] shrink-0">
-    <Globe aria-hidden="true" className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-white/55 max-[390px]:hidden" />
-    <select aria-label={t("modelBrowser.sourceLabel")} value={provider} disabled={switching}
-      onChange={e => requestProvider(e.target.value as "official" | "private")}
-      className="h-8 w-full appearance-none rounded-[9px] border border-white/10 bg-[#242228] pl-7 pr-6 text-[11px] text-white/65 max-[390px]:pl-2 [@media(pointer:coarse)]:h-11">
-      <option value="official">{t("modelBrowser.sourceOfficial")}</option>
-      <option value="private">{t("modelBrowser.sourcePrivate")}</option>
-    </select>
-    <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-white/55" />
-    </div>
+    <ModelPickerDropdown
+      label={t("modelBrowser.sourceLabel")}
+      value={provider}
+      disabled={switching}
+      onValueChange={requestProvider}
+      className="ml-auto h-8 max-w-[145px] shrink-0 gap-1.5 rounded-[9px] px-2 text-[11px] max-[390px]:max-w-[115px]"
+      options={[
+        { value: "official", label: t("modelBrowser.sourceOfficial"), icon: <Globe aria-hidden="true" className="h-3.5 w-3.5 shrink-0 max-[390px]:hidden" /> },
+        { value: "private", label: t("modelBrowser.sourcePrivate"), icon: <Key aria-hidden="true" className="h-3.5 w-3.5 shrink-0 max-[390px]:hidden" /> },
+      ]}
+    />
   );
   const expandedOfficial = isOfficialMode && !studioMode && !privateOnly && !showMix;
 
@@ -259,9 +274,11 @@ export function ModelBrowser({
       <div
         onClick={(e) => e.stopPropagation()}
         role="dialog"
+        ref={dialogRef}
+        tabIndex={-1}
         aria-modal="true"
         aria-label={t("modelBrowser.title")}
-        className={cn("relative z-10 flex flex-col overflow-hidden border border-white/[0.08] shadow-2xl shadow-black/40 animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200", expandedOfficial
+        className={cn("relative z-10 flex flex-col overflow-hidden border border-white/[0.08] shadow-2xl shadow-black/40 outline-none animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200", expandedOfficial
           ? "h-[min(800px,calc(100dvh-2rem))] w-[min(540px,calc(100vw-1rem))] rounded-[22px] bg-[#1b1a1e]"
           : "w-[min(440px,calc(100vw-2rem))] max-h-[min(600px,calc(100dvh-4rem))] rounded-2xl bg-[#1a1b1e]")}
       >
@@ -724,14 +741,13 @@ function OfficialView({
           <Search className="h-4 w-4 shrink-0 text-white/45" />
           <input value={query} onChange={e => {setQuery(e.target.value); if(e.target.value) setActiveTier("all");}} aria-label={t("modelBrowser.searchPlaceholder")} placeholder={t("modelBrowser.searchPlaceholder")} className="h-10 min-w-0 w-full bg-transparent text-[13px] text-white outline-none placeholder:text-white/40 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:text-base" />
         </label>
-        <div className="relative flex min-w-[90px] max-w-[42%]">
-        <span aria-hidden="true" className="pointer-events-none invisible block truncate pl-7 pr-6 text-xs">{t(`modelBrowser.sort.${sort}`)}</span>
-        <ArrowDownWideNarrow aria-hidden="true" className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-white/55" />
-        <select value={sort} onChange={e => setSort(e.target.value as OfficialModelSort)} aria-label={t("modelBrowser.sortLabel")} className="absolute inset-0 min-w-0 w-full appearance-none rounded-xl border border-white/10 bg-[#242228] pl-7 pr-6 text-xs text-white/80">
-          {(["popular", "costAsc", "costDesc", "newest", "recent", "name"] as const).map(value => <option key={value} value={value}>{t(`modelBrowser.sort.${value}`)}</option>)}
-        </select>
-        <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-white/55" />
-        </div>
+        <ModelPickerDropdown
+          value={sort}
+          onValueChange={setSort}
+          label={t("modelBrowser.sortLabel")}
+          className="min-w-[90px] max-w-[42%]"
+          options={(["popular", "costAsc", "costDesc", "newest", "recent", "name"] as const).map(value => ({ value, label: t(`modelBrowser.sort.${value}`) }))}
+        />
       </div>
       <div className="flex shrink-0 items-center gap-1.5 px-[17px] pb-1 max-[390px]:px-3">
         <div className="grid min-w-0 flex-1 grid-cols-5 gap-1">
