@@ -13,10 +13,12 @@ import { displayAudit, validationRecords } from "../../../sandbox/extensions/sta
 // the existing guard navigation harness does, without opening a browser.
 let vite: ViteDevServer;
 let OutputComparison: typeof import("../../../sandbox/extensions/state-update-guard/readable-output").OutputComparison;
+let StateGuardDetails: typeof import("../../../sandbox/extensions/state-update-guard/details").StateGuardDetails;
 before(async () => {
   vite = await createServer({ root: fileURLToPath(new URL("../../..", import.meta.url)), configFile: false,
     envFile: false, appType: "custom", logLevel: "silent", server: { middlewareMode: true, watch: null }, esbuild: { jsx: "automatic" } });
   ({ OutputComparison } = await vite.ssrLoadModule("/sandbox/extensions/state-update-guard/readable-output.tsx"));
+  ({ StateGuardDetails } = await vite.ssrLoadModule("/sandbox/extensions/state-update-guard/details.tsx"));
 });
 after(async () => { await vite?.close(); });
 
@@ -90,11 +92,73 @@ test("output comparison orders original before correction, renders readable name
 
 test("comparison distinguishes older missing originals, empty model output, no correction and shortened previews", () => {
   const render = (patch: Partial<StateValidationAudit>) => renderToStaticMarkup(createElement(OutputComparison, { audit: audit(patch) }));
-  assert.match(render({ correctionCount: 0 }), /Original response was not saved.*No correction was needed/s);
+  assert.match(render({ correctionCount: 0 }), /Original reply passed validation.*Original response was not saved/s);
   assert.match(render({ originalRaw: "", correctedBatch: "" }), /The model did not provide any output/);
   assert.match(render({ originalRaw: "broken JSON", originalRawTruncated: true }), /No readable structured update list.*Output preview shortened/s);
   assert.match(render({ correctedBatch: '{"status":"none","stateChanges":[]}' }), /explicitly requested no updates/);
   assert.match(render({ correctedBatch: JSON.stringify({ stateChanges: Array.from({ length: 101 }, () => ({ variableId: "health", operation: "add", value: 1 })) }) }), /Output preview shortened/);
+});
+
+test("valid bracket updates show one successful original check, not a failed JSON preview or a repair", () => {
+  const raw = `You reach the shelter.\n${Array.from({ length: 8 }, (_, i) => `[stat-${i}: +1]`).join("\n")}\n<yumina-state version="1" status="updated" count="8" />`;
+  const dom = new JSDOM(renderToStaticMarkup(createElement(OutputComparison, { audit: audit({
+    originalRaw: raw, correctionCount: 0, repaired: false, parsedCount: 8,
+  }) })));
+  try {
+    assert.deepEqual([...dom.window.document.querySelectorAll("h4")].map((node) => node.textContent), ["Original reply"]);
+    const text = dom.window.document.body.textContent!;
+    assert.match(text, /Original reply passed validation/);
+    assert.match(text, /Recognized update commands: 8/);
+    assert.match(text, /No correction model was called/);
+    assert.doesNotMatch(text, /No readable structured|Before correction|After correction/);
+    assert.equal(dom.window.document.querySelector("pre")!.textContent, raw);
+  } finally { dom.window.close(); }
+});
+
+test("zero corrections never implies a successful check, and explicit none remains distinct from missing output", () => {
+  const render = (patch: Partial<StateValidationAudit>) => renderToStaticMarkup(createElement(OutputComparison, { audit: audit({ correctionCount: 0, repaired: false, ...patch }) }));
+  for (const outcome of ["failed", "cancelled", "stale", "validating", "repairing", "not-required"] as const) {
+    const html = render({ outcome, diagnostics: ["provider_error"], originalRaw: "partial output" });
+    assert.doesNotMatch(html, /passed validation|No correction was needed|After correction/);
+    assert.match(html, /No correction was performed/);
+  }
+  const html = render({ outcome: "explicit-none", parsedCount: 0, originalRaw: '<yumina-state version="1" status="none" />' });
+  assert.match(html, /explicitly requested no updates/);
+  assert.match(html, /No correction model was called/);
+  assert.doesNotMatch(html, /No readable structured|did not provide any output/);
+});
+
+test("simple statuses stay truthful for every outcome and keep model roles in closed technical details", () => {
+  for (const [outcome, count, expected] of [
+    ["valid-updates", 0, "No fix needed"], ["valid-updates", 1, "Fixed"],
+    ["explicit-none", 0, "No fix needed"], ["explicit-none", 1, "Fixed"], ["not-required", 0, "No fix needed"],
+    ["failed", 1, "Failed"], ["cancelled", 1, "Cancelled"], ["stale", 1, "Interrupted / stale"],
+    ["validating", 0, "Checking"], ["repairing", 1, "Correcting"],
+  ] as const) {
+    const dom = new JSDOM(renderToStaticMarkup(createElement(StateGuardDetails, { records: [audit({ outcome, correctionCount: count, startedAt: new Date().toISOString() })] })));
+    try {
+      assert.equal(dom.window.document.querySelector("section > p")!.textContent, expected);
+      assert.equal(dom.window.document.querySelectorAll("details[open]").length, 0);
+      assert.match(dom.window.document.querySelector("details")!.textContent!, /Story model: story/);
+    } finally { dom.window.close(); }
+  }
+});
+
+test("simple status and technical model labels are localized together", () => {
+  for (const [language, corrected, unchanged, story, correction] of [
+    ["en", "Fixed", "No fix needed", "Story model", "Correction model"],
+    ["zh-CN", "已修复", "无需修复", "剧情模型", "修正模型"],
+    ["zh-TW", "已修復", "無需修復", "劇情模型", "修正模型"],
+    ["ja-JP", "修正済み", "修正不要", "ストーリーモデル", "修正モデル"],
+    ["es-ES", "Corregido", "No necesita corrección", "Modelo de historia", "Modelo de corrección"],
+  ]) {
+    const dom = new JSDOM(renderToStaticMarkup(createElement(StateGuardDetails, { language, records: [audit({ correctionCount: 0 }), audit({ attemptId: "corrected", correctionModel: "gemini" })] })));
+    try {
+      assert.deepEqual([...dom.window.document.querySelectorAll("section > p:first-child")].map((node) => node.textContent), [corrected, unchanged]);
+      assert.ok(dom.window.document.body.textContent!.includes(`${story}: story`));
+      assert.ok(dom.window.document.body.textContent!.includes(`${correction}: gemini`));
+    } finally { dom.window.close(); }
+  }
 });
 
 test("audit enrichment prefers historical names and original while preserving source objects", () => {

@@ -21,18 +21,49 @@ export function auditOutcome(audit: StateValidationAudit): StateValidationAudit[
   return ["validating", "repairing"].includes(audit.outcome) && Date.now() - Date.parse(audit.startedAt) > 180_000 ? "stale" : audit.outcome;
 }
 
+const modelCopy = {
+  en: ["Story model", "Correction model", "Not called", "Not recorded"],
+  zh: ["剧情模型", "修正模型", "未调用", "未记录"],
+  "zh-Hant": ["劇情模型", "修正模型", "未呼叫", "未記錄"],
+  ja: ["ストーリーモデル", "修正モデル", "呼び出しなし", "記録なし"],
+  es: ["Modelo de historia", "Modelo de corrección", "No se llamó", "No registrado"],
+} as const;
+
+function ModelRoles({ audit, language = "en" }: { audit: StateValidationAudit; language?: string }) {
+  const key = /^zh-(Hant|TW)/.test(language) ? "zh-Hant" : language.startsWith("zh") ? "zh" : language.startsWith("ja") ? "ja" : language.startsWith("es") ? "es" : "en";
+  const text = modelCopy[key];
+  return <span className="block break-words text-xs text-white/60">
+    <span className="block">{text[0]}: {audit.model}</span>
+    <span className="block">{text[1]}: {audit.correctionCount > 0 ? audit.correctionModel ?? text[3] : text[2]}</span>
+  </span>;
+}
+
+const statusCopy = {
+  en: ["Fixed", "No fix needed"], zh: ["已修复", "无需修复"], "zh-Hant": ["已修復", "無需修復"],
+  ja: ["修正済み", "修正不要"], es: ["Corregido", "No necesita corrección"],
+} as const;
+
+function historyStatus(audit: StateValidationAudit, language = "en") {
+  const key = /^zh-(Hant|TW)/.test(language) ? "zh-Hant" : language.startsWith("zh") ? "zh" : language.startsWith("ja") ? "ja" : language.startsWith("es") ? "es" : "en";
+  const outcome = auditOutcome(audit);
+  const labels = guardLabels(language);
+  if (outcome === "valid-updates" || outcome === "explicit-none" || outcome === "not-required") {
+    return statusCopy[key][audit.correctionCount > 0 && outcome !== "not-required" ? 0 : 1];
+  }
+  return labels[({ validating: 5, repairing: 6, failed: 7, cancelled: 8, stale: 9 } as const)[outcome]];
+}
+
 export function StateGuardDetails({ records, language }: { records: StateValidationAudit[]; language?: string }) {
   const text = guardLabels(language);
-  const labels: Record<StateValidationAudit["outcome"], string> = { "valid-updates": text[2], "explicit-none": text[3], "not-required": text[4], validating: text[5], repairing: text[6], failed: text[7], cancelled: text[8], stale: text[9] };
   return <div className="space-y-4 text-sm">
     {!records.length && <p>{text[1]}</p>}
     {records.slice(-12).reverse().map((audit) => <section key={audit.attemptId} className="rounded-lg border border-white/15 p-3" aria-live="polite">
-      <p className="font-medium">{labels[auditOutcome(audit)]}</p>
-      <p className="mt-1 text-white/60">{text[11]}: {audit.parsedCount} · {text[12]}: {audit.correctionCount}</p>
-      <p className="mt-1 break-all text-xs text-white/50">{audit.model} · {new Date(audit.startedAt).toLocaleString()}</p>
-      {audit.correctionModel && <p className="mt-1 break-all text-xs text-white/60">{text[12]}: {audit.correctionModel}</p>}
-      {diagnosticSummary(audit.diagnostics, language).map((message) => <p key={message} className="mt-2 text-amber-300">{message}</p>)}
+      <p className="font-medium">{historyStatus(audit, language)}</p>
+      <p className="mt-1 text-xs text-white/50">{new Date(audit.startedAt).toLocaleString()}</p>
       <details className="mt-2"><summary className="cursor-pointer py-3 text-white/70">{readableLabels(language)[4]}</summary>
+        <ModelRoles audit={audit} language={language} />
+        <p className="mt-1 text-white/60">{text[11]}: {audit.parsedCount} · {text[12]}: {audit.correctionCount}</p>
+        {diagnosticSummary(audit.diagnostics, language).map((message) => <p key={message} className="mt-2 text-amber-300">{message}</p>)}
         <p className="break-words text-xs text-white/70">{audit.diagnostics.join(", ")}</p><p className="mt-2 text-white/70">{text[10]}</p>
       </details>
     </section>)}
@@ -78,20 +109,14 @@ export function StateGuardHistory(props: { records: StateValidationAudit[]; lang
         <ol className="space-y-2">{[...props.records].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).map((record) => <li key={record.attemptId}>
           <button type="button" onClick={() => setView(record.attemptId)} className={`${button} w-full border border-white/10 p-3 text-left`}>
             <span className="min-w-0 flex-1"><span className="block">{new Date(record.startedAt).toLocaleString()}</span>
-              <span className="block break-all text-xs text-white/60">{record.correctionModel ?? record.model}</span>
-              <span className="block text-xs text-white/60">{record.correctionCount ? `${labels[12]}: ${record.correctionCount}` : text[16]} · {labels[({ "valid-updates": 2, "explicit-none": 3, "not-required": 4, validating: 5, repairing: 6, failed: 7, cancelled: 8, stale: 9 } as const)[auditOutcome(record)]]}</span>
+              <span className="block text-xs text-white/60">{historyStatus(record, props.language)}</span>
             </span><ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0" />
           </button>
         </li>)}</ol>
       </> : audit ? <>
-        <p className="text-sm text-white/70">{labels[({ "valid-updates": 2, "explicit-none": 3, "not-required": 4, validating: 5, repairing: 6, failed: 7, cancelled: 8, stale: 9 } as const)[auditOutcome(audit)]]}</p>
-        <p className="break-words text-xs text-white/60">{audit.correctionModel ?? audit.model} · {new Date(audit.startedAt).toLocaleString()} · {labels[11]}: {audit.parsedCount} · {labels[12]}: {audit.correctionCount}</p>
-        <p>{text[17]}: {text[audit.path === "send" ? 18 : audit.path === "regenerate" ? 19 : 20]}</p>
+        <p className="font-medium">{historyStatus(audit, props.language)}</p>
+        <p className="text-xs text-white/60">{new Date(audit.startedAt).toLocaleString()}</p>
         {audit.committed !== undefined && <p className={audit.committed ? "text-green-300" : "text-amber-300"}>{text[audit.committed ? 8 : 9]}</p>}
-        <OutputComparison audit={audit} language={props.language} />
-        <details><summary className="cursor-pointer py-3 text-white/70">{readableLabels(props.language)[4]}</summary>
-          <p className="break-words text-xs text-white/60">{audit.diagnostics.join(", ")}</p><p className="mt-2 text-white/60">{labels[10]}</p>
-        </details>
         <h4 className="font-semibold">{readableLabels(props.language)[27]}</h4>
         {!audit.changes ? <p className="text-white/60">{text[10]}</p> : !audit.changes.length ? <p>{text[11]}</p> :
           audit.changes.map((change, index) => <section key={index} className="space-y-2 rounded-lg border border-white/10 p-3">
@@ -100,6 +125,15 @@ export function StateGuardHistory(props: { records: StateValidationAudit[]; lang
             {change.truncated && <p className="text-xs text-amber-300">{text[13]}</p>}
           </section>)}
         {audit.changesTruncated && <p className="text-amber-300">{text[14]}</p>}
+        <details className="border-t border-white/10"><summary className="cursor-pointer py-3 text-white/70">{readableLabels(props.language)[4]}</summary>
+          <div className="space-y-4">
+            <ModelRoles audit={audit} language={props.language} />
+            <p className="text-xs text-white/60">{labels[11]}: {audit.parsedCount} · {labels[12]}: {audit.correctionCount}</p>
+            <p>{text[17]}: {text[audit.path === "send" ? 18 : audit.path === "regenerate" ? 19 : 20]}</p>
+            <OutputComparison audit={audit} language={props.language} />
+            <p className="break-words text-xs text-white/60">{audit.diagnostics.join(", ")}</p><p className="text-white/60">{labels[10]}</p>
+          </div>
+        </details>
       </> : <p>{labels[1]}</p>}
     </div>}
   </>;

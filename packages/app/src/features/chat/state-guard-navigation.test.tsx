@@ -190,6 +190,7 @@ test("history navigates settings/list/call with AI and rule before/after, failed
         { variableId: "energy", oldValue: 80, newValue: 70, source: "rule" }], correctedBatch: "[health: subtract 15]",
       originalRaw: '{"stateChanges":{"health":100}}', variableNames: { health: "Player health", energy: "Stamina" } };
     const records: StateValidationAudit[] = [base,
+      { ...base, attemptId: "original", model: "x-ai/grok-4.20", correctionModel: undefined, correctionCount: 0, repaired: false, diagnostics: [], parsedCount: 8, originalRaw: '[health: -15]\n<yumina-state version="1" status="updated" count="8" />', correctedBatch: undefined, startedAt: "2026-09-09T05:00:00Z" },
       { ...base, attemptId: "failed", model: "failed-model", correctionModel: undefined, outcome: "failed", committed: false, changes: [], startedAt: "2026-09-09T02:00:00Z" },
       { ...base, attemptId: "legacy", model: "legacy-model", correctionModel: undefined, committed: undefined, changes: undefined, startedAt: "2026-09-09T03:00:00Z" },
       { ...base, attemptId: "none", model: "none-model", correctionModel: undefined, outcome: "explicit-none", changes: [], parsedCount: 0, correctionCount: 0, startedAt: "2026-09-09T04:00:00Z" }];
@@ -198,9 +199,25 @@ test("history navigates settings/list/call with AI and rule before/after, failed
     assert.equal(document.querySelector("ol"), null);
     await act(async () => button("View history").click());
     assert.ok(document.getElementById("settings")!.closest("[hidden]"));
-    assert.equal(document.querySelectorAll("ol li").length, 4);
-    const call = async (model: string) => { const entry = [...document.querySelectorAll<HTMLButtonElement>("ol button")].find((item) => item.textContent?.includes(model)); assert.ok(entry); await act(async () => entry.click()); };
+    assert.equal(document.querySelectorAll("ol li").length, 5);
+    assert.doesNotMatch(document.querySelector("ol")!.textContent!, /model|Commands|Corrections|Checked|custom\//);
+    const call = async (model: string) => {
+      const record = records.find((item) => (item.correctionModel ?? item.model) === model)!;
+      const entry = [...document.querySelectorAll<HTMLButtonElement>("ol button")].find((item) => item.textContent?.includes(new Date(record.startedAt).toLocaleString()));
+      assert.ok(entry); await act(async () => entry.click());
+    };
+    const visibleDetail = () => { const clone = document.body.cloneNode(true) as HTMLElement; clone.querySelectorAll("details:not([open]), [hidden]").forEach((node) => node.remove()); return clone.textContent!; };
     await call("official/correction");
+    assert.match(document.body.textContent!, /Story model: custom\/story/);
+    assert.match(document.body.textContent!, /Correction model: official\/correction/);
+    assert.match(visibleDetail(), /Fixed/);
+    assert.doesNotMatch(visibleDetail(), /Story model|Correction model|Commands:|Corrections:|Before correction|After correction|required update confirmation/);
+    assert.match(visibleDetail(), /Before100After85/);
+    const technical = [...document.querySelectorAll("details")].find((node) => node.querySelector("summary")?.textContent === "View technical details")!;
+    assert.ok(technical);
+    await act(async () => { technical.open = true; });
+    assert.match(visibleDetail(), /Story model: custom\/story/);
+    await act(async () => { technical.open = false; });
     assert.equal(document.querySelector("ol"), null, "detail replaces list rather than expanding inline");
     assert.equal(document.querySelector("h3")?.textContent, "Call details");
     assert.equal(document.body.textContent!.split("The reply did not include the required update confirmation.").length - 1, 1, "diagnosis appears once, in Before correction");
@@ -217,10 +234,18 @@ test("history navigates settings/list/call with AI and rule before/after, failed
     await act(async () => button("Back").click()); await call("failed-model");
     assert.match(document.body.textContent!, /Not applied/);
     await act(async () => button("Back").click()); await call("legacy-model");
+    assert.match(document.body.textContent!, /Correction model: Not recorded/);
     assert.match(document.body.textContent!, /Before\/after details were not recorded for this older call/);
     await act(async () => button("Back").click()); await call("none-model");
-    assert.match(document.body.textContent!, /No AI updates/); assert.match(document.body.textContent!, /No value changes/);
+    assert.match(visibleDetail(), /No fix needed/); assert.match(document.body.textContent!, /No value changes/);
     assert.doesNotMatch(document.body.textContent!, /details were not recorded/);
+    await act(async () => button("Back").click()); await call("x-ai/grok-4.20");
+    assert.match(document.body.textContent!, /Story model: x-ai\/grok-4.20/);
+    assert.match(document.body.textContent!, /Correction model: Not called/);
+    assert.match(document.body.textContent!, /Original reply passed validation/);
+    assert.doesNotMatch(document.body.textContent!, /No readable structured|Before correction|After correction/);
+    assert.match(visibleDetail(), /No fix needed/);
+    assert.doesNotMatch(visibleDetail(), /passed validation|grok|model|commands/i);
     await act(async () => button("Back").click()); await act(async () => button("Back").click());
     assert.equal(document.getElementById("settings")!.closest("[hidden]"), null);
     assert.equal(document.activeElement, button("View history"));

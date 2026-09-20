@@ -69,6 +69,21 @@ test("valid output never resolves even an unavailable selected correction model"
   assert.equal(f.usages.length, 0);
 });
 
+test("eight valid legacy commands keep the Grok story attribution without calling or billing the selected Gemini correction model", async () => {
+  const f = fixture(`You reach the shelter.\n${Array.from({ length: 8 }, () => "[energy: -1]").join("\n")}\n${updated(8)}`);
+  f.ctx.model = f.ctx.audit.model = "x-ai/grok-4.20";
+  f.ctx.resolveCorrection = async () => { throw new Error("selected google/gemini-2.5-flash must not be called"); };
+  const result = await guardTurnOutput(f.ctx);
+  assert.equal(result.audit?.outcome, "valid-updates");
+  assert.equal(result.audit?.parsedCount, 8);
+  assert.equal(result.audit?.correctionCount, 0);
+  assert.equal(result.audit?.model, "x-ai/grok-4.20");
+  assert.equal(result.audit?.correctionModel, undefined);
+  assert.equal(result.parsed.effects.length, 8);
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.usages.length, 0);
+});
+
 test("the same model id on a separately resolved provider does not inherit story transport settings", async () => {
   const f = fixture();
   f.ctx.cacheEnabled = true; f.ctx.stream = false;

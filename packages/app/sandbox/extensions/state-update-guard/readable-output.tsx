@@ -8,10 +8,20 @@ const copy = {
   es: ["Antes de corregir", "Después de corregir", "No se guardó la respuesta original de esta llamada antigua.", "No se necesitó corrección.", "Ver detalles técnicos", "Ver salida original", "Ver salida corregida", "Faltaba la confirmación de actualización requerida.", "La confirmación no coincidía con las instrucciones.", "No se pudieron leer algunas instrucciones de forma segura.", "La corrección no superó la validación. Sus cambios no se aplicaron.", "No se pudo completar la comprobación. Consulta los detalles.", "El modelo indicó explícitamente que no había cambios.", "Son operaciones solicitadas, no prueba de que se aplicaran.", "No se encontró una lista legible de cambios. El texto original está disponible abajo.", "establecer en", "aumentar en", "reducir en", "multiplicar por", "alternar", "añadir texto", "combinar", "añadir elemento", "eliminar", "Vista previa abreviada.", "El modelo no devolvió ninguna salida.", "Variable", "Cambios de valores registrados"],
 } as const;
 
-export function readableLabels(language = "en") {
-  const key = /^zh-(Hant|TW)/.test(language) ? "zh-Hant" : language.startsWith("zh") ? "zh" : language.startsWith("ja") ? "ja" : language.startsWith("es") ? "es" : "en";
-  return copy[key];
+function languageKey(language = "en") {
+  return /^zh-(Hant|TW)/.test(language) ? "zh-Hant" : language.startsWith("zh") ? "zh" : language.startsWith("ja") ? "ja" : language.startsWith("es") ? "es" : "en";
 }
+export function readableLabels(language = "en") {
+  return copy[languageKey(language)];
+}
+
+const checkCopy = {
+  en: ["Original reply", "Original reply passed validation.", "Recognized update commands", "No correction model was called.", "No correction was performed."],
+  zh: ["原始回复", "原始回复已通过验证。", "已识别的更新指令", "未调用修正模型。", "未执行修正。"],
+  "zh-Hant": ["原始回覆", "原始回覆已通過驗證。", "已識別的更新指令", "未呼叫修正模型。", "未執行修正。"],
+  ja: ["元の返信", "元の返信は検証に合格しました。", "認識された更新コマンド", "修正モデルは呼び出されていません。", "修正は実行されていません。"],
+  es: ["Respuesta original", "La respuesta original superó la validación.", "Comandos de actualización reconocidos", "No se llamó al modelo de corrección.", "No se realizó ninguna corrección."],
+} as const;
 export function diagnosticSummary(codes: string[], language?: string): string[] {
   const text = readableLabels(language);
   return [...new Set(codes.map((code) => text[code === "missing_receipt" ? 7 : /receipt|count_mismatch/.test(code) ? 8 : code === "invalid_correction" ? 10 : /malformed|invalid_|unknown_|unsafe_|type_|json|patch|value|writable|contradictory|state_changes|colon|no_update/.test(code) ? 9 : 11]))];
@@ -48,14 +58,23 @@ function prettyRaw(raw: string) { try { return JSON.stringify(JSON.parse(raw), n
 
 export function OutputComparison({ audit, language }: { audit: StateValidationAudit; language?: string }) {
   const text = readableLabels(language);
-  return <div className="space-y-4">{([false, true] as const).map((corrected) => {
+  const check = checkCopy[languageKey(language)];
+  const attemptedCorrection = audit.correctionCount > 0;
+  // The server audit, not this JSON-only display helper, determines validity.
+  // Legacy bracket commands are valid too; don't revalidate historical output here.
+  const originalPassed = !attemptedCorrection && (audit.outcome === "valid-updates" || audit.outcome === "explicit-none");
+  return <div className="space-y-4">{(attemptedCorrection ? [false, true] : [false]).map((corrected) => {
     const raw = corrected ? audit.correctedBatch : audit.originalRaw;
     const parsed = raw ? readableBatch(raw) : null;
     return <section key={String(corrected)} className="space-y-3 rounded-xl border border-white/15 p-4">
-      <h4 className="font-semibold">{text[corrected ? 1 : 0]}</h4>
+      <h4 className="font-semibold">{attemptedCorrection ? text[corrected ? 1 : 0] : check[0]}</h4>
+      {!attemptedCorrection && <div className="space-y-2 text-white/70">
+        {originalPassed && <p>{check[1]} {audit.outcome === "explicit-none" ? text[12] : `${check[2]}: ${audit.parsedCount}.`}</p>}
+        <p>{check[originalPassed ? 3 : 4]}</p>
+      </div>}
       {!corrected && diagnosticSummary(audit.diagnostics, language).map((message) => <p key={message} className="text-amber-300">{message}</p>)}
-      {raw === undefined ? <p className="text-white/70">{text[corrected ? (audit.correctionCount ? 25 : 3) : 2]}</p> : <>
-        <p className="text-white/70">{parsed?.none ? text[12] : parsed ? text[13] : raw ? text[14] : text[25]}</p>
+      {raw === undefined ? <p className="text-white/70">{text[corrected ? 25 : 2]}</p> : <>
+        {(!originalPassed || (parsed && !parsed.none)) && <p className="text-white/70">{parsed?.none ? text[12] : parsed ? text[13] : raw ? text[14] : text[25]}</p>}
         {parsed && <ul className="space-y-2">{parsed.operations.map((op, i) => <li key={i} className="break-words">
           <span className="font-medium">{variableLabel(op.variableId, audit.variableNames, language)}</span>: {text[operationIndexes[op.operation]!]}{op.value !== undefined && <span className="whitespace-pre-wrap break-words"> {valueText(op.value)}</span>}
         </li>)}</ul>}
