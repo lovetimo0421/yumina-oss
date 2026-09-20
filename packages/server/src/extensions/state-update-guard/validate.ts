@@ -1,5 +1,6 @@
 import { parseGuardedResponse, estimateTokens, stripStateReceipts, isAiReadable, isAiWritable, ThinkingTagFilter, type GuardedParseResult } from "@yumina/engine";
 import type { TurnOutputContext, ValidatedTurnOutput } from "../../lib/extension-hooks.js";
+import { isJsonModeUnsupported, normalizeCorrectionJson } from "./correction-format.js";
 
 export const STATE_GUARD_INSTRUCTIONS = `Platform State Update Guard: keep the card's existing state commands and narrative format. Prose alone does not update variables. After all text/directive/JSONPatch output, on its own final line emit exactly one receipt:
 <yumina-state version="1" status="updated" count="N" />
@@ -16,7 +17,7 @@ Example shape ONLY (use actual supplied IDs and story-supported values, never co
 If and only if NO writable variable needs a change, return status:none, an empty stateChanges array, AND a review entry for EVERY writableVariableId explaining briefly why its behaviorRules and the draft require no change. Missing original commands are NOT evidence that nothing changed. An empty stateChanges array or object alone is NOT a no-update acknowledgement. Do not choose none to avoid repairing the batch.
 Example no-update shape (IDs are examples):
 {"narrative":"","status":"none","stateChanges":[],"review":[{"variableId":"energy-id","reason":"No physical action or recovery occurs."},{"variableId":"location-id","reason":"The character remains in the same area."}]}
-Review reasons are a required explicit check, not permission to invent changes. No tools or code execution.`;
+Review reasons are a required explicit check, not permission to invent changes. With status:updated, omit review. Never copy the draft into narrative: narrative is always the empty string. Never invent IDs such as location or inventory if they are absent from writableVariableIds. Numeric operations target numeric leaves, not objects (for example faction.name.reputation, not faction.name). Initialize a missing JSON entry by merging an object into its existing parent; do not add to an undefined number. No tools or code execution.`;
 
 /** Only the correction's no-op needs a review. Existing card response formats
  * stay unchanged. This validates coverage, not the truth of story reasoning. */
@@ -74,7 +75,8 @@ export function estimateCorrectionUsageTokens(text: string): number {
   return Math.ceil(Buffer.byteLength(text, "utf8") / 4);
 }
 
-/** One extra request only on invalid output. Never writes state or charges. */
+/** One generated correction on invalid output. A pre-output JSON-mode rejection
+ * may negotiate once without that parameter, under the same deadline. */
 export async function guardTurnOutput(ctx: TurnOutputContext): Promise<ValidatedTurnOutput> {
   const { audit } = ctx;
   audit.originalRaw = ctx.raw.slice(0, 65536);
@@ -128,25 +130,41 @@ export async function guardTurnOutput(ctx: TurnOutputContext): Promise<Validated
         audit.correctionModel = correction.model;
         audit.correctionApiKeyTier = correction.apiKeyTier;
         const sameProvider = correction.provider === ctx.provider && correction.model === ctx.model;
-        requested = true;
-        for await (const chunk of correction.provider.generateStream({
-          model: correction.model, singleAttempt: true, disableReasoning: true,
-          maxTokens: 4096, signal: controller.signal,
-          // Story-provider transport/cache overrides may not suit another model.
-          stream: sameProvider ? ctx.stream : undefined,
-          ...(sameProvider && ctx.cacheEnabled && { cacheBreakpoints: [0] }),
-          messages: [
-            { role: "system", content: CORRECTION_INSTRUCTIONS },
-            { role: "user", content: data },
-          ],
-        })) {
+        for (let formatAttempt = 0; formatAttempt < 2; formatAttempt++) {
           if (controller.signal.aborted) throw new StateGuardError("correction_timeout");
-          if (chunk.model) servedModel = chunk.model;
-          if (chunk.type === "error") throw new StateGuardError(providerFailureCode(chunk.content));
-          if (chunk.type === "text") output += chunk.content;
-          if (output.length > 65536) throw new StateGuardError("correction_output_limit");
-          if (chunk.usage) usage = chunk.usage;
-          if (chunk.type === "done") { done = true; finalReason = chunk.stopReason; break; }
+          servedModel = correction.model;
+          let receivedResponse = false;
+          requested = true;
+          try {
+            for await (const chunk of correction.provider.generateStream({
+              model: correction.model, singleAttempt: true, disableReasoning: true,
+              ...(formatAttempt === 0 && { responseFormat: { type: "json_object" as const } }),
+              maxTokens: 4096, signal: controller.signal,
+              // Story-provider transport/cache overrides may not suit another model.
+              stream: sameProvider ? ctx.stream : undefined,
+              ...(sameProvider && ctx.cacheEnabled && { cacheBreakpoints: [0] }),
+              messages: [
+                { role: "system", content: CORRECTION_INSTRUCTIONS },
+                { role: "user", content: data },
+              ],
+            })) {
+              if (controller.signal.aborted) throw new StateGuardError("correction_timeout");
+              if (chunk.model) servedModel = chunk.model;
+              if (chunk.usage) { usage = chunk.usage; receivedResponse = true; }
+              if (chunk.type === "error") throw new Error(chunk.content);
+              receivedResponse = true;
+              if (chunk.type === "text") output += chunk.content;
+              if (output.length > 65536) throw new StateGuardError("correction_output_limit");
+              if (chunk.type === "done") { done = true; finalReason = chunk.stopReason; break; }
+            }
+            return;
+          } catch (error) {
+            if (formatAttempt !== 0 || receivedResponse || controller.signal.aborted || !isJsonModeUnsupported(error)) throw error;
+            if (!await ctx.mayCorrect()) throw new StateGuardError("disabled_or_stale");
+            // No output or usage was produced. Keep the same model, provider,
+            // frozen input, single usage record and remaining timeout budget.
+            audit.diagnostics.push("provider_unsupported_format");
+          }
         }
       };
       // Also bound non-cooperative providers whose iterator ignores AbortSignal.
@@ -173,14 +191,15 @@ export async function guardTurnOutput(ctx: TurnOutputContext): Promise<Validated
       }
     }
     if (!done || truncated(finalReason) || refused(finalReason)) fail("incomplete_correction");
-    const corrected = check(output);
+    const normalized = normalizeCorrectionJson(output);
+    const corrected = check(normalized.text);
     if (corrected.outcome === "invalid") { audit.diagnostics.push(...corrected.diagnostics.map((d) => d.code)); fail("invalid_correction"); }
-    if (corrected.outcome === "explicit-none" && !hasCompleteNoUpdateReview(output, writableVariableIds)) {
+    if (corrected.outcome === "explicit-none" && !hasCompleteNoUpdateReview(normalized.text, writableVariableIds)) {
       audit.diagnostics.push("missing_no_update_review"); fail("invalid_correction");
     }
     // Only the complete replacement command batch changes; frozen narration and
     // original audio remain unchanged, even if the model ignored the instruction.
-    candidate = { ...corrected, cleanText: candidate.cleanText, audioEffects: candidate.audioEffects, speaker: candidate.speaker };
+    candidate = { ...corrected, repaired: corrected.repaired || normalized.repaired, cleanText: candidate.cleanText, audioEffects: candidate.audioEffects, speaker: candidate.speaker };
     audit.correctedBatch = output;
   }
   if (ctx.signal.aborted) fail("cancelled");

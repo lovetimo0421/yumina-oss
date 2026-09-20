@@ -34,6 +34,148 @@ function fixture(raw = "The stranger waits.", chunks: StreamChunk[] = [{ type: "
 }
 const errorCode = (code: string) => (error: unknown) => error instanceof StateGuardError && error.code === code;
 
+test("correction requests native JSON mode without changing story output", async () => {
+  const f = fixture();
+  const result = await guardTurnOutput(f.ctx);
+  assert.deepEqual(f.requests[0]!.responseFormat, { type: "json_object" });
+  assert.equal(result.parsed.cleanText, f.ctx.raw);
+});
+
+for (const thrown of [false, true]) {
+  test(`explicit JSON-mode rejection falls back once on the same provider (${thrown ? "throw" : "chunk"})`, async () => {
+    const f = fixture();
+    f.ctx.provider.generateStream = async function* (params) {
+      f.requests.push(params);
+      if (f.requests.length === 1) {
+        if (thrown) throw new Error("400 response_format json_object is not supported");
+        yield { type: "error", content: "400 response_format json_object is not supported" };
+        return;
+      }
+      yield { type: "text", content: reviewedNone };
+      yield { type: "done", content: "", stopReason: "stop", usage: { promptTokens: 20, completionTokens: 10, totalTokens: 30 } };
+    };
+    const result = await guardTurnOutput(f.ctx);
+    assert.equal(f.requests.length, 2);
+    assert.deepEqual(f.requests[0]!.responseFormat, { type: "json_object" });
+    assert.equal(f.requests[1]!.responseFormat, undefined);
+    assert.equal(f.requests[1]!.model, f.requests[0]!.model);
+    assert.equal(f.requests[1]!.signal, f.requests[0]!.signal, "same deadline and cancellation budget");
+    assert.deepEqual(f.requests[1]!.messages, f.requests[0]!.messages);
+    assert.equal(result.audit?.correctionCount, 1, "one generated correction, not two paid repairs");
+    assert.equal(f.usages.length, 1);
+    assert.equal(f.usages[0]!.totalTokens, 30);
+  });
+}
+
+test("observed extra envelope closers are recovered without rewriting narrative or weakening batch validation", async () => {
+  // Sanitized structural reproduction of the production failure, not user story content.
+  const output = '{"narrative":"Unwanted rewrite.","status":"updated","stateChanges":[{"variableId":"energy-id","operation":"subtract","value":4}]}],"review":[]}';
+  const f = fixture("You walk to the gate.", [{ type: "text", content: output }, { type: "done", content: "", stopReason: "stop" }]);
+  const before = structuredClone(f.ctx.state);
+  const result = await guardTurnOutput(f.ctx);
+  assert.equal(result.audit?.outcome, "valid-updates");
+  assert.equal(result.audit?.repaired, true);
+  assert.equal(result.audit?.correctedBatch, output, "retain the exact provider output for investigation");
+  assert.deepEqual(result.parsed.effects, [{ variableId: "energy-id", operation: "subtract", value: 4 }]);
+  assert.equal(result.parsed.cleanText, "You walk to the gate.");
+  assert.deepEqual(f.ctx.state, before);
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.usages.length, 1);
+});
+
+for (const emitted of ["text", "reasoning", "usage", "tool_call_start"] as const) {
+  test(`JSON-mode rejection after ${emitted} never starts a second generation`, async () => {
+    const f = fixture();
+    f.ctx.provider.generateStream = async function* (params) {
+      f.requests.push(params);
+      if (emitted === "usage") yield { type: "error", content: "response_format not supported", usage: { promptTokens: 1, completionTokens: 0, totalTokens: 1 } };
+      else yield { type: emitted, content: emitted === "text" ? '{"narrative":' : "" };
+      yield { type: "error", content: "response_format not supported" };
+    };
+    await assert.rejects(guardTurnOutput(f.ctx), errorCode("provider_unsupported_format"));
+    assert.equal(f.requests.length, 1);
+    assert.equal(f.usages.length, 1);
+    assert.equal(f.ctx.state.variables["energy-id"], 100);
+  });
+}
+
+test("format negotiation cannot loop or switch model when both requests fail", async () => {
+  const f = fixture();
+  f.ctx.provider.generateStream = async function* (params) {
+    f.requests.push(params);
+    yield { type: "error", content: "response_format is unsupported" };
+  };
+  await assert.rejects(guardTurnOutput(f.ctx), errorCode("provider_unsupported_format"));
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.usages.length, 1);
+  assert.equal(f.requests[1]!.fallbackModels, undefined);
+});
+
+for (const mode of ["cancelled", "disabled"] as const) {
+  test(`${mode} during format negotiation prevents another provider request`, async () => {
+    const f = fixture();
+    let checks = 0;
+    f.ctx.mayCorrect = async () => {
+      if (++checks === 1) return true;
+      if (mode === "cancelled") f.controller.abort();
+      return mode !== "disabled";
+    };
+    f.ctx.provider.generateStream = async function* (params) {
+      f.requests.push(params);
+      yield { type: "error", content: "response_format is unsupported" };
+    };
+    await assert.rejects(guardTurnOutput(f.ctx), errorCode(mode === "disabled" ? "disabled_or_stale" : "cancelled"));
+    assert.equal(f.requests.length, 1);
+    assert.equal(f.usages.length, 1);
+  });
+}
+
+for (const [effect, code] of [
+  [{ variableId: "unknown", operation: "set", value: 1 }, "unknown_variable"],
+  [{ variableId: "energy-id", operation: "set", value: "one" }, "incompatible_value"],
+  [{ variableId: "read-only", operation: "set", value: 1 }, "not_writable"],
+  [{ variableId: "energy-id.__proto__.x", operation: "set", value: 1 }, "unsafe_path"],
+] as const) {
+  test(`syntax recovery still rejects ${code} without partial state changes`, async () => {
+    const output = JSON.stringify({ narrative: "", status: "updated", stateChanges: [
+      { variableId: "kills-id", operation: "add", value: 1 }, effect,
+    ] }) + '],"review":[]}';
+    const f = fixture(undefined, [{ type: "text", content: output }, { type: "done", content: "", stopReason: "stop" }]);
+    f.ctx.world.variables.push({ id: "read-only", name: "Read only", type: "number", defaultValue: 0, aiAccess: "read" });
+    const before = structuredClone(f.ctx.state);
+    await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+    assert.ok(f.ctx.audit.diagnostics.includes(code));
+    assert.deepEqual(f.ctx.state, before);
+    assert.equal(f.usages.length, 1);
+    assert.equal(f.requests.length, 1, "no paid retry on malformed/unsafe generations");
+  });
+}
+
+test("recovered explicit none still requires every writable variable's review", async () => {
+  for (const complete of [true, false]) {
+    const obj = JSON.parse(reviewedNone);
+    const { review, ...rest } = obj;
+    const output = JSON.stringify(rest) + '],"review":' + JSON.stringify(complete ? review : []) + '}';
+    const f = fixture(undefined, [{ type: "text", content: output }, { type: "done", content: "", stopReason: "stop" }]);
+    if (complete) assert.equal((await guardTurnOutput(f.ctx)).audit?.outcome, "explicit-none");
+    else {
+      await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+      assert.ok(f.ctx.audit.diagnostics.includes("missing_no_update_review"));
+    }
+    assert.equal(f.ctx.state.variables["energy-id"], 100);
+  }
+});
+
+for (const stopReason of ["max_tokens", "content_filter"]) {
+  test(`syntax recovery never accepts ${stopReason} output`, async () => {
+    const output = '{"narrative":"","status":"updated","stateChanges":[{"variableId":"energy-id","operation":"subtract","value":4}]}],"review":[]}';
+    const f = fixture(undefined, [{ type: "text", content: output }, { type: "done", content: "", stopReason }]);
+    await assert.rejects(guardTurnOutput(f.ctx), errorCode("incomplete_correction"));
+    assert.equal(f.ctx.state.variables["energy-id"], 100);
+    assert.equal(f.requests.length, 1);
+  });
+}
+
 test("correction preserves the original speaker without accepting a replacement speaker", async () => {
   const f = fixture("[speaker: Mia Chen]\nThe stranger waits.");
   const result = await guardTurnOutput(f.ctx);

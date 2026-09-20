@@ -212,7 +212,7 @@ Object.assign(STRINGS.zh, {
 
 const MODEL_DESCRIPTION_BY_LANG = {
   en: {
-    "openrouter/free": "Free for everyone",
+    "openrouter/free": "Provided by OpenRouter; may be rate-limited and lower quality",
     "deepseek/deepseek-v4-flash": "Budget, can drift off-plot",
     "deepseek/deepseek-v3.2": "Low censorship",
     "mistralai/mistral-nemo": "Cheapest — short, snappy replies",
@@ -252,7 +252,7 @@ const MODEL_DESCRIPTION_BY_LANG = {
     "google/gemini-2.5-flash-lite": "Ultra lightweight",
   },
   zh: {
-    "openrouter/free": "完全免费",
+    "openrouter/free": "由 OpenRouter 提供，可能限流、回复质量偏低",
     "deepseek/deepseek-v4-flash": "经济，剧情略跳脱",
     "deepseek/deepseek-v3.2": "低审查",
     "mistralai/mistral-nemo": "最便宜，回复短小干脆",
@@ -292,7 +292,7 @@ const MODEL_DESCRIPTION_BY_LANG = {
     "google/gemini-2.5-flash-lite": "超轻量",
   },
   ja: {
-    "openrouter/free": "全員無料",
+    "openrouter/free": "OpenRouter 提供。レート制限や品質低下が起きることがあります",
     "deepseek/deepseek-v4-flash": "経済的、展開がそれることも",
     "deepseek/deepseek-v3.2": "低検閲",
     "mistralai/mistral-nemo": "最安、短くテンポの良い返信",
@@ -332,7 +332,7 @@ const MODEL_DESCRIPTION_BY_LANG = {
     "google/gemini-2.5-flash-lite": "超軽量",
   },
   es: {
-    "openrouter/free": "Gratis para todos",
+    "openrouter/free": "Proporcionado por OpenRouter; puede tener límites de uso y menor calidad",
     "deepseek/deepseek-v4-flash": "Económico, puede desviarse de la trama",
     "deepseek/deepseek-v3.2": "Censura baja",
     "mistralai/mistral-nemo": "El más barato — respuestas cortas y ágiles",

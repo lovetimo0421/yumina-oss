@@ -274,7 +274,7 @@
       "gpt56Luna": "安価で綺麗な英語・露骨描写なし",
       "minimaxM3": "多言語で描写が繊細",
       "gpt56Sol": "OpenAI 旗艦・露骨描写なし",
-      "yuminaFree": "全員無料",
+      "yuminaFree": "OpenRouter 提供。レート制限や品質低下が起きることがあります",
       "geminiFlashLite": "超軽量",
       "deepseekV4Flash": "バジェット、ストーリーから逸脱することがあります",
       "deepseek": "低検閲",

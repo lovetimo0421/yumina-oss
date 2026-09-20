@@ -286,7 +286,7 @@
       "gpt56Luna": "低價 GPT，可關閉思考",
       "minimaxM3": "低價長上下文，可關閉思考",
       "gpt56Sol": "可關思考，旗艦中費用較低",
-      "yuminaFree": "免費，實際使用的模型會變化",
+      "yuminaFree": "由 OpenRouter 提供，可能限流、回覆品質偏低",
       "geminiFlashLite": "便宜、偏快，適合日常聊天",
       "deepseekV4Flash": "價格低；有使用者反饋輸出不穩定",
       "deepseek": "便宜、能推劇情，但可能替你行動",

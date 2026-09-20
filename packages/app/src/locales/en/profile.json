@@ -350,7 +350,7 @@
       "gpt56Luna": "Low-cost GPT with optional reasoning",
       "minimaxM3": "Low-cost long context with optional reasoning",
       "gpt56Sol": "Optional reasoning; one of the cheaper flagships",
-      "yuminaFree": "Free; the underlying model can change",
+      "yuminaFree": "Provided by OpenRouter; may be rate-limited and lower quality",
       "geminiFlashLite": "Low cost and fairly quick for everyday chat",
       "deepseekV4Flash": "Very cheap; users report inconsistent replies",
       "deepseek": "Cheap and moves the story along; may act for you",
