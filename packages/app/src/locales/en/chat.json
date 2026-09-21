@@ -1,8 +1,8 @@
 {
   "pvzModels": {
     "title": "Choose Dave’s model",
-    "description": "Choose the model Dave uses with your API key. Your game stays paused in the other tab.",
-    "loading": "Checking your account and private models…",
+    "description": "Choose Dave’s model. Your game stays open in the other tab.",
+    "loading": "Loading your models…",
     "openPicker": "Choose a model",
     "selected": "Selected: {{model}}",
     "sent": "Waiting for your game to confirm this selection…",
@@ -10,10 +10,10 @@
     "returnGame": "Return to game",
     "returnHint": "If this tab stays open, switch back to your game tab.",
     "invalidLink": "Open the model picker from Dave’s chat in your game.",
-    "loginRequired": "Sign in to use your private models with Dave.",
+    "loginRequired": "Sign in to choose your model.",
     "signIn": "Sign in",
     "accountChanged": "This game was opened with a different account. Return to the game and reopen the model picker.",
-    "setupRequired": "Set up your API key and select Private API Key in AI Configuration to choose Dave’s model.",
+    "setupRequired": "Choose a model or connect a provider in your Yumina settings.",
     "setup": "Open AI Configuration",
     "refresh": "Check again",
     "unavailable": "Couldn’t load your model configuration. Try again.",

@@ -1524,12 +1524,16 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       }));
       creditCheckpoint = saved.checkpoint;
     };
-    const finalizeRun = async (set: Partial<typeof agentRuns.$inferInsert>) => {
+    const finalizeRun = async (set: Partial<typeof agentRuns.$inferInsert>, opts?: { consumeClaim?: boolean }) => {
       // A deploy is not completion or user cancellation. The finally block
       // restores our saved checkpoint, including any already-settled work.
       if (isShutdownAbort(controller.signal)) return;
+      // Errors keep the checkpoint by default so a transient failure stays
+      // resumable. `consumeClaim` is for errors where resuming would only
+      // repeat the failure — the row must end without a "Continue" card.
       if (creditClaimId && !controller.signal.aborted &&
-          (set.status === "completed" || set.status === "awaiting_user" || set.status === "awaiting_approval")) {
+          (set.status === "completed" || set.status === "awaiting_user" || set.status === "awaiting_approval"
+            || (set.status === "error" && opts?.consumeClaim))) {
         if (reservationId) {
           await releaseStudioCreditReservation(userId, reservationId);
           reservationId = undefined;
@@ -1682,6 +1686,17 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
     // MAX_TEXT_NUDGES cheap extra round-trips before the run still completes.
     const MAX_TEXT_NUDGES = 2;
     let textOnlyNudges = 0;
+
+    // Consecutive length-stops with nothing usable. The credit planner sizes
+    // max_tokens per call (2026-09-16), and Claude's hidden reasoning is billed
+    // inside that same budget: on a code-heavy card Sonnet 5 thinks 5K–40K
+    // tokens per step, so an undersized cap ends in finish_reason=length with
+    // ZERO visible output and no tool call. Retrying the same prompt at the
+    // same cap only re-bills the prompt (one 2026-09-20 run: 16 retries,
+    // ~2,900 credits, no output, until the 30-minute watchdog). Two strikes,
+    // then fail with the reason instead of a spinner.
+    const MAX_CONSECUTIVE_TRUNCATIONS = 2;
+    let consecutiveTruncations = 0;
 
     // Server-owned log of committed assistant text turns. Each entry = one persistent chat
     // bubble on the client. This is the SINGLE source of truth for "has this text been
@@ -1841,7 +1856,13 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           llmMessages.push({ role: "user", content: "[System: Work in small complete steps. Prefer targeted edits. For a new UI feature, connect a minimal usable component to the entry and supply initial-state styles before adding polish. Finish each tool's JSON arguments within this response; do not start a whole-file rewrite that cannot fit.]" });
           const balances = await getAvailableCredits(userId);
           const budget = planStudioCreditBudget({ messages: llmMessages, tools, price: await getModelPrice(model),
-            availableCredits: balances.availableCredits, previousCompletionTokens });
+            availableCredits: balances.availableCredits, previousCompletionTokens,
+            // Ask for the model's full ceiling and let the balance be the only
+            // thing that shrinks it. The planner's 8K default was sized for the
+            // visible reply, but Claude bills its reasoning inside the same
+            // max_tokens: 8K was routinely eaten by thinking alone, and the
+            // 1.35x ramp from the previous call reset to 8K on every resume.
+            desiredOutputTokens: MAX_OUTPUT });
           const preflight: StudioCreditCheckpoint = {
             version: 1, phase: "preflight", messages, iteration, worldRevision: sourceRevision.revision,
             requiredCredits: budget.minimumRequiredCredits,
@@ -2095,11 +2116,27 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
 
         // No tool calls — either a planning turn (continue loop) or final response (end)
         console.log(`[Agent] Iteration ${iteration}: LLM finished. ${toolCalls.length} tool calls, ${textContent.length} text chars`);
+        if (iterationStopReason !== "max_tokens") consecutiveTruncations = 0;
         if (toolCalls.length === 0) {
-          // max_tokens truncation: the LLM was mid-tool-call when output limit hit.
-          // Don't treat as "completed" — continue the loop so the model can retry.
+          // max_tokens truncation: the LLM was mid-tool-call (or still reasoning)
+          // when the output limit hit. Don't treat as "completed" — continue the
+          // loop so the model can retry, but not forever.
           if (iterationStopReason === "max_tokens") {
-            console.log(`[Agent] Iteration ${iteration}: max_tokens truncation detected. Continuing with retry prompt.`);
+            consecutiveTruncations++;
+            if (consecutiveTruncations > MAX_CONSECUTIVE_TRUNCATIONS) {
+              const errMsg = `The model used its whole output budget (${outputBudget} tokens) ${consecutiveTruncations} times in a row without completing a tool call. Ask for a smaller step, or switch models.`;
+              console.warn(`[Agent] Run ${runId} iteration ${iteration}: ${errMsg}`);
+              // Terminal and not resumable: another attempt would re-bill the
+              // same prompt for the same nothing. Consume the checkpoint so the
+              // client shows this reason instead of a "Continue" card.
+              await finalizeRun({
+                status: "error", error: errMsg, iteration,
+                messages: messages as unknown as Array<Record<string, unknown>>,
+              }, { consumeClaim: true }).catch(() => {});
+              await safeSend("error", JSON.stringify({ error: errMsg, code: "OUTPUT_BUDGET_EXHAUSTED" }));
+              return;
+            }
+            console.log(`[Agent] Iteration ${iteration}: max_tokens truncation detected (${consecutiveTruncations}/${MAX_CONSECUTIVE_TRUNCATIONS}). Continuing with retry prompt.`);
             // Commit the partial text as its own bubble — the retry prompt asks the model
             // to continue without repeating, so subsequent iteration's text is a distinct bubble.
             // lane:"step" — this is a truncated mid-tool-call fragment, not a final answer;

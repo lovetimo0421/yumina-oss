@@ -1,8 +1,8 @@
 {
   "pvzModels": {
     "title": "Elige el modelo de Dave",
-    "description": "Elige el modelo que Dave usará con tu clave API. Tu partida seguirá en pausa en la otra pestaña.",
-    "loading": "Comprobando tu cuenta y tus modelos privados…",
+    "description": "Elige el modelo de Dave. Tu partida sigue abierta en la otra pestaña.",
+    "loading": "Cargando tus modelos…",
     "openPicker": "Elegir un modelo",
     "selected": "Seleccionado: {{model}}",
     "sent": "Esperando que tu partida confirme esta selección…",
@@ -10,10 +10,10 @@
     "returnGame": "Volver a la partida",
     "returnHint": "Si esta pestaña sigue abierta, cambia a la pestaña de tu partida.",
     "invalidLink": "Abre el selector de modelos desde el chat de Dave en tu partida.",
-    "loginRequired": "Inicia sesión para usar tus modelos privados con Dave.",
+    "loginRequired": "Inicia sesión para elegir tu modelo.",
     "signIn": "Iniciar sesión",
     "accountChanged": "Esta partida se abrió con otra cuenta. Vuelve a la partida y abre de nuevo el selector de modelos.",
-    "setupRequired": "Configura tu clave API y selecciona Clave API privada en Configuración de IA para elegir el modelo de Dave.",
+    "setupRequired": "Elige un modelo o conecta un proveedor en los ajustes de Yumina.",
     "setup": "Abrir Configuración de IA",
     "refresh": "Comprobar de nuevo",
     "unavailable": "No se pudo cargar la configuración de modelos. Inténtalo de nuevo.",

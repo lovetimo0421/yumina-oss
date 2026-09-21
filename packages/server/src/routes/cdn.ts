@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { isS3Configured, getObject } from "../lib/s3.js";
 import { Readable } from "node:stream";
+import { publicAssetCacheControl } from "../lib/public-asset-cache.js";
 
 // In-memory LRU cache: assetId → s3Key
 // Assets are immutable, so the mapping never changes.
@@ -133,7 +134,7 @@ export async function streamS3Object(
     // long-lived response would then be cached under that URL for everyone.
     // Doing it safely means a Cloudflare-side rule (strip inbound Via, or set a
     // secret header), so it stays out of this change.
-    c.header("Cache-Control", "public, max-age=0, s-maxage=300, must-revalidate");
+    c.header("Cache-Control", publicAssetCacheControl(s3Key));
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Accept-Ranges", "bytes");
     if (etag) c.header("ETag", etag);

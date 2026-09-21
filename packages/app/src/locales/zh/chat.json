@@ -1,8 +1,8 @@
 {
   "pvzModels": {
     "title": "选择戴夫的模型",
-    "description": "选择戴夫通过你的 API 密钥使用的模型。游戏会在另一个标签页中保持暂停。",
-    "loading": "正在检查你的账号和私人模型…",
+    "description": "选择戴夫的模型。游戏仍在另一个标签页中。",
+    "loading": "正在加载模型…",
     "openPicker": "选择模型",
     "selected": "已选择：{{model}}",
     "sent": "正在等待游戏确认此选择…",
@@ -10,10 +10,10 @@
     "returnGame": "返回游戏",
     "returnHint": "如果此标签页未关闭，请切换回游戏标签页。",
     "invalidLink": "请从游戏中戴夫的聊天窗口打开模型选择器。",
-    "loginRequired": "登录后即可让戴夫使用你的私人模型。",
+    "loginRequired": "登录后即可选择模型。",
     "signIn": "登录",
     "accountChanged": "此游戏使用的是另一个账号。请返回游戏并重新打开模型选择器。",
-    "setupRequired": "请在 AI 配置中添加 API 密钥并选择“私人 API 密钥”，然后选择戴夫的模型。",
+    "setupRequired": "请在梦坞设置中选择模型或连接服务商。",
     "setup": "打开 AI 配置",
     "refresh": "重新检查",
     "unavailable": "无法加载模型配置，请重试。",

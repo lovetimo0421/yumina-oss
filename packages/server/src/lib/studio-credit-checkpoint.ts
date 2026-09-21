@@ -267,7 +267,7 @@ export async function withStudioCreditClaimTransaction<T>(
   work: (tx: StudioCreditTransaction, checkpoint: StudioCreditCheckpoint, workingSchema: Record<string, unknown>) => Promise<{
     value: T;
     checkpoint: StudioCreditCheckpoint | null;
-    status?: "running" | "completed" | "awaiting_credits" | "awaiting_user" | "awaiting_approval";
+    status?: "running" | "completed" | "awaiting_credits" | "awaiting_user" | "awaiting_approval" | "error";
     runUpdates?: Pick<Partial<typeof agentRuns.$inferInsert>, "messages" | "iteration" | "textContent" | "committedTurns" | "pendingToolCalls" | "readToolResults" | "error">;
   }>,
 ): Promise<{ value: T; checkpoint: StudioCreditCheckpoint | null }> {

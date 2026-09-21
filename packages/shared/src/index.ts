@@ -322,6 +322,9 @@ export * from "./constants/model-fallback-copy.js";
 export * from "./free-credit-policy.js";
 export * from "./acquisition.js";
 export * from "./qualified-referrals.js";
+
+export * from './game-source-story.js';
+export * from './game-source-plant.js';
 export * from "./model-cost-stats.js";
 
 export {

@@ -12,6 +12,11 @@ export interface PvzModelSelection {
   model: string;
 }
 
+/** New hosts report readiness for either payer; keep older private hosts usable. */
+export function isPvzModelConfigReady(config: {enabled:boolean;ready?:boolean;privateReady:boolean} | null): boolean {
+  return !!config?.enabled && (config.ready ?? config.privateReady);
+}
+
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function boundedIdentifier(value: unknown): value is string {

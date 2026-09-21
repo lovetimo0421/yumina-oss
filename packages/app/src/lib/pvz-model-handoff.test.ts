@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPvzModelSelection, isPvzModelAcknowledgement, readPvzModelHandoff } from "./pvz-model-handoff";
+import { createPvzModelSelection, isPvzModelAcknowledgement, readPvzModelHandoff, isPvzModelConfigReady } from "./pvz-model-handoff";
 import { parseSafeAuthReturnTo } from "./auth-return";
 
 const channel = "e19d4e64-8c9a-4a83-9195-ef76623161d4";
 const query = `?channel=${channel}&account=user-123&selected=custom%2Fmodel&lang=zh`;
+
+test('both official and private accounts can use the fallback picker without setting up another key',()=>{
+  assert.equal(isPvzModelConfigReady({enabled:true,ready:true,privateReady:false}),true);
+  assert.equal(isPvzModelConfigReady({enabled:true,ready:true,privateReady:true}),true);
+  assert.equal(isPvzModelConfigReady({enabled:true,privateReady:true}),true);
+  assert.equal(isPvzModelConfigReady({enabled:true,ready:false,privateReady:true}),false);
+  assert.equal(isPvzModelConfigReady({enabled:false,ready:true,privateReady:true}),false);
+  assert.equal(isPvzModelConfigReady(null),false);
+});
 
 test("model handoff parses only bounded identifiers, preserving model strings", () => {
   assert.deepEqual(readPvzModelHandoff(query), { channel, accountId: "user-123", selectedModel: "custom/model", lang: "zh" });
