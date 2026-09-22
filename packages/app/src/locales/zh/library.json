@@ -658,6 +658,7 @@
     "makeReference": "先生成一张",
     "errors": {
       "TIMED_OUT": "生成耗时过长已被停止——请重试。",
+      "INTERRUPTED": "服务器更新打断了这次生成，本次未扣款，请重新生成。",
       "NEVER_STARTED": "任务未能启动——请重试。",
       "NO_OUTPUT": "生成器没有产出结果——请重试或调整提示词。",
       "STORE_FAILED": "结果保存失败——请重试。",

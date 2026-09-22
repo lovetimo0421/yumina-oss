@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   AssetUploadError,
   getUploadMetadata,
+  isAnimatedImageFile,
   uploadAssetWithPresignedUrl,
 } from "./asset-upload";
 
@@ -204,4 +205,32 @@ test("getUploadMetadata preserves extension-based MIME inference for dragged fil
     type: "image",
     contentType: "image/webp",
   });
+});
+
+// The cover downscale re-encodes through a canvas, which keeps one frame, so an
+// animated cover has to be recognised before it gets there.
+function riffWebp(chunk: string, flags = 0, extra = ""): Blob {
+  const head = new Uint8Array(21);
+  head.set([..."RIFF"].map((ch) => ch.charCodeAt(0)), 0);
+  head.set([..."WEBP"].map((ch) => ch.charCodeAt(0)), 8);
+  head.set([...chunk].map((ch) => ch.charCodeAt(0)), 12);
+  head[20] = flags;
+  return new Blob([head, extra], { type: "image/webp" });
+}
+function png(chunks: string[]): Blob {
+  return new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunks.join("....")], { type: "image/png" });
+}
+
+test("isAnimatedImageFile recognises animated WebP, APNG and GIF", async () => {
+  assert.equal(await isAnimatedImageFile(riffWebp("VP8X", 0x02)), true);
+  assert.equal(await isAnimatedImageFile(riffWebp("VP8X", 0x10, "....ANIM....ANMF")), true);
+  assert.equal(await isAnimatedImageFile(png(["IHDR", "acTL", "IDAT"])), true);
+  assert.equal(await isAnimatedImageFile(new Blob(["GIF89a"], { type: "image/gif" })), true);
+});
+
+test("isAnimatedImageFile leaves still images to the downscale", async () => {
+  assert.equal(await isAnimatedImageFile(riffWebp("VP8L")), false);
+  assert.equal(await isAnimatedImageFile(riffWebp("VP8X", 0x10)), false);
+  assert.equal(await isAnimatedImageFile(png(["IHDR", "IDAT"])), false);
+  assert.equal(await isAnimatedImageFile(new Blob(["\xff\xd8\xff"], { type: "image/jpeg" })), false);
 });

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { readdirSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { availableParallelism } from "node:os";
 
 const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 function findTests(directory) {
@@ -36,9 +37,14 @@ Object.assign(childEnv, {
 // Hand node a glob (it expands patterns itself) or short cwd-relative paths.
 // ~200 absolute paths overflow the Windows command line (spawn ENAMETOOLONG).
 const testArgs = selected.length ? files.sort().map((file) => relative(serverRoot, file)) : ["src/**/*.test.ts"];
+// Every file gets its own in-memory database, so files run side by side safely.
+// Measured 2026-09-22 on 24 cores, 3805 tests: 2 files at a time took 12m27s,
+// 8 took 3m42s, 12 took 3m37s (a few long files set the floor). Override with
+// TEST_CONCURRENCY.
+const concurrency = Number(process.env.TEST_CONCURRENCY) || Math.max(2, Math.min(8, availableParallelism() - 2));
 const child = spawn(process.execPath, [
   "--import", "tsx", "--import", "./scripts/test-local-environment.mjs",
-  "--test", "--test-timeout=120000", "--test-concurrency=2", "--test-reporter=tap", ...testArgs,
+  "--test", "--test-timeout=120000", `--test-concurrency=${concurrency}`, "--test-reporter=tap", ...testArgs,
 ], { cwd: serverRoot, env: childEnv, stdio: "inherit" });
 child.on("error", error => { console.error(error); process.exitCode = 1; });
 child.on("exit", code => { process.exitCode = code ?? 1; });

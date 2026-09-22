@@ -10,15 +10,28 @@ const DEFAULT_DESCRIPTION =
 const DEFAULT_TITLE = "Yumina - AI Interactive Fiction Platform";
 // krew.io (the pirate .io game) redirects permanently to /krew, so this page is
 // what search engines index for the game. Keep its identity, not Yumina's.
+const KREW_TITLE = "Krew.io - Free Multiplayer Pirate Ship Battle Game";
 const KREW_DESCRIPTION =
-  "Krew.io is a free online 3D pirate game: crew up, sail the seas, fire cannons, sink other players' ships and rule the leaderboard. Play instantly in your browser on Yumina.";
+  "Krew.io is a free online 3D pirate game. Captain a ship or join a krew, fire cannons, fish, trade and sink rivals to rule the seven seas. Play now, no download.";
+// Composed from the live landing scene + the game's logo (tools: krew-og-build in the SEO PR).
+// New file name on purpose: the old one is cached immutable at the CDN for a year.
+const KREW_IMAGE = `${SITE_URL}/krew-og-v2.jpg`;
+const KREW_IMAGE_ALT = "Krew.io: a pirate island at sea under the Krew.io logo. Free 3D pirate battle game in your browser.";
 
 export interface PageMeta {
   title: string;
   description: string;
   url: string;
   image?: string;
+  /** Alt text for the social image (og:image:alt / twitter:image:alt). */
+  imageAlt?: string;
   type?: string;
+  /**
+   * Serve this page's own title in <title>. Yumina pages keep the brand as the
+   * tab title; a page that is its own product (krew.io) needs its real title,
+   * because <title> is what search engines rank and display.
+   */
+  ownTitle?: boolean;
   noindex?: boolean;
   /** Structured data emitted as a JSON-LD script in <head>. */
   jsonLd?: Record<string, unknown>;
@@ -58,25 +71,31 @@ const STATIC_META: Record<string, PageMeta> = {
     url: `${SITE_URL}/app/worlds`,
   },
   "/krew": {
-    title: "Krew.io - The Pirate .IO Game",
+    title: KREW_TITLE,
+    ownTitle: true,
     description: KREW_DESCRIPTION,
     url: `${SITE_URL}/krew`,
-    image: `${SITE_URL}/krew-og.png`,
+    image: KREW_IMAGE,
+    imageAlt: KREW_IMAGE_ALT,
     jsonLd: {
       "@context": "https://schema.org",
       "@type": "VideoGame",
       name: "Krew.io",
-      alternateName: "Krew2.io",
+      alternateName: ["Krew2.io", "Krew"],
       url: `${SITE_URL}/krew`,
-      image: `${SITE_URL}/krew-og.png`,
+      sameAs: ["https://krew.io", "https://play.krew.io"],
+      image: KREW_IMAGE,
+      screenshot: KREW_IMAGE,
       description: KREW_DESCRIPTION,
-      genre: ["Action", "Multiplayer", ".io game"],
-      gamePlatform: "Web browser",
+      keywords: "krew.io, krew, pirate game, .io game, multiplayer, ship battle, browser game, free online game",
+      genre: ["Action", "Multiplayer", ".io game", "Pirate"],
+      gamePlatform: ["Web browser", "Mobile web"],
       applicationCategory: "Game",
       operatingSystem: "Any",
       playMode: "MultiPlayer",
+      inLanguage: "en",
       isAccessibleForFree: true,
-      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD", availability: "https://schema.org/InStock" },
       publisher: { "@type": "Organization", name: "Yumina", url: SITE_URL },
     },
   },
@@ -218,6 +237,10 @@ export async function getMetaForPath(rawPath: string): Promise<PageMeta> {
   };
 }
 
+function escapeText(str: string): string {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 function escapeAttr(str: string): string {
   return str
     .replace(/&/g, "&amp;")
@@ -229,9 +252,11 @@ function escapeAttr(str: string): string {
 export function injectMeta(baseHtml: string, meta: PageMeta): string {
   let html = baseHtml;
 
-  // Browser tabs use the brand consistently; route-specific titles belong to
-  // the social/link-preview metadata below.
-  html = html.replace(/<title>[^<]*<\/title>/, "<title>Yumina</title>");
+  // Yumina pages keep the brand as the tab title (owner decision); a page that
+  // is its own product serves its real title, since <title> is what search
+  // engines rank and display. Social previews always get the specific title.
+  const tabTitle = meta.ownTitle ? meta.title : "Yumina";
+  html = html.replace(/<title>[^<]*<\/title>/, `<title>${escapeText(tabTitle)}</title>`);
 
   html = html.replace(
     /(<meta name="description" content=")[^"]*(" \/>)/,
@@ -265,6 +290,16 @@ export function injectMeta(baseHtml: string, meta: PageMeta): string {
       /(<meta name="twitter:image" content=")[^"]*(" \/>)/,
       `$1${meta.image}$2`,
     );
+    if (meta.imageAlt) {
+      html = html.replace(
+        /(<meta property="og:image:alt" content=")[^"]*(" \/>)/,
+        `$1${escapeAttr(meta.imageAlt)}$2`,
+      );
+      html = html.replace(
+        /(<meta name="twitter:image:alt" content=")[^"]*(" \/>)/,
+        `$1${escapeAttr(meta.imageAlt)}$2`,
+      );
+    }
   }
 
   html = html.replace(

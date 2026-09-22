@@ -144,17 +144,21 @@ export const INVITE_QUEST_MONTHLY_MAX = INVITE_QUEST_PAYOUT.week * 4;
  *
  *   d10_20  50% at purchase/renewal, 25% on day 10, 25% on day 20
  *           (launch schedule, 2026-09-15).
- *   w7      40% at purchase/renewal, then 20% on days 7, 14 and 21
- *           (owner 2026-09-22): Free was already 700 + 100 on days 7/14/21,
- *           and two calendars on one page read as a mistake. Day 1 stays
- *           double a weekly drop so checkout does not feel thin.
+ *   w7      40% at purchase/renewal, then 20% on days 7, 14 and 21.
+ *           Tried on 2026-09-22 so one calendar would explain every card,
+ *           then reverted the same day (owner): the 50% day-one payment
+ *           exists because roleplay is a binge and a third of subscribers
+ *           spend most of a month in one sitting, so shrinking the front to
+ *           40% strands exactly the people it was designed for. No PAID
+ *           cycle ever opened under it. Kept only so the two free cycles
+ *           that did still finish on their own calendar.
  *
  * Free and Creator deliver the same way under either key.
  */
 export type DropScheduleKey = "d10_20" | "w7";
 
 /** The schedule every cycle that starts from now on is recorded under. */
-export const CURRENT_DROP_SCHEDULE: DropScheduleKey = "w7";
+export const CURRENT_DROP_SCHEDULE: DropScheduleKey = "d10_20";
 
 const drops50_25_25 = (pile: number): PlanDrop[] => [
   { day: 0, amount: Math.round(pile * 0.5) },

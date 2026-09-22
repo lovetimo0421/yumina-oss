@@ -370,6 +370,8 @@ export function getPlatformStyle(slug: string): PlatformStyleInfo | undefined {
 export const GENERATION_ERROR_CODES = [
   /** Hard 30-min ceiling hit (cold start + queue + render). */
   "TIMED_OUT",
+  /** The server running the job shut down (a deploy) before the image returned. */
+  "INTERRUPTED",
   /** Row inserted but the provider submit never happened (crash window). */
   "NEVER_STARTED",
   /** Worker finished without producing any output files. */

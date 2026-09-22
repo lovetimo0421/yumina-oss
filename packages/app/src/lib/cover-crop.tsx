@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ImgHTMLAttributes, type ReactNode } from "react";
-import { resolveImageUrl, originalImageUrl, cardImageUrl } from "./asset-url";
+import { resolveImageUrl, originalImageUrl, cardImageUrl, isAnimatedImageRef } from "./asset-url";
 import {
   defaultCropImageRenderer,
   type CoverCropSettings,
@@ -67,13 +67,42 @@ export function CroppedImage({
   useEffect(() => {
     setFallbackSrc(null);
   }, [src]);
+  // An animated cover paints its first frame first (a ~20KB still), and the
+  // animation is layered on top once the card is on screen. Before this the
+  // slot stayed dark until a multi-MB GIF had fully downloaded.
+  const animated = !!width && !fallbackSrc && isAnimatedImageRef(src);
   // Size through the CF resizer when a display width is given; on a transform
   // 404 the onError handler swaps to the untransformed original (see below).
-  const sized = width ? cardImageUrl(src, width) : undefined;
+  const sized = width ? cardImageUrl(src, width, { still: animated }) : undefined;
   const resolvedSrc = fallbackSrc ?? sized ?? resolveImageUrl(src) ?? src;
   const srcSet = !fallbackSrc && width && sized
-    ? `${sized} 1x, ${cardImageUrl(src, width * 2) ?? sized} 2x`
+    ? `${sized} 1x, ${cardImageUrl(src, width * 2, { still: animated }) ?? sized} 2x`
     : undefined;
+  const [inView, setInView] = useState(false);
+  const [motionLoaded, setMotionLoaded] = useState(false);
+  const [motionFailed, setMotionFailed] = useState(false);
+  useEffect(() => {
+    setMotionLoaded(false);
+    setMotionFailed(false);
+  }, [src]);
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!animated || !element || inView) return;
+    if (typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setInView(true);
+      return;
+    }
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((e) => e.isIntersecting)) {
+        setInView(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: "200px" });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [animated, inView]);
+  const motionSrc = animated && inView && !motionFailed ? cardImageUrl(src, width) : undefined;
   const imageLayoutStyle = useMemo(
     () => renderer.getImageStyle({ crop, sourceAspect, targetAspect }),
     [crop, renderer, sourceAspect, targetAspect],
@@ -172,6 +201,23 @@ export function CroppedImage({
           imgProps.onError?.(event);
         }}
       />
+      {motionSrc && (
+        <img
+          aria-hidden="true"
+          alt=""
+          src={motionSrc}
+          decoding="async"
+          className={cn(
+            "pointer-events-none absolute max-w-none select-none transition-opacity duration-500",
+            motionLoaded ? "opacity-100" : "opacity-0",
+            imgClassName,
+          )}
+          style={imageLayoutStyle}
+          onLoad={() => setMotionLoaded(true)}
+          // The still underneath stays; a failed animation just never fades in.
+          onError={() => setMotionFailed(true)}
+        />
+      )}
       {overlay}
     </div>
   );

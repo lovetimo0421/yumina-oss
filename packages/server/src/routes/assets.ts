@@ -291,7 +291,7 @@ assetRoutes.post("/worlds/:worldId/thumbnail", async (c) => {
 
   const currentUser = c.get("user");
   const worldId = c.req.param("worldId");
-  const body = await c.req.json<{ filename: string; contentType: string }>();
+  const body = await c.req.json<{ filename: string; contentType: string; animated?: boolean }>();
 
   if (!body.filename || !body.contentType) {
     return c.json({ error: "filename and contentType are required" }, 400);
@@ -306,7 +306,13 @@ assetRoutes.post("/worlds/:worldId/thumbnail", async (c) => {
   }
 
   const ext = body.filename.split(".").pop() ?? "png";
-  const key = `worlds/${worldId}/thumbnail/${crypto.randomUUID()}.${ext}`;
+  // `.anim.` marks an animated cover (the uploader sniffs the file): the app
+  // paints its still first frame from the CDN and fades the animation in, so a
+  // Discover card is never a dark slot while the animation downloads. The
+  // marker only changes how the cover is rendered; GIFs are always treated as
+  // animated and need no marker.
+  const marker = body.animated === true && ext.toLowerCase() !== "gif" ? ".anim" : "";
+  const key = `worlds/${worldId}/thumbnail/${crypto.randomUUID()}${marker}.${ext}`;
   const uploadUrl = await generateUploadUrl(key, body.contentType);
 
   return c.json({ data: { uploadUrl, key } });

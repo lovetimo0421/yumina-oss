@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cardImageUrl, originalImageUrl, fallbackToOriginalOnError } from "./asset-url";
+import { cardImageUrl, originalImageUrl, fallbackToOriginalOnError, isAnimatedImageRef } from "./asset-url";
 
 // Guards the CF Image Transformations contract (see cardImageUrl doc comment):
 // quality=85 (Cloudflare's default — 82 read visibly worse on DPR-1 monitors),
@@ -50,4 +50,24 @@ test("fallbackToOriginalOnError does not loop on an untransformed src", () => {
   const img = { src: "/cdn/some-asset-id" } as HTMLImageElement;
   fallbackToOriginalOnError({ currentTarget: img });
   assert.equal(img.src, "/cdn/some-asset-id", "a genuinely broken image must fail once, not retry forever");
+});
+
+// Animated covers paint a still first (anim=false), then fade the animation in.
+test("cardImageUrl still variant asks the edge for the first frame only", () => {
+  assert.equal(
+    cardImageUrl("/cdn/some-asset-id", 480, { still: true }),
+    "/cdn-cgi/image/width=480,quality=85,format=auto,anim=false,onerror=redirect/cdn/some-asset-id",
+  );
+});
+
+test("isAnimatedImageRef reads the key out of a /cdn/key/ URL", () => {
+  const url = (key: string) => `https://yumina.io/cdn/key/${Buffer.from(key).toString("base64url")}`;
+  assert.equal(isAnimatedImageRef(url("worlds/w1/thumbnail/abc.gif")), true);
+  assert.equal(isAnimatedImageRef(url("worlds/w1/thumbnail/abc.anim.webp")), true);
+  // a plain WebP cover is static: never fetched twice
+  assert.equal(isAnimatedImageRef(url("worlds/w1/thumbnail/abc.webp")), false);
+  assert.equal(isAnimatedImageRef(url("worlds/w1/thumbnail/abc.png")), false);
+  assert.equal(isAnimatedImageRef("worlds/w1/thumbnail/abc.anim.webp"), true);
+  assert.equal(isAnimatedImageRef("/cdn/2232e6b0-132b-41b8-ad1b-78c6a37f8f96"), false);
+  assert.equal(isAnimatedImageRef(null), false);
 });

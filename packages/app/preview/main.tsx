@@ -54,6 +54,10 @@ const noop = async () => {};
 
 useCreditStore.setState({
   planVersion: LINEUP,
+  // Added 2026-09-22: the page decides which cards to price from lineupPreview,
+  // so a seed without it renders nothing.
+  lineupPreview: LINEUP === 2 ? 2 : 1,
+  promoEndedNotice: false,
   rewards: "quests",
   lineup: LINEUP === 2 ? lineup : null,
   questCaps,
@@ -149,8 +153,16 @@ const plansRoute = createRoute({
   component: Frame,
   validateSearch: (s: Record<string, unknown>) => s,
 });
+// The real pages link to other routes (the plans page links a community
+// thread). A one-route tree makes TanStack throw while resolving the target,
+// which blanks the whole preview, so every other path resolves to a stub.
+const anywhereRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "$",
+  component: () => <div className="p-8 text-sm text-muted-foreground">Not part of this preview.</div>,
+});
 const router = createRouter({
-  routeTree: rootRoute.addChildren([plansRoute]),
+  routeTree: rootRoute.addChildren([plansRoute, anywhereRoute]),
   history: createMemoryHistory({ initialEntries: ["/app/plans"] }),
 });
 

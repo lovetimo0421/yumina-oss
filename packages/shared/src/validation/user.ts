@@ -39,6 +39,12 @@ export type UpdateProfileSchema = z.infer<typeof updateProfileSchema>;
 
 export const aiConfigSchema = z.object({
   ...aiGenerationConfigSchema.shape,
+  // The account copy of the story-memory dial. The app keeps "never chosen"
+  // as null and syncs it like any other key, so null has to be storable here:
+  // rejecting it failed the whole PUT — including the first-sync seed of
+  // every other setting — and nothing reached the account. Turns never read
+  // this copy; they get the dial per request and treat non-numbers as unset.
+  storyMemory: aiGenerationConfigSchema.shape.storyMemory.unwrap().nullable().optional(),
   selectedModel: z.string().min(1).max(200).optional(),
   modelFallback: z.object({
     mode: z.enum(["ask", "auto", "stop"]),

@@ -25,7 +25,7 @@ import {
   normalizeWorldLanguage,
   resolveHubLanguageScope,
   rankRecommendedWorlds,
-  recommendedFeedCacheKey,
+  resolveRecommendedFeedCacheKey,
   readCachedFeedPage,
   writeCachedFeedPage,
 } from "../lib/recommendations.js";
@@ -708,6 +708,13 @@ worldRoutes.get("/hub", async (c, next) => {
   return next();
 }, async (c) => {
   try {
+  // Every Recommended response must reach authoritative delivery validation;
+  // browser/CDN stale copies would bypass both it and generation invalidation.
+  if (c.req.query("feed") === "recommended") {
+    c.header("Cache-Control", "private, no-store");
+    c.header("CDN-Cache-Control", "no-store");
+    c.header("Vary", "Cookie");
+  }
   const currentUser = getOptionalUser(c);
   const cursorActor = c.get("discoveryCursorActor");
   const cursorRequested = cursorActor !== undefined;
@@ -784,7 +791,7 @@ worldRoutes.get("/hub", async (c, next) => {
             ? "popular"
             : "newest";
 
-  const baseFilters = await buildHubBaseFilters(rd, {
+  const baseFilters = await buildHubBaseFilters(feed === "recommended" ? db : rd, {
     currentUserId: currentUser?.id,
     accountPreferences,
     q,
@@ -866,7 +873,7 @@ worldRoutes.get("/hub", async (c, next) => {
     // cached adult feed), and the page window.
     const feedCacheKey =
       !q && baseFilters.tagList.length === 0 && !creatorId && !baseFilters.followedOnly
-        ? recommendedFeedCacheKey({
+        ? await resolveRecommendedFeedCacheKey({
             userId: currentUser?.id,
             preferredLang: baseFilters.preferredLang,
             sort,
@@ -880,10 +887,10 @@ worldRoutes.get("/hub", async (c, next) => {
         : null;
 
     if (feedCacheKey) {
-      const cached = await readCachedFeedPage(feedCacheKey);
+      const cached = await readCachedFeedPage(feedCacheKey, baseFilters, { userId: currentUser?.id, offset, limit });
       if (cached) {
-        // Cache hit: skip the entire ~2s pipeline (profile load + multi-route
-        // candidate SQL + listwise rerank + variant resolution). One Redis GET.
+        // Current eligibility passed on primary. Retain the cached rank order
+        // without repeating profile loading, candidate generation and reranking.
         if (!c.req.raw.signal?.aborted) {
           const cachedWorldIds = (cached.data as Array<{ id?: string }>)
             .map((w) => w.id)
@@ -919,7 +926,6 @@ worldRoutes.get("/hub", async (c, next) => {
             worldIds: cachedWorldIds,
           });
         }
-        c.header("Cache-Control", currentUser ? "private, max-age=30, stale-while-revalidate=120" : "public, max-age=0, s-maxage=60, stale-while-revalidate=300");
         c.header("Vary", "Cookie");
         return c.json({ data: cached.data, total: cached.total, feedRequestId });
       }
@@ -992,7 +998,7 @@ worldRoutes.get("/hub", async (c, next) => {
       });
 
       const ranked = completeCatalog
-        ? await completeRecommendedCatalogPage(rd, ranking.data, baseFilters, { userId: currentUser?.id, offset, limit })
+        ? await completeRecommendedCatalogPage(db, ranking.data, baseFilters, { userId: currentUser?.id, offset, limit })
         : ranking;
 
       const stripped = ranked.data.map((candidate) => stripRecommendationInternals(candidate));
@@ -1051,12 +1057,6 @@ worldRoutes.get("/hub", async (c, next) => {
         });
       }
 
-      // Guests get a deterministic empty-profile feed → edge-cache it so CF serves
-      // it instead of recomputing the ~2s ranking on every load. Authed is
-      // personalized → short PRIVATE browser cache for instant re-navigation, never
-      // CDN. Vary:Cookie keeps the guest-cached copy from being served to authed
-      // users. (2026-06-05 Discover-latency fix — was unconditional no-store.)
-      c.header("Cache-Control", currentUser ? "private, max-age=30, stale-while-revalidate=120" : "public, max-age=0, s-maxage=60, stale-while-revalidate=300");
       c.header("Vary", "Cookie");
       return c.json({ data: mediaResolved, total: ranked.total, feedRequestId });
     } catch (error) {
@@ -1147,7 +1147,7 @@ worldRoutes.get("/hub", async (c, next) => {
 
   // Guest browsing: Cloudflare serves cached for 60s, stale-while-revalidate for 5min
   // Authenticated: personalized → short private browser cache (instant re-nav), never CDN
-  c.header("Cache-Control", currentUser ? "private, max-age=30, stale-while-revalidate=120" : "public, max-age=0, s-maxage=60, stale-while-revalidate=300");
+  if (feed !== "recommended") c.header("Cache-Control", currentUser ? "private, max-age=30, stale-while-revalidate=120" : "public, max-age=0, s-maxage=60, stale-while-revalidate=300");
   c.header("Vary", "Cookie");
   return c.json({ data: mediaResolved, total: countResult[0]?.count ?? 0, feedRequestId });
   } catch (err) {

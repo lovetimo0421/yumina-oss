@@ -3288,7 +3288,7 @@ export async function ensureFeedTrainingTables(): Promise<void> {
   `));
   await db.execute(sql.raw(`
     CREATE TABLE IF NOT EXISTS user_latent_factors (
-      user_id    TEXT PRIMARY KEY,
+      user_id    TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
       factors    JSONB NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
     )

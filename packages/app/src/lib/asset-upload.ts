@@ -302,6 +302,35 @@ async function uploadToStorage(
 }
 
 /**
+ * Whether an image file is animated: any GIF, a WebP carrying an ANIM chunk, or
+ * a PNG with an acTL chunk (APNG) ahead of its first IDAT. Reads the header
+ * only. The canvas downscale below keeps one frame, so an animated cover must
+ * skip it — a 1.2MB animated WebP cover used to be re-encoded to a still JPEG.
+ */
+export async function isAnimatedImageFile(file: Blob): Promise<boolean> {
+  if (file.type === "image/gif") return true;
+  if (file.type !== "image/webp" && file.type !== "image/png" && file.type !== "image/apng") return false;
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await file.slice(0, 256 * 1024).arrayBuffer());
+  } catch {
+    return false;
+  }
+  const ascii = (at: number, n: number) => String.fromCharCode(...bytes.subarray(at, at + n));
+  if (ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
+    // VP8X carries an animation flag (bit 1 of the flags byte); ANIM confirms it
+    if (ascii(12, 4) === "VP8X" && (bytes[20]! & 0x02) !== 0) return true;
+    return ascii(12, Math.min(bytes.length - 12, 256)).includes("ANIM");
+  }
+  if (bytes[0] === 0x89 && ascii(1, 3) === "PNG") {
+    const head = ascii(8, bytes.length - 8);
+    const actl = head.indexOf("acTL");
+    return actl >= 0 && (head.indexOf("IDAT") < 0 || actl < head.indexOf("IDAT"));
+  }
+  return false;
+}
+
+/**
  * Downscale a raster image (not GIF/SVG) to at most `maxDimension` px on its
  * longest edge and re-encode as JPEG, in the browser via canvas. Stops a
  * creator's full-size original (we saw 8 MB) from being stored as a card
@@ -376,8 +405,12 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
   onProgress,
 }: PresignedAssetUploadConfig): Promise<T> {
   const f = fetchImpl ?? fetch;
+  // An animated image is uploaded as-is (the downscale would keep one frame),
+  // and the prepare call says so, so a cover key can be marked for the
+  // still-first rendering in <CroppedImage>.
+  const animated = await isAnimatedImageFile(inputFile);
   // Opt-in client-side downscale for card/cover/banner images (fails soft to original).
-  const file = resizeImageMaxDimension
+  const file = resizeImageMaxDimension && !animated
     ? await downscaleImageFile(inputFile, resizeImageMaxDimension, resizeImageQuality ?? 0.82)
     : inputFile;
   const { type: resolvedType, contentType } = getUploadMetadata(file, preferredType);
@@ -404,6 +437,7 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
       filename: file.name,
       contentType,
       type: resolvedType,
+      ...(animated ? { animated: true } : {}),
       ...prepareBody,
     }),
   });

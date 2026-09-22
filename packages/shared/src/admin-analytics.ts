@@ -121,6 +121,36 @@ export interface FinanceAudience {
   netReceiptsMicros: string;
   payers: number;
   unpricedRequests: number;
+  /** The part of this row's AI cost that admin-granted mushies paid for, micros. See FinanceAdminGranted. */
+  grantedCostMicros: string;
+}
+/**
+ * Mushies an admin issued from nothing, and what they actually cost.
+ *
+ * The audience rows answer "whose bill is this" by bucketing PEOPLE, so a
+ * creator who also pays for Platinum has all of their usage counted against
+ * the programme. This answers the different question the owner asks when
+ * deciding whether to keep granting: of the AI we bought, how much was paid
+ * for with mushies nobody bought?
+ *
+ * Issued covers every source that appears out of nowhere: dashboard
+ * adjustments, community and thread rewards, comped memberships. It excludes
+ * anything a user paid for (packs) and anything a plan owed them.
+ *
+ * Funded cost apportions each recipient's AI cost by the share of their
+ * inflow that was issued rather than earned or bought. A wallet whose
+ * mushies were 60% issued has 60% of its cost counted here. That avoids
+ * assuming a spend order the ledger does not record.
+ */
+export interface FinanceAdminGranted {
+  /** Mushies issued in the window. */
+  mushiesIssued: number;
+  /** Wallets that received any. */
+  wallets: number;
+  /** The share of their AI cost those mushies paid for, micros. */
+  fundedCostMicros: string;
+  /** Everything those wallets cost, funded or not, micros. The gap is what they paid for themselves. */
+  recipientCostMicros: string;
 }
 /** Do paying subscribers carry the free users? Ratios are per window; null where the division has no meaning. */
 export interface FinanceBreakEven {
@@ -138,6 +168,8 @@ export interface FinanceAudienceDay {
   audience: "free" | "paying" | "creator" | "internal";
   activeUsers: number;
   costMicros: string;
+  /** The part of costMicros that admin-granted mushies paid for. */
+  grantedCostMicros: string;
 }
 /** Signups in the window by lineup and whether they paid inside 7 / 30 days (mature cohorts only). */
 export interface FinanceConversion {
@@ -210,6 +242,8 @@ export interface FinanceReport {
   /** Who the AI bill belongs to; present once request costs and accounts are attributable. */
   audiences?: FinanceAudience[];
   breakEven?: FinanceBreakEven;
+  /** Mushies issued by an admin, and the AI cost they funded. */
+  adminGranted?: FinanceAdminGranted;
   /** Check-in vs quest payouts per chart bucket, in mushies. */
   rewardDays?: { day: string; checkinMushies: number; questMushies: number }[];
   /** AI cost and people per chart bucket for every audience, split by lineup. */

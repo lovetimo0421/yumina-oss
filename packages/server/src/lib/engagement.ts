@@ -22,7 +22,7 @@
  *               inexpressible (all counters were lifetime-cumulative).
  *   explore   — optimistic rotation bonus for under-exposed young worlds
  *               (the Douyin/XHS "traffic pool" idea, deterministic daily
- *               jitter so caching stays coherent). New creators get a
+ *               or visit-seeded rotation). New creators get a
  *               real audition instead of permanent obscurity.
  *
  * Plus two per-user negatives:
@@ -33,10 +33,11 @@
  *                handler for BOTH experiment arms; it's product behavior,
  *                not a ranking experiment).
  *
- * Rollout is an A/B: authed users hash 50/50 into control vs engage_v1;
- * guests all get engage_v1 (their CF-cached feed is shared, so it must be
- * single-arm). `hub_serve.variant` + `feed_serves.variant` carry the arm
- * for measurement.
+ * Without a published model, authed users hash 50/50 into control vs
+ * engage_v1. Guests retain the existing engage_v1 assignment. Recommended
+ * HTTP responses are private, no-store; feed caching stays server-side in
+ * Redis. `hub_serve.variant` + `feed_serves.variant` carry the arm for
+ * measurement.
  *
  * Everything degrades to zero contribution when the stats table / Redis /
  * rows are missing, so deploys ahead of DDL (or an empty dev DB) behave
@@ -45,6 +46,7 @@
 
 import { sql } from "drizzle-orm";
 import type { Database } from "../db/index.js";
+import { EngagementSnapshotCache } from "./engagement-snapshot-cache.js";
 import { redis } from "./redis.js";
 import type { RankerModelHandle } from "./ranker-model.js";
 
@@ -73,21 +75,12 @@ export function fnvHash01(input: string): number {
 }
 
 /**
- * Deterministic per-user experiment arm. Guests are single-arm (their
- * recommended feed is one shared, CF-edge-cached document, so a per-guest
- * split would either shatter the edge cache or leak one arm's pages to the
- * other); they ride the PROVEN arm. Guest impact is measured before/after
- * instead.
- *
- * Guests ride engage_v1 (the measured +35% CTR winner), NOT engage_v2, even
- * once a model publishes: v2's learned model must first beat v1 on the
- * authed A/B before we point the largest, unmeasurable traffic segment at
- * it. This also matches the product doctrine that new/anonymous users get
- * proven content. (Until 2026-08-21 guests rode v2-when-a-model-existed,
- * which — combined with the worlds.ts:851 wiring bug — silently dropped
- * every guest to control scoring the moment the first model published.
- * Flip this back to `hasModel ? "engage_v2" : "engage_v1"` only after v2
- * wins the authed readout.)
+ * Deterministic per-user experiment arm. Guests retain the legacy
+ * engage_v1 assignment, including after a model publishes. This preserves
+ * the existing guest baseline and deterministic reuse in the legacy feed's
+ * server-side Redis cache. Recommended HTTP responses are private,
+ * no-store. Guest assignment remains a rollout choice; a guest experiment
+ * would need its own assignment and corresponding server cache keys.
  *
  * Bucket continuity across the v2 activation: v1 keeps buckets [0,40) (a
  * subset of its old [0,50)), control keeps [80,100) (a subset of its old
@@ -166,6 +159,8 @@ export interface CraftAffinity {
 
 export interface EngagementContext {
   variant: FeedVariant;
+  /** Context-local map; loaded snapshot rows are shared and frozen. Replace a
+   * map entry to override it instead of mutating its row. */
   stats: Map<string, WorldEngagementStat>;
   globals: EngagementGlobals;
   /** worldId → unclicked impressions shown to THIS user in the last 14d.
@@ -192,13 +187,14 @@ export interface EngagementContext {
   userLatent: number[] | null;
   /** worldId → unit-normalized ALS latent vector, for every published world
    * ALS could place. Missing = new/low-play world (content term covers it). */
+  // Loaded vectors are shared and frozen; this map belongs to the context.
   worldLatent: Map<string, number[]>;
-  /** Per-visit rotation seed (`${userId}:${45-min bucket}`), treatment arms
-   * only. Drives the small score jitter that makes each VISIT'S feed order
-   * fresh (TikTok-refresh adapted to offset pagination: stable within a
-   * visit so infinite-scroll pages stay coherent, rotated between visits).
-   * Null for guests (shared CF/Redis cache must stay deterministic) and
-   * control (byte-identical pre-Ship-1 scoring). */
+  /** Treatment-arm rotation seed. Cursor feeds use `${actor}:${visitId}`
+   * for signed-in and guest visits; legacy offset feeds use
+   * `${userId}:${45-min bucket}` for signed-in users. Order stays stable
+   * within a visit and rotates between visits. Null for legacy offset
+   * guests, preserving their deterministic server-cached baseline, and
+   * for control (byte-identical pre-Ship-1 scoring). */
   rotationSeed: string | null;
 }
 
@@ -296,8 +292,8 @@ export function isExploreEligible(
 /** Deterministic rotation score in [0,1) — same hash family as the cold
  * slate, so caches stay coherent while newcomers take turns. With a
  * rotationSeed (treatment arms) newcomers rotate per VISIT — each return
- * to Discover auditions a different set of young worlds. Without one
- * (guests/control) the rotation stays daily. */
+ * to Discover auditions a different set of young worlds. Without a seed,
+ * the rotation stays daily. */
 export function exploreRotationScore(worldId: string, now: Date, rotationSeed?: string): number {
   if (rotationSeed) return fnvHash01(`${rotationSeed}:exp:${worldId}`);
   const dayKey = Math.floor(now.getTime() / 86_400_000);
@@ -510,7 +506,7 @@ export function buildRankerFeatures(
 /**
  * Compute the engagement contribution for one candidate. Pure and
  * deterministic for a given (candidate, ctx, now-day) — required so the
- * Redis feed cache and CF edge cache stay coherent.
+ * server-side Redis feed cache and visit ordering stay coherent.
  *
  * `ctx` undefined or control arm → all zeros (control must score
  * byte-identically to the pre-Ship-1 formula).
@@ -688,7 +684,7 @@ const warnedOnce = new Set<string>();
 function warnOnce(site: string, err: unknown): void {
   if (warnedOnce.has(site)) return;
   warnedOnce.add(site);
-  console.warn(`[engagement] ${site} unavailable (degrading to zeros):`, err instanceof Error ? err.message : err);
+  console.warn(`[engagement] ${site} unavailable (using cached or empty fallback):`, err instanceof Error ? err.message : err);
 }
 
 export function emptyEngagementContext(variant: FeedVariant): EngagementContext {
@@ -714,7 +710,47 @@ interface StatsSnapshot {
   globals: EngagementGlobals;
 }
 
-async function loadStatsSnapshot(db: Database): Promise<StatsSnapshot> {
+interface WorldLatentSnapshot {
+  /** Exact SQL epoch microseconds identifying the trainer transaction. */
+  updatedAt: string | null;
+  factors: Map<string, number[]>;
+}
+interface UserLatentSnapshot {
+  updatedAt: string;
+  factors: number[];
+}
+const emptyWorldLatentSnapshot = (): WorldLatentSnapshot => ({ updatedAt: null, factors: new Map() });
+const isLatentGeneration = (value: unknown): value is string => typeof value === "string" && /^\d+$/.test(value);
+
+// Short L1 freshness bounds cross-replica invalidation lag. Last-good values
+// survive source errors for at most five minutes from their successful load;
+// failures/empty sources retry after one second, without a polling timer.
+// Separate DB handles never share snapshots. Each cache retains at most four
+// sources and 16 MiB of accounted payload; oversized loads are not cached.
+const snapshotCacheOptions = { freshMs: 5_000, negativeMs: 1_000, maxStaleMs: 300_000,
+  maxEntries: 4, maxBytes: 16 * 1024 * 1024 };
+const statsSnapshots = new EngagementSnapshotCache<StatsSnapshot>({ ...snapshotCacheOptions,
+  empty: () => ({ rows: [], globals: { ctr: 0, qualifiedRate: 0 } }),
+  isEmpty: value => value.rows.length === 0,
+  sizeOf: value => Buffer.byteLength(JSON.stringify(value)) + value.rows.length * 256,
+});
+const latentSnapshots = new EngagementSnapshotCache<WorldLatentSnapshot>({ ...snapshotCacheOptions,
+  empty: emptyWorldLatentSnapshot, isEmpty: value => value.factors.size === 0,
+  sizeOf: value => [...value.factors].reduce((bytes, [id, factors]) => bytes + id.length * 2 + factors.length * 8 + 128,
+    (value.updatedAt?.length ?? 0) * 2),
+});
+
+function loadStatsSnapshot(db: Database): Promise<StatsSnapshot> {
+  return statsSnapshots.get(db, async () => {
+    const snapshot = await readStatsSnapshot(db);
+    // Freeze once per source load, including Redis hits, rather than copying
+    // every public row into every concurrent request.
+    for (const row of snapshot.rows) Object.freeze(row);
+    return snapshot;
+  });
+}
+
+async function readStatsSnapshot(db: Database): Promise<StatsSnapshot> {
   if (redis) {
     try {
       const cached = await redis.get(STATS_CACHE_KEY);
@@ -748,7 +784,7 @@ async function loadStatsSnapshot(db: Database): Promise<StatsSnapshot> {
     }));
   } catch (err) {
     warnOnce("world_engagement_stats", err);
-    return { rows: [], globals: { ctr: 0, qualifiedRate: 0 } };
+    throw err; // The bounded local cache supplies last-good or empty fallback.
   }
 
   let imp = 0, clk = 0, starts = 0, qualified = 0;
@@ -767,61 +803,87 @@ async function loadStatsSnapshot(db: Database): Promise<StatsSnapshot> {
   };
 
   if (redis && rows.length > 0) {
-    // SET NX (like the recommendation-graph cache): when the 5-min TTL
-    // expires, every concurrent treatment-arm request on every instance
-    // rebuilds this table scan — NX lets only the first writer store it, so
-    // the others don't pile identical writes on top (thundering-herd write).
+    // Local single-flight coalesces readers in this process. NX suppresses
+    // duplicate writes from other replicas; it is not a distributed read lock.
     redis.set(STATS_CACHE_KEY, JSON.stringify(snapshot), "EX", STATS_CACHE_TTL_SEC, "NX").catch(() => {});
   }
   return snapshot;
 }
 
-const LATENT_CACHE_KEY = "rec:latent:v1";
+// v1 had no publication generation and must never be consumed by this reader.
+const LATENT_CACHE_KEY = "rec:latent:v2";
 const LATENT_CACHE_TTL_SEC = 600; // ALS refreshes nightly; 10-min snapshot is plenty.
 
-/** All published worlds' ALS latent vectors (unit-normalized), cached like
- * the stats snapshot. ~700 × 64 floats — small. */
-async function loadWorldLatentSnapshot(db: Database): Promise<Map<string, number[]>> {
-  if (redis) {
+/** One coherent ALS publication across the cached world vectors. */
+function loadWorldLatentSnapshot(db: Database): Promise<WorldLatentSnapshot> {
+  return latentSnapshots.get(db, () => readWorldLatentSnapshot(db));
+}
+
+async function readWorldLatentSnapshot(db: Database, refresh = false): Promise<WorldLatentSnapshot> {
+  if (redis && !refresh) {
     try {
       const cached = await redis.get(LATENT_CACHE_KEY);
-      if (cached) return new Map(Object.entries(JSON.parse(cached) as Record<string, number[]>));
+      if (cached) {
+        const parsed = JSON.parse(cached) as { updatedAt?: unknown; factors?: unknown };
+        if (isLatentGeneration(parsed?.updatedAt) && parsed.factors && typeof parsed.factors === "object" && !Array.isArray(parsed.factors)) {
+          const entries = Object.entries(parsed.factors);
+          if (entries.every(([, factors]) => Array.isArray(factors) && factors.every(Number.isFinite))) {
+            for (const [, factors] of entries) Object.freeze(factors);
+            return { updatedAt: parsed.updatedAt, factors: new Map(entries as Array<[string, number[]]>) };
+          }
+        }
+      }
     } catch { /* fall through */ }
   }
   const map = new Map<string, number[]>();
+  let updatedAt: string | null = null;
   try {
-    const result = await db.execute(sql`SELECT world_id, factors FROM world_latent_factors`);
+    // SQL preserves all six fractional digits. Date/Number conversion in JS
+    // would collapse distinct publications within one millisecond.
+    const result = await db.execute(sql`SELECT world_id, factors,
+      (EXTRACT(EPOCH FROM updated_at) * 1000000)::bigint::text AS updated_at FROM world_latent_factors`);
     const raw = (result as unknown as { rows?: Array<Record<string, unknown>> }).rows ?? [];
     for (const r of raw) {
+      // A pre-atomic or malformed publication is not a coherent latent basis.
+      if (!isLatentGeneration(r.updated_at) || (updatedAt !== null && updatedAt !== r.updated_at)) return emptyWorldLatentSnapshot();
+      updatedAt = r.updated_at;
       const f = Array.isArray(r.factors)
         ? (r.factors as number[])
         : typeof r.factors === "string"
           ? (JSON.parse(r.factors) as number[])
           : null;
-      if (Array.isArray(f)) map.set(String(r.world_id), f);
+      if (Array.isArray(f) && f.every(Number.isFinite)) {
+        Object.freeze(f);
+        map.set(String(r.world_id), f);
+      }
     }
   } catch (err) {
     warnOnce("world_latent_factors", err);
-    return map;
+    throw err;
   }
   if (redis && map.size > 0) {
-    redis
-      .set(LATENT_CACHE_KEY, JSON.stringify(Object.fromEntries(map)), "EX", LATENT_CACHE_TTL_SEC, "NX")
-      .catch(() => {});
+    const payload = JSON.stringify({ updatedAt, factors: Object.fromEntries(map) });
+    // Mismatch refresh bypasses and replaces the old Redis basis. Other
+    // replicas may race this write, so generation checks remain mandatory.
+    const write = refresh ? redis.set(LATENT_CACHE_KEY, payload, "EX", LATENT_CACHE_TTL_SEC)
+      : redis.set(LATENT_CACHE_KEY, payload, "EX", LATENT_CACHE_TTL_SEC, "NX");
+    write.catch(() => {});
   }
-  return map;
+  return { updatedAt, factors: map };
 }
 
 /** One user's ALS latent vector (single PK lookup), or null if they weren't
  * in the factorization (guest / too few plays). */
-async function loadUserLatent(db: Database, userId: string): Promise<number[] | null> {
+async function loadUserLatent(db: Database, userId: string): Promise<UserLatentSnapshot | null> {
   try {
-    const result = await db.execute(sql`SELECT factors FROM user_latent_factors WHERE user_id = ${userId}`);
+    const result = await db.execute(sql`SELECT factors,
+      (EXTRACT(EPOCH FROM updated_at) * 1000000)::bigint::text AS updated_at FROM user_latent_factors WHERE user_id = ${userId}`);
     const raw = (result as unknown as { rows?: Array<Record<string, unknown>> }).rows ?? [];
     if (raw.length === 0) return null;
     const f = raw[0]!.factors;
     const arr = Array.isArray(f) ? (f as number[]) : typeof f === "string" ? (JSON.parse(f) as number[]) : null;
-    return Array.isArray(arr) ? arr : null;
+    return Array.isArray(arr) && arr.every(Number.isFinite) && isLatentGeneration(raw[0]!.updated_at)
+      ? { factors: arr, updatedAt: raw[0]!.updated_at } : null;
   } catch (err) {
     warnOnce("user_latent_factors", err);
     return null;
@@ -977,26 +1039,32 @@ export async function loadEngagementContext(
     treatment && userId
       ? loadSessionSignals(db, userId)
       : Promise.resolve({ centroid: null, tags: new Set<string>() }),
-    // Behavioral latent (ALS): world vectors are a shared snapshot (guests
-    // too — a guest can't have a user vector, but caching the world map is
-    // free and ready for when they log in). User vector only for authed.
-    treatment ? loadWorldLatentSnapshot(db) : Promise.resolve(new Map<string, number[]>()),
-    treatment && userId ? loadUserLatent(db, userId) : Promise.resolve<number[] | null>(null),
+    // Guests have no user vector, so world factors cannot affect their score.
+    treatment && userId ? loadWorldLatentSnapshot(db) : Promise.resolve(emptyWorldLatentSnapshot()),
+    treatment && userId ? loadUserLatent(db, userId) : Promise.resolve<UserLatentSnapshot | null>(null),
   ]);
 
+  let matchingWorldLatent = worldLatent;
+  if (userLatent && worldLatent.updatedAt && worldLatent.updatedAt !== userLatent.updatedAt) {
+    matchingWorldLatent = await latentSnapshots.refresh(db, worldLatent, () => readWorldLatentSnapshot(db, true));
+  }
   const ctx = emptyEngagementContext(variant);
   ctx.dismissedWorldIds = dismissed;
   ctx.fatigue = fatigue;
   ctx.sessionCentroid = session.centroid;
   ctx.sessionTags = session.tags;
-  ctx.worldLatent = worldLatent;
-  ctx.userLatent = userLatent;
+  // Independent reads can straddle an atomic trainer commit. Only a coherent
+  // pair reaches scoring; stale/error fallbacks must pass the same check.
+  if (userLatent && matchingWorldLatent.updatedAt === userLatent.updatedAt) {
+    ctx.worldLatent = new Map(matchingWorldLatent.factors);
+    ctx.userLatent = [...userLatent.factors];
+  }
   // ctx.tier and ctx.craft are attached by the handler once the profile
   // (loaded in parallel) resolves.
   if (variant === "engage_v2") ctx.model = opts?.model ?? null;
   if (treatment) ctx.rotationSeed = opts?.rotationSeed ?? null;
   if (snapshot) {
-    ctx.globals = snapshot.globals;
+    ctx.globals = { ...snapshot.globals };
     for (const row of snapshot.rows) ctx.stats.set(row.worldId, row);
   }
   return ctx;
@@ -1012,6 +1080,7 @@ export async function invalidateUserEngagementCaches(userId: string): Promise<vo
 
 /** Purge the shared stats snapshot (call after each rollup refresh). */
 export async function invalidateEngagementStatsCache(): Promise<void> {
+  statsSnapshots.invalidate();
   if (!redis) return;
   try {
     await redis.del(STATS_CACHE_KEY);

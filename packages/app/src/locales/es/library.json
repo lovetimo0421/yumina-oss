@@ -676,6 +676,7 @@
     "makeReference": "Generar una primero",
     "errors": {
       "TIMED_OUT": "La generación tardó demasiado y se detuvo. inténtalo de nuevo.",
+      "INTERRUPTED": "Una actualización del servidor interrumpió esta generación. No se te cobró. Vuelve a generarla.",
       "NEVER_STARTED": "El trabajo no pudo iniciarse. inténtalo de nuevo.",
       "NO_OUTPUT": "El generador terminó sin producir nada. inténtalo de nuevo o ajusta tu prompt.",
       "STORE_FAILED": "No se pudo guardar el resultado. inténtalo de nuevo.",

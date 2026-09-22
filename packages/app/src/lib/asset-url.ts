@@ -91,6 +91,7 @@ export function absoluteImageUrl(ref: string | null | undefined): string | null 
 export function cardImageUrl(
   ref: string | null | undefined,
   width = 480,
+  opts: { still?: boolean } = {},
 ): string | undefined {
   const url = resolveImageUrl(ref);
   if (!url) return undefined;
@@ -99,7 +100,32 @@ export function cardImageUrl(
   if (url.startsWith("/cdn/")) path = url;
   else if (base && url.startsWith(`${base}/cdn/`)) path = url.slice(base.length);
   if (!path) return url;
-  return `${base}/cdn-cgi/image/width=${width},quality=85,format=auto,onerror=redirect${path}`;
+  // anim=false: the first frame only. Cloudflare passes an animated GIF through
+  // as a GIF at any width (a 480px cover measured 12MB, and a 51MB one came
+  // back untouched), while the still is ~18KB.
+  const still = opts.still ? ",anim=false" : "";
+  return `${base}/cdn-cgi/image/width=${width},quality=85,format=auto${still},onerror=redirect${path}`;
+}
+
+/** A cover key marked animated at upload (`<uuid>.anim.webp`), or any GIF. */
+const ANIMATED_KEY_RE = /(\.gif|\.anim\.[a-z0-9]+)$/i;
+
+/**
+ * Whether an image ref points at an animated cover. API payloads carry covers
+ * as `/cdn/key/<base64url key>`, so the key (and its extension) is decoded
+ * from the path. Static WebP covers are not marked and return false, so they
+ * are never fetched twice.
+ */
+export function isAnimatedImageRef(ref: string | null | undefined): boolean {
+  if (!ref) return false;
+  const m = /\/cdn\/key\/([A-Za-z0-9_-]+)/.exec(ref);
+  if (!m) return ANIMATED_KEY_RE.test(ref.split("?")[0]!);
+  try {
+    const b64 = m[1]!.replace(/-/g, "+").replace(/_/g, "/");
+    return ANIMATED_KEY_RE.test(atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4)));
+  } catch {
+    return false;
+  }
 }
 
 /**

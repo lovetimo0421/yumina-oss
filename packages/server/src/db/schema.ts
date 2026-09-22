@@ -3255,7 +3255,7 @@ export const worldLatentFactors = pgTable("world_latent_factors", {
 });
 
 export const userLatentFactors = pgTable("user_latent_factors", {
-  userId: text("user_id").primaryKey(),
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
   factors: jsonb("factors").$type<number[]>().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

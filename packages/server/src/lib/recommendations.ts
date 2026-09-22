@@ -48,7 +48,15 @@ export function recommendedFeedCacheKey(_parts: any): string {
   return "";
 }
 
-export async function readCachedFeedPage(_key: string): Promise<any | null> {
+export async function resolveRecommendedFeedCacheKey(_parts: FeedCacheKeyParts): Promise<string | null> {
+  return null;
+}
+
+export async function readCachedFeedPage(
+  _key: string,
+  _filters: HubBaseFilters,
+  _options: { userId?: string; offset: number; limit: number },
+): Promise<CachedFeedPage | null> {
   return null;
 }
 

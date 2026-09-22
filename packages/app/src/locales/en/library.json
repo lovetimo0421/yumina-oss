@@ -675,6 +675,7 @@
     "makeReference": "Generate one first",
     "errors": {
       "TIMED_OUT": "Generation took too long and was stopped. please try again.",
+      "INTERRUPTED": "A server update interrupted this generation. You were not charged. Please generate again.",
       "NEVER_STARTED": "The job couldn't start. please try again.",
       "NO_OUTPUT": "The generator finished without producing anything. try again or adjust your prompt.",
       "STORE_FAILED": "The result couldn't be saved. please try again.",
