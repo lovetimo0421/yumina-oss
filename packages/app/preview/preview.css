@@ -1,0 +1,6 @@
+/* Preview-only stylesheet.
+   Vite roots the preview at `preview/`, so Tailwind 4 auto-detects sources
+   from here and finds none of the app. The explicit @source points it at the
+   real components; everything else comes from the shipped globals. */
+@import "../src/styles/globals.css";
+@source "../src";

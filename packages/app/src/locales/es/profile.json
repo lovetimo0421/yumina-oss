@@ -61,10 +61,8 @@
     "title": "Configuración de generación",
     "subtitle": "Valores predeterminados globales para la generación de IA",
     "resetDefaults": "Restablecer valores predeterminados",
-    "contextSize": "Límite de contexto por turno",
     "contextSizeTokens_one": "{{count}} token",
     "contextSizeTokens": "{{count}} tokens",
-    "contextSizeDesc": "Tokens totales que la IA ve por turno: persona, mundo, lorebook e historial de chat combinados (4.096 - 2.000.000). Una configuración más pesada deja menos espacio para el historial de chat.",
     "contextCapped": "Limitado a {{limit}} en tu plan",
     "contextUpgrade": "Mejora tu plan para más contexto",
     "responseLength": "Longitud de respuesta",
@@ -77,8 +75,6 @@
     "streaming": "Streaming",
     "streamingDesc": "Mostrar respuestas de IA a medida que se generan",
     "streamingBypass": "Desactiva para sortear filtros",
-    "memory": "Memoria",
-    "memoryDesc": "Cuántos tokens recuerda la IA (mayor = más créditos)",
     "advancedParams": "Parámetros avanzados",
     "topP": "Top P",
     "narrow": "Estrecho (0)",
@@ -105,7 +101,15 @@
       "mediumDesc": "Razonamiento más deliberado para la mayoría de las sesiones.",
       "high": "Alto",
       "highDesc": "El razonamiento más profundo, más lento pero más reflexivo."
-    }
+    },
+    "storyMemory": "Memoria de la historia",
+    "storyMemorySuggested": "sugerido",
+    "storyMemoryDesc": "Cuánta conversación pasada se conserva. Lo anterior pasa a un resumen. El lorebook no cuenta aquí.",
+    "overallLimit": "Limite total",
+    "overallUncapped": "Al maximo",
+    "overallLimitDesc": "Total por petición, mundo incluido. Déjalo sin tope.",
+    "overallLimitCapped": "El mundo más grande que lleva tu plan. Lo que sobra se recorta; la memoria de la historia no se toca.",
+    "storyMemoryShort": "Conversación conservada"
   },
   "aiProvider": {
     "yuminaApi": "API de Yumina",
@@ -176,8 +180,9 @@
       "supplyAboveFloor": "Suministro diario: se recarga automáticamente si el saldo cae por debajo de {{floor}}",
       "supplyInfoAria": "Ver detalles del mecanismo de suministro diario",
       "supplyInfoTitle": "Acerca del suministro diario",
+      "supplyTitle": "Suministro diario",
       "supplyInfoClose": "Cerrar",
-      "supplyInfoBody": "Todos los días a las 20:00 UTC —el mismo reinicio que el check-in diario, igual para todos— revisamos tu saldo. Si está por debajo del piso de tu plan, lo recargamos automáticamente al piso. Por encima del piso → no pasa nada.",
+      "supplyInfoBody": "Todos los días a las 20:00 UTC —el mismo reinicio que las misiones diarias, igual para todos— revisamos tu saldo. Si está por debajo del piso de tu plan, lo recargamos automáticamente al piso. Por encima del piso → no pasa nada.",
       "supplyInfoFloorLabel": "Piso por plan",
       "supplyInfoCurrent": "tú",
       "supplyInfoNote": "Nota: esto es \"restaurar al piso\", no \"sumar X al saldo\". P. ej. saldo 750 → 800 solo acredita +50.",
@@ -226,7 +231,7 @@
       "admin": "Admin",
       "refund": "Reembolso",
       "expire": "Expirado",
-      "check_in": "Check-in",
+      "check_in": "Misión",
       "daily_recovery": "Suministro diario",
       "reward": "Recompensa de publicación",
       "referral_reward": "Recompensa por invitación",
@@ -362,8 +367,8 @@
         "hint": "Completa un turno con un modelo que no usaste ayer."
       },
       "community": {
-        "title": "Di algo",
-        "hint": "Publica, responde o da me gusta en la comunidad."
+        "title": "Visita la comunidad",
+        "hint": "Pasa un minuto en la pestaña Comunidad."
       },
       "invite": {
         "title": "Invita a un amigo",
@@ -395,7 +400,8 @@
     "monthlyExpiryPlanEnded": "Mushies mensuales sin usar caducados al terminar el plan",
     "bonusExpired": "Mushies Bonus sin usar caducados en su fecha",
     "ledgerReconciliation": "Corrección del libro: saldo confirmado; un movimiento anterior no se había registrado",
-    "ledgerOpeningBalance": "Saldo inicial (el libro empieza aquí)"
+    "ledgerOpeningBalance": "Saldo inicial (el libro empieza aquí)",
+    "pilePerMonth": "{{amount}} al mes"
   },
   "summary": {
     "chooseModel": "Elegir modelo",
@@ -541,7 +547,6 @@
     "mushiesReceived": "Recibiste {{amount}} mushies",
     "codeRedeemed": "Código de invitación canjeado",
     "title": "Invita a amigos",
-    "subtitle": "Comparte Yumina con tus amigos.",
     "inviteLink": "Enlace de invitación",
     "copyLink": "Copiar enlace",
     "inviteCode": "Código de invitación",
@@ -770,7 +775,7 @@
     "session": {
       "current": "Persona actual: {{name}}",
       "following": "Seguir la persona actual",
-      "followingHint": "Esta sesión cambia cuando eliges otra persona en Ajustes o en cualquier otro lugar.",
+      "followingHint": "Sigue la persona de tu perfil. Elegir una aquí solo cambia esta partida.",
       "locked": "Bloquear la persona en esta sesión",
       "lockedHint": "Esta sesión conserva esta persona cuando cambia la selección de tu cuenta.",
       "saveError": "No se pudo guardar la persona. Inténtalo de nuevo."
@@ -946,7 +951,8 @@
   },
   "questBoard": {
     "title": "Misiones",
-    "unavailable": "Esta cuenta usa el registro diario; el tablero de misiones no aplica.",
+    "unavailable": "El tablero de misiones no está disponible en esta cuenta.",
+    "legacyNotice": "Los check-ins diarios ahora son misiones para todos. Mismo reinicio diario, recompensas según tu plan, y caducan a final del mes que viene. Tu suministro diario no cambia y sigue en la tarjeta del monedero.",
     "thisCycle": "Este ciclo",
     "claimedToday": "Reclamado hoy",
     "todayWorth": "Total de hoy",
@@ -986,8 +992,8 @@
         "hint": "Añade cualquier mundo a tus favoritos."
       },
       "community": {
-        "title": "Di algo",
-        "hint": "Publica, responde o da me gusta en la comunidad."
+        "title": "Visita la comunidad",
+        "hint": "Pasa un minuto en la pestaña Comunidad."
       },
       "world_depth": {
         "title": "Juega {{n}} turnos en un mundo",
@@ -1016,10 +1022,6 @@
       "week_dailies": {
         "title": "Reclama {{n}} misiones diarias esta semana",
         "hint": "Cada misión diaria reclamada cuenta una vez."
-      },
-      "invite_day": {
-        "title": "Alguien usó tu código de invitación hoy",
-        "hint": "Una plaza al día."
       },
       "week_active_friends": {
         "title": "Invita a {{n}} amigos activos esta semana",

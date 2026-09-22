@@ -38,6 +38,9 @@ globalThis.fetch = async (input, init) => {
 // missing-table behavior, so their empty databases must remain under test control.
 // This list controls setup only: the launcher still discovers and runs all tests.
 const fullSchemaTests = new Set([
+  "src/routes/agent-image-batch.test.ts",
+  "src/lib/generation/image-batch-bindings.test.ts",
+  "src/lib/generation/image-batches.test.ts",
   "src/lib/achievements/achievements-engine.test.ts",
   "src/lib/achievements/referral-achievement-separation.test.ts",
   "src/lib/approve-review-publish-date.test.ts",
@@ -53,11 +56,20 @@ const fullSchemaTests = new Set([
   "src/routes/sessions-revert-memory.test.ts",
   "src/routes/sessions-state-patch.test.ts",
   "src/routes/worlds-aggregation.test.ts",
+  "src/routes/discovery-feed.test.ts",
+  "src/routes/feed-dismiss-profile.test.ts",
+  "src/lib/discovery-measurement.test.ts",
+  "src/routes/discovery-attribution.test.ts",
 ]);
 const serverRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const testFile = relative(serverRoot, process.argv[1] ?? "").replaceAll("\\", "/");
 if (process.env.NODE_TEST_CONTEXT && fullSchemaTests.has(testFile)) {
   await import("./test-local-schema.mjs");
+  if (["src/lib/discovery-measurement.test.ts", "src/routes/discovery-attribution.test.ts"].includes(testFile)) {
+    const { readFile } = await import("node:fs/promises");
+    const { db } = await import("../src/db/index.ts");
+    await db.$client.exec(await readFile(new URL("./discovery-measurement.sql", import.meta.url), "utf8"));
+  }
 }
 
 // Some pure tests import the application's DB transitively without ever

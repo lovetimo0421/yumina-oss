@@ -1,3 +1,8 @@
+import { bodyLimit } from "hono/body-limit";
+import { normalizeImageCompletion, imagePromptChars } from "../lib/chat-images.js";
+import { assertImageModel } from "../lib/llm/image-capability.js";
+import { turnNeedsVision } from "../lib/llm/fallback-models.js";
+import type { ImageCompletionMessage } from "@yumina/shared";
 import { recordWallHit } from "../lib/wall-events.js";
 import { usageObservation } from "../lib/usage-observation.js";
 /**
@@ -70,12 +75,12 @@ const MAX_MAX_TOKENS = 8192;
  */
 type IncludeLorebookMode = boolean | "all" | "matched";
 
-completionRoutes.post("/sessions/:sessionId/completions", async (c) => {
+completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 24 * 1024 * 1024 }), async (c) => {
   const currentUser = c.get("user");
   const sessionId = c.req.param("sessionId");
 
   const body = await c.req.json<{
-    messages: Array<{ role: string; content: string }>;
+    messages: ImageCompletionMessage[];
     model?: string;
     maxTokens?: number;
     temperature?: number;
@@ -89,7 +94,10 @@ completionRoutes.post("/sessions/:sessionId/completions", async (c) => {
   if (body.messages.length > MAX_MESSAGES) {
     return c.json({ error: `Too many messages (max ${MAX_MESSAGES})` }, 400);
   }
-  const totalChars = body.messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
+  let providerMessages: ChatMessage[];
+  try { providerMessages = await normalizeImageCompletion(body.messages); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : "Invalid images" }, 400); }
+  const totalChars = providerMessages.reduce((sum, m) => sum + (typeof m.content === "string" ? m.content.length : m.content.reduce((n, p) => n + (p.type === "text" ? p.text.length : 0), 0)), 0);
   if (totalChars > MAX_CONTENT_CHARS) {
     return c.json({ error: `Total content too long (max ${MAX_CONTENT_CHARS.toLocaleString()} chars)` }, 400);
   }
@@ -135,6 +143,11 @@ completionRoutes.post("/sessions/:sessionId/completions", async (c) => {
     return c.json({ error: "This model is unavailable. Please select another model.", code: "MODEL_UNAVAILABLE" }, 403);
   }
 
+  if (turnNeedsVision(providerMessages)) {
+    try { await assertImageModel(resolved, model); }
+    catch (error) { return c.json({ error: (error as Error).message, code: "IMAGE_MODEL_REQUIRED" }, 400); }
+  }
+
   // ── Credit check + model access (skip for BYOK) ──
   // Side calls have NO Sonnet trial. Without a plan gate, a card could fire
   // premium-model side calls that drain a free user's credits (the model the
@@ -164,17 +177,10 @@ completionRoutes.post("/sessions/:sessionId/completions", async (c) => {
   const lorebookSystem = await resolveLorebookSystemMessage(
     body.includeLorebook,
     session.worldId,
-    body.messages,
+    providerMessages.map(m => ({ role: m.role, content: typeof m.content === "string" ? m.content : m.content.filter(p => p.type === "text").map(p => p.text).join("\n") })),
   );
 
   // ── Build provider messages ──
-  const providerMessages: ChatMessage[] = body.messages
-    .filter((m) => ["system", "user", "assistant"].includes(m.role))
-    .map((m) => ({
-      role: m.role as "system" | "user" | "assistant",
-      content: m.content,
-    }));
-
   if (lorebookSystem) {
     // Merge with caller's leading system message if present, otherwise prepend.
     // Keeps role count the same and lets caller-supplied instructions sit
@@ -199,10 +205,7 @@ completionRoutes.post("/sessions/:sessionId/completions", async (c) => {
   // expensive prompt at platform expense. Prompt-only estimate, same semantics
   // as messages.ts / MidStreamTracker.exceedsAtStart().
   if (walletBalance !== Infinity) {
-    const promptChars = providerMessages.reduce((sum, m) => {
-      const text = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-      return sum + text.length;
-    }, 0);
+    const promptChars = imagePromptChars(providerMessages);
     const rates = await getModelCostRates(model, estimateTokensFromChars(promptChars));
     if (estimateCreditsFromChars(rates, promptChars, 0) >= walletBalance) {
       recordWallHit({ userId: currentUser.id, balance: walletBalance, model, endpoint: "side-completion", stage: "prompt_too_long" });

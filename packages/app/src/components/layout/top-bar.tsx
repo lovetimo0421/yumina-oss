@@ -216,7 +216,10 @@ export function TopBar() {
   const isPickerActive = useCreatePageStore((s) => s.isPickerActive);
   const isCreatePicker = isCreatePage && isPickerActive;
   const isEditPage =
-    location.pathname.match(/^\/app\/worlds\/.*\/edit/) || location.pathname.startsWith("/app/studio");
+    location.pathname.match(/^\/app\/worlds\/.*\/edit/) || location.pathname.startsWith("/app/studio")
+    // The generation page draws its own header band; the app bar on top of it
+    // read as two headers.
+    || location.pathname === "/app/generate";
   const isPlayPage =
     location.pathname.startsWith("/app/chat/") || location.pathname.startsWith("/app/preview/");
   const isAdminWorldInspect = location.pathname.startsWith("/app/admin/world-inspect/");

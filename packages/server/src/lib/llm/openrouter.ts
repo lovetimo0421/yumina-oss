@@ -1233,6 +1233,7 @@ export class OpenRouterProvider implements LLMProvider {
         id: string;
         name: string;
         context_length: number;
+        architecture?: { input_modalities?: string[] };
         pricing?: { prompt: string; completion: string };
       }>;
     };
@@ -1241,6 +1242,7 @@ export class OpenRouterProvider implements LLMProvider {
       id: m.id,
       name: m.name,
       contextLength: m.context_length,
+      supportsImages: m.architecture?.input_modalities?.includes("image"),
       pricing: m.pricing
         ? {
             prompt: parseFloat(m.pricing.prompt),

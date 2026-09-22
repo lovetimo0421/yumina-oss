@@ -1,3 +1,6 @@
+import { bodyLimit } from "hono/body-limit";
+import { validateChatImages, storeChatImages, restoreChatImages, imagePromptChars } from "../lib/chat-images.js";
+import { assertImageModel } from "../lib/llm/image-capability.js";
 import { usageObservation } from "../lib/usage-observation.js";
 import { edition } from "../edition/index.js";
 import { Hono } from "hono";
@@ -14,8 +17,6 @@ import {
   worlds,
   worldPendingEdits,
   apiKeys,
-  userPrompts,
-  promptFolders,
   creditWallets,
 } from "../db/schema.js";
 import { recordUsageLog } from "../lib/usage-log.js";
@@ -43,7 +44,7 @@ import {
   isFreeRouterFallback,
   turnNeedsVision,
 } from "../lib/llm/fallback-models.js";
-import { ensureOpenRouterCatalog, registerContextWindows } from "../lib/llm/model-catalog.js";
+import { ensureOpenRouterCatalog, registerContextWindows, getCatalogImageSupport } from "../lib/llm/model-catalog.js";
 import {
   antiRepetitionInstructionForModel,
   detectDegenerateRepetitionForModel,
@@ -70,12 +71,13 @@ import {
   filterAiAudioEffects,
   filterResumableAudioEffects,
 } from "@yumina/engine";
-import type { WorldDefinition, UserPrompt, GameEvent, Effect, Variable } from "@yumina/engine";
-import type { MessageContent, ContentPart } from "../lib/llm/types.js";
+import type { WorldDefinition, GameEvent, Effect, Variable } from "@yumina/engine";
+
 import type { AppEnv } from "../lib/types.js";
 import { captureServerEvent } from "../lib/analytics.js";
 import { retrieveLorebookEntries } from "../lib/lorebook-retriever.js";
 import { applyPersonaMetadata } from "../lib/persona-metadata.js";
+import { loadUserPrompts } from "../lib/user-prompts.js";
 import { appendPersonaSystemMessage } from "../lib/persona-prompt.js";
 import { resolvePersonaForSession } from "../lib/resolve-persona.js";
 import { checkRateLimit, acquireConcurrency, releaseConcurrency } from "../middleware/rate-limit.js";
@@ -88,9 +90,11 @@ import { getAllModelPrices } from "../lib/model-price-cache.js";
 import { getModelPopularity } from "../lib/model-popularity.js";
 import { getModelCostStats } from "../lib/model-cost-stats.js";
 import type { ModelCostStats } from "@yumina/shared";
-import { DEFAULT_MODEL, MAX_USER_MESSAGE_CHARS, PLAY_MODELS, PLAY_MODEL_IDS, RETIRED_PLAY_MODEL_IDS } from "@yumina/shared";
+import { DEFAULT_MODEL, MAX_USER_MESSAGE_CHARS, PLAY_MODELS, PLAY_MODEL_IDS, RETIRED_PLAY_MODEL_IDS, resolveStoryMemory, resolveLorebookBudget } from "@yumina/shared";
+import { env } from "../lib/env.js";
 import {
   compactTurnOverflowIfNeeded,
+  estimatePromptMessagesTokens,
   injectMemoryPromptBlocks,
   loadBoundedRawHistory,
   loadTurnMemoryBlocks,
@@ -112,6 +116,31 @@ import {
   diffStateVariables,
   resolveCharacterCreationTurn,
 } from "../lib/character-creation.js";
+
+
+/**
+ * Story memory for this turn: how much CONVERSATION is sent word for word.
+ *
+ * Separate from maxContext on purpose. maxContext is the ceiling on the whole
+ * request and is what the plan caps; this governs only the trimmable history,
+ * so a big world no longer eats the conversation and a small world no longer
+ * lets it sprawl. Resolution rules and the migration-safety argument live in
+ * packages/shared/src/story-memory.ts.
+ */
+function turnStoryMemory(args: {
+  override: number | undefined;
+  maxContext: number;
+  accountCreatedAt: Date | null | undefined;
+}): { tokens: number; source: "chosen" | "new-account-default" | "carried-over" } {
+  const raw = env.STORY_MEMORY_DEFAULT_AT;
+  const parsed = raw ? Date.parse(raw) : Number.NaN;
+  return resolveStoryMemory({
+    saved: args.override,
+    maxContext: args.maxContext,
+    accountCreatedAt: args.accountCreatedAt ?? null,
+    newAccountsFrom: Number.isFinite(parsed) ? new Date(parsed) : null,
+  });
+}
 
 const messageRoutes = new Hono<AppEnv>();
 
@@ -609,37 +638,6 @@ async function loadLastTurnChanges(
   return undefined;
 }
 
-/**
- * Fetch enabled user prompts for a user, respecting folder enabled state.
- */
-async function loadUserPrompts(userId: string): Promise<UserPrompt[]> {
-  const [prompts, folders] = await Promise.all([
-    db.select().from(userPrompts).where(eq(userPrompts.userId, userId)),
-    db.select().from(promptFolders).where(eq(promptFolders.userId, userId)),
-  ]);
-
-  const disabledFolderIds = new Set(
-    folders.filter((f) => !f.enabled).map((f) => f.id)
-  );
-
-  return prompts
-    .filter(
-      (p) =>
-        p.enabled &&
-        (!p.folderId || !disabledFolderIds.has(p.folderId))
-    )
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      content: p.content,
-      section: p.section as UserPrompt["section"],
-      enabled: true,
-      ...(p.depth != null && { depth: p.depth }),
-      ...(p.position != null && { position: p.position }),
-    }));
-}
-
-
 // POST /api/sessions/:sessionId/messages — send user message + trigger AI generation (SSE)
 // POST /api/sessions/:sessionId/messages/stop — explicit stop for an
 // in-flight generation. A plain SSE disconnect no longer aborts generation
@@ -662,7 +660,7 @@ messageRoutes.post("/sessions/:sessionId/messages/stop", async (c) => {
   return c.json({ data: { stopped } });
 });
 
-messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
+messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 1024 * 1024 }), async (c) => {
   const currentUser = c.get("user");
   const sessionId = c.req.param("sessionId");
   const body = await c.req.json<{
@@ -679,6 +677,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
     overrides?: {
       maxTokens?: number;
       maxContext?: number;
+      storyMemory?: number;
       temperature?: number;
       topP?: number;
       frequencyPenalty?: number;
@@ -691,9 +690,12 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
     };
   }>();
 
+  let inputImages;
+  try { inputImages = await validateChatImages(body.attachments); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : "Invalid images", code: "INVALID_IMAGES" }, 400); }
   const isContinueMode = body.continue === true;
   const rawUserContent = typeof body.content === "string" ? body.content.trim() : "";
-  if (!rawUserContent && !isContinueMode) {
+  if (!rawUserContent && !inputImages.length && !isContinueMode) {
     return c.json({ error: "Content is required" }, 400);
   }
 
@@ -773,6 +775,10 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
   if (!resolved.isByok && RETIRED_PLAY_MODEL_IDS.has(model)) {
     return c.json({ error: "This model is unavailable. Please select another model.", code: "MODEL_UNAVAILABLE" }, 403);
   }
+  if (inputImages.length) {
+    try { await assertImageModel(resolved, model); }
+    catch (error) { return c.json({ error: (error as Error).message, code: "IMAGE_MODEL_REQUIRED" }, 400); }
+  }
   const useProtections = !resolved.isByok;
   // Read plan from wallet (fresh DB query), NEVER from cached session.
   // The auth session cache can be stale for up to 60s after a plan change.
@@ -819,6 +825,11 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
     body.overrides?.reasoningEffort,
     await resolved.provider.getContextWindow?.(),
   );
+  const storyMemory = turnStoryMemory({
+    override: body.overrides?.storyMemory,
+    maxContext,
+    accountCreatedAt: currentUser?.createdAt,
+  });
   if (useProtections) {
     if (checkSuspended(currentUser)) {
       await refundTrialIfClaimed();
@@ -847,16 +858,13 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
     }
   }
 
+  // Roll back only this request's new row if historical images reject the model.
+  // A retry may reuse an older row, which must remain intact.
+  let insertedUserMessageId: string | null = null;
   // Ensure concurrency slot is released if any pre-stream setup throws unexpectedly
   try {
 
-  // Build attachment metadata for storage (without the base64 data)
-  const attachmentMeta = body.attachments?.map((a) => ({
-    type: a.type,
-    mimeType: a.mimeType,
-    name: a.name,
-    url: `data:${a.mimeType};base64,${a.data.slice(0, 50)}...`, // thumbnail ref
-  }));
+  const attachmentMeta = inputImages.length ? await storeChatImages(currentUser.id, inputImages) : undefined;
 
   // Save user message (skip in continue mode — no new user message)
   let userMsg: { id: string } | null = null;
@@ -902,6 +910,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
           })
           .returning();
         userMsg = userMsgResult[0]!;
+        insertedUserMessageId = userMsg.id;
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         if (msg.includes("violates foreign key constraint")) {
@@ -915,26 +924,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
         }
         throw e;
       }
-      // Increment cached message count on the world (+ source world for forks).
-      // Batched via Redis: direct per-message UPDATEs serialized every
-      // concurrent player of a popular world on one row lock (hot-row convoy).
-      bumpWorldMessageCount(context.session.worldId);
     }
-  }
-
-  if (characterCreation) {
-    // Extensions reset their derived per-session state (summaries, memory);
-    // the returned fields merge into this one atomic update with the state.
-    const invalidation = collectExtensionInvalidation({ reason: "character-creation", sessionId });
-    await db
-      .update(playSessions)
-      .set({
-        state: effectiveGameState as unknown as Record<string, unknown>,
-        ...invalidation.sessionFields,
-        updatedAt: new Date(),
-      })
-      .where(eq(playSessions.id, sessionId));
-    await invalidation.runAfter();
   }
 
   const turnMemory = await loadTurnMemoryBlocks({
@@ -981,8 +971,19 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
   const scanDepth = worldDef.settings?.lorebookScanDepth ?? 2;
   const budgetPercent = worldDef.settings?.lorebookBudgetPercent ?? 100;
   const budgetCap = worldDef.settings?.lorebookBudgetCap ?? 0;
-  let tokenBudget = Math.round((budgetPercent * maxContext) / 100);
-  if (budgetCap > 0) tokenBudget = Math.min(tokenBudget, budgetCap);
+  // Story memory is a reservation, not a leftover: the world trims to leave
+  // the conversation its room, rather than the conversation losing turns to
+  // a large world. Which entries MATCH is untouched; this only sets how many
+  // of the matched ones survive (packages/shared/src/lorebook-budget.ts).
+  const tokenBudget = resolveLorebookBudget({
+    maxContext,
+    outputReserve: outputContract.reserve,
+    storyMemory: storyMemory.tokens,
+    storyMemorySource: storyMemory.source,
+    budgetPercent,
+    budgetCap,
+    reserveStoryMemory: env.LOREBOOK_RESERVES_STORY_MEMORY,
+  });
   const recentTexts = currentRunHistory.slice(-scanDepth).map((m) => m.content);
   const lorebookResult = retrieveLorebookEntries({
     entries: worldDef.entries,
@@ -1046,6 +1047,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
     role: m.role as "user" | "assistant" | "system",
     content: m.content,
     sourceMessageId: m.id,
+    imageTokens: m.imageTokens,
   }));
 
   for (const de of depthEntries) {
@@ -1095,22 +1097,31 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
 
   // Trim only chat history (middle), preserving system prefix + post-history suffix
   const suffixCount = postHistoryEntries.length + (formatBlock ? 1 : 0) + (antiRepetitionInstruction ? 1 : 0);
+  // Depth entries and pending context live INSIDE the trim window but are not
+  // conversation. Story memory is a budget for what the player said and the
+  // AI replied; a world that injects a lot of keyword-triggered lore must not
+  // silently shrink it. Measured once and added to the allowance, so the
+  // effective cap on real history stays exactly storyMemory.
+  const nonRawHistoryMessages = [
+    ...depthEntries.map((entry) => ({ role: entry.apiRole, content: entry.content })),
+    ...pendingContext.map((ctx) => ({
+      role: (ctx.role as "system" | "user") ?? "system",
+      content: ctx.message,
+    })),
+  ];
+  const historyWindowBudget = storyMemory.tokens + estimatePromptMessagesTokens(nonRawHistoryMessages, model);
+
   historyStart = await compactTurnOverflowIfNeeded({
     pathLabel: "send",
     turn: turnMemory,
     userId: currentUser.id,
     model,
     maxContext,
+    storyMemory: storyMemory.tokens,
     contextMessages,
     historyStart,
     suffixCount,
-    nonRawHistoryMessages: [
-      ...depthEntries.map((entry) => ({ role: entry.apiRole, content: entry.content })),
-      ...pendingContext.map((ctx) => ({
-        role: (ctx.role as "system" | "user") ?? "system",
-        content: ctx.message,
-      })),
-    ],
+    nonRawHistoryMessages,
     indices: memoryIndices,
   });
   const chatMessages = await promptBuilder.buildMessageHistoryAsync(
@@ -1119,7 +1130,8 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
     maxContext - outputContract.reserve,
     historyStart,
     suffixCount,
-    model
+    model,
+    historyWindowBudget,
   );
 
   if (outputContract.content) chatMessages.push({ role: "system", content: outputContract.content });
@@ -1133,28 +1145,24 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
   // entries ever fire — always-send content stays cached), (2) depth-resilient floor.
   const breakpoints = Array.from(new Set([stablePrefixEnd, cacheBreakpointIndex].filter((i) => i >= 0))).sort((a, b) => a - b);
 
-  // Convert to provider message format, injecting multimodal attachments into the last user message
-  const providerMessages: Array<{ role: "user" | "assistant" | "system"; content: MessageContent }> = chatMessages.map((m) => ({
-    role: m.role,
-    content: m.content as MessageContent,
-  }));
+  const providerMessages = await restoreChatImages(sessionId, chatMessages);
+  if (turnNeedsVision(providerMessages)) await assertImageModel(resolved, model);
 
-  if (body.attachments && body.attachments.length > 0) {
-    // Find the last user message and convert it to multimodal
-    for (let i = providerMessages.length - 1; i >= 0; i--) {
-      if (providerMessages[i]!.role === "user") {
-        const textContent = providerMessages[i]!.content as string;
-        const parts: ContentPart[] = [
-          { type: "text", text: textContent },
-          ...body.attachments.map((a) => ({
-            type: "image_url" as const,
-            image_url: { url: `data:${a.mimeType};base64,${a.data}` },
-          })),
-        ];
-        providerMessages[i]!.content = parts;
-        break;
-      }
-    }
+  // Commit turn side effects only after image capability validation succeeds.
+  if (insertedUserMessageId) bumpWorldMessageCount(context.session.worldId);
+  if (characterCreation) {
+    // Extensions reset their derived per-session state (summaries, memory);
+    // the returned fields merge into this one atomic update with the state.
+    const invalidation = collectExtensionInvalidation({ reason: "character-creation", sessionId });
+    await db
+      .update(playSessions)
+      .set({
+        state: effectiveGameState as unknown as Record<string, unknown>,
+        ...invalidation.sessionFields,
+        updatedAt: new Date(),
+      })
+      .where(eq(playSessions.id, sessionId));
+    await invalidation.runAfter();
   }
 
   // Stream response
@@ -1205,10 +1213,7 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
     const creditStartBalance = walletCheck?.balance ?? Infinity;
     const isUnlimitedPlan = planConfig.unlimited;
     // Count prompt characters for cost estimation (actual chars, NOT estimated tokens)
-    const promptChars = providerMessages.reduce((sum, m) => {
-      const text = typeof m.content === "string" ? m.content : JSON.stringify(m.content);
-      return sum + text.length;
-    }, 0);
+    const promptChars = imagePromptChars(providerMessages);
     const costRates = (!isUnlimitedPlan && useProtections)
       ? await getModelCostRates(model, estimateTokensFromChars(promptChars))
       : null;
@@ -1988,6 +1993,12 @@ messageRoutes.post("/sessions/:sessionId/messages", async (c) => {
     // Only fires if pre-stream setup threw before entering streamSSE
     if (useProtections) await releaseConcurrency(currentUser.id);
     await refundTrialIfClaimed();
+    if (err instanceof Error && err.name === "ImageModelError") {
+      if (insertedUserMessageId) {
+        await db.delete(messages).where(and(eq(messages.id, insertedUserMessageId), eq(messages.sessionId, sessionId)));
+      }
+      return c.json({ error: err.message, code: "IMAGE_MODEL_REQUIRED" }, 400);
+    }
     throw err;
   }
 });
@@ -2091,6 +2102,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     overrides?: {
       maxTokens?: number;
       maxContext?: number;
+      storyMemory?: number;
       temperature?: number;
       topP?: number;
       frequencyPenalty?: number;
@@ -2304,10 +2316,22 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     body.overrides?.reasoningEffort,
     await resolved.provider.getContextWindow?.(),
   );
+  const regenStoryMemory = turnStoryMemory({
+    override: body.overrides?.storyMemory,
+    maxContext: regenMaxContext,
+    accountCreatedAt: currentUser?.createdAt,
+  });
   const regenBudgetPercent = worldDef.settings?.lorebookBudgetPercent ?? 100;
   const regenBudgetCap = worldDef.settings?.lorebookBudgetCap ?? 0;
-  let tokenBudget = Math.round((regenBudgetPercent * regenMaxContext) / 100);
-  if (regenBudgetCap > 0) tokenBudget = Math.min(tokenBudget, regenBudgetCap);
+  const tokenBudget = resolveLorebookBudget({
+    maxContext: regenMaxContext,
+    outputReserve: outputContract.reserve,
+    storyMemory: regenStoryMemory.tokens,
+    storyMemorySource: regenStoryMemory.source,
+    budgetPercent: regenBudgetPercent,
+    budgetCap: regenBudgetCap,
+    reserveStoryMemory: env.LOREBOOK_RESERVES_STORY_MEMORY,
+  });
   const recentTexts = priorMessages.slice(-scanDepth).map((m) => m.content);
   const lorebookResult = retrieveLorebookEntries({
     entries: worldDef.entries,
@@ -2365,6 +2389,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     role: m.role as "user" | "assistant" | "system",
     content: m.content,
     sourceMessageId: m.id,
+    imageTokens: m.imageTokens,
   }));
 
   for (const de of regenDepthEntries) {
@@ -2409,19 +2434,28 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   }
 
   const regenSuffixCount = regenPostHistory.length + (regenFormatBlock ? 1 : 0) + (regenAntiRepetitionInstruction ? 1 : 0);
+  // Depth entries and pending context live INSIDE the trim window but are not
+  // conversation. Story memory is a budget for what the player said and the
+  // AI replied; a world that injects a lot of keyword-triggered lore must not
+  // silently shrink it. Measured once and added to the allowance, so the
+  // effective cap on real history stays exactly storyMemory.
+  const regenNonRawHistoryMessages = [
+    ...regenDepthEntries.map((entry) => ({ role: entry.apiRole, content: entry.content })),
+    ...regenPendingContext.map((ctx) => ({ role: (ctx.role as "system" | "user") ?? "system", content: ctx.message })),
+  ];
+  const regenHistoryWindowBudget = regenStoryMemory.tokens + estimatePromptMessagesTokens(regenNonRawHistoryMessages, model);
+
   regenHistoryStart = await compactTurnOverflowIfNeeded({
     pathLabel: "regenerate",
     turn: regenTurnMemory,
     userId: currentUser.id,
     model,
     maxContext: regenMaxContext,
+    storyMemory: regenStoryMemory.tokens,
     contextMessages: regenContextMessages,
     historyStart: regenHistoryStart,
     suffixCount: regenSuffixCount,
-    nonRawHistoryMessages: [
-      ...regenDepthEntries.map((entry) => ({ role: entry.apiRole, content: entry.content })),
-      ...regenPendingContext.map((ctx) => ({ role: (ctx.role as "system" | "user") ?? "system", content: ctx.message })),
-    ],
+    nonRawHistoryMessages: regenNonRawHistoryMessages,
     indices: regenMemoryIndices,
   });
   const chatMessages = await promptBuilder.buildMessageHistoryAsync(
@@ -2430,7 +2464,8 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     regenMaxContext - outputContract.reserve,
     regenHistoryStart,
     regenSuffixCount,
-    model
+    model,
+    regenHistoryWindowBudget,
   );
 
   // Two-breakpoint caching (see send path for rationale): stable prefix + depth-resilient floor.
@@ -2438,6 +2473,9 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   const regenCacheDepthOffset = computeCacheDepthOffset(worldDef);
   const regenCacheBreakpointIndex = chatMessages.length - 1 - regenSuffixCount - (outputContract.content ? 1 : 0) - regenCacheDepthOffset;
   const regenBreakpoints = Array.from(new Set([regenStablePrefixEnd, regenCacheBreakpointIndex].filter((i) => i >= 0))).sort((a, b) => a - b);
+
+  const providerMessages = await restoreChatImages(msg.sessionId, chatMessages);
+  if (turnNeedsVision(providerMessages)) await assertImageModel(resolved, model);
 
   const regenProvider = resolved.provider;
   const startTime = Date.now();
@@ -2449,7 +2487,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   const outputAttempt = new TurnOutputAttempt({ dispatch: regenTurnMemory.dispatch, userId: currentUser.id, sessionId: msg.sessionId, targetId: msg.id, path: "regenerate", world: worldDef, baseline: gameState, model, apiKeyTier: resolved.apiKeyTier, startedAt: startTime, worldVersion: context.worldVersion, pendingVersion: context.pendingVersion, signal: abortController.signal, worldId: context.session.worldId, checkPending: viewerSeesWorkingCopy(context.worldStatus, context.worldCreatorId, currentUser.id) });
 
   // Mid-stream credit tracking for regenerate (mirrors send path)
-  const regenPromptChars = chatMessages.reduce((sum, m) => sum + (typeof m.content === "string" ? m.content : JSON.stringify(m.content)).length, 0);
+  const regenPromptChars = imagePromptChars(providerMessages);
   const regenTracker = useProtections && !planConfig.unlimited
     ? await MidStreamTracker.create({
         ctx: { wallet: { ...walletCheck!.wallet, balance: walletCheck!.balance }, plan: userPlan, planConfig, protected: true, concurrencyHeld: true },
@@ -2515,7 +2553,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
       for await (const chunk of regenProvider.generateStream({
         conversationId: `play:${msg.sessionId}`,
         model,
-        messages: chatMessages,
+        messages: providerMessages,
         maxTokens: regenClamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
         temperature: regenClamp(body.overrides?.temperature ?? worldDef.settings?.temperature ?? 1.0, 0, 2),
         topP: body.overrides?.topP ?? worldDef.settings?.topP,
@@ -2535,7 +2573,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           : getOfficialProviderFallbackModels(
               model,
               resolved.isByok,
-              turnNeedsVision(chatMessages),
+              turnNeedsVision(providerMessages),
             ),
         fallbackOnTransientErrors: allowsTransientFallback(model, resolved.isByok),
         signal: abortController.signal,
@@ -2661,7 +2699,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           const { parsed: regenParseResult } = await outputAttempt.validate({
             world: worldDef, state: stateManager.getSnapshot(), raw: fullContent, parsed: legacyParsed,
             provider: regenProvider, model: correctionModel, maxContext: regenMaxContext, signal: abortController.signal,
-            stopReason: chunk.stopReason, history: chatMessages,
+            stopReason: chunk.stopReason, history: providerMessages,
             cacheEnabled: regenBreakpoints.length > 0, stream: body.overrides?.streaming,
           }, async (audit) => { await sse({ event: "state-validation", data: JSON.stringify(audit) }); });
           const cleanText = regenParseResult.cleanText;
@@ -3034,6 +3072,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   } catch (err) {
     if (useProtections) await releaseConcurrency(currentUser.id);
     await refundTrialIfClaimed();
+    if (err instanceof Error && err.name === "ImageModelError") return c.json({ error: err.message, code: "IMAGE_MODEL_REQUIRED" }, 400);
     throw err;
   }
 });
@@ -3048,6 +3087,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     overrides?: {
       maxTokens?: number;
       maxContext?: number;
+      storyMemory?: number;
       temperature?: number;
       topP?: number;
       frequencyPenalty?: number;
@@ -3141,6 +3181,11 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     body.overrides?.reasoningEffort,
     await resolved.provider.getContextWindow?.(),
   );
+  const storyMemory = turnStoryMemory({
+    override: body.overrides?.storyMemory,
+    maxContext,
+    accountCreatedAt: currentUser?.createdAt,
+  });
   if (useProtections) {
     if (checkSuspended(currentUser)) {
       await refundTrialIfClaimed();
@@ -3232,8 +3277,19 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   const scanDepth = worldDef.settings?.lorebookScanDepth ?? 2;
   const budgetPercent = worldDef.settings?.lorebookBudgetPercent ?? 100;
   const budgetCap = worldDef.settings?.lorebookBudgetCap ?? 0;
-  let tokenBudget = Math.round((budgetPercent * maxContext) / 100);
-  if (budgetCap > 0) tokenBudget = Math.min(tokenBudget, budgetCap);
+  // Story memory is a reservation, not a leftover: the world trims to leave
+  // the conversation its room, rather than the conversation losing turns to
+  // a large world. Which entries MATCH is untouched; this only sets how many
+  // of the matched ones survive (packages/shared/src/lorebook-budget.ts).
+  const tokenBudget = resolveLorebookBudget({
+    maxContext,
+    outputReserve: outputContract.reserve,
+    storyMemory: storyMemory.tokens,
+    storyMemorySource: storyMemory.source,
+    budgetPercent,
+    budgetCap,
+    reserveStoryMemory: env.LOREBOOK_RESERVES_STORY_MEMORY,
+  });
   const recentTexts = currentRunHistory.slice(-scanDepth).map((m) => m.content);
   const lorebookResult = retrieveLorebookEntries({
     entries: worldDef.entries,
@@ -3291,6 +3347,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     role: m.role as "user" | "assistant" | "system",
     content: m.content,
     sourceMessageId: m.id,
+    imageTokens: m.imageTokens,
   }));
 
   for (const de of depthEntries) {
@@ -3327,19 +3384,28 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   }
 
   const contSuffixCount = contPostHistory.length + (contFormatBlock ? 1 : 0) + (contAntiRepetitionInstruction ? 1 : 0);
+  // Depth entries and pending context live INSIDE the trim window but are not
+  // conversation. Story memory is a budget for what the player said and the
+  // AI replied; a world that injects a lot of keyword-triggered lore must not
+  // silently shrink it. Measured once and added to the allowance, so the
+  // effective cap on real history stays exactly storyMemory.
+  const contNonRawHistoryMessages = depthEntries.map((entry) => ({ role: entry.apiRole, content: entry.content }));
+  const contHistoryWindowBudget = storyMemory.tokens + estimatePromptMessagesTokens(contNonRawHistoryMessages, model);
+
   contHistoryStart = await compactTurnOverflowIfNeeded({
     pathLabel: "continue",
     turn: contTurnMemory,
     userId: currentUser.id,
     model,
     maxContext,
+    storyMemory: storyMemory.tokens,
     contextMessages,
     historyStart: contHistoryStart,
     suffixCount: contSuffixCount,
-    nonRawHistoryMessages: depthEntries.map((entry) => ({ role: entry.apiRole, content: entry.content })),
+    nonRawHistoryMessages: contNonRawHistoryMessages,
     indices: contMemoryIndices,
   });
-  const chatMessages = await promptBuilder.buildMessageHistoryAsync(contextMessages, yieldForIO, maxContext - outputContract.reserve, contHistoryStart, contSuffixCount, model);
+  const chatMessages = await promptBuilder.buildMessageHistoryAsync(contextMessages, yieldForIO, maxContext - outputContract.reserve, contHistoryStart, contSuffixCount, model, contHistoryWindowBudget);
 
   // Two-breakpoint caching (see send path for rationale): stable prefix + depth-resilient floor.
   if (outputContract.content) chatMessages.push({ role: "system", content: outputContract.content });
@@ -3352,6 +3418,8 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
 
   const provider = resolved.provider;
   const startTime = Date.now();
+  const providerMessages = await restoreChatImages(sessionId, chatMessages);
+  if (turnNeedsVision(providerMessages)) await assertImageModel(resolved, model);
   const existingContent = lastAssistantMsg.content;
   const abortController = new AbortController();
   // Registered for the SIGTERM drain — deploys wait for this generation (up
@@ -3361,7 +3429,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   const outputAttempt = new TurnOutputAttempt({ dispatch: contTurnMemory.dispatch, userId: currentUser.id, sessionId: sessionId, targetId: lastAssistantMsg.id, path: "continue", world: worldDef, baseline: gameState, model, apiKeyTier: resolved.apiKeyTier, startedAt: startTime, worldVersion: context.worldVersion, pendingVersion: context.pendingVersion, signal: abortController.signal, worldId: context.session.worldId, checkPending: viewerSeesWorkingCopy(context.worldStatus, context.worldCreatorId, currentUser.id) });
 
   // Mid-stream credit tracking for continue (mirrors send path)
-  const contPromptChars = chatMessages.reduce((sum, m) => sum + (typeof m.content === "string" ? m.content : JSON.stringify(m.content)).length, 0);
+  const contPromptChars = imagePromptChars(providerMessages);
   const contTracker = useProtections && !planConfig.unlimited
     ? await MidStreamTracker.create({
         ctx: { wallet: { ...walletCheck!.wallet, balance: walletCheck!.balance }, plan: userPlan, planConfig, protected: true, concurrencyHeld: true },
@@ -3412,7 +3480,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
       for await (const chunk of provider.generateStream({
         conversationId: `play:${sessionId}`,
         model,
-        messages: chatMessages,
+        messages: providerMessages,
         maxTokens: contClamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
         temperature: contClamp(body.overrides?.temperature ?? worldDef.settings?.temperature ?? 1.0, 0, 2),
         topP: body.overrides?.topP ?? worldDef.settings?.topP,
@@ -3432,7 +3500,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           : getOfficialProviderFallbackModels(
               model,
               resolved.isByok,
-              turnNeedsVision(chatMessages),
+              turnNeedsVision(providerMessages),
             ),
         fallbackOnTransientErrors: allowsTransientFallback(model, resolved.isByok),
         signal: abortController.signal,
@@ -3558,7 +3626,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           const { parsed: contParseResult } = await outputAttempt.validate({
             world: worldDef, state: stateManager.getSnapshot(), raw: continuationContent, parsed: legacyParsed,
             provider: provider, model: correctionModel, maxContext: maxContext, signal: abortController.signal,
-            stopReason: chunk.stopReason, history: chatMessages,
+            stopReason: chunk.stopReason, history: providerMessages,
             cacheEnabled: contBreakpoints.length > 0, stream: body.overrides?.streaming,
           }, async (audit) => { await sse({ event: "state-validation", data: JSON.stringify(audit) }); });
           const cleanContinuation = contParseResult.cleanText;
@@ -3945,6 +4013,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   } catch (err) {
     if (useProtections) await releaseConcurrency(currentUser.id);
     await refundTrialIfClaimed();
+    if (err instanceof Error && err.name === "ImageModelError") return c.json({ error: err.message, code: "IMAGE_MODEL_REQUIRED" }, 400);
     throw err;
   }
 });
@@ -4216,6 +4285,7 @@ function getProvider(modelId: string): string {
 }
 
 interface CachedModel {
+  supportsImages?: boolean;
   id: string;
   name: string;
   provider: string;
@@ -4239,7 +4309,7 @@ export async function invalidateModelCacheForUser(userId: string): Promise<void>
   memModelCache.delete(userId);
   if (redis) {
     try {
-      await redis.del(`models:${userId}`);
+      await redis.del(`models:vision-v1:${userId}`);
     } catch {
       // Cache invalidation is best-effort; the TTL will eventually expire.
     }
@@ -4253,10 +4323,11 @@ messageRoutes.get("/models/popularity", async (c) => c.json({ data: await getMod
 messageRoutes.get("/models", async (c) => {
   const currentUser = c.get("user");
   const now = Date.now();
+  await ensureOpenRouterCatalog();
 
   // Check per-user cache (Redis first, then in-memory fallback)
   if (redis) {
-    const cached = await redis.get(`models:${currentUser.id}`);
+    const cached = await redis.get(`models:vision-v1:${currentUser.id}`);
     if (cached) {
       const models: CachedModel[] = JSON.parse(cached);
       const curated = models.filter((m) => m.isCurated);
@@ -4289,6 +4360,7 @@ messageRoutes.get("/models", async (c) => {
       name: model.name,
       provider: getProvider(model.id),
       contextLength: model.contextWindow ?? 0,
+      supportsImages: getCatalogImageSupport(model.id),
       minPlan: model.minPlan,
       isCurated: true,
     }));
@@ -4333,6 +4405,7 @@ messageRoutes.get("/models", async (c) => {
             provider: getProvider(m.id),
             contextLength: m.contextLength,
             pricing: m.pricing,
+            supportsImages: m.supportsImages ?? (keyRow.provider === "openrouter" ? getCatalogImageSupport(m.id) : undefined),
             isCurated: CURATED_MODEL_IDS.has(m.id),
           });
         }
@@ -4367,7 +4440,7 @@ messageRoutes.get("/models", async (c) => {
 
     // Store in per-user cache
     if (redis) {
-      await redis.set(`models:${currentUser.id}`, JSON.stringify(deduped), "EX", Math.ceil(MODEL_CACHE_TTL / 1000));
+      await redis.set(`models:vision-v1:${currentUser.id}`, JSON.stringify(deduped), "EX", Math.ceil(MODEL_CACHE_TTL / 1000));
     } else {
       memModelCache.set(currentUser.id, { models: deduped, expiresAt: now + MODEL_CACHE_TTL });
     }

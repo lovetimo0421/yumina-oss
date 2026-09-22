@@ -289,18 +289,16 @@
       "description": "Controla qué tan fuerte es el desvanecimiento oscuro en la parte inferior de las páginas inmersivas.",
       "minLabel": "Más claro",
       "maxLabel": "Más oscuro",
-      "ariaLabel": "Intensidad del degradado inferior",
-      "hint": "Cambia el desvanecimiento negro inferior sin quitar el estilo propio de cada página"
+      "ariaLabel": "Intensidad del degradado inferior"
     },
     "cloudyGlass": {
       "title": "Intensidad del cristal nublado",
       "description": "Hace el cristal nublado más borroso y denso sin cambiar a los preajustes de cristal más claro.",
       "minLabel": "Más claro",
       "maxLabel": "Más nublado",
-      "ariaLabel": "Intensidad del cristal nublado",
-      "hint": "Vista previa en vivo al arrastrar"
+      "ariaLabel": "Intensidad del cristal nublado"
     },
-    "autoSaves": "Se guarda automáticamente al soltar",
+    "autoSaves": "Los cambios se guardan automáticamente",
     "library": {
       "title": "Biblioteca de fondos",
       "description": "Haz clic en un fondo para elegir qué página lo usa."
@@ -359,9 +357,7 @@
     "privacyPolicy": "Política de privacidad",
     "licenses": "Licencias",
     "contactSupport": "Contactar a Yumina",
-    "contactSupportDescription": "Leemos cada mensaje.",
     "messageOfficial": "Enviar mensaje a {{username}}",
-    "messageOfficialHint": "Abrir un mensaje directo",
     "emailSupport": "Correo de soporte",
     "emailCopied": "Correo copiado: {{email}}"
   }

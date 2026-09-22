@@ -26,6 +26,15 @@ describe("detectMaterialChange", () => {
     expect(detectMaterialChange(approved, proposed).reasons).toContain("entries");
   });
 
+  it("holds character portrait additions, replacements and removals for review", () => {
+    for (const [before, after] of [[undefined, "@asset:new"], ["@asset:old", "@asset:new"], ["@asset:old", undefined]]) {
+      const character = { ...entry("alice", "An explorer"), role: "character" };
+      const approved = snap({ schema: world({ entries: [{ ...character, portrait: before }] as any }) });
+      const proposed = snap({ schema: world({ entries: [{ ...character, portrait: after }] as any }) });
+      expect(detectMaterialChange(approved, proposed)).toEqual({ changed: true, reasons: ["entries"] });
+    }
+  });
+
   it("flags a newly added entry as 'entries'", () => {
     const approved = snap({ schema: world({ entries: [entry("e1", "a")] }) });
     const proposed = snap({ schema: world({ entries: [entry("e1", "a"), entry("e2", "b")] }) });

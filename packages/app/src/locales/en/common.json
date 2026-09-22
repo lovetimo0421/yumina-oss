@@ -241,39 +241,48 @@
     "group": {
       "new_follower": {
         "two": "{{name}} and {{other}} started following you",
-        "many": "{{name}} and {{count}} others started following you"
+        "many": "{{name}} and {{count}} others started following you",
+        "many_one": "{{name}} and {{count}} other started following you"
       },
       "new_favorite": {
         "two": "{{name}} and {{other}} favorited {{worldName}}",
-        "many": "{{name}} and {{count}} others favorited {{worldName}}"
+        "many": "{{name}} and {{count}} others favorited {{worldName}}",
+        "many_one": "{{name}} and {{count}} other favorited {{worldName}}"
       },
       "bundle_like": {
         "two": "{{name}} and {{other}} liked {{bundleName}}",
-        "many": "{{name}} and {{count}} others liked {{bundleName}}"
+        "many": "{{name}} and {{count}} others liked {{bundleName}}",
+        "many_one": "{{name}} and {{count}} other liked {{bundleName}}"
       },
       "thread_like": {
         "two": "{{name}} and {{other}} liked your post",
-        "many": "{{name}} and {{count}} others liked your post"
+        "many": "{{name}} and {{count}} others liked your post",
+        "many_one": "{{name}} and {{count}} other liked your post"
       },
       "post_like": {
         "two": "{{name}} and {{other}} liked your comment",
-        "many": "{{name}} and {{count}} others liked your comment"
+        "many": "{{name}} and {{count}} others liked your comment",
+        "many_one": "{{name}} and {{count}} other liked your comment"
       },
       "thread_reply": {
         "two": "{{name}} and {{other}} replied to your post",
-        "many": "{{name}} and {{count}} others replied to your post"
+        "many": "{{name}} and {{count}} others replied to your post",
+        "many_one": "{{name}} and {{count}} other replied to your post"
       },
       "post_reply": {
         "two": "{{name}} and {{other}} replied to your comment",
-        "many": "{{name}} and {{count}} others replied to your comment"
+        "many": "{{name}} and {{count}} others replied to your comment",
+        "many_one": "{{name}} and {{count}} other replied to your comment"
       },
       "new_comment": {
         "two": "{{name}} and {{other}} commented on {{worldName}}",
-        "many": "{{name}} and {{count}} others commented on {{worldName}}"
+        "many": "{{name}} and {{count}} others commented on {{worldName}}",
+        "many_one": "{{name}} and {{count}} other commented on {{worldName}}"
       },
       "new_review_reply": {
         "two": "{{name}} and {{other}} replied to your review",
-        "many": "{{name}} and {{count}} others replied to your review"
+        "many": "{{name}} and {{count}} others replied to your review",
+        "many_one": "{{name}} and {{count}} other replied to your review"
       }
     },
     "giftBonusExpires": "{{amount}} Bonus expires {{date}}"

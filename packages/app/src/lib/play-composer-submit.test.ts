@@ -9,7 +9,7 @@ import { transform } from "sucrase";
 test("the play composer honors keyboard settings on touch-capable desktops", async (t) => {
   const dom = new JSDOM('<div id="root"></div>', { url: "https://synthetic.test" });
   const win = dom.window;
-  const globals = { window: win, document: win.document, navigator: win.navigator, IS_REACT_ACT_ENVIRONMENT: true };
+  const globals = { window: win, document: win.document, navigator: win.navigator, FileReader: win.FileReader, IS_REACT_ACT_ENVIRONMENT: true };
   const previous = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(globals)) {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
@@ -19,11 +19,14 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
   const noop = () => {};
   const empty = () => null;
   const sent: string[] = [];
+  const sentImages: unknown[][] = [];
   let modelPickerRequests = 0;
   let narrow = false;
   const api = {
+    getModels: async () => ({ models: [] }), selectedModel: "google/gemini-2.5-flash", preferredProvider: "official", mixMode: false, modelPool: [],
     isStreaming: false, pendingChoices: [], readOnly: false, language: "en",
-    composerSendKey: "enter", sendMessage: (content: string) => sent.push(content),
+    composerSendKey: "enter", sendFailureNonce: 0, error: null as string | null,
+    sendMessage: (content: string, images: unknown[] = []) => { sent.push(content); sentImages.push(images); },
     stopGeneration: noop, continueLastMessage: noop, restartChat: noop,
     clearPendingChoices: noop, showToast: noop, openPersonaManager: noop,
     openSessionManager: noop, messages: [], getBranchContext: noop,
@@ -44,6 +47,7 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
       useIsNarrow: () => narrow,
     },
     "../protocol": { postToParentWindow: noop, wrapMessage: (value: unknown) => value },
+    "../../src/lib/chat-image-input": require("./chat-image-input.ts"),
     "../../src/lib/composer-message-limit": {
       clampComposerMessage: (value: string) => value,
       getComposerMessageLimitState: () => "hidden", MAX_USER_MESSAGE_CHARS: 50_000,
@@ -58,7 +62,7 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
   }).code)((id: string) => mocks[id] ?? require(id), module, module.exports);
 
   type Device = { coarse?: boolean; touchPoints?: number; touchEvent?: boolean; noMatchMedia?: boolean };
-  async function withComposer(device: Device, check: (input: HTMLTextAreaElement) => Promise<void>, mode = "enter", streaming = false) {
+  async function withComposer(device: Device, check: (input: HTMLTextAreaElement, rerender: () => Promise<void>) => Promise<void>, mode = "enter", streaming = false) {
     sent.length = 0;
     api.composerSendKey = mode;
     api.isStreaming = streaming;
@@ -83,7 +87,7 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
         input.dispatchEvent(new win.Event("input", { bubbles: true }));
       });
       assert.equal(input.value, "Hello 世界");
-      await check(input);
+      await check(input, async () => { await act(async () => root.render(createElement(module.exports.MessageInput))); });
     } finally {
       await act(async () => root.unmount());
     }
@@ -118,6 +122,40 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
       });
     }
     narrow = false;
+    await t.test("image paste keeps the original plus actions and survives model gating and send failure", async () => withComposer({}, async (input, rerender) => {
+      const plus = win.document.querySelector<HTMLButtonElement>('button[title="actions"]')!;
+      await act(async () => plus.click());
+      for (const action of ["continue", "restartChat", "persona", "branches"]) assert.ok(win.document.body.textContent?.includes(action), action);
+      const paste = new win.Event("paste", { bubbles: true, cancelable: true });
+      const file = new win.File([new Uint8Array([1, 2, 3])], "clipboard.png", { type: "image/png" });
+      Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "file", type: "image/png", getAsFile: () => file }] } });
+      await act(async () => { input.dispatchEvent(paste); await new Promise(resolve => setTimeout(resolve, 40)); });
+      assert.equal(paste.defaultPrevented, true);
+      assert.equal(win.document.querySelector('img[alt="clipboard.png"]')?.getAttribute("src"), "data:image/png;base64,AQID");
+      api.selectedModel = "deepseek/deepseek-v3.2";
+      await rerender();
+      await press(input);
+      assertDraft(input);
+      assert.ok(win.document.body.textContent?.includes("cannot read images"));
+      api.selectedModel = "google/gemini-2.5-flash";
+      await rerender();
+      await press(input);
+      assertSent(input);
+      assert.equal(sentImages.at(-1)?.length, 1);
+      assert.equal(win.document.querySelector('img[alt="clipboard.png"]'), null);
+      api.sendFailureNonce++;
+      await rerender();
+      assert.equal(input.value, "Hello 世界");
+      assert.ok(win.document.querySelector('img[alt="clipboard.png"]'));
+      await act(async () => win.document.querySelector<HTMLButtonElement>('button[aria-label="Remove image"]')!.click());
+      assert.equal(win.document.querySelector('img[alt="clipboard.png"]'), null);
+    }));
+    await t.test("ordinary text paste keeps native behavior", async () => withComposer({}, async input => {
+      const paste = new win.Event("paste", { bubbles: true, cancelable: true });
+      Object.defineProperty(paste, "clipboardData", { value: { items: [{ kind: "string", type: "text/plain", getAsFile: () => null }] } });
+      await act(async () => input.dispatchEvent(paste));
+      assert.equal(paste.defaultPrevented, false);
+    }));
     for (const [name, device] of [
       ["ordinary desktop", {}],
       ["fine pointer with touchscreen hardware", { touchPoints: 10 }],

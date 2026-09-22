@@ -1217,6 +1217,8 @@
         "refresh": "Refresh",
         "shortfall": "{{amount}} Mushies short",
         "errorStale": "The world has changed. Start a new request to avoid overwriting your edits.",
+        "restartHere": "Start again from here",
+        "restartMessage": "Continue from where you stopped, working from the card as it is now.",
         "errorActive": "This task is already running. Please wait for its status to update.",
         "errorFailed": "Could not resume the task. Your saved progress is still available; please retry.",
         "errorBillingMissing": "Usage details are unavailable. Your result is saved and needs billing reconciliation.",
@@ -1275,7 +1277,49 @@
       "deleteConv": "Delete conversation",
       "deleteConvConfirm": "Delete?",
       "attachmentUploadFailed": "Sent without the images",
-      "undoRollbackFailed": "Undid the messages, not the card changes"
+      "undoRollbackFailed": "Undid the messages, not the card changes",
+      "imageBatch": {
+        "title": "Generate images",
+        "declined": "Generation skipped",
+        "selectAll": "Select all · {{count}} selected",
+        "library": "Save to asset library",
+        "portrait": "Character portrait",
+        "component": "UI image · {{key}}",
+        "existing": "Has an image · skipped",
+        "bindingNote": "Image saved. Retrying the assignment will not generate or charge for another image.",
+        "model": "Image model",
+        "estimateUnavailable": "Estimate unavailable",
+        "billingNote": "Each selected item generates one image. Charged by actual image usage; no extra assistant turns.",
+        "confirm": "Generate {{count}} images",
+        "background": "Generating in the background. You can leave and return.",
+        "pausedNote": "Paused for insufficient Mushies. Completed images are saved.",
+        "resume": "Continue remaining images",
+        "retryBinding": "Retry image assignment",
+        "retry": "Retry {{count}} failed items",
+        "syncFailed": "Could not refresh progress. The saved task may still be running.",
+        "requestFailed": "Could not submit. Refresh the saved task and try again.",
+        "refresh": "Refresh status",
+        "phase": {
+          "running": "Generating images",
+          "paused": "Generation paused",
+          "completed": "Images ready",
+          "partial": "Some images need attention",
+          "failed": "Generation failed"
+        },
+        "item": {
+          "pending": "Pending",
+          "queued": "Queued",
+          "running": "Generating",
+          "awaiting_credits": "Paused",
+          "succeeded": "Ready",
+          "failed": "Failed",
+          "skipped": "Skipped",
+          "binding_failed": "Assignment failed"
+        },
+        "pausedStorageNote": "Storage is full. Free space in Assets to continue.",
+        "pausedUnavailableNote": "Generation is temporarily unavailable. Completed images are saved.",
+        "pausedGenericNote": "Temporarily paused. Completed images are saved. Try continuing later."
+      }
     },
     "sidebar": {
       "title": "Sidebar",
@@ -1540,8 +1584,7 @@
       "newName": "New setting"
     },
     "advancedPromo": {
-      "title": "Want your card to do more?",
-      "subtitle": "Simple mode covers the essentials. Advanced mode unlocks the full engine — the same one behind the most-played worlds on Yumina:",
+      "title": "Advanced editor",
       "bulletVariables": "Variables — track affinity, fear, trust… and show them as live stat bars",
       "bulletBehaviors": "Behaviors — rules that react to state (\"affinity > 80 → unlock a route\")",
       "bulletLorebooks": "Lorebooks — keyword-triggered knowledge, bindable to a specific opening",
@@ -1938,5 +1981,12 @@
       "metadata_issue": "Cover / description / tags issue",
       "other": "Other (must explain below)"
     }
+  },
+  "imageInsert": {
+    "button": "Insert image",
+    "upload": "Upload from computer",
+    "library": "From assets",
+    "uploading": "Uploading…",
+    "failed": "Upload failed: {{name}}"
   }
 }

@@ -289,18 +289,16 @@
       "description": "Controls how strong the dark fade is near the bottom of immersive pages.",
       "minLabel": "Lighter",
       "maxLabel": "Darker",
-      "ariaLabel": "Bottom gradient strength",
-      "hint": "Changes the lower black fade without removing page-specific styling"
+      "ariaLabel": "Bottom gradient strength"
     },
     "cloudyGlass": {
       "title": "Cloudy Glass Strength",
       "description": "Makes the cloudy glass blurrier and denser without switching over to the clearer glass presets.",
       "minLabel": "Clearer",
       "maxLabel": "Cloudier",
-      "ariaLabel": "Cloudy glass strength",
-      "hint": "Live preview while dragging"
+      "ariaLabel": "Cloudy glass strength"
     },
-    "autoSaves": "Auto-saves after you stop dragging",
+    "autoSaves": "Changes save automatically",
     "library": {
       "title": "Wallpaper Library",
       "description": "Click a wallpaper to choose which page uses it."
@@ -359,9 +357,7 @@
     "privacyPolicy": "Privacy Policy",
     "licenses": "Licenses",
     "contactSupport": "Contact Yumina",
-    "contactSupportDescription": "We read every message.",
     "messageOfficial": "Message {{username}}",
-    "messageOfficialHint": "Open a direct message",
     "emailSupport": "Email support",
     "emailCopied": "Email copied: {{email}}"
   }

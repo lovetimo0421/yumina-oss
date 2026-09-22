@@ -289,18 +289,16 @@
       "description": "控制沉浸式頁面底部暗色漸變的強度。",
       "minLabel": "較淺",
       "maxLabel": "較深",
-      "ariaLabel": "底部漸變強度",
-      "hint": "改變底部的黑色漸變而不移除頁面特定樣式"
+      "ariaLabel": "底部漸變強度"
     },
     "cloudyGlass": {
       "title": "模糊玻璃強度",
       "description": "讓模糊玻璃更模糊更密集，而不切換到更清晰的玻璃預設。",
       "minLabel": "更清晰",
       "maxLabel": "更模糊",
-      "ariaLabel": "模糊玻璃強度",
-      "hint": "拖動時實時預覽"
+      "ariaLabel": "模糊玻璃強度"
     },
-    "autoSaves": "停止拖動後自動儲存",
+    "autoSaves": "變更會自動儲存",
     "library": {
       "title": "桌布庫",
       "description": "點選桌布即可選擇哪個頁面使用它。"
@@ -358,9 +356,7 @@
     "privacyPolicy": "隱私政策",
     "licenses": "開源許可",
     "contactSupport": "聯絡夢塢",
-    "contactSupportDescription": "我們會閱讀每一條訊息。",
     "messageOfficial": "私信 {{username}}",
-    "messageOfficialHint": "直接發訊息給官方賬號",
     "emailSupport": "郵件支援",
     "emailCopied": "已複製郵箱：{{email}}"
   }

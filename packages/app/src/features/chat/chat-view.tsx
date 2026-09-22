@@ -510,7 +510,7 @@ export function ChatView({
 
   const yuminaAPI = useMemo<YuminaAPI>(
     () => ({
-      sendMessage: (text: string) => useChatStore.getState().sendMessage(text),
+      sendMessage: (text: string, attachments?: import("@yumina/shared").ChatImageInput[]) => useChatStore.getState().sendMessage(text, undefined, attachments),
       setVariable: (id: string, value: number | string | boolean | Record<string, unknown> | unknown[]) =>
         useChatStore.getState().setVariableDirectly(resolveVariableKey(id), value),
       executeAction: (actionId: string) =>

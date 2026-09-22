@@ -11,11 +11,14 @@ interface CreditPauseCardProps {
   onTopUp: () => void;
   onResume: () => void;
   onRefresh: () => void;
+  /** A stuck pause (the card changed under a paid, unapplied step) cannot be
+   *  refreshed into anything. Its one exit is a fresh request from here. */
+  onRestart: () => void;
 }
 
 /** The approved inline recovery card. Budget estimates never imply a debit;
  * saved generations distinguish unpaid results from already settled work. */
-export function CreditPauseCard({ pause, resuming, refreshing, error, onTopUp, onResume, onRefresh }: CreditPauseCardProps) {
+export function CreditPauseCard({ pause, resuming, refreshing, error, onTopUp, onResume, onRefresh, onRestart }: CreditPauseCardProps) {
   const { t, i18n } = useTranslation("editor");
   const format = (value: number) => new Intl.NumberFormat(i18n.language, {
     maximumFractionDigits: value > 0 && value < 0.01 ? 4 : 2,
@@ -90,10 +93,14 @@ export function CreditPauseCard({ pause, resuming, refreshing, error, onTopUp, o
       )}
       {error && error !== detail && <p className="mt-2 break-words text-destructive" role="alert">{error}</p>}
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        {blocked || (!knowsBalance && !settled) ? (
-          <button type="button" onClick={budgetUnavailable && !stale && !waiting ? onResume : onRefresh} disabled={busy} className={cn(buttonClass, "border-border bg-background text-foreground hover:bg-muted")}>
+        {stale ? (
+          <button type="button" onClick={onRestart} disabled={busy} className={cn(buttonClass, "border-transparent bg-primary text-primary-foreground hover:brightness-110")}>
+            {t("studio.aiChat.creditPause.restartHere")}
+          </button>
+        ) : blocked || (!knowsBalance && !settled) ? (
+          <button type="button" onClick={budgetUnavailable && !waiting ? onResume : onRefresh} disabled={busy} className={cn(buttonClass, "border-border bg-background text-foreground hover:bg-muted")}>
             {refreshing && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
-            {budgetUnavailable && !stale && !waiting ? t("studio.aiChat.creditPause.retryStep") : t("studio.aiChat.creditPause.refresh")}
+            {budgetUnavailable && !waiting ? t("studio.aiChat.creditPause.retryStep") : t("studio.aiChat.creditPause.refresh")}
           </button>
         ) : (
           <>

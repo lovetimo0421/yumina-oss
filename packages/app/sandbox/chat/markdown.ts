@@ -1,9 +1,14 @@
 /**
  * Sandbox-side markdown renderer.
  *
- * Ported from packages/app/src/lib/markdown.ts with minimal changes:
- * - Import paths adjusted for sandbox bundle
- * - No other behavioral changes
+ * This is THE chat renderer: every message and greeting a player reads goes
+ * through `renderMessage` here, because the whole chat UI lives inside the
+ * sandbox iframe. It began as a copy of packages/app/src/lib/markdown.ts
+ * (whose `renderMessage` no longer has a caller), and the two drifted — the
+ * host copy gained `![alt](url)` images in April 2026 and this one did not,
+ * so image markdown in openings reached players as literal text until
+ * September. When touching the message pipeline in either file, check the
+ * other.
  */
 
 import DOMPurify from "dompurify";
@@ -36,6 +41,58 @@ const MIN_HTML_EMBED_HEIGHT = 120;
 const MAX_HTML_EMBED_HEIGHT = 1200;
 
 // ── Helpers ────────────────────────────────────────────────────────
+
+const ASSET_SRC_RE =
+  /^(?:@asset:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CDN_PATH_RE = /^\/cdn\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+
+/**
+ * Widest a picture in a message can be painted: the chat column tops out
+ * around 800 CSS px and phones run 2–3× DPR, so 1280 device px covers every
+ * slot without the edge ever upscaling (it never does; the browser would).
+ */
+const CHAT_IMAGE_WIDTH = 1280;
+
+/**
+ * The picture a message actually downloads. Creators upload whatever came out
+ * of their tools — the live Maid Mansion opening is a 3.4 MB PNG — and a chat
+ * cannot make a player pull that over 4G for a picture a few hundred pixels
+ * wide. Cloudflare Image Transformations (`/cdn-cgi/image/…`, the same path
+ * hub cards use via `cardImageUrl`) turns that file into a ~190 KB webp at
+ * the edge; `onerror=redirect` hands back the original when a transform is
+ * refused (unsupported format, oversize source), and `hardenImageEl` in the
+ * component host swaps to the plain `/cdn/` path if the transform endpoint
+ * itself is missing (local dev, self-hosted). Root-relative on purpose — see
+ * `resolveSandboxImageSrc`.
+ */
+export function chatImageUrl(assetId: string): string {
+  // Vite's dev server has no /cdn-cgi/image; skip the detour there.
+  if (import.meta.env?.DEV) return `/cdn/${assetId}`;
+  return `/cdn-cgi/image/width=${CHAT_IMAGE_WIDTH},quality=85,format=auto,onerror=redirect/cdn/${assetId}`;
+}
+
+/**
+ * Creators put library pictures in greetings and messages two ways —
+ * `![](@asset:{uuid})` and `[image:@asset:{uuid}]`. Left alone an `@asset:` ref
+ * is a relative URL the browser can never load, so map the asset shapes
+ * (`@asset:{uuid}`, a bare uuid, `/cdn/{uuid}`) onto the edge-sized CDN
+ * picture and leave every other src (https, data:, relative paths) untouched.
+ *
+ * Root-relative on purpose. This renderer runs inside the sandbox iframe,
+ * which is mounted with `sandbox="allow-scripts"` and no `allow-same-origin`,
+ * so its origin is opaque and anything derived from `location.origin` is
+ * unusable in here. A root-relative path resolves against the iframe's
+ * document URL — the app's own host — and is the same shape sandbox-context
+ * hands card code.
+ */
+export function resolveSandboxImageSrc(src: string): string {
+  const trimmed = src.trim();
+  const cdn = CDN_PATH_RE.exec(trimmed);
+  if (cdn) return chatImageUrl(cdn[1]!);
+  if (!ASSET_SRC_RE.test(trimmed)) return trimmed;
+  const assetId = trimmed.startsWith("@asset:") ? trimmed.slice(7) : trimmed;
+  return chatImageUrl(assetId);
+}
 
 function clampHeight(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_HTML_EMBED_HEIGHT;
@@ -188,7 +245,7 @@ export function renderMessage(raw: string): string {
  *   1. Protect code blocks / inline code from processing
  *   2. Parse image embed directives [image:https://...|size=...|placement=...]
  *   3. Escape HTML in non-code regions
- *   4. Apply built-in markdown (bold, italic)
+ *   4. Apply built-in markdown (bold, italic, `![alt](url)` images)
  *   5. Restore code blocks
  *   6. Add line breaks
  *   7. Restore image embeds
@@ -247,6 +304,11 @@ function renderMessageUncached(raw: string): string {
   // Italic: *...*
   html = html.replace(ITALIC_RE, "<em>$1</em>");
 
+  // Standard markdown images: ![alt](url)
+  html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_match, alt, src) => {
+    return `<img src="${resolveSandboxImageSrc(src)}" alt="${alt}" class="rounded-lg max-w-full" loading="lazy" />`;
+  });
+
   html = html.replace(
     /\x00CB(\d+)\x00/g,
     (_match, idx) => codeBlocks[Number(idx)] ?? "",
@@ -257,7 +319,7 @@ function renderMessageUncached(raw: string): string {
   // Restore rich image cards.
   html = html.replace(/\x00IM(\d+)\x00/g, (_match, idx) => {
     const embed = imageEmbeds[Number(idx)];
-    return embed ? renderImageEmbedHtml(embed) : "";
+    return embed ? renderImageEmbedHtml(embed, resolveSandboxImageSrc) : "";
   });
 
   // Restore iframe-based html ui blocks.

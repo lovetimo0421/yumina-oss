@@ -146,6 +146,7 @@ export interface StreamChunk {
 // ── Model & Provider ──
 
 export interface Model {
+  supportsImages?: boolean;
   id: string;
   name: string;
   contextLength: number;

@@ -22,8 +22,8 @@ export const corsMiddleware = cors({
   origin: isDev
     ? (origin) => origin
     : (origin) => (origin && ALLOWED_ORIGINS.has(origin) ? origin : env.APP_URL),
-  allowHeaders: ["Content-Type", "Authorization", "X-Yumina-Wallet-Version"],
-  exposeHeaders: ["X-Agent-Run-Id"],
+  allowHeaders: ["Content-Type", "Authorization", "X-Yumina-Wallet-Version", "X-Discovery-Account"],
+  exposeHeaders: ["X-Agent-Run-Id", "Date"],
   allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   credentials: true,
   maxAge: 86400,

@@ -110,6 +110,44 @@ export interface OverviewReport {
       genres: { label: string; people: number }[]; languages: { label: string; people: number }[] }[];
   };
 }
+/** One audience on one billing lineup: what it cost in AI and what it paid. Lineup 0 = receipts with no account. */
+export interface FinanceAudience {
+  audience: "free" | "paying" | "creator" | "internal" | "unattributed";
+  lineup: 0 | 1 | 2;
+  wallets: number;
+  activeUsers: number;
+  playCostMicros: string;
+  studioCostMicros: string;
+  netReceiptsMicros: string;
+  payers: number;
+  unpricedRequests: number;
+}
+/** Do paying subscribers carry the free users? Ratios are per window; null where the division has no meaning. */
+export interface FinanceBreakEven {
+  activeFree: number;
+  payingWallets: number;
+  freePerPayer: number | null;
+  marginPerPayerMicros: string | null;
+  netCostPerFreeMicros: string | null;
+  sustainableFreePerPayer: number | null;
+}
+/** One chart bucket of one audience on one lineup: how many people played and what it cost. Feeds the audience filters. */
+export interface FinanceAudienceDay {
+  day: string;
+  lineup: 1 | 2;
+  audience: "free" | "paying" | "creator" | "internal";
+  activeUsers: number;
+  costMicros: string;
+}
+/** Signups in the window by lineup and whether they paid inside 7 / 30 days (mature cohorts only). */
+export interface FinanceConversion {
+  lineup: 1 | 2;
+  signups: number;
+  mature7: number;
+  paid7: number;
+  mature30: number;
+  paid30: number;
+}
 export interface FinanceDay {
   day: string;
   grossMicros: string;
@@ -169,6 +207,15 @@ export interface FinanceReport {
     costMicros: string | null;
     mature: boolean;
   }[];
+  /** Who the AI bill belongs to; present once request costs and accounts are attributable. */
+  audiences?: FinanceAudience[];
+  breakEven?: FinanceBreakEven;
+  /** Check-in vs quest payouts per chart bucket, in mushies. */
+  rewardDays?: { day: string; checkinMushies: number; questMushies: number }[];
+  /** AI cost and people per chart bucket for every audience, split by lineup. */
+  audienceDays?: FinanceAudienceDay[];
+  /** How new signups on each lineup converted to a first payment. */
+  conversion?: FinanceConversion[];
   exclusions: string[];
 }
 export interface TokenReport {

@@ -116,7 +116,7 @@ export interface SandboxedYuminaAPI {
   getEntry: (name: string) => SandboxEntry | null;
 
   // ── Game actions (fire-and-forget) ──
-  sendMessage: (text: string) => void;
+  sendMessage: (text: string, attachments?: import("@yumina/shared").ChatImageInput[]) => void;
   /** Session-scoped, transactional social simulation; requests resolve after persistence. */
   social: {
     get: () => Promise<any>;
@@ -334,7 +334,7 @@ export interface SandboxedYuminaAPI {
   balance: number | null;
   setModel: (modelId: string) => void;
   getModels: (provider?: "private") => Promise<{
-    models: Array<{ id: string; name: string; provider: string; contextLength: number }>;
+    models: Array<{ id: string; name: string; provider: string; contextLength: number; supportsImages?: boolean }>;
     pinnedModels: string[];
     recentlyUsed: string[];
   }>;
@@ -386,7 +386,7 @@ export interface SandboxedYuminaAPI {
   // ── AI completions (raw LLM calls, no chat pipeline) ──
   ai: {
     complete: (params: {
-      messages: Array<{ role: string; content: string }>;
+      messages: import("@yumina/shared").ImageCompletionMessage[];
       onDelta?: (text: string) => void;
       model?: string;
       maxTokens?: number;
@@ -914,7 +914,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     },
 
     // Game actions (fire-and-forget)
-    sendMessage: (text) => postToParent("sendMessage", [text]),
+    sendMessage: (text, attachments) => postToParent("sendMessage", [text, attachments]),
     social: {
       get: () => socialCall("social.get", []),
       action: (action) => socialCall("social.action", [action]),

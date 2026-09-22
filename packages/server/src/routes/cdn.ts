@@ -55,7 +55,7 @@ function applyCdnCors(c: Context): void {
   c.header("Access-Control-Allow-Origin", "*");
   // Media seeking + progress UIs need these readable cross-origin; without the
   // allowlist the browser hides them from script even on a successful response.
-  c.header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, ETag");
+  c.header("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges, ETag, Content-Encoding, X-Uncompressed-Length");
   // `Vary: Origin` is deliberately omitted: the value is a constant `*`, so
   // varying would only fragment the Cloudflare cache for no behavioral gain.
 }
@@ -108,10 +108,11 @@ export async function streamS3Object(
   c: Context,
   s3Key: string,
   errorLogPrefix: string,
+  readObject: typeof getObject = getObject,
 ): Promise<Response> {
   const range = c.req.header("range");
   try {
-    const { body, contentType, contentLength, contentRange, etag } = await getObject(
+    const { body, contentType, contentLength, contentRange, etag, contentEncoding, decodedLength } = await readObject(
       s3Key,
       range ? { range } : undefined,
     );
@@ -122,6 +123,9 @@ export async function streamS3Object(
 
     applyCdnCors(c);
     c.header("Content-Type", contentType);
+    if (contentEncoding) c.header("Content-Encoding", contentEncoding);
+    if (contentEncoding && decodedLength && s3Key.startsWith('worlds/pvz-previews/'))
+      c.header("X-Uncompressed-Length", String(decodedLength));
     // User-owned objects can be removed during account deletion. Browsers must
     // revalidate instead of keeping an immutable one-year copy; the edge may
     // cache briefly for performance, bounding post-deletion availability.

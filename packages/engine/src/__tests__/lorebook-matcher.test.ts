@@ -1181,3 +1181,65 @@ describe("LorebookMatcher", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// The token budget trims, it never recruits
+// ---------------------------------------------------------------------------
+describe("token budget vs. matching", () => {
+  const matcher = new LorebookMatcher();
+
+  it("an unmatched entry never appears, however large the budget", () => {
+    // The question this guards: does raising the ceiling (or uncapping it)
+    // start sending entries whose keywords did not fire? Selection happens
+    // before the budget is consulted, so it cannot.
+    const entries = [
+      loreEntry(["dragon"], "Dragons nest on the eastern ridge."),
+      loreEntry(["submarine"], "The submarine is moored at pier nine."),
+    ];
+    for (const budget of [50, 5_000, 2_000_000, Infinity]) {
+      const result = matcher.matchWithBudget(entries, ["I look for the dragon"], emptyState(), budget);
+      const contents = result.triggered.map((e) => e.content);
+      expect(contents).toEqual(["Dragons nest on the eastern ridge."]);
+      expect(result.alwaysSend).toEqual([]);
+    }
+  });
+
+  it("a bigger budget only lets more ALREADY-matched entries through", () => {
+    const entries = [
+      loreEntry(["harbour"], "H".repeat(400)),
+      loreEntry(["harbour"], "I".repeat(400)),
+      loreEntry(["harbour"], "J".repeat(400)),
+      loreEntry(["volcano"], "Never mentioned."),
+    ];
+    const msgs = ["we walk to the harbour"];
+    const tight = matcher.matchWithBudget(entries, msgs, emptyState(), estimateTokens("H".repeat(400)));
+    const loose = matcher.matchWithBudget(entries, msgs, emptyState(), Infinity);
+
+    expect(tight.triggered.length).toBeLessThan(loose.triggered.length);
+    expect(loose.triggered.length).toBe(3);
+    // The volcano entry is absent from both: no budget can recruit it.
+    expect(loose.triggered.some((e) => e.content === "Never mentioned.")).toBe(false);
+  });
+
+  it("conditions still gate an entry when the budget is unlimited", () => {
+    const gated = loreEntry(["gate"], "The gate is open.", {
+      conditions: [createMockCondition({ variableId: "trust", operator: "gt", value: 10 })],
+    });
+    const open = matcher.matchWithBudget([gated], ["approach the gate"], stateWith({ trust: 50 }), Infinity);
+    const shut = matcher.matchWithBudget([gated], ["approach the gate"], stateWith({ trust: 1 }), Infinity);
+    expect(open.triggered).toHaveLength(1);
+    expect(shut.triggered).toHaveLength(0);
+  });
+
+  it("always-send entries are returned whole and are not subject to the budget", () => {
+    // Worth pinning: the budget applies only to triggered entries. An author
+    // who marks a huge entry always-send is charged to the overall ceiling,
+    // not to the lorebook budget.
+    const entries = [
+      loreEntry([], "A".repeat(4_000), { alwaysSend: true, keywords: [] }),
+      loreEntry(["ridge"], "R".repeat(4_000)),
+    ];
+    const result = matcher.matchWithBudget(entries, ["over the ridge"], emptyState(), 1);
+    expect(result.alwaysSend).toHaveLength(1);
+  });
+});

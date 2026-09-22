@@ -31,6 +31,12 @@
         if (/^creator\./i.test(window.location.hostname)) return;
         if (!window.matchMedia || !window.matchMedia("(max-width: 767px)").matches) return;
         var path = window.location.pathname;
+        var root = document.documentElement;
+        // Canvas paint is shared by every app page, independently of whether
+        // the document, a form pane, or a game owns scrolling.
+        if (path === "/" || /^\/app(?:\/|$)/.test(path)) {
+          root.setAttribute("data-mobile-app-canvas", path === "/" || /^\/app\/(?:hub|community|library|profile|users|settings|messages)(?:\/|$)/.test(path) || /^\/app\/worlds\/create\/?$/.test(path) ? "wallpaper" : "plain");
+        }
         var page;
         if (/^\/app\/messages(?:\/|$)/.test(path)) document.documentElement.setAttribute("data-mobile-message-canvas", "");
         if (path === "/" || /^\/app\/hub(?:\/|$)/.test(path)) page = "hub-main";
@@ -40,9 +46,11 @@
           var search = new URLSearchParams(window.location.search);
           page = search.get("view") === "favorites" ? "library-favorites" : search.get("worldId") ? "library-detail" : "library-main";
         } else if (/^\/app\/profile\/?$/.test(path)) page = "profile-main";
+        else if (/^\/app\/settings\/?$/.test(path)) page = "settings-main";
+        else if (/^\/app\/admin(?:\/|$)/.test(path) && !/^\/app\/admin\/world-inspect(?:\/|$)/.test(path)) page = "admin-main";
+        else if (/^\/app\/worlds\/create\/?$/.test(path)) page = "create-picker";
         else if (/^\/app\/users\/[^/]+\/?$/.test(path)) page = "public-profile-main";
         if (!page) return;
-        var root = document.documentElement;
         root.setAttribute("data-mobile-page-scroll", page);
         root.setAttribute("data-reading-boot", "");
       })();
@@ -169,8 +177,24 @@
     <!-- Keep the entire reading canvas in the HTML response. Safari can choose
          its initial browser-edge color before external CSS has arrived; a
          separate stylesheet lets the old splash/body color seed that state. -->
+    <!-- Home Screen canvas v2: shared document paint, full-height play, neutral play edge.
+         Keep this in the HTML response so the installed app paints the correct
+         safe areas before React and the external stylesheet finish loading. -->
     <style id="reading-page-surface">
-      html[data-mobile-page-scroll], html[data-mobile-message-canvas] {
+      html[data-mobile-app-canvas="plain"] {
+        --reading-canvas-color: var(--color-background, #121316);
+        background: var(--reading-canvas-color);
+      }
+
+      /* Play reserves the notch outside the authored iframe. Keep that exposed
+         canvas and its glass tint neutral: Discover's blue-gray makes a band
+         above dark worlds even when their viewport geometry is correct. */
+      html[data-mobile-app-canvas="plain"]:has(.app-shell-root[data-play-page="true"]) {
+        --reading-canvas-color: #000;
+        --mobile-canvas-edge-rgb: 0, 0, 0;
+      }
+
+      html[data-mobile-page-scroll]:where(:not([data-mobile-app-canvas="plain"])), html[data-mobile-message-canvas], html[data-mobile-app-canvas="wallpaper"] {
         --reading-canvas-image: url("/starry-night-bg.jpg");
         --reading-canvas-color: rgb(25, 27, 36);
         --reading-canvas-veil: linear-gradient(rgba(11, 10, 16, 0.45), rgba(11, 10, 16, 0.45));
@@ -195,23 +219,29 @@
         overflow-y: auto;
         overscroll-behavior-y: auto;
       }
+      html[data-mobile-page-scroll="admin-main"] {
+        --reading-canvas-color: #111214;
+        background-color: var(--reading-canvas-color);
+        background-image: none;
+      }
 
       /* Conversations keep their keyboard-sized panels. Paint the document
          behind those panels as well, including Safari's browser edges. */
-      html[data-mobile-message-canvas] body,
-      html[data-mobile-message-canvas] #root,
-      html[data-mobile-message-canvas] .app-shell-root {
+      html[data-mobile-app-canvas] body,
+      html[data-mobile-app-canvas] #root,
+      html[data-mobile-app-canvas] .app-shell-root {
         background: transparent;
       }
 
       html[data-mobile-page-scroll="community-main"],
-      html[data-mobile-page-scroll^="library-"] {
+      html[data-mobile-page-scroll^="library-"],
+      html[data-mobile-page-scroll="create-picker"] {
         --reading-canvas-image: url("/libary-bg.jpg");
         --reading-canvas-veil: linear-gradient(rgba(11, 10, 16, 0.28), rgba(11, 10, 16, 0.28));
       }
 
       @supports (height: 100lvh) {
-        html[data-mobile-page-scroll], html[data-mobile-message-canvas] {
+        html[data-mobile-page-scroll], html[data-mobile-message-canvas], html[data-mobile-app-canvas="wallpaper"] {
           --reading-canvas-tile-height: max(100lvh, calc(100vw / var(--reading-canvas-aspect, 1.7777778)));
         }
       }
@@ -229,7 +259,7 @@
       /* Keep the loading indicator without a fixed black layer that Safari
          can retain as a solid toolbar color after loading. */
       html[data-mobile-page-scroll] #app-splash,
-      html[data-mobile-message-canvas] #app-splash {
+      html[data-mobile-app-canvas] #app-splash {
         position: absolute;
         inset: 0 0 auto;
         min-height: 100vh;

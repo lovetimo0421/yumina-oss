@@ -66,7 +66,7 @@ export type ServerHubEventMap = {
     offset: number;
     limit: number;
     returned_count: number;
-    total_count: number;
+    total_count: number | null;
     world_ids: string[];
     /** Tier of the user's reco profile (cold/warm/mature), if computed. */
     tier: "cold" | "warm" | "mature" | null;
@@ -74,7 +74,15 @@ export type ServerHubEventMap = {
      * cache ("hit") or freshly computed ("miss"). Absent on paths that don't
      * participate in the feed cache (default/search/tag/followed). Lets us
      * measure cache hit-rate in PostHog. */
-    cache?: "hit" | "miss";
+    cache?: "hit" | "miss" | "cursor";
+    /** Separates starter-hint exposure from baseline without logging chosen topics. */
+    starter_policy?: "catalog-hints-v1" | null;
+    policy_version?: string;
+    catalog_scans?: number;
+    duration_ms?: number;
+    has_more?: boolean;
+    measurement_status?: "recorded" | "unavailable" | "off";
+    snapshot_bytes?: number;
     /** Ranking experiment arm that produced this slate (Ship 1:
      * "control" | "engage_v1"). Slice CTR by this to read the A/B. */
     variant?: string;

@@ -23,7 +23,7 @@ const app = new Hono<AppEnv>();
 app.use("*", async (c, next) => { c.set("user", { id: "owner" } as never); await next(); });
 app.post("/:id/list-models", handler);
 const request = (suffix = "?refresh=auto") => app.request(`/key/list-models${suffix}`, { method: "POST" });
-const read = async (response: Response) => await response.json() as { data: { ok: boolean; models: string[] } };
+const read = async (response: Response) => await response.json() as { data: { ok: boolean; models: string[]; imageCapabilities: Record<string, boolean> } };
 
 before(async () => {
   await db.execute(sql`CREATE TABLE api_keys (
@@ -80,6 +80,22 @@ test("real route keeps saved catalog after upstream auth, malformed and empty re
     assert.deepEqual(saved.metadata?.models, ["old", "manual"]);
     assert.equal(saved.metadata?.modelsSyncedAt, undefined);
   }
+});
+
+test("fresh OpenRouter catalog retains known image capabilities without any network request", async () => {
+  await db.update(apiKeys).set({ provider: "openrouter", metadata: {
+    models: ["google/gemini-2.5-pro", "deepseek/deepseek-v3.2"],
+    modelsSyncedAt: Date.now(),
+  } }).where(eq(apiKeys.id, "key"));
+  let calls = 0;
+  globalThis.fetch = (async () => { calls++; throw new Error("fresh catalog must not contact upstream"); }) as typeof fetch;
+  const result = await read(await request());
+  assert.equal(result.data.ok, true);
+  assert.deepEqual(result.data.imageCapabilities, {
+    "google/gemini-2.5-pro": true,
+    "deepseek/deepseek-v3.2": false,
+  });
+  assert.equal(calls, 0);
 });
 
 test("refresh merges against current metadata instead of overwriting concurrent edits", async () => {

@@ -228,7 +228,7 @@ export function renderMessage(raw: string): string {
   // Restore rich image cards.
   html = html.replace(/\x00IM(\d+)\x00/g, (_match, idx) => {
     const embed = imageEmbeds[Number(idx)];
-    return embed ? renderImageEmbedHtml(embed) : "";
+    return embed ? renderImageEmbedHtml(embed, resolveMarkdownImageSrc) : "";
   });
 
   // Restore iframe-based html ui blocks.
@@ -685,7 +685,7 @@ export function renderCommunityMarkdown(
   // Restore image embeds
   html = html.replace(/\x00IM(\d+)\x00/g, (_match, idx) => {
     const embed = imageEmbeds[Number(idx)];
-    return embed ? renderImageEmbedHtml(embed) : "";
+    return embed ? renderImageEmbedHtml(embed, resolveMarkdownImageSrc) : "";
   });
 
   // Restore html embeds

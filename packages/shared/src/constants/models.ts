@@ -1,3 +1,4 @@
+import { IMAGE_MODEL_CAPABILITIES } from "./image-models.js";
 // ─── Unified Model Registry ─────────────────────────────────────────
 // Single source of truth for all Yumina models. Both server (agent.ts
 // allowlist) and client (play/studio pickers) import from here.
@@ -16,6 +17,7 @@ export interface TimeBasedAvgCostMushies {
 }
 
 export interface YuminaModel {
+  supportsImages?: boolean;
   /** Verified catalog limit used before the live provider catalog warms. */
   contextWindow?: number;
   /** Date added to the Play catalog, for newest-first sorting. */
@@ -136,7 +138,8 @@ export interface StudioModel extends YuminaModel {
 // directly (sandbox model picker, store fallback, admin dropdowns) inherit
 // the order, so registry entries can be appended in any order above.
 
-export const PLAY_MODELS = (YUMINA_MODELS.filter((m) => m.scope === "play" || m.scope === "both") as PlayModel[])
+export const PLAY_MODELS: PlayModel[] = (YUMINA_MODELS.filter((m) => m.scope === "play" || m.scope === "both") as PlayModel[])
+  .map(m => ({ ...m, supportsImages: IMAGE_MODEL_CAPABILITIES[m.id] }))
   .sort((a, b) => (a.avgCostMushies ?? 0) - (b.avgCostMushies ?? 0));
 export const STUDIO_MODELS = (YUMINA_MODELS.filter((m) => m.scope === "studio" || m.scope === "both") as StudioModel[])
   .sort((a, b) => (a.inputPrice + a.outputPrice) - (b.inputPrice + b.outputPrice));

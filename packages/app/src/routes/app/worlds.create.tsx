@@ -113,8 +113,8 @@ function TemplatePicker({
   };
 
   return (
-    // The topbar and app shell already reserve the device's safe areas.
-    <div className="create-shell flex h-full min-h-0 w-full overflow-hidden px-4 pb-3 pt-0 md:items-start md:justify-center md:overflow-y-auto md:p-6 lg:p-8">
+    // Mobile shares Discover's document scrollport; the shell owns safe areas.
+    <div data-scroll-restoration-id="create-picker" className="create-shell flex h-full min-h-0 w-full overflow-hidden px-4 pb-3 pt-0 md:items-start md:justify-center md:overflow-y-auto md:p-6 lg:p-8">
       <div className="create-col mx-auto flex h-full min-h-0 w-full max-w-[430px] flex-col md:h-auto md:max-w-6xl">
         <div className="shrink-0 animate-[fadeInUp_0.5s_ease-out_both] md:hidden">
           <div className="mb-1 flex items-center gap-3">
@@ -144,14 +144,6 @@ function TemplatePicker({
               })}
             </h1>
           </div>
-          <div className="max-w-[330px] border-l border-amber-200/50 pl-3 text-left">
-            <p className="text-sm font-medium leading-[21px] tracking-[0.005em] text-white/75 drop-shadow-[0_1px_6px_rgba(0,0,0,0.65)]">
-              {t("create.mobileSubtitle", {
-                defaultValue:
-                  "Choose a way to start creating. You can change the world, characters, and story settings later.",
-              })}
-            </p>
-          </div>
         </div>
 
         <div className="hidden items-end justify-between gap-3 animate-[fadeInUp_0.5s_ease-out_both] md:flex">
@@ -180,7 +172,7 @@ function TemplatePicker({
 
         {importError ? <FieldError message={importError} /> : null}
 
-        <div className="mt-[clamp(0.75rem,3vh,2rem)] grid min-h-0 flex-1 auto-rows-fr grid-cols-1 gap-[clamp(0.375rem,1vh,0.625rem)] md:hidden">
+        <div className="create-mobile-grid mt-[clamp(0.75rem,3vh,2rem)] grid min-h-0 flex-1 auto-rows-fr grid-cols-1 gap-[clamp(0.375rem,1vh,0.625rem)] md:hidden">
           {createOptions.map((option, index) => {
             return (
               <button

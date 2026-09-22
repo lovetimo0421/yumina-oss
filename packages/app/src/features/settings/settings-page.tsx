@@ -4,10 +4,13 @@ import {
   useRef,
   useCallback,
   useMemo,
+  createContext,
+  useContext,
 } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { resolveImageUrl } from "@/lib/asset-url";
+import { useSettingsDocumentScroll } from "./use-settings-document-scroll";
 import {
   User,
   Key,
@@ -322,6 +325,8 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   );
 }
 
+const SettingsBackContext = createContext<(() => void) | null>(null);
+
 function SectionHeader({
   title,
   description,
@@ -331,13 +336,23 @@ function SectionHeader({
   description?: string;
   id?: string;
 }) {
+  const onBack = useContext(SettingsBackContext);
+  const { t } = useTranslation("common");
   return (
     <div
       id={id}
       tabIndex={id ? -1 : undefined}
       className="mb-6 scroll-mt-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold/50"
     >
-      <h2 className="text-xl font-bold text-main">{title}</h2>
+      <div className="flex items-center gap-2">
+        {onBack && (
+          <button type="button" onClick={onBack} aria-label={t("action.back")}
+            className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-sub transition-colors hover:bg-white/5 hover:text-main md:hidden">
+            <ArrowLeft className="h-5 w-5" aria-hidden="true" />
+          </button>
+        )}
+        <h2 className="text-xl font-bold text-main">{title}</h2>
+      </div>
       {description && <p className="mt-1 text-sm text-sub">{description}</p>}
     </div>
   );
@@ -437,7 +452,7 @@ function createSettingsSearchItems(
     { id: "wallpaper-upload", sectionId: "wallpaper", targetId: "settings-target-wallpaper-library", title: t("wallpaper.upload.title"), description: t("wallpaper.upload.description", { folderName: "wallpaper" }), category: category.wallpaper },
 
     { id: "about", sectionId: "about", targetId: "settings-target-about", title: category.about, category: category.about },
-    { id: "contact-support", sectionId: "about", targetId: "settings-target-contact-support", title: t("about.contactSupport"), description: t("about.contactSupportDescription"), category: category.about },
+    { id: "contact-support", sectionId: "about", targetId: "settings-target-contact-support", title: t("about.contactSupport"), category: category.about },
     { id: "version", sectionId: "about", targetId: "settings-target-version", title: t("about.version"), description: t("about.versionValue"), category: category.about },
     { id: "terms", sectionId: "about", targetId: "settings-target-legal", title: t("about.termsOfService"), category: category.about },
     { id: "privacy-policy", sectionId: "about", targetId: "settings-target-legal", title: t("about.privacyPolicy"), category: category.about },
@@ -493,6 +508,7 @@ export function SettingsPage() {
     if (typeof window === "undefined") return true;
     return parseSectionHash(window.location.hash) === null;
   });
+  const rememberNavScroll = useSettingsDocumentScroll(mobileShowNav, activeSection);
   const [searchQuery, setSearchQuery] = useState("");
   const [pendingTargetId, setPendingTargetId] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -765,6 +781,7 @@ export function SettingsPage() {
   };
 
   const handleSelectSection = (id: SectionId, targetId?: string) => {
+    rememberNavScroll();
     setActiveSection(id);
     setMobileShowNav(false);
     setPendingTargetId(targetId ?? null);
@@ -890,15 +907,13 @@ export function SettingsPage() {
     }
   };
 
-  const activeSectionMeta = SECTIONS.find((s) => s.id === activeSection)!;
-
   return (
-    <div className="h-full overflow-hidden">
-      <div className="mx-auto flex h-full max-w-[1100px] flex-col md:flex-row">
+    <div className="settings-page h-full overflow-hidden">
+      <div className="settings-layout mx-auto flex h-full max-w-[1100px] flex-col md:flex-row">
 
         {/* ---- Sidebar (desktop) / Nav list (mobile) ---- */}
         <aside className={`shrink-0 md:block md:w-[260px] md:border-r md:border-white/5 ${mobileShowNav ? "block" : "hidden"}`}>
-          <div className="flex h-full flex-col overflow-y-auto px-4 py-8 md:px-6 md:py-10">
+          <div data-scroll-restoration-id={mobileShowNav ? "settings-main" : "settings-nav"} className="settings-nav-scroll flex h-full flex-col overflow-y-auto px-4 py-8 md:px-6 md:py-10">
             {/* Title */}
             <h1 className="mb-5 flex items-center gap-3 text-2xl font-black text-main">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gold/10">
@@ -1037,20 +1052,13 @@ export function SettingsPage() {
         </aside>
 
         {/* ---- Content panel ---- */}
-        <main className={`min-h-0 flex-1 overflow-y-auto md:block ${mobileShowNav ? "hidden" : "block"}`}>
-          <div className="px-4 py-8 md:px-10 md:py-10">
-            {/* Mobile back button */}
-            <button
-              onClick={handleMobileBack}
-              className="mb-4 flex items-center gap-2 text-sm font-medium text-sub transition-colors hover:text-main md:hidden"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              {t(activeSectionMeta.labelKey)}
-            </button>
-
+        <main data-scroll-restoration-id={mobileShowNav ? "settings-content" : "settings-main"} className={`settings-content min-h-0 flex-1 overflow-y-auto md:block ${mobileShowNav ? "hidden" : "block"}`}>
+          <div className="px-4 pb-8 pt-2 md:px-10 md:py-10">
+            <SettingsBackContext.Provider value={handleMobileBack}>
             <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
               {renderSection()}
             </div>
+            </SettingsBackContext.Provider>
           </div>
         </main>
       </div>
@@ -1790,7 +1798,7 @@ function ContentSafetySection({
   const { t } = useTranslation("settings");
   return (
     <div className="max-w-2xl space-y-8">
-      <SectionHeader id="settings-target-content-safety" title={t("contentSafety.title")} description={t("contentSafety.description")} />
+      <SectionHeader id="settings-target-content-safety" title={t("contentSafety.title")} />
 
       {/* Content Mode — hidden entirely for minors: Limitless mode should not
           even be discoverable for them (the top-bar eye is hidden the same way). */}
@@ -1950,7 +1958,7 @@ function PrivacySection({
 
   return (
     <div className="max-w-2xl space-y-6">
-      <SectionHeader id="settings-target-privacy" title={t("privacy.title")} description={t("privacy.description")} />
+      <SectionHeader id="settings-target-privacy" title={t("privacy.title")} />
       {features.socialProfiles && (
       <Card id="settings-target-profile-visibility">
         <CardIcon icon={Lock} />
@@ -2486,11 +2494,11 @@ function WallpaperSection({
         <div className="min-w-0 flex-1 space-y-6">
           <div>
             <div className="font-semibold text-main">{t("wallpaper.visualControls.title")}</div>
+            <p className="mt-1 text-xs text-sub">{t("wallpaper.autoSaves")}</p>
           </div>
 
           <WallpaperSlider
             title={t("wallpaper.opacity.title")}
-            description={t("wallpaper.opacity.description")}
             minLabel={t("wallpaper.opacity.minLabel")}
             maxLabel={t("wallpaper.opacity.maxLabel")}
             value={wallpaperOpacity}
@@ -2506,7 +2514,6 @@ function WallpaperSection({
             maxLabel={t("wallpaper.gradient.maxLabel")}
             value={wallpaperGradientStrength}
             ariaLabel={t("wallpaper.gradient.ariaLabel")}
-            hint={t("wallpaper.gradient.hint")}
             onChange={setWallpaperGradientStrength}
           />
 
@@ -2517,7 +2524,6 @@ function WallpaperSection({
             maxLabel={t("wallpaper.cloudyGlass.maxLabel")}
             value={cloudyGlassStrength}
             ariaLabel={t("wallpaper.cloudyGlass.ariaLabel")}
-            hint={t("wallpaper.cloudyGlass.hint")}
             onChange={setCloudyGlassStrength}
           />
         </div>
@@ -2684,20 +2690,19 @@ function WallpaperSlider({
   onChange,
 }: {
   title: string;
-  description: string;
+  description?: string;
   minLabel: string;
   maxLabel: string;
   value: number;
   ariaLabel: string;
-  hint: string;
+  hint?: string;
   onChange: (value: number) => void;
 }) {
-  const { t } = useTranslation("settings");
   return (
     <div className="profile-overview-glass profile-overview-glass--soft rounded-2xl p-4">
       <div>
         <div className="font-semibold text-main">{title}</div>
-        <div className="mt-1 text-xs text-sub">{description}</div>
+        {description && <div className="mt-1 text-xs text-sub">{description}</div>}
       </div>
 
       <div className="mt-4 space-y-3">
@@ -2716,10 +2721,7 @@ function WallpaperSlider({
           className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-[#C9A25E]"
           aria-label={ariaLabel}
         />
-        <div className="flex items-center justify-between text-[11px] text-sub/70">
-          <span>{hint}</span>
-          <span>{t("wallpaper.autoSaves")}</span>
-        </div>
+        {hint && <p className="text-[11px] text-sub/70">{hint}</p>}
       </div>
     </div>
   );
@@ -2803,7 +2805,6 @@ function AboutSection() {
                 <div className="font-semibold text-main">{t("about.contactSupport")}</div>
                 <OfficialBadge size="xs" />
               </div>
-              <div className="mt-0.5 text-xs text-sub">{t("about.contactSupportDescription")}</div>
             </div>
           </div>
 
@@ -2819,7 +2820,6 @@ function AboutSection() {
                 <div className="text-[13px] font-semibold text-main">
                   {t("about.messageOfficial", { username: `@${OFFICIAL_USERNAME}` })}
                 </div>
-                <div className="text-[11px] text-sub truncate">{t("about.messageOfficialHint")}</div>
               </div>
             </button>
             )}

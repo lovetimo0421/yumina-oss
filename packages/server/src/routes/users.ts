@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { eq, and, ne, sql, desc, ilike, or, inArray } from "drizzle-orm";
+import { eq, and, ne, sql, desc, ilike, or, inArray, type SQL } from "drizzle-orm";
 import { db, readDb, readOwn, flagWrite } from "../db/index.js";
 import { posthog } from "../lib/posthog.js";
 import { user, worlds, bundles, follows, favorites, userLibrary, worldClickHistory, platformAchievements, profilePosts } from "../db/schema.js";
@@ -751,6 +751,12 @@ users.on(["POST", "PATCH"], "/me", authMiddleware, rateLimitMiddleware("profile-
     }
   }
 
+  // Older clients may echo a full preferences snapshot. This namespace is
+  // server-owned; only the authenticated starter endpoint may mutate it.
+  if (parsed.data.preferences) {
+    const { discoveryStarter: _ownedStarter, ...clientPreferences } = parsed.data.preferences;
+    parsed.data.preferences = clientPreferences;
+  }
   const profilePatch: Partial<typeof user.$inferInsert> = { ...parsed.data };
 
   // Check username uniqueness if being set. Store the canonical handle in
@@ -779,7 +785,9 @@ users.on(["POST", "PATCH"], "/me", authMiddleware, rateLimitMiddleware("profile-
   }
 
   // Merge preferences with existing rather than overwriting
-  let updateData = { ...profilePatch, updatedAt: new Date() };
+  let updateData: Omit<Partial<typeof user.$inferInsert>, 'preferences'> & {
+    preferences?: Record<string, unknown> | SQL | null;
+  } = { ...profilePatch, updatedAt: new Date() };
   if (parsed.data.preferences) {
     const existing = await db
       .select({ preferences: user.preferences, birthYear: user.birthYear })
@@ -804,7 +812,9 @@ users.on(["POST", "PATCH"], "/me", authMiddleware, rateLimitMiddleware("profile-
 
     updateData = {
       ...updateData,
-      preferences: mergedPrefs,
+      // Merge against the locked current row, not the eligibility-check
+      // snapshot: another device may just have changed a different key.
+      preferences: sql`coalesce(${user.preferences}, '{}'::jsonb) || ${JSON.stringify(parsed.data.preferences)}::jsonb`,
     };
   }
 
@@ -878,23 +888,18 @@ users.put("/me/ai-config", authMiddleware, rateLimitMiddleware("profile-updates"
     return c.json({ error: "Validation failed", details: parsed.error.flatten() }, 400);
   }
 
-  const [existing] = await db
-    .select({ preferences: user.preferences })
-    .from(user)
-    .where(eq(user.id, currentUser.id))
-    .limit(1);
-  const existingPrefs = (existing?.preferences ?? {}) as Record<string, unknown>;
-  const existingAiConfig = (existingPrefs.aiConfig ?? {}) as Record<string, unknown>;
-  const mergedAiConfig = { ...existingAiConfig, ...parsed.data };
-  const mergedPrefs = { ...existingPrefs, aiConfig: mergedAiConfig };
-
-  await db
+  const [saved] = await db
     .update(user)
-    .set({ preferences: mergedPrefs, updatedAt: new Date() })
-    .where(eq(user.id, currentUser.id));
+    .set({ preferences: sql`coalesce(${user.preferences}, '{}'::jsonb) || jsonb_build_object('aiConfig',
+      (CASE WHEN jsonb_typeof(${user.preferences}->'aiConfig') = 'object' THEN ${user.preferences}->'aiConfig' ELSE '{}'::jsonb END)
+      || ${JSON.stringify(parsed.data)}::jsonb)`, updatedAt: new Date() })
+    .where(eq(user.id, currentUser.id))
+    .returning();
+
+  if (!saved) return c.json({ error: 'User not found' }, 404);
 
   flagWrite(currentUser.id);
-  return c.json({ data: mergedAiConfig });
+  return c.json({ data: saved.preferences?.aiConfig ?? {} });
 });
 
 export { users };

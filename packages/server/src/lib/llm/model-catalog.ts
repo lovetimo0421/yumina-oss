@@ -1,3 +1,4 @@
+import { IMAGE_MODEL_CAPABILITIES } from "@yumina/shared";
 /**
  * Server-wide OpenRouter model catalog — the authoritative source for each
  * model's real context window.
@@ -19,6 +20,7 @@ const CATALOG_URL = "https://openrouter.ai/api/v1/models";
 const CATALOG_TTL_MS = 6 * 60 * 60 * 1000; // 6h — model windows change rarely
 
 let catalog = new Map<string, number>(); // modelId -> context_length
+let imageSupport = new Map<string, boolean>(Object.entries(IMAGE_MODEL_CAPABILITIES));
 let fetchedAt = 0;
 let inflight: Promise<void> | null = null;
 
@@ -33,17 +35,20 @@ export function ensureOpenRouterCatalog(): Promise<void> {
   if (inflight) return inflight;
   inflight = (async () => {
     try {
-      const res = await fetch(CATALOG_URL, { headers: { Accept: "application/json" } });
+      const res = await fetch(CATALOG_URL, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(5000) });
       if (!res.ok) return;
-      const json = (await res.json()) as { data?: Array<{ id?: string; context_length?: number }> };
+      const json = (await res.json()) as { data?: Array<{ id?: string; context_length?: number; architecture?: { input_modalities?: string[] } }> };
       const next = new Map<string, number>();
+      const nextImages = new Map<string, boolean>();
       for (const m of json.data ?? []) {
+        if (m.id && Array.isArray(m.architecture?.input_modalities)) nextImages.set(m.id, m.architecture.input_modalities.includes("image"));
         if (m.id && typeof m.context_length === "number" && m.context_length > 0) {
           next.set(m.id, m.context_length);
         }
       }
       if (next.size > 0) {
         catalog = next;
+        imageSupport = nextImages;
         fetchedAt = Date.now();
       }
     } catch {
@@ -67,4 +72,8 @@ export function registerContextWindows(models: Array<{ id: string; contextLength
   for (const m of models) {
     if (m.contextLength && m.contextLength > 0) catalog.set(m.id, m.contextLength);
   }
+}
+
+export function getCatalogImageSupport(modelId: string): boolean | undefined {
+  return imageSupport.get(modelId) ?? IMAGE_MODEL_CAPABILITIES[modelId];
 }

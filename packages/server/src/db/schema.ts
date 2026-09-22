@@ -100,6 +100,15 @@ export const playtimeLifetimePending = pgTable("playtime_lifetime_pending", {
   seconds: integer("seconds").notNull(),
 }, (t) => [check("playtime_lifetime_pending_seconds_check", sql`${t.seconds} > 0`)]);
 
+/** Native save slots are scoped to an account and engine edition. */
+export const gamePlayerState = pgTable('game_player_state', {
+  userId:text('user_id').notNull().references(()=>user.id,{onDelete:'cascade'}),
+  moduleId:text('module_id').notNull(),
+  state:jsonb('state').notNull().default({}).$type<Record<string,unknown>>(),
+  updatedAt:timestamp('updated_at',{withTimezone:true}).notNull().defaultNow(),
+  revision:bigint('revision',{mode:'number'}).notNull().default(1),
+},t=>[primaryKey({columns:[t.userId,t.moduleId]})]);
+
 export const gameNpcDaveMemory = pgTable('game_npc_dave_memory', {
   userId:text('user_id').primaryKey().references(()=>user.id,{onDelete:'cascade'}),
   revision:integer('revision').notNull().default(0),
@@ -894,6 +903,60 @@ export const generationJobs = pgTable("generation_jobs", {
     .where(sql`${t.refunded} = false AND ${t.costMushies} > 0
       AND (${t.refundAmount} > 0 OR (${t.refundAmount} IS NULL AND ${t.status} IN ('failed', 'cancelled')))`),
 ]);
+
+// A Studio batch owns independent prompts. Only admitted items create jobs,
+// so a thirty-picture plan never bypasses the per-user generation limit.
+export const imageBatches = pgTable("image_batches", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+  runId: text("run_id").notNull(),
+  toolCallId: text("tool_call_id").notNull(),
+  requestHash: text("request_hash").notNull(),
+  proposal: jsonb("proposal").$type<import("@yumina/shared").ImageBatchProposal>().notNull(),
+  folderId: text("folder_id").references(() => assetFolders.id, { onDelete: "set null" }),
+  status: text("status").notNull().default("running"),
+  pauseReason: text("pause_reason"),
+  estimatedMushies: real("estimated_mushies").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, t => [
+  unique("image_batches_approval_key").on(t.userId, t.runId, t.toolCallId),
+  index("image_batches_dispatch_idx").on(t.status, t.updatedAt),
+  check("image_batches_status_check", sql`${t.status} IN ('running','paused','completed','partial','failed')`),
+]);
+
+export const imageBatchItems = pgTable("image_batch_items", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  batchId: text("batch_id").notNull().references(() => imageBatches.id, { onDelete: "cascade" }),
+  itemId: text("item_id").notNull(),
+  position: integer("position").notNull(),
+  label: text("label").notNull(),
+  prompt: text("prompt").notNull(),
+  target: jsonb("target").$type<import("@yumina/shared").ImageBatchTarget>(),
+  expectedImage: text("expected_image"),
+  status: text("status").notNull().default("pending"),
+  attempt: integer("attempt").notNull().default(1),
+  jobId: text("job_id").references(() => generationJobs.id, { onDelete: "set null" }),
+  assetId: text("asset_id").references(() => userAssets.id, { onDelete: "set null" }),
+  costMushies: real("cost_mushies").notNull().default(0),
+  errorCode: text("error_code"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, t => [
+  unique("image_batch_items_identity_key").on(t.batchId, t.itemId),
+  index("image_batch_items_batch_idx").on(t.batchId, t.position),
+  check("image_batch_items_status_check", sql`${t.status} IN ('pending','queued','running','awaiting_credits','succeeded','failed','skipped','binding_failed')`),
+  check("image_batch_items_attempt_check", sql`${t.attempt} >= 1`),
+]);
+
+/** A retried HTTP request must not start another attempt after an earlier retry
+ * has already failed. The request identity outlives every item state change. */
+export const imageBatchRetryRequests = pgTable("image_batch_retry_requests", {
+  batchId: text("batch_id").notNull().references(() => imageBatches.id, { onDelete: "cascade" }),
+  requestId: text("request_id").notNull(),
+  requestHash: text("request_hash").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, t => [primaryKey({ columns: [t.batchId, t.requestId] })]);
 
 // ─── User generation models (advanced mode) ─────────────────────────
 // A creator-owned LoRA or checkpoint, imported from their asset library or
@@ -1702,6 +1765,11 @@ export const walletPlanDrops = pgTable("wallet_plan_drops", {
   walletId: text("wallet_id").primaryKey(),
   periodStart: timestamp("period_start").notNull(),
   dropsReleased: integer("drops_released").notNull().default(1),
+  // Which delivery calendar this cycle opened under (plan-config-v2 DropScheduleKey):
+  // "d10_20" = 50/25/25 on days 0/10/20 (launch), "w7" = 40/20/20/20 on days
+  // 0/7/14/21 (2026-09-22). NULL = written before the column existed = "d10_20".
+  // Fixed for the cycle so a half-paid cycle is never re-read on new day numbers.
+  schedule: text("schedule"),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, t => [
   foreignKey({ name: "wallet_plan_drops_wallet_id_fkey", columns: [t.walletId], foreignColumns: [creditWallets.id] }).onDelete("cascade"),
@@ -1937,6 +2005,10 @@ export const analyticsPlayIntervals = pgTable('analytics_play_intervals', {
   startedAt:timestamp('started_at',{withTimezone:true}).notNull(),
   endedAt:timestamp('ended_at',{withTimezone:true}).notNull(),
   product:text('product').notNull().default('main-app'),
+  // Null legacy values cannot be promoted into verified historical sessions.
+  sessionId:text('session_id'),
+  receivedAt:timestamp('received_at',{withTimezone:true}),
+  consumerEligible:boolean('consumer_eligible'),
 },t=>[
   index('analytics_play_intervals_user_idx').on(t.userId),
   check('analytics_play_intervals_duration_check',sql`${t.endedAt}>${t.startedAt} AND ${t.endedAt}<=${t.startedAt}+interval '90 seconds'`),
@@ -3067,6 +3139,78 @@ export const worldEngagementStats = pgTable("world_engagement_stats", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+/** Published-content representations. Installed explicitly by discovery-personalization.sql. */
+export const worldRecommendationProfiles = pgTable("world_recommendation_profiles", {
+  worldId: text("world_id").primaryKey().references(() => worlds.id, { onDelete: "cascade" }),
+  inputVersion: text("input_version").notNull(),
+  inputHash: text("input_hash").notNull(),
+  descriptorVersion: text("descriptor_version").notNull(),
+  descriptorModel: text("descriptor_model").notNull(),
+  embeddingModel: text("embedding_model").notNull(),
+  descriptor: jsonb("descriptor").notNull(),
+  contentEmbedding: vector("content_embedding", { dimensions: 1536 }),
+  experienceEmbedding: vector("experience_embedding", { dimensions: 1536 }),
+  sourceUpdatedAt: timestamp("source_updated_at").notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+}, t => [
+  index("world_recommendation_profiles_content_hnsw_idx").using("hnsw", t.contentEmbedding.op("vector_cosine_ops")),
+  index("world_recommendation_profiles_experience_hnsw_idx").using("hnsw", t.experienceEmbedding.op("vector_cosine_ops")),
+]);
+
+/** Server-owned actor preferences; guests expire, account deletion cascades claims too. */
+export const discoveryPreferences = pgTable("discovery_preferences", {
+  actorId: text("actor_id").primaryKey(),
+  userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+  status: text("status").$type<"new" | "selected" | "skipped">().notNull().default("new"),
+  interests: jsonb("interests").$type<string[]>().notNull().default([]),
+  revision: bigint("revision", { mode: "bigint" }).notNull().default(sql`0`),
+  assignment: text("assignment").$type<"offer" | "control">().notNull(),
+  // First verified assignment source; independent of guest-row retention.
+  assignmentOriginActorId: text("assignment_origin_actor_id"),
+  assignedAt: timestamp("assigned_at", { withTimezone: true }).notNull().defaultNow(),
+  offeredAt: timestamp("offered_at", { withTimezone: true }),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }),
+  claimedByUserId: text("claimed_by_user_id").references(() => user.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  index("discovery_preferences_expiry_idx").on(t.expiresAt).where(sql`${t.expiresAt} IS NOT NULL`),
+  index("discovery_preferences_claim_user_idx").on(t.claimedByUserId).where(sql`${t.claimedByUserId} IS NOT NULL`),
+  check("discovery_preferences_actor_check", sql`(${t.userId} IS NOT NULL AND ${t.actorId} = 'user:' || ${t.userId}) OR (${t.userId} IS NULL AND ${t.actorId} ~ '^guest:[a-f0-9-]{36}$')`),
+  check("discovery_preferences_state_check", sql`${t.status} IN ('new','selected','skipped') AND (${t.status} = 'selected' OR ${t.interests} = '[]'::jsonb)`),
+  check("discovery_preferences_interests_check", sql`jsonb_typeof(${t.interests}) = 'array' AND jsonb_array_length(${t.interests}) <= 6 AND ${t.interests} <@ '["relationships","fandom","idols","simulation","fantasy","mystery"]'::jsonb`),
+  check("discovery_preferences_assignment_check", sql`${t.assignment} IN ('offer','control') AND ${t.revision} >= 0`),
+  check("discovery_preferences_claim_check", sql`(${t.claimedAt} IS NULL AND ${t.claimedByUserId} IS NULL) OR (${t.claimedAt} IS NOT NULL AND ${t.claimedByUserId} IS NOT NULL AND ${t.userId} IS NULL)`),
+]);
+
+/** Canonical, versioned discovery observations. Server-owned receipts and
+ * successful mutations are separate from the legacy best-effort feed beacon.
+ * No story/chat content or authentication tokens are stored in this stream. */
+export const discoveryEvents = pgTable("discovery_events", {
+  id: text("id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).default(sql`clock_timestamp()`).notNull(),
+  actorId: text("actor_id").notNull(),
+  userId: text("user_id"),
+  visitId: text("visit_id").notNull(),
+  feedRequestId: text("feed_request_id").notNull(),
+  opportunityId: text("opportunity_id").notNull(),
+  worldId: text("world_id").notNull(),
+  languageGroupId: text("language_group_id"),
+  position: integer("position").notNull(),
+  policyVersion: text("policy_version").notNull(),
+  featureVersion: text("feature_version").notNull(),
+  modelId: integer("model_id"),
+  payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+}, (t) => [
+  index("discovery_events_opportunity_idx").on(t.opportunityId, t.eventType),
+  index("discovery_events_actor_time_idx").on(t.actorId, t.occurredAt),
+  index("discovery_events_received_idx").on(t.receivedAt),
+  index("discovery_events_guest_identity_idx").on(sql`(${t.payload}->>'guestActorId')`, t.actorId, t.receivedAt, t.occurredAt, t.id)
+    .where(sql`${t.eventType}='identity_link' AND ${t.payload}->>'basis'='same-browser-confirmed-outcome'`),
+]);
+
 /** Nightly-trained LightGBM ranker models (Ship 2). The trainer INSERTs a
  * row only when the candidate beats the live baseline on a held-out day;
  * the server loads the newest 'published' row and serves it under the
@@ -3264,4 +3408,23 @@ export const modelCostStats = pgTable("model_cost_stats", {
   /** Share of the previous day's replies inside the [p25, p90] band that was on screen. */
   coverage24h: real("coverage_24h"),
   computedAt: timestamp("computed_at").notNull().defaultNow(),
+});
+
+/** First-known evidence survives user-visible Library/session removal. */
+export const discoveryKnownStories = pgTable("discovery_known_stories", {
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  storyKey: text("story_key").notNull(),
+  firstKnownAt: timestamp("first_known_at", { withTimezone: true }).notNull(),
+}, t => [primaryKey({ columns: [t.userId, t.storyKey] })]);
+export const discoveryHistoryCoverage = pgTable("discovery_history_coverage", {
+  id: text("id").primaryKey(),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+}, t => [check("discovery_history_coverage_key", sql`${t.id}='continuous-history-v1'`)]);
+
+/** Durable privacy erasures mirrored to the discovery warehouse. An inclusive
+ * cutoff preserves later unrelated visits from a surviving guest cookie.
+ * No user FK or event payload: these markers must outlive the deleted account. */
+export const discoveryErasedActors = pgTable("discovery_erased_actors", {
+  actorId: text("actor_id").primaryKey(),
+  erasedThrough: timestamp("erased_through", { withTimezone: true }).notNull(),
 });

@@ -104,7 +104,7 @@ worldVersionRoutes.post("/:id/versions/:versionId/make-live", authMiddleware, ra
     if (result.changed) {
       const w = result.world;
       void embedAndStoreWorld({ worldId: w.id, name: w.name, description: w.description, tags: w.tags,
-        announcement: w.announcement, firstMessage: typeof w.schema.firstMessage === "string" ? w.schema.firstMessage : null }).catch(() => {});
+        announcement: w.announcement, schema: w.schema }).catch(() => {});
     }
     return c.json({ data: { live: true, changed: result.changed } });
   } catch (error) {

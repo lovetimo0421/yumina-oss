@@ -120,6 +120,8 @@ export function variantUsesEngagement(variant: FeedVariant): boolean {
 
 export interface WorldEngagementStat {
   worldId: string;
+  /** Source rollup timestamp, not cache-load/ranking time. Absent on older cached snapshots. */
+  updatedAt?: string;
   impressions7d: number;
   clicks7d: number;
   playsStarted7d: number;
@@ -725,12 +727,15 @@ async function loadStatsSnapshot(db: Database): Promise<StatsSnapshot> {
     const result = await db.execute(sql`
       SELECT world_id, impressions_7d, clicks_7d, plays_started_7d,
              qualified_plays_7d, plays_prev_7d, impressions_total, clicks_total,
-             returners_30d, total_play_minutes_30d
+             returners_30d, total_play_minutes_30d,
+             EXTRACT(EPOCH FROM updated_at AT TIME ZONE 'UTC') * 1000 AS updated_at_ms
       FROM world_engagement_stats
     `);
     const raw = (result as unknown as { rows?: Array<Record<string, unknown>> }).rows ?? [];
     rows = raw.map((r) => ({
       worldId: String(r.world_id),
+      ...(r.updated_at_ms != null && Number.isFinite(Number(r.updated_at_ms))
+        ? { updatedAt: new Date(Number(r.updated_at_ms)).toISOString() } : {}),
       impressions7d: Number(r.impressions_7d ?? 0),
       clicks7d: Number(r.clicks_7d ?? 0),
       playsStarted7d: Number(r.plays_started_7d ?? 0),

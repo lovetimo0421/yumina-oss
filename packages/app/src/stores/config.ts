@@ -32,6 +32,7 @@ const PIN_KEY: Record<PinScope, "pinnedModels" | "pinnedPrivateModels"> = {
 const SYNCED_KEYS = [
   "maxTokens",
   "maxContext",
+  "storyMemory",
   "temperature",
   "topP",
   "frequencyPenalty",
@@ -53,7 +54,18 @@ const SYNCED_KEY_SET = new Set<string>(SYNCED_KEYS);
 
 interface ConfigState {
   maxTokens: number;
+  /** Hard ceiling on a whole request, lorebook included. */
   maxContext: number;
+  /**
+   * How much of the conversation stays word for word. The dial a player
+   * actually turns, and the same on every plan.
+   *
+   * null = never chosen. It stays null rather than defaulting to the
+   * suggestion, and a null is never sent to the server, because a sent value
+   * counts as a deliberate choice and would cut an existing account's prompts
+   * without them asking. The server decides what absence means.
+   */
+  storyMemory: number | null;
   temperature: number;
   topP: number;
   frequencyPenalty: number;
@@ -91,10 +103,11 @@ interface ConfigState {
   flushPendingPush: () => Promise<void>;
 }
 
-type ConfigValues = Pick<ConfigState, "maxTokens" | "maxContext" | "temperature" | "topP" | "frequencyPenalty" | "presencePenalty" | "repetitionPenalty" | "topK" | "minP" | "reasoningEffort" | "streaming" | "selectedModel" | "modelFallback" | "mixMode" | "modelPool">;
+type ConfigValues = Pick<ConfigState, "maxTokens" | "maxContext" | "storyMemory" | "temperature" | "topP" | "frequencyPenalty" | "presencePenalty" | "repetitionPenalty" | "topK" | "minP" | "reasoningEffort" | "streaming" | "selectedModel" | "modelFallback" | "mixMode" | "modelPool">;
 
 const DEFAULTS: ConfigValues & { pinnedModels: string[]; pinnedPrivateModels: string[] } = {
   ...AI_GENERATION_DEFAULTS,
+  storyMemory: null,
   selectedModel: DEFAULT_MODEL,
   modelFallback: { ...DEFAULT_MODEL_FALLBACK_POLICY },
   pinnedModels: [...DEFAULT_PINNED_MODELS],

@@ -46,6 +46,25 @@ const envSchema = z.object({
     emptyToUndefined,
     z.string().default(process.env.NODE_TEST_CONTEXT ? "memory://" : IS_LOCAL ? "./data/pglite" : "./dev.db"),
   ),
+  /**
+   * Accounts created at or after this instant default story memory to 16,000
+   * instead of carrying their whole context window. Unset = nobody is moved,
+   * so the split ships dark and the behaviour change is one env flip that can
+   * be reverted without a deploy. An explicit user choice always applies,
+   * flag or no flag (packages/shared/src/story-memory.ts).
+   */
+  STORY_MEMORY_DEFAULT_AT: z.preprocess(emptyToUndefined, z.string().optional()),
+  /**
+   * Treat story memory as a RESERVATION rather than a leftover: the lorebook
+   * budget becomes what remains after setting it aside, so triggered entries
+   * trim to make room instead of the conversation being squeezed out. Only
+   * bites when a world is large relative to the plan's window. Off = the
+   * budget is the full window, exactly as before.
+   */
+  LOREBOOK_RESERVES_STORY_MEMORY: z.preprocess(
+    (v) => (typeof v === "string" ? ["1", "true", "on"].includes(v.trim().toLowerCase()) : v),
+    z.boolean().default(false),
+  ),
   BETTER_AUTH_SECRET: z.string().min(1),
   // Key material for encrypting stored BYOK API keys. Unset = derived from
   // BETTER_AUTH_SECRET (the historical behaviour, kept so existing rows keep
@@ -73,6 +92,10 @@ const envSchema = z.object({
   // Krew's API origin, echoed in the public config for the client's benefit.
   // Yumina never calls it; the frame talks to it directly.
   KREW_API_ORIGIN: z.string().default("https://game.krew.io"),
+  // The krew TEST stack's client origin. `/krew?env=test` frames this instead of
+  // KREW_CLIENT_ORIGIN so testers sign in through Yumina as usual while the game
+  // runs on the hidden test servers. Empty = no test variant.
+  KREW_TEST_CLIENT_ORIGIN: z.string().default("https://test.krew.io"),
   // `aud` claim krew checks on the identity token.
   KREW_TOKEN_AUDIENCE: z.string().default("krew.io"),
   APP_URL: z.string().url().default("http://localhost:5173"),

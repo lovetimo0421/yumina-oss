@@ -2,6 +2,7 @@ import { and, asc, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { agentRuns, studioConversations } from "../db/schema.js";
 import type { ChatMessage, ContentPart, MessageContent, ToolCall } from "./llm/types.js";
+import { readPersistedImageBatchProposal } from "./studio-tools/image-batch-proposal.js";
 
 type StudioConversation = typeof studioConversations.$inferSelect;
 type StudioConversationUpdate = Partial<
@@ -208,7 +209,8 @@ function normalizeToolCalls(value: unknown): ToolCall[] | undefined {
 }
 
 function normalizeCommittedDisplayTurn(runId: string, value: unknown): CommittedDisplayTurn | null {
-  if (!isRecord(value) || typeof value.textContent !== "string" || value.textContent.trim() === "") {
+  if (!isRecord(value) || typeof value.textContent !== "string"
+    || (value.textContent.trim() === "" && value.lane !== "answer")) {
     return null;
   }
 
@@ -438,6 +440,8 @@ export async function loadStudioConversationForDisplay(
     .select({
       id: agentRuns.id,
       committedTurns: agentRuns.committedTurns,
+      context: agentRuns.context,
+      status: agentRuns.status,
       updatedAt: agentRuns.updatedAt,
       createdAt: agentRuns.createdAt,
     })
@@ -462,10 +466,21 @@ export async function loadStudioConversationForDisplay(
     return !latest || run.updatedAt > latest ? run.updatedAt : latest;
   }, null);
   const appendMissing = !!latestRunUpdatedAt && (!conversation.updatedAt || conversation.updatedAt <= latestRunUpdatedAt);
+  const displayMessages = hydrateDisplayMessagesWithCommittedTurns(conversation.messages, turns, appendMissing);
+  // Reattach a persisted proposal even if the browser closed before saving its
+  // chat bubble. Only attach to visible history; never resurrect an undone run.
+  for (const run of runs) {
+    const proposal = readPersistedImageBatchProposal(run.context, run.status);
+    if (!proposal || proposal.runId !== run.id) continue;
+    const message = [...displayMessages].reverse().find(item => item.role === "assistant" && item.agentRunId === run.id);
+    if (message) message.imageBatchProposal = { ...proposal,
+      ...(isRecord(message.imageBatchProposal) && isRecord(message.imageBatchProposal.batch) ? { batch: message.imageBatchProposal.batch } : {}),
+    };
+  }
 
   return {
     ...conversation,
-    messages: hydrateDisplayMessagesWithCommittedTurns(conversation.messages, turns, appendMissing),
+    messages: displayMessages,
   };
 }
 

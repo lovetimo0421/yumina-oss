@@ -139,7 +139,7 @@ export async function approveGroup(
 
     if (updated.length === 0) {
       // Lost the race. Roll back the transaction (nothing to commit anyway).
-      return [] as Array<{ id: string }>;
+      return [];
     }
 
     // Snapshot exactly what this transaction made public, including edits
@@ -203,19 +203,16 @@ export async function approveGroup(
     autoApproved: opts.source !== "manual",
   }).catch(() => {});
 
-  for (const v of variants) {
-    const schema = (v.schema ?? null) as Record<string, unknown> | null;
-    let firstMessage: string | null = null;
-    if (schema && typeof (schema as { firstMessage?: unknown }).firstMessage === "string") {
-      firstMessage = (schema as { firstMessage: string }).firstMessage;
-    }
+  // Embed only rows this transaction actually published, using RETURNING
+  // content rather than the earlier moderation-queue snapshot.
+  for (const v of actualUpdates) {
     embedAndStoreWorld({
       worldId: v.id,
       name: v.name,
       description: v.description,
       tags: v.tags,
       announcement: v.announcement,
-      firstMessage,
+      schema: v.schema,
     }).catch(() => {});
   }
 

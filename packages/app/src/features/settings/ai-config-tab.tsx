@@ -9,11 +9,18 @@ import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
 import { ModelFallbackSettings } from "@/features/settings/model-fallback-settings";
 
+/** The dial a player actually turns. 16,000 is the default and the advice. */
+const SUGGESTED_STORY_MEMORY = 16_000;
+const STORY_MEMORY_PRESETS = [8_000, 16_000, 32_000, 64_000] as const;
+/** Rungs for the hard ceiling, shown only when the plan allows more. */
+const OVERALL_PRESETS = [64_000, 128_000, 200_000] as const;
+
 export function AiConfigTab() {
   const { t } = useTranslation("profile");
   const {
     maxTokens,
     maxContext,
+    storyMemory,
     temperature,
     topP,
     frequencyPenalty,
@@ -54,6 +61,19 @@ export function AiConfigTab() {
     if (isClaudeSelected && temperature > 1) setConfig("temperature", 1);
   }, [isClaudeSelected, temperature, setConfig]);
 
+  // Story memory never rides the plan ladder: every tier may set it freely,
+  // bounded only by the overall limit in force.
+  // An uncapped plan reports contextMax = 2,000,000, which no model window
+  // reaches; the practical ceiling is the schema's 200,000. Without this the
+  // default 200,000 reads as a self-imposed limit on a plan that has none.
+  const overallCeiling = Math.min(contextMax, 200_000);
+  const storyMemoryMax = overallCeiling;
+  // Never chosen: show what the account is actually getting today, which is
+  // the whole window. The suggestion chip is the nudge; the number is not
+  // allowed to claim a change that has not happened.
+  const storyMemoryValue = storyMemory ?? overallCeiling;
+  const atOverallMax = maxContext >= overallCeiling;
+
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const themedNumberInputClass =
     "profile-overview-input-surface rounded-xl border-gold/20 [&_button]:border-white/10 [&_button]:text-sub/80 [&_button:hover]:bg-white/[0.04] [&_button:hover]:text-main [&_input]:text-left [&_input]:font-medium [&_input]:text-main [&_input]:placeholder:text-sub/50 focus-within:border-gold/50 focus-within:ring-gold/30";
@@ -83,10 +103,66 @@ export function AiConfigTab() {
         <ModelFallbackSettings />
         <div className="profile-overview-glass profile-overview-glass--soft rounded-2xl p-6">
           <div className="space-y-6">
-            {/* Context Size */}
+            {/* Two dials, not one (owner 2026-09-22).
+                STORY MEMORY is the only one anybody should touch: how much of
+                the conversation stays word for word. It is the same on every
+                plan, because a model loses the thread long before the ceiling
+                does — 16,000 is the suggestion and the default.
+                OVERALL LIMIT is the hard ceiling on a whole request. It sits
+                second, defaults to as high as the plan allows, and exists for
+                the rare world that wants it lower.
+                The world's lorebook is carried by the PLAN and is not part of
+                either number. */}
             <div className="border-b border-white/5 pb-6">
               <div className="mb-3 flex items-center justify-between">
-                <label className="text-sm font-semibold text-main">{t("config.contextSize")}</label>
+                <label className="text-sm font-semibold text-main">{t("config.storyMemory")}</label>
+                <span className="text-xs text-sub tabular-nums">{storyMemoryValue.toLocaleString()} tokens</span>
+              </div>
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                {STORY_MEMORY_PRESETS.map((preset) => {
+                  const reachable = preset <= storyMemoryMax;
+                  const active = storyMemoryValue === preset;
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      disabled={!reachable}
+                      onClick={() => setConfig("storyMemory", preset)}
+                      className={`rounded-lg border px-3 py-1.5 text-xs tabular-nums transition-colors ${
+                        active
+                          ? "border-gold/50 bg-gold/10 text-action-primary"
+                          : reachable
+                            ? "border-white/[0.07] bg-white/[0.02] text-sub hover:bg-white/[0.05]"
+                            : "border-white/[0.04] bg-transparent text-sub/30"
+                      }`}
+                    >
+                      {preset.toLocaleString()}
+                      {preset === SUGGESTED_STORY_MEMORY && (
+                        <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wide text-action-primary/70">
+                          {t("config.storyMemorySuggested")}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              <NumberInput
+                min={2048}
+                max={storyMemoryMax}
+                step={1024}
+                value={storyMemoryValue}
+                onChange={(value) =>
+                  setConfig("storyMemory", Math.max(2048, Math.min(storyMemoryMax, Number(value) || SUGGESTED_STORY_MEMORY)))
+                }
+                className={themedNumberInputClass}
+              />
+              <p className="mt-2 text-xs text-sub">{t("config.storyMemoryDesc")}</p>
+            </div>
+
+            {/* Overall limit — the ceiling on one request, lorebook included. */}
+            <div className="border-b border-white/5 pb-6">
+              <div className="mb-3 flex items-center justify-between">
+                <label className="text-sm font-semibold text-main">{t("config.overallLimit")}</label>
                 <div className="flex items-center gap-2">
                   {contextCapped && (
                     <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
@@ -94,24 +170,40 @@ export function AiConfigTab() {
                       {t("config.contextCapped", { limit: memoryCap.toLocaleString() })}
                     </span>
                   )}
-                  <span className="text-xs text-sub">{maxContext.toLocaleString()} tokens</span>
+                  <span className="text-xs text-sub tabular-nums">
+                    {atOverallMax ? t("config.overallUncapped") : `${maxContext.toLocaleString()} tokens`}
+                  </span>
                 </div>
               </div>
-              <NumberInput
-                min={4096}
-                max={contextMax}
-                step={1024}
-                value={maxContext}
-                onChange={(value) =>
-                  setConfig("maxContext", Math.max(4096, Math.min(contextMax, Number(value) || 4096)))
-                }
-                className={themedNumberInputClass}
-              />
-              <p className="mt-2 text-xs text-sub">
-                {contextCapped
-                  ? t("config.contextUpgrade")
-                  : t("config.contextSizeDesc")
-                }
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setConfig("maxContext", overallCeiling)}
+                  className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                    atOverallMax
+                      ? "border-gold/50 bg-gold/10 text-action-primary"
+                      : "border-white/[0.07] bg-white/[0.02] text-sub hover:bg-white/[0.05]"
+                  }`}
+                >
+                  {t("config.overallUncapped")}
+                </button>
+                {OVERALL_PRESETS.filter((preset) => preset < overallCeiling).map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setConfig("maxContext", preset)}
+                    className={`rounded-lg border px-3 py-1.5 text-xs tabular-nums transition-colors ${
+                      maxContext === preset
+                        ? "border-gold/50 bg-gold/10 text-action-primary"
+                        : "border-white/[0.07] bg-white/[0.02] text-sub hover:bg-white/[0.05]"
+                    }`}
+                  >
+                    {preset.toLocaleString()}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-sub">
+                {contextCapped ? t("config.overallLimitCapped") : t("config.overallLimitDesc")}
               </p>
             </div>
 

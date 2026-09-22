@@ -2,7 +2,8 @@ import { create } from "zustand";
 import { useEditorStore } from "./editor";
 import { useCreditStore } from "@/edition/slots.state";
 import { serializeStudioChatMessages } from "@/features/studio/lib/types";
-import type { StudioImageProposal } from "@/features/studio/lib/types";
+import type { StudioImageProposal, StudioImageBatchProposal } from "@/features/studio/lib/types";
+import { matchingImageBatch, proposalWithImageBatch } from "@/features/studio/lib/image-batch-state";
 import { SMART_IMAGE_MODEL } from "@yumina/shared";
 import type {
   StudioChatMessage,
@@ -278,6 +279,7 @@ interface StudioState {
   } | null;
   /** A generate_image card waiting for the creator's answer */
   _pendingImage: { runId: string; toolCallId: string } | null;
+  _pendingImageBatch: { runId: string; toolCallId: string } | null;
 
   // Selection
   selectedElementId: string | null;
@@ -302,12 +304,18 @@ interface StudioState {
   rejectProposal: () => void;
   confirmImageProposal: (edits: { prompt: string; aspectRatio: string; batchSize: number }) => void;
   declineImageProposal: () => void;
+  updateImageBatchProposal: (worldId: string, conversationId: string | null, proposal: StudioImageBatchProposal) => void;
   setSelectedElement: (id: string | null, type?: string | null) => void;
   setMode: (mode: "edit" | "playtest") => void;
   setActivePanel: (panel: string) => void;
   clearChat: () => void;
   undoLastTurn: (worldId: string, conversationId?: string | null) => Promise<void>;
   regenerateLastTurn: (worldId: string, model: string, conversationId?: string | null) => Promise<void>;
+  /** The only honest exit from a stuck pause (a paid result the editor outran):
+   *  discard that step server-side and start a fresh request that continues
+   *  from the card as it is now. Never undoes anything — the creator's own
+   *  edits are exactly what made the old step stale. */
+  restartFromPause: (worldId: string, model: string, conversationId?: string | null) => Promise<void>;
   addChatAttachment: (file: File) => void;
   removeChatAttachment: (index: number) => void;
 }
@@ -328,6 +336,7 @@ interface AgentStreamCallbacks {
   /** The assistant proposed a picture (generate_image). Terminal like a proposal:
    *  the run waits in awaiting_approval until the creator answers the card. */
   onImageProposal?: (data: Omit<StudioImageProposal, "status"> & { textContent: string }) => void;
+  onImageBatchProposal?: (data: Omit<StudioImageBatchProposal, "status"> & { textContent: string; status?: StudioImageBatchProposal["status"] }) => void;
   onImageProgress?: (data: { runId: string; toolCallId: string; jobId: string; status: string; elapsed: number }) => void;
   onImageResult?: (data: { runId: string; toolCallId: string; jobId: string; status: "done" | "failed" | "pending"; assetIds?: string[]; costMushies?: number; errorCode?: string }) => void;
   /** Server has committed one assistant text turn as a persistent chat bubble.
@@ -351,6 +360,11 @@ interface AgentStreamCallbacks {
   onRecoveryProgress?: (data: { runId: string; iteration: number; maxIterations: number; committedTurns: number }) => void;
   onCredits?: (data: Record<string, unknown>) => void;
   onCreditsPaused?: (data: Record<string, unknown>) => void;
+  /** The server threw away what this step streamed so far (an editor save
+   *  landed while the model was generating) and is generating it again. The
+   *  retry streams fresh; whatever the dropped attempt showed must not be
+   *  prepended to it. */
+  onStepRestarted?: (data: { runId: string; iteration: number; reason: string }) => void;
   onError: (error: string, code?: string) => void;
 }
 
@@ -509,11 +523,22 @@ async function tryRecoverAgentRun(
           }
         }
 
+        if (data.status === "awaiting_approval" && data.imageBatchProposal) {
+          emitTurns(data.committedTurns, recoveredRunId);
+          callbacks.onImageBatchProposal?.({ ...data.imageBatchProposal, runId: recoveredRunId });
+          return true;
+        }
         if (data.status === "completed") {
           // Hydrate any committed turns the client missed while disconnected.
           // onAssistantTurnCommit is idempotent by commitId, so live and recovery
           // paths can safely emit for the same turn without duplicating bubbles.
           emitTurns(data.committedTurns, recoveredRunId);
+          if (data.imageBatchProposal) {
+            const proposal = { ...data.imageBatchProposal, runId: recoveredRunId } as StudioImageBatchProposal;
+            const batch = matchingImageBatch(proposal, worldId, data.imageBatches ?? []);
+            callbacks.onImageBatchProposal?.({ ...proposal, textContent: data.imageBatchProposal.textContent ?? "", ...(batch ? { batch } : {}) });
+            return true;
+          }
           callbacks.onDone({ runId: recoveredRunId });
           return true;
         }
@@ -914,6 +939,10 @@ function connectAgentSSE(
                   receivedTerminalEvent = true; // the run waits for the creator's answer
                   callbacks.onImageProposal?.(parsed);
                   break;
+                case "image_batch_proposal":
+                  receivedTerminalEvent = true;
+                  callbacks.onImageBatchProposal?.(parsed);
+                  break;
                 case "image_progress":
                   callbacks.onImageProgress?.(parsed);
                   break;
@@ -941,6 +970,9 @@ function connectAgentSSE(
                 case "credits_paused":
                   receivedTerminalEvent = true;
                   callbacks.onCreditsPaused?.(parsed);
+                  break;
+                case "step_restarted":
+                  callbacks.onStepRestarted?.(parsed);
                   break;
                 case "error":
                   receivedTerminalEvent = true;
@@ -1132,6 +1164,13 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
       flushStreamNow();
       set({ agentIteration: iteration, agentMaxIterations: max, reasoningChars: 0, reasoningContent: "", appliedCount: 0 });
     },
+    onStepRestarted: () => {
+      if (!activeRun()) return;
+      // Drop the dropped attempt: buffered chunks and what already reached the bubble.
+      if (_streamFlushTimer) { clearTimeout(_streamFlushTimer); _streamFlushTimer = undefined; }
+      _textBuf = ""; _reasoningBuf = ""; _reasoningCharsBuf = 0;
+      set({ chatStreamContent: "", reasoningChars: 0, reasoningContent: "", toolGenName: null, toolGenChars: 0 });
+    },
     onToolStart: data => { if (activeRun()) set({ toolGenName: data.name, toolGenChars: 0 }); },
     onToolDelta: data => { if (activeRun()) set(s => ({ toolGenChars: s.toolGenChars + (data.arguments?.length ?? 0) })); },
     onToolEnd: () => { if (activeRun()) set({ toolGenName: null, toolGenChars: 0 }); },
@@ -1190,6 +1229,25 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
           : [...s.chatMessages, { id: nextMsgId(), role: "assistant" as const, content: textContent, agentRunId: data.runId, imageProposal: proposal }];
         return { ...ended, chatMessages, creditPause: null, creditPauseError: null,
           _pendingImage: { runId: data.runId, toolCallId: data.toolCallId }, _currentRunId: data.runId };
+      });
+      flushRefresh();
+    },
+    onImageBatchProposal: data => {
+      if (!activeRun()) return;
+      flushStreamNow();
+      const { textContent, ...rest } = data;
+      const proposal: StudioImageBatchProposal = { ...rest, status: rest.status ?? "pending" };
+      set(s => {
+        const existing = s.chatMessages.findIndex(message => message.imageBatchProposal?.runId === data.runId
+          && message.imageBatchProposal.toolCallId === data.toolCallId);
+        const reverseIndex = [...s.chatMessages].reverse().findIndex(message => message.role === "assistant"
+          && message.agentRunId === data.runId && !message.imageProposal && !message.imageBatchProposal && message.content === textContent);
+        const at = existing >= 0 ? existing : reverseIndex >= 0 ? s.chatMessages.length - 1 - reverseIndex : -1;
+        const chatMessages = at >= 0 ? s.chatMessages.map((message, index) => index === at ? { ...message, imageBatchProposal: proposal } : message)
+          : [...s.chatMessages, { id: nextMsgId(), role: "assistant" as const, content: textContent, agentRunId: data.runId, imageBatchProposal: proposal }];
+        return { ...ended, chatMessages, creditPause: null, creditPauseError: null, _pendingApproval: null, _pendingImage: null,
+          _pendingImageBatch: proposal.status === "pending" ? { runId: data.runId, toolCallId: data.toolCallId } : null,
+          _currentRunId: proposal.status === "pending" ? data.runId : null };
       });
       flushRefresh();
     },
@@ -1302,6 +1360,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   // Approval state (server-side)
   _pendingApproval: null,
   _pendingImage: null,
+  _pendingImageBatch: null,
 
   selectedElementId: null,
   selectedElementType: null,
@@ -1398,6 +1457,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       isResumingCredits: false,
       isRefreshingCreditPause: false,
       _currentRunId: null,
+      _pendingImageBatch: null,
     });
 
     // Persist the new user message right away. The panel's debounced
@@ -1497,6 +1557,29 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       if (!current()) return;
       if (!data) { set({ creditPause: null, creditPauseError: null }); return; }
       if (typeof data.id !== "string" || (runId && data.id !== runId) || data.conversationId !== conversationId) return;
+      if (data.status === "awaiting_approval" && data.imageBatchProposal) {
+        set({ _currentRunId: data.id });
+        studioAgentCallbacks(scope, data.id).onImageBatchProposal?.({ ...data.imageBatchProposal, runId: data.id });
+        return;
+      }
+      // A confirmation can finish on the server before the debounced transcript
+      // save. Recover its card from the durable task without another model turn.
+      if (data.status === "completed" && data.imageBatchProposal && Array.isArray(data.imageBatches)) {
+        const proposal: StudioImageBatchProposal = { ...data.imageBatchProposal, runId: data.id };
+        const batch = matchingImageBatch(proposal, worldId, data.imageBatches);
+        if ((batch || proposal.status === "declined") && (get().chatMessages.some(message => message.agentRunId === data.id)
+          || get().chatMessages.at(-1)?.role === "user")) {
+          set(state => {
+            const existing = state.chatMessages.findIndex(message => (message.imageBatchProposal?.runId === proposal.runId && message.imageBatchProposal.toolCallId === proposal.toolCallId)
+              || (message.agentRunId === proposal.runId && !message.imageProposal && !message.imageBatchProposal && message.content === (data.imageBatchProposal.textContent ?? "")));
+            const hydrated = batch ? proposalWithImageBatch(proposal, batch) : proposal;
+            return { chatMessages: existing >= 0 ? state.chatMessages.map((message, index) => index === existing ? { ...message, imageBatchProposal: hydrated } : message)
+              : [...state.chatMessages, { id: nextMsgId(), role: "assistant" as const, content: data.imageBatchProposal.textContent ?? "", agentRunId: data.id, imageBatchProposal: hydrated }],
+              ...(state._pendingImageBatch?.runId === data.id ? { _pendingImageBatch: null } : {}),
+              ...(state._currentRunId === data.id ? { _currentRunId: null } : {}) };
+          });
+        }
+      }
       const rawPause = data.creditPause && typeof data.creditPause === "object" ? data.creditPause as Record<string, unknown> : null;
       const rememberedReason = previous && previous.runId === data.id ? previous.reason : undefined;
       const pause = rawPause ? parseCreditPause({ ...rawPause,
@@ -1675,6 +1758,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         appliedCount: 0,
         _agentAbortController: null,
         _pendingApproval: null,
+        _pendingImageBatch: null,
         _currentRunId: null,
         creditPause: null,
         creditPauseError: null,
@@ -1811,6 +1895,24 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     else controller.abort();
   },
 
+  updateImageBatchProposal: (worldId, conversationId, proposal) => {
+    if (!isActiveStudioChatScope({ worldId, conversationId })) return;
+    let refreshed = false;
+    set(state => {
+      const messages = state.chatMessages.map(message => {
+        const previous = message.imageBatchProposal;
+        if (!previous || previous.runId !== proposal.runId || previous.toolCallId !== proposal.toolCallId) return message;
+        refreshed = !!proposal.batch?.items.some(item => item.status === "succeeded"
+          && !previous.batch?.items.some(old => old.id === item.id && old.status === "succeeded"));
+        return { ...message, imageBatchProposal: proposal };
+      });
+      const answered = proposal.status !== "pending" && state._pendingImageBatch?.runId === proposal.runId;
+      return { chatMessages: messages, ...(answered ? { _pendingImageBatch: null,
+        ...(state._currentRunId === proposal.runId ? { _currentRunId: null } : {}) } : {}) };
+    });
+    if (refreshed) flushRefresh();
+  },
+
   setSelectedElement: (id, type = null) =>
     set({ selectedElementId: id, selectedElementType: type }),
 
@@ -1921,6 +2023,21 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     await get().sendChatMessage(worldId, content, model, conversationId);
   },
 
+  restartFromPause: async (worldId, model, conversationId = null) => {
+    const pause = get().creditPause;
+    if (!pause || get().isAgentWorking || get().isResumingCredits || !isActiveStudioChatScope(pause)) return;
+    studioAgentEpoch++;
+    creditRefreshEpoch++;
+    set({ creditPause: null, creditPauseError: null, isResumingCredits: false, isRefreshingCreditPause: false });
+    // Consume the stuck checkpoint so status polling stops offering it.
+    await fetch(`${apiBase}/api/studio/${encodeURIComponent(pause.worldId)}/agent/stop`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+      body: JSON.stringify({ runId: pause.runId }),
+    }).catch(() => {});
+    await get().sendChatMessage(worldId, tr("editor:studio.aiChat.creditPause.restartMessage",
+      "Continue from where you stopped, working from the card as it is now."), model, conversationId);
+  },
+
   addChatAttachment: (file) => {
     set((s) => ({ chatAttachments: [...s.chatAttachments, file] }));
   },
@@ -1943,7 +2060,7 @@ useStudioStore.subscribe((state, previous) => {
   if (_streamFlushTimer) { clearTimeout(_streamFlushTimer); _streamFlushTimer = undefined; }
   _textBuf = ""; _reasoningBuf = ""; _reasoningCharsBuf = 0;
   useStudioStore.setState({ creditPause: null, creditPauseError: null, isResumingCredits: false,
-    isRefreshingCreditPause: false, _agentAbortController: null, _currentRunId: null });
+    isRefreshingCreditPause: false, _agentAbortController: null, _currentRunId: null, _pendingImageBatch: null });
 });
 
 useEditorStore.subscribe((state, previous) => {
@@ -1952,5 +2069,5 @@ useEditorStore.subscribe((state, previous) => {
   creditRefreshEpoch++;
   if (_streamFlushTimer) { clearTimeout(_streamFlushTimer); _streamFlushTimer = undefined; }
   _textBuf = ""; _reasoningBuf = ""; _reasoningCharsBuf = 0;
-  useStudioStore.setState({ creditPause: null, creditPauseError: null, isResumingCredits: false, isRefreshingCreditPause: false });
+  useStudioStore.setState({ creditPause: null, creditPauseError: null, isResumingCredits: false, isRefreshingCreditPause: false, _pendingImageBatch: null });
 });

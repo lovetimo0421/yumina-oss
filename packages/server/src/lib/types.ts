@@ -28,6 +28,8 @@ export type SessionUser = {
 
 export type AppEnv = {
   Variables: {
+    /** Verified actor selected by the hosted cursor rollout middleware. */
+    discoveryCursorActor?: `user:${string}` | `guest:${string}`;
     user: SessionUser;
     session: {
       id: string;

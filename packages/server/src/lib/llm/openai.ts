@@ -1,3 +1,4 @@
+import { IMAGE_MODEL_CAPABILITIES } from "@yumina/shared";
 import type { LLMProvider, GenerateParams, StreamChunk, Model, ChatMessage, ToolCall } from "./types.js";
 import { parseUnsupportedParam, stripParamFromBody } from "./param-fallback.js";
 import { LLM_CONNECTION_TIMEOUT_MS, LLM_REQUEST_TIMEOUT_MS, LLM_STREAM_INACTIVITY_TIMEOUT_MS } from "./constants.js";
@@ -343,6 +344,7 @@ export class OpenAIProvider implements LLMProvider {
       })
       .map((m) => ({
         id: `openai/${m.id}`,
+        supportsImages: IMAGE_MODEL_CAPABILITIES[`openai/${m.id}`],
         name: m.id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
         contextLength: inferOpenAIContext(m.id),
       }));

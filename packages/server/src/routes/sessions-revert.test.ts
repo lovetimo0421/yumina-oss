@@ -52,9 +52,9 @@ describe("revertSession", () => {
     }).returning();
     testSessionId = s!.id;
 
-    // Insert sequentially so each row gets a distinct createdAt. Crucially,
-    // USER messages carry no stateSnapshot — matching production, where only
-    // assistant turns persist a snapshot.
+    // Use explicit turn times: sequential inserts can share a millisecond on
+    // PGlite, making chronological pruning/revert assertions nondeterministic.
+    // USER messages carry no stateSnapshot, matching ordinary consumer chats.
     const fixtures = [
       { role: "assistant" as const, content: "greeting", stateSnapshot: { variables: { hp: 10 } } },
       { role: "user" as const, content: "i attack" },
@@ -63,8 +63,10 @@ describe("revertSession", () => {
       { role: "assistant" as const, content: "reply 2", stateSnapshot: { variables: { hp: 8 } } },
     ];
     messageIds = [];
-    for (const f of fixtures) {
-      const [row] = await db.insert(messages).values({ sessionId: testSessionId, ...f }).returning();
+    for (const [index, f] of fixtures.entries()) {
+      const [row] = await db.insert(messages).values({
+        sessionId: testSessionId, ...f, createdAt: new Date(Date.UTC(2026, 0, 1) + index * 1000),
+      }).returning();
       messageIds.push(row!.id);
     }
   });

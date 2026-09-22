@@ -139,9 +139,12 @@ export const EXTENSION_REGISTRY: readonly ExtensionDefinition[] = [
     key: SESSION_MEMORY_EXTENSION_KEY,
     name: "Session Memory & Story Summary (Beta)",
     shortDescription:
-      "The AI forgets things in long chats. This keeps notes for it: key facts get recorded, older chat gets compressed into a recap — which also saves tokens. Beta.",
+      "Keeps your story memory small without losing the plot. Older scenes become a recap, key facts stay on a list. Beta.",
+    // Kept deliberately short. The three cards below carry the detail; when
+    // this repeated them the modal said the same thing twice in a row, then
+    // a third time in the install toast.
     longDescription:
-      "The AI forgets things in long chats. This extension keeps notes for it in the background: key facts (relationships, items, promises, goals) go into a running list, older chat gets compressed into a \"story so far\" recap, and both are fed to the AI before every reply — details survive, and every turn costs fewer tokens. There's also an experimental Layered Summary for very long stories.\n\nNote-taking costs a little: the default model is Gemini 2.5 Flash Lite, usually well under 1 mushie per update. Don't want to spend anything? Switch it to Yumina Free in the Memory panel.\n\nEverything it writes lives in the Memory panel (the button above the chat input; in a few worlds with fully custom interfaces the button is missing — move your cursor to the top edge and use the play-controls bar). Read it, edit it, clear and regenerate it, change the model, tune when compression kicks in.\n\nUninstalling just turns it off — your notes are kept, and reinstalling picks them back up. Beta: it occasionally gets a detail wrong.",
+      "Story memory only keeps the most recent part of your conversation word for word. This extension makes sure the rest is not simply lost: older scenes are compressed into a \"story so far\" recap, and key facts (relationships, items, promises, goals) go onto a running list. Both are sent with every reply.\n\nThat is what lets a small story memory work. Keep it around 16,000 and let this carry everything older.\n\nWriting the notes costs a little, usually well under 1 mushie per update. One tap in the Memory panel switches it to the free model.\n\nBeta: it occasionally gets a detail wrong. Everything it writes can be read and edited in the Memory panel, above the chat box.",
     icon: "brain",
     category: "memory",
     tags: ["memory", "context", "long-play", "summary"],
@@ -150,16 +153,16 @@ export const EXTENSION_REGISTRY: readonly ExtensionDefinition[] = [
     screenshots: [],
     explanations: [
       {
-        title: "Session Memory",
-        body: "Key facts go into a running list — relationships, items, promises, open goals — and get fed to the AI before every reply, so details survive long sessions.",
+        title: "Works with your story memory",
+        body: "Set story memory to about 16,000 in AI settings. This carries everything older, so a small window stays cheap and sharp without losing the plot.",
       },
       {
-        title: "Story Summary",
-        body: "Older chat is compressed into a \"story so far\" recap. The AI keeps the plot without carrying the full transcript, and every turn costs fewer tokens.",
+        title: "You can read and change it",
+        body: "Open the Memory panel above the chat box. Edit the notes, pin facts that must never drift, clear and regenerate, or switch the model it uses.",
       },
       {
-        title: "Cost & control",
-        body: "Note-taking costs a little (default: Gemini 2.5 Flash Lite; one tap in the Memory panel switches it to the free model). Everything it writes can be viewed, edited, or cleared.",
+        title: "Uninstalling keeps your notes",
+        body: "Turning it off leaves everything written so far intact. Reinstall later and it picks the same notes back up.",
       },
     ],
     capabilityHookIds: ["session-memory", "story-summary", "summaryception"],

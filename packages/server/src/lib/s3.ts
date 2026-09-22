@@ -144,6 +144,8 @@ export async function getObject(key: string, opts?: { range?: string }): Promise
   contentLength: number | undefined;
   contentRange: string | null;
   etag: string | null;
+  contentEncoding?: string;
+  decodedLength?: number;
 }> {
   if (useLocal()) return getLocalDiskStorage().getObject(key, opts);
   const command = new GetObjectCommand({
@@ -161,6 +163,9 @@ export async function getObject(key: string, opts?: { range?: string }): Promise
     contentLength: response.ContentLength,
     contentRange: response.ContentRange ?? null,
     etag: response.ETag ?? null,
+    contentEncoding: response.ContentEncoding,
+    decodedLength: Number.isSafeInteger(Number(response.Metadata?.['decoded-size']))&&Number(response.Metadata?.['decoded-size'])>0
+      ?Number(response.Metadata?.['decoded-size']):undefined,
   };
 }
 

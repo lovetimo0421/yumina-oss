@@ -851,7 +851,8 @@ export async function refreshMonthlyCredits(
   // this boundary once BILLING_V2_EXISTING_AT has passed (owner 2026-09-16).
   const planVersion = shouldMigrateToV2(wallet, now) ? 2 : wallet.planVersion;
   const config = await cyclePlanConfig(userId, wallet.plan, newPeriodStart, now, db, planVersion);
-  // v2 renewals pay drop 0 now; days 10/20 (free: 7/14/21) follow via releaseDueDrops.
+  // v2 renewals pay drop 0 now; the later drops (days 7/14/21 on the current
+  // schedule) follow via releaseDueDrops.
   const renewalGrant = planVersion === 2 ? initialDropAmount(wallet.plan) : config.monthlyCredits;
   return db.transaction(async (tx) => {
   const [locked] = await tx.select().from(creditWallets).where(eq(creditWallets.id,wallet.id)).for("update");

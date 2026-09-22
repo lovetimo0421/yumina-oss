@@ -38,6 +38,7 @@ import {
   type AccountDeletionAccessDecision,
 } from "./account-deletion-access.js";
 import { anonymizeDeletedAccountAudit } from "./account-deletion-audit.js";
+import { eraseDiscoveryAccountData } from "./discovery-erasure.js";
 import { hasStripeCleanupArtifacts } from "./account-deletion-policy.js";
 import {
   closeStripeConnectAccount,
@@ -1171,6 +1172,10 @@ export async function permanentlyDeleteAccount(
     // Do not acknowledge account deletion while any renewable subscription is
     // still active. The durable outbox repeats this idempotently after commit.
     await cancelExternalSubscriptions(lockedContext);
+
+    // Canonical discovery has no user FK. Record durable actor/cutoff erasures
+    // before removing its events, even if measurement collection is now off.
+    await eraseDiscoveryAccountData(tx, userId);
 
     const deleted = await tx
       .delete(user)

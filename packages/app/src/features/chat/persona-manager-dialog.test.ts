@@ -13,7 +13,7 @@ import { createChatPersonaController } from "@/lib/refresh-chat-persona";
 
 // Exercise the actual manager's hooks and wiring while replacing only visual shells
 // and external stores. This keeps the test offline and does not open a browser.
-test("manager follows global changes while closed, queues public edits during generation, and finishes saves after closing", async () => {
+test("manager follows global changes until a session selection locks it, queues public edits, and finishes saves after closing", async () => {
   const dom = new JSDOM('<div id="root"></div>');
   const globals = { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true };
   const previous = new Map(Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
@@ -27,22 +27,29 @@ test("manager follows global changes while closed, queues public edits during ge
   const chat = create(() => ({ session, isStreaming: false }));
   let fetches = 0;
   const personas = create(() => ({ personas: [a, b], fetchPersonas: async (invalidate?: boolean) => {
-    assert.equal(invalidate, true, "in-chat commit invalidates any older profile list request");
+    assert.equal(invalidate, true, "tab return invalidates any older profile list request");
     fetches++;
     personas.setState({ personas: [a, b].map((p) => ({ ...p, isActive: p.id === selected.id })) });
   } }));
   const calls: { url: string; init?: RequestInit }[] = [];
   let selected = a;
+  let lockedPersona: Persona | null = null;
   let finishSave!: () => void;
   globalThis.fetch = async (url, init) => {
     calls.push({ url: String(url), init });
     if (init?.method === "PUT") {
+      assert.equal(String(url), "/api/sessions/chat/persona-lock");
+      assert.deepEqual(JSON.parse(String(init.body)), { locked: true, personaId: "A" });
       return new Promise<Response>((resolve) => {
-        finishSave = () => { selected = b; resolve(Response.json({ data: { persona: b } })); };
+        finishSave = () => {
+          lockedPersona = a;
+          resolve(Response.json({ data: { personaLocked: true, sessionPersona: { persona: a } } }));
+        };
       });
     }
-    return Response.json({ data: { ...session, sessionPersona: { persona: selected },
-      state: { variables: { hp: 1 }, metadata: { personaName: selected.name, personaBackstory: selected.backstory } } } });
+    const resolved = lockedPersona ?? selected;
+    return Response.json({ data: { ...session, personaLocked: lockedPersona !== null, sessionPersona: { persona: resolved },
+      state: { variables: { hp: 1 }, metadata: { personaName: resolved.name, personaBackstory: resolved.backstory } } } });
   };
   const t = (key: string, values?: { name: string }) => values?.name ?? key;
   const shell = ({ children }: { children: ReactNode }) => createElement("div", null, children);
@@ -51,7 +58,7 @@ test("manager follows global changes while closed, queues public edits during ge
     "@/components/ui/dialog": { Dialog: ({ open, children }: { open: boolean; children: ReactNode }) => open ? createElement("div", null, children) : null,
       DialogContent: shell, DialogTitle: shell },
     "@/features/personas/persona-carousel": { PersonaCarousel: ({ sessionSelection }: { sessionSelection: { personaId: string | null; onSelect: (id: string) => Promise<void> } }) =>
-      createElement("button", { "data-persona": sessionSelection.personaId, onClick: () => void sessionSelection.onSelect("B") }, "Select B") },
+      createElement("button", { "data-persona": sessionSelection.personaId, onClick: () => void sessionSelection.onSelect("A") }, "Select A") },
     "@/features/personas/persona-edit-modal": { PersonaEditModal: () => null },
     "@/components/ui/field-error": { FieldError: () => null },
     "@/stores/chat": { useChatStore: chat },
@@ -96,11 +103,13 @@ test("manager follows global changes while closed, queues public edits during ge
     assert.equal((chat.getState().session.state.metadata as Record<string, unknown>).personaBackstory, "Edited");
     await act(async () => render(true));
     await act(async () => { dom.window.document.querySelector("[data-persona]")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })); });
-    assert.equal(calls.at(-1)?.url, "/api/sessions/chat/persona");
+    assert.equal(calls.at(-1)?.url, "/api/sessions/chat/persona-lock");
     await act(async () => render(false));
     await act(async () => finishSave());
-    assert.equal(chat.getState().session.sessionPersona?.persona?.id, "B");
-    assert.equal(fetches, 1, "a successful in-chat selection refetches the account selection");
+    assert.equal(chat.getState().session.sessionPersona?.persona?.id, "A");
+    assert.equal(chat.getState().session.personaLocked, true, "selecting in chat locks this session");
+    assert.equal(fetches, 0, "a session selection does not change or refetch the profile default");
+    assert.equal(selected.id, "B", "saving the session leaves the server account default unchanged");
     assert.equal(personas.getState().personas.find((p) => p.isActive)?.id, "B");
     assert.deepEqual(chat.getState().session.state.variables, { hp: 9 });
     assert.equal((chat.getState().session.state.metadata as Record<string, unknown>).activeAudio, "song");
@@ -110,27 +119,29 @@ test("manager follows global changes while closed, queues public edits during ge
     const beforeHidden = calls.length;
     await act(async () => { dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange")); });
     assert.equal(calls.length, beforeHidden, "hiding a tab does not refresh");
-    assert.equal(fetches, 1);
+    assert.equal(fetches, 0);
     Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, value: "visible" });
-    selected = a;
+    selected = b;
     await act(async () => { dom.window.dispatchEvent(new dom.window.Event("focus")); });
-    assert.equal(fetches, 2, "returning from another tab fetches the global choice");
-    assert.equal(chat.getState().session.sessionPersona?.persona?.id, "A");
+    assert.equal(fetches, 1, "returning from another tab fetches the global choice");
+    assert.equal(chat.getState().session.sessionPersona?.persona?.id, "A", "a locked session keeps its own choice on tab return");
     await act(async () => { chat.setState({ isStreaming: true }); });
     const beforeStreamFocus = calls.length;
-    selected = b;
+    lockedPersona = { ...a, backstory: "Locked public edit" };
     await act(async () => { dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange")); });
-    assert.equal(fetches, 3);
+    assert.equal(fetches, 2);
     assert.equal(calls.length, beforeStreamFocus, "tab-return identity refresh is queued during generation");
     await act(async () => { chat.setState({ isStreaming: false }); });
-    assert.equal(chat.getState().session.sessionPersona?.persona?.id, "B");
+    assert.equal(chat.getState().session.sessionPersona?.persona?.id, "A");
+    assert.equal((chat.getState().session.state.metadata as Record<string, unknown>).personaBackstory, "Locked public edit");
+    assert.equal(personas.getState().personas.find((p) => p.isActive)?.id, "B");
     const beforeUnmount = calls.length;
     await act(async () => root.unmount());
     await act(async () => {
       dom.window.dispatchEvent(new dom.window.Event("focus"));
       dom.window.document.dispatchEvent(new dom.window.Event("visibilitychange"));
     });
-    assert.equal(fetches, 3, "unmount removes both global listeners");
+    assert.equal(fetches, 2, "unmount removes both global listeners");
     assert.equal(calls.length, beforeUnmount);
   } finally {
     await act(async () => root.unmount());

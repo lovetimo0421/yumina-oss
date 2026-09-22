@@ -1029,6 +1029,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           sessionId: session.id,
           role: "user" as const,
           content,
+          attachments: attachments?.map(a => ({ type: a.type, name: a.name, mimeType: a.mimeType, url: `data:${a.mimeType};base64,${a.data}` })),
           createdAt: new Date().toISOString(),
         },
       ],
@@ -1038,6 +1039,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const overrides = {
       maxTokens: config.maxTokens,
       maxContext: config.maxContext,
+      storyMemory: config.storyMemory ?? undefined,
       temperature: config.temperature,
       topP: config.topP,
       frequencyPenalty: config.frequencyPenalty,
@@ -1428,6 +1430,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           overrides: {
             maxTokens: config.maxTokens,
             maxContext: config.maxContext,
+            storyMemory: config.storyMemory ?? undefined,
             temperature: config.temperature,
             topP: config.topP,
             frequencyPenalty: config.frequencyPenalty,
@@ -1655,6 +1658,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           overrides: {
             maxTokens: config.maxTokens,
             maxContext: config.maxContext,
+            storyMemory: config.storyMemory ?? undefined,
             temperature: config.temperature,
             topP: config.topP,
             frequencyPenalty: config.frequencyPenalty,

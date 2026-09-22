@@ -1,11 +1,18 @@
 import { z } from 'zod';
 import {classicPlantChoiceSchema,classicPlantAnswerSchema} from './game-classic-plant.js';
-import {classicStoryChoiceSchema,classicStoryAnswerSchema,sunDoubleSchema,giftShuffleSchema} from './game-classic-story.js';
+import {classicStoryChoiceSchema,classicStoryAnswerSchema,sunDoubleSchema,giftShuffleSchema,roofFavorSchema} from './game-classic-story.js';
 import { source31ChoiceText,source31CurrentChoiceSchema,sourceStorySchema, sourceStoryActionSchema,sourceStoryChoiceSchema,sourceChoiceSchema,sourceStoryNumericSchema } from './game-source-story.js';
 import { sourcePlantTargetSchema,sourcePlantBondSchema,sourcePlantBondLeaseSchema,sourcePlantReactionSchema,sourcePlantRequestSchema,sourcePlantBondSeedSupported,sourcePlantBondLeaseMatches,sourcePlantBondChapterSupported,source27LivingPlantMatches } from './game-source-plant.js';
 
 const boundedInt = z.number().int().min(0).max(1_000_000);
 const unsignedInt = z.number().int().min(0).max(4_294_967_295);
+// Native level -> source chapter and the boss whose progress is public on that lawn.
+const sourceBossByLevel:ReadonlyArray<readonly number[]|null>=[null,
+ [40148,1010],[40150,1030],[40151,1050],[40152,1053],[40153,1010],
+ [40154,1040],[40155,1023],[40156,1034],[40157,1041],[40149,1054],[40158,1060],
+ [40160,1061],[40161,1070],[40162,1071],[40163,1080],[40164,1082],[40165,1090],
+ [40166,1093],[40167,1064],[40159,1094],[40168,1035]];
+const visibleBossSchema=z.object({sourceId:z.number().int(),health:boundedInt.min(1),maxHealth:boundedInt.min(1),warning:z.boolean()}).strict();
 export const daveDirectionKindSchema = z.enum([
   'fair_terms','raise_stakes','extend_time','rally_plants','reveal_clue','switch_lane',
   'call_sunflower','call_peashooter','call_wallnut',
@@ -108,6 +115,7 @@ export const daveSnapshotSchema = z.object({
   threatMultiplier: z.union([z.literal(1),z.literal(2),z.literal(3),z.literal(4)]), sun: z.number().int().min(-1_000_000).max(1_000_000),
   scenario:davePublicScenarioSchema.optional(),
   sourceStory:sourceStorySchema.optional(),
+  visibleBoss:visibleBossSchema.optional(),
   rows: z.array(z.object({row:z.number().int().min(0).max(5), plants:boundedInt, enemies:boundedInt, mower:z.boolean()}).strict()).max(6)
     .refine(rows => new Set(rows.map(r => r.row)).size === rows.length, 'Duplicate row'),
   selectedPlants: z.array(z.string().max(64)).max(10),
@@ -131,15 +139,23 @@ export const daveSnapshotSchema = z.object({
   headMagic:z.object({stage:z.enum(['waiting','windup','transformed','missed'])}).strict().optional(),
   sunDouble:sunDoubleSchema.optional(),
   giftShuffle:giftShuffleSchema.optional(),
+  roofFavor:roofFavorSchema.optional(),
   cherryUnlocked: z.boolean(), offersUsed: z.number().int().min(0).max(127),
   recentEvents: z.array(z.enum(['wave_clear','mower_used','plant_lost','offer_completed'])).max(8),
 }).strict().refine(s => s.defeated === undefined || s.defeated === (s.phase === 'lost'), 'Inconsistent outcome')
   .superRefine((s,ctx) => {
-    if(s.mode==='garden'?(!s.garden||s.sourceStory||s.scenario||s.wave!==0||s.waves!==0||s.sun!==0||s.offersUsed!==0||s.rows.length||s.selectedPlants.length||s.planted?.length||s.visibleEnemies?.length||s.headPrize||s.headMagic||s.sunDouble||s.giftShuffle||s.defeated||s.phase!=='playing'||s.threatMultiplier!==1||s.cherryUnlocked||s.recentEvents.length||(s.interactionFlags??0)!==0||s.encounter&&s.encounter!=='none'||s.encounterPrice!==undefined||s.encounterPitch!==undefined||s.encounterReward!==undefined):!!s.garden)
+    if(s.visibleBoss){
+      const expected=sourceBossByLevel[s.level];
+      if(s.mode!=='adventure'||s.phase!=='playing'||s.defeated||s.fogMasked||!expected||
+        s.sourceStory?.sourceLevel!==expected[0]||s.visibleBoss.sourceId!==expected[1])
+        ctx.addIssue({code:z.ZodIssueCode.custom,path:['visibleBoss'],message:'Boss progress must belong to the current visible source lawn'});
+    }
+    if(s.mode==='garden'?(!s.garden||s.sourceStory||s.scenario||s.wave!==0||s.waves!==0||s.sun!==0||s.offersUsed!==0||s.rows.length||s.selectedPlants.length||s.planted?.length||s.visibleEnemies?.length||s.headPrize||s.headMagic||s.sunDouble||s.giftShuffle||s.roofFavor||s.defeated||s.phase!=='playing'||s.threatMultiplier!==1||s.cherryUnlocked||s.recentEvents.length||(s.interactionFlags??0)!==0||s.encounter&&s.encounter!=='none'||s.encounterPrice!==undefined||s.encounterPitch!==undefined||s.encounterReward!==undefined):!!s.garden)
       ctx.addIssue({code:z.ZodIssueCode.custom,path:['garden'],message:'Garden observations cannot carry Adventure effects'});
     if(s.headPrize&&(s.level!==23||s.sourceStory||s.scenario||s.conveyor))ctx.addIssue({code:z.ZodIssueCode.custom,path:['headPrize'],message:'Head prize belongs to ordinary classic 3-3'});
     if(s.headMagic&&(s.level!==23||s.sourceStory||s.scenario||s.conveyor))ctx.addIssue({code:z.ZodIssueCode.custom,path:['headMagic'],message:'Head magic belongs to ordinary classic 3-3'});
     if(s.sunDouble&&(s.level!==24||s.sourceStory||s.scenario||s.conveyor))ctx.addIssue({code:z.ZodIssueCode.custom,path:['sunDouble'],message:'Sun exchange belongs to ordinary classic 3-4'});
+    if(s.roofFavor&&(s.level!==48||s.terrain!=='roof'||s.threatMultiplier!==3||s.sourceStory||s.scenario||s.conveyor))ctx.addIssue({code:z.ZodIssueCode.custom,path:['roofFavor'],message:'Roof favor belongs to ordinary classic 5-8'});
     if(s.giftShuffle&&(s.level!==31||s.sourceStory||s.scenario||s.conveyor))ctx.addIssue({code:z.ZodIssueCode.custom,path:['giftShuffle'],message:'Gift shuffle belongs to ordinary classic 4-1'});
     if(s.plantIdentityVersion===1) {
       if((!s.sourceStory&&!(s.level>=22&&s.level<=50&&!s.scenario))||!s.planted||s.planted.some(p=>p.id===undefined)||
@@ -207,19 +223,34 @@ export const daveRequestSchema = z.object({
   requestId:z.string().uuid(), model:z.string().trim().min(1).max(256), locale:z.enum(['en','zh','es']),
   trigger:z.enum(['player','wave_clear','lawn_danger','arrival','idle','interaction','encounter','source_auto']), snapshot:daveSnapshotSchema,
   notebookRevision:boundedInt.optional(),
+  heardDave:z.object({levelEpoch:boundedInt,text:z.string().trim().min(1).max(500)}).strict().optional(),
   sourcePlantTarget:sourcePlantTargetSchema.optional(),
   classicPlantChoice:classicPlantChoiceSchema.optional(),
   classicStoryChoice:classicStoryChoiceSchema.optional(),
   sourcePlantBondLease:sourcePlantBondLeaseSchema.optional(),
   sourceStoryChoice:sourceStoryChoiceSchema.optional(),
   sourceStoryNumeric:sourceStoryNumericSchema.optional(),
+  sourceChoiceChatVersion:z.literal(1).optional(),
+  sourceNumericEditVersion:z.literal(1).optional(),
   messages:z.array(z.object({role:z.enum(['user','assistant']),content:z.string().min(1).max(1000)}).strict()).min(1).max(12),
 }).strict().superRefine((request,ctx)=>{
+  const spokenSource=request.snapshot.sourceStory;
+  const sourceSpeech=!!spokenSource&&request.snapshot.level<=20&&request.snapshot.phase==='playing'&&!request.snapshot.defeated&&
+    !spokenSource.hammerPending&&['talking','acting'].includes(spokenSource.phase)&&
+    (spokenSource.sceneKind==='fixed'||spokenSource.sceneKind==='handle')&&spokenSource.sceneId>0&&
+    !request.sourceStoryChoice&&!request.sourceStoryNumeric;
+  const classicSpeech=!spokenSource&&request.snapshot.level>=22&&request.snapshot.level<=50&&!request.snapshot.conveyor;
+  if(request.heardDave&&(request.trigger!=='player'||request.snapshot.mode!=='adventure'||
+    (!sourceSpeech&&!classicSpeech)||request.heardDave.levelEpoch!==request.snapshot.levelEpoch||
+    request.snapshot.scenario||request.sourcePlantTarget||request.classicPlantChoice))
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['heardDave'],message:'Scripted dialogue belongs to this reached Dave conversation'});
+  if(request.sourceChoiceChatVersion&&!request.sourceStoryChoice&&!request.sourceStoryNumeric)
+    ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceChoiceChatVersion'],message:'Choice conversation requires a current authored question'});
   if(request.snapshot.mode==='garden'&&(request.trigger!=='player'||request.messages.at(-1)?.role!=='user'||request.classicStoryChoice||request.classicPlantChoice||request.sourcePlantTarget||request.sourcePlantBondLease||request.sourceStoryChoice||request.sourceStoryNumeric))
     ctx.addIssue({code:z.ZodIssueCode.custom,path:['snapshot'],message:'Garden conversation requires an explicit player message without combat capabilities'});
   if(request.classicStoryChoice){
     const s=request.snapshot,c=request.classicStoryChoice;
-    const validOffer=c.kind==='gift_shuffle'?s.level===31&&s.giftShuffle?.revision===c.revision&&s.giftShuffle.stage===c.stage&&s.giftShuffle.opened===c.opened&&(c.stage!==1||c.wave<5):c.kind==='head_prize'?s.level===23&&s.headPrize?.stage==='offered':
+    const validOffer=c.kind==='mystery_tin'?s.level>=22&&s.level<=49&&s.encounter===c.stage&&(s.encounterPrice??25)===c.price&&!(s.roofFavor?.stage)&&!s.giftShuffle&&s.headPrize?.stage!=='offered'&&s.sunDouble?.stage!=='offered':c.kind==='roof_favor'?s.level===48&&s.roofFavor?.stage===2&&s.roofFavor.revision===c.revision&&s.roofFavor.variant===c.variant&&s.roofFavor.row===c.row:c.kind==='gift_shuffle'?s.level===31&&s.giftShuffle?.revision===c.revision&&s.giftShuffle.stage===c.stage&&s.giftShuffle.opened===c.opened&&s.giftShuffle.replayAvailable===c.replayAvailable&&(c.stage!==1||c.wave<5):c.kind==='head_prize'?s.level===23&&s.headPrize?.stage==='offered':
       s.level===24&&s.sunDouble?.stage==='offered'&&s.sunDouble.round===c.round&&c.wave>=[6,8,11][c.round-1]!&&c.wave<[6,8,11][c.round-1]!+2;
     if(request.trigger!=='player'||request.messages.at(-1)?.role!=='user'||s.sourceStory||s.scenario||s.conveyor||
       s.phase!=='playing'||s.defeated||!validOffer||s.wave!==c.wave||
@@ -239,6 +270,8 @@ export const daveRequestSchema = z.object({
        (p?.type!==6||c.appetite===undefined||c.appetiteRevision===undefined||c.canDirect===undefined||c.armoredMeals===undefined||!c.status||c.requestKind!==undefined))||
       ([c.garlicDirection,c.garlicRevision,c.garlicUp,c.garlicDown].some(v=>v!==undefined)&&
        (p?.type!==36||!neutral||c.garlicDirection===undefined||c.garlicRevision===undefined||c.garlicUp===undefined||c.garlicDown===undefined||c.requestKind!==undefined))||
+      ([c.lightMode,c.lightRevision].some(v=>v!==undefined)&&
+       (p?.type!==25||!neutral||s.level<31||s.level>39||s.terrain!=='fog'||!s.fogMasked||c.lightMode===undefined||c.lightRevision===undefined||c.requestKind!==undefined))||
       (c.requestKind!==undefined&&(!c.status||['offered','active'].includes(c.status)||c.wave<2||c.wave+2>s.waves||c.score>=3||
         (c.requestKind==='company'&&![1,9,41].includes(p?.type??-1))))||
       !p||p.health<=0||p.type>48||request.sourcePlantTarget||request.sourcePlantBondLease||request.sourceStoryChoice||request.sourceStoryNumeric)
@@ -252,6 +285,8 @@ export const daveRequestSchema = z.object({
       ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceStoryChoice'],message:'Choice answer requires the current authored Dave choice and an explicit player message'});
   }
   const answer=request.sourceStoryChoice??request.sourceStoryNumeric,story=request.snapshot.sourceStory;
+  if(request.sourceNumericEditVersion&&(!request.sourceStoryNumeric||request.snapshot.level!==20||story?.sourceLevel!==40159))
+   ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceNumericEditVersion'],message:'Numeric editing capability requires a current source2-10 amount question'});
   const answer31=request.sourceStoryChoice;
   if(story?.sourceLevel===40168){
    const current=source31CurrentChoiceSchema.safeParse(story.choice),labels=source31ChoiceText(story.sceneId,request.locale);
@@ -262,7 +297,7 @@ export const daveRequestSchema = z.object({
   }else if(answer31&&(answer31.epoch!==undefined||answer31.owner!==undefined||answer31.choiceRevision!==undefined))
    ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceStoryChoice'],message:'Source31 identity cannot authorize another chapter'});
   if(request.sourceStoryNumeric){const s=request.snapshot;
-   if(request.sourceStoryChoice||request.trigger!=='player'||request.messages.at(-1)?.role!=='user'||request.sourcePlantTarget||request.sourcePlantBondLease||!((s.level===15&&story?.sourceLevel===40163)||(s.level===16&&story?.sourceLevel===40164)||(s.level===17&&story?.sourceLevel===40165)||(s.level===18&&story?.sourceLevel===40166)||(s.level===19&&story?.sourceLevel===40167)||(s.level===20&&story?.sourceLevel===40159))||s.phase!=='playing'||s.defeated||story.phase!=='choice'||story.hammerPending||story.sceneId!==request.sourceStoryNumeric.sceneId||JSON.stringify(story.choice?.numeric)!==JSON.stringify(request.sourceStoryNumeric.numeric))ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceStoryNumeric'],message:'Numeric answer requires this exact current offer and player turn'});
+   if(request.sourceStoryChoice||request.trigger!=='player'||request.messages.at(-1)?.role!=='user'||request.sourcePlantTarget||request.sourcePlantBondLease||!((s.level===10&&story?.sourceLevel===40149)||(s.level===11&&story?.sourceLevel===40158)||(s.level===12&&story?.sourceLevel===40160)||(s.level===15&&story?.sourceLevel===40163)||(s.level===16&&story?.sourceLevel===40164)||(s.level===17&&story?.sourceLevel===40165)||(s.level===18&&story?.sourceLevel===40166)||(s.level===19&&story?.sourceLevel===40167)||(s.level===20&&story?.sourceLevel===40159))||s.phase!=='playing'||s.defeated||story.phase!=='choice'||story.hammerPending||story.sceneId!==request.sourceStoryNumeric.sceneId||JSON.stringify(story.choice?.numeric)!==JSON.stringify(request.sourceStoryNumeric.numeric))ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceStoryNumeric'],message:'Numeric answer requires this exact current offer and player turn'});
   }
   if(answer&&([40159,40163,40164,40165,40166,40167].includes(story?.sourceLevel??0)||'eventToken' in answer||'storyRevision' in answer||'eventKey' in answer)){
    const c=story?.choice;

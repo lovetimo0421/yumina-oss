@@ -5,13 +5,16 @@
 //   - Prices unchanged. The month's pile is sized so the average subscriber
 //     costs about half the price and a maxed-out one under 80%; value per
 //     dollar rises with the tier (full-use price/AI 1.5x → 1.25x).
-//   - The pile is DELIVERED IN DROPS, not as one lump: half at purchase or
-//     renewal, a quarter on day 10, a quarter on day 20 (free: 700 at
-//     signup/renewal, then 100 on days 7, 14, 21). Unused credits carry inside
-//     the cycle and reset at renewal. Roleplay is a binge (36% of a month in
-//     one day) so daily allowances refuse most play; a single lump strands a
-//     third of subscribers for a week or more. Drops were the only cadence
-//     that fixed both.
+//   - The pile is DELIVERED IN DROPS, not as one lump. Launch schedule: half
+//     at purchase or renewal, a quarter on day 10, a quarter on day 20. Since
+//     2026-09-22 (owner): 40% at purchase or renewal, then 20% on days 7, 14
+//     and 21 — the same weekly rhythm Free always had (700 at signup/renewal,
+//     then 100 on days 7, 14, 21), so one calendar explains every card. See
+//     DROP_SCHEDULES. Unused credits carry inside the cycle and reset at
+//     renewal. Roleplay is a binge (36% of a month in one day) so daily
+//     allowances refuse most play; a single lump strands a third of
+//     subscribers for a week or more. Drops were the only cadence that fixed
+//     both.
 //   - NO daily refill. It funded 6-12% of paid play, predicted nothing about
 //     retention, and its floor equalled a Gold user's typical day.
 //   - Check-ins become QUESTS: a daily action pays into the expiring Bonus
@@ -26,9 +29,11 @@
 //   - CYCLE QUESTS (the "forge"): rebates that unlock on mushies actually
 //     burned this cycle. Platinum and up; Gold sees them locked. They are
 //     fixed amounts outside the monthly cap.
-//   - INVITE QUESTS: one daily (a signup with your code) and one weekly (three
-//     friends who qualified as active). Fixed, the same at every tier, outside
-//     the cap — a referral is good for us whatever the tier.
+//   - INVITE QUEST: one weekly (three friends who qualified as active). Fixed,
+//     the same at every tier, outside the cap — a referral is good for us
+//     whatever the tier. The daily one (a signup with your code today) came off
+//     the board on 2026-09-22 (owner): almost nobody could finish it, it sat
+//     on the board every day, and the referral ladder already pays for invites.
 //   - Measured against real completion rates (28 days, 9/16) the board's
 //     expected payout is 6–33% of the cap; the cap is what a daily player can
 //     reach, the expected cost is what the ledger will actually show.
@@ -114,24 +119,67 @@ export const FORGE_RUNGS: readonly ForgeRung[] = [
 ];
 
 /**
- * Invite quests pay the same fixed amount at every tier and sit outside the
- * monthly cap. Registrations alone carry the daily one (one slot a day, so a
- * farm of alts is worth at most 1,500 a month — less than the alt's own welcome
- * gift); the weekly one counts friends whose referral qualification settled as
- * `rewarded` (they played and came back). 28-day measurement: 698 referrer-days
- * with a signup and at most 125 referrer-weeks with three, so the whole site
- * pays under $60 a month for both.
+ * The invite quest pays the same fixed amount at every tier and sits outside
+ * the monthly cap. It counts friends whose referral qualification settled as
+ * `rewarded` (they played and came back) — the same "active friend" the
+ * referral ladder pays for. 28-day measurement: at most 125 referrer-weeks
+ * with three, so the whole site pays a few dollars a month for it.
+ *
+ * The daily one (registrations, fixed 50) was removed on 2026-09-22; its
+ * claims stay in `quest_claims` under the retired key `invite_day` and stay
+ * outside the cap (quests.ts RETIRED_FIXED_QUEST_KEYS).
  */
-export const INVITE_QUEST_PAYOUT = { day: 50, week: 300 } as const;
+export const INVITE_QUEST_PAYOUT = { week: 300 } as const;
 
-/** What the invite quests can pay a month, for the plans page: 50 × 30 + 300 × 4. */
-export const INVITE_QUEST_MONTHLY_MAX = INVITE_QUEST_PAYOUT.day * 30 + INVITE_QUEST_PAYOUT.week * 4;
+/** What the invite quest can pay a month, for the plans page: 300 × 4. */
+export const INVITE_QUEST_MONTHLY_MAX = INVITE_QUEST_PAYOUT.week * 4;
+
+/**
+ * How a PAID plan's month is delivered. The key is stored per cycle on
+ * `wallet_plan_drops.schedule` when the cycle starts, and every later drop of
+ * that cycle is paid from the same key: a cycle that opened under "d10_20" keeps
+ * paying on days 10 and 20 until it renews. Reading a half-paid cycle with the
+ * new day numbers would pay 50% + 20% + 20% + 20%. Rows written before the
+ * column existed are NULL, and every one of those cycles opened under "d10_20".
+ *
+ *   d10_20  50% at purchase/renewal, 25% on day 10, 25% on day 20
+ *           (launch schedule, 2026-09-15).
+ *   w7      40% at purchase/renewal, then 20% on days 7, 14 and 21
+ *           (owner 2026-09-22): Free was already 700 + 100 on days 7/14/21,
+ *           and two calendars on one page read as a mistake. Day 1 stays
+ *           double a weekly drop so checkout does not feel thin.
+ *
+ * Free and Creator deliver the same way under either key.
+ */
+export type DropScheduleKey = "d10_20" | "w7";
+
+/** The schedule every cycle that starts from now on is recorded under. */
+export const CURRENT_DROP_SCHEDULE: DropScheduleKey = "w7";
 
 const drops50_25_25 = (pile: number): PlanDrop[] => [
   { day: 0, amount: Math.round(pile * 0.5) },
   { day: 10, amount: Math.round(pile * 0.25) },
   { day: 20, amount: pile - Math.round(pile * 0.5) - Math.round(pile * 0.25) },
 ];
+
+const drops40_20_20_20 = (pile: number): PlanDrop[] => [
+  { day: 0, amount: Math.round(pile * 0.4) },
+  { day: 7, amount: Math.round(pile * 0.2) },
+  { day: 14, amount: Math.round(pile * 0.2) },
+  { day: 21, amount: pile - Math.round(pile * 0.4) - 2 * Math.round(pile * 0.2) },
+];
+
+export const DROP_SCHEDULES: Record<DropScheduleKey, (pile: number) => PlanDrop[]> = {
+  d10_20: drops50_25_25,
+  w7: drops40_20_20_20,
+};
+
+/** A stored schedule key, or anything unexpected (NULL, a typo), as a key. NULL predates the column. */
+export function normalizeDropSchedule(raw: string | null | undefined): DropScheduleKey {
+  return raw === "w7" ? "w7" : "d10_20";
+}
+
+const paidDrops = (pile: number): PlanDrop[] => DROP_SCHEDULES[CURRENT_DROP_SCHEDULE](pile);
 
 const LADDER: readonly PlanId[] = ["free", "go", "plus", "pro", "ultra", "internal"];
 
@@ -172,22 +220,22 @@ export const PLANS_V2: Record<PlanId, PlanConfigV2> = {
     packBonusPct: 0,
   },
   go: {
-    id: "go", monthlyCredits: 3200, drops: drops50_25_25(3200),
+    id: "go", monthlyCredits: 3200, drops: paidDrops(3200),
     questMonthlyCap: 2000, questPayout: { dailyLight: 10, dailyHeavy: 15, weekly: 40, weeklyHeavy: 60 },
     forgeCap: forgeCapFor("go"), weeklyLocked: [], packBonusPct: 10,
   },
   plus: {
-    id: "plus", monthlyCredits: 13600, drops: drops50_25_25(13600),
+    id: "plus", monthlyCredits: 13600, drops: paidDrops(13600),
     questMonthlyCap: 2800, questPayout: { dailyLight: 12, dailyHeavy: 24, weekly: 70, weeklyHeavy: 85 },
     forgeCap: forgeCapFor("plus"), weeklyLocked: [], packBonusPct: 15,
   },
   pro: {
-    id: "pro", monthlyCredits: 40000, drops: drops50_25_25(40000),
+    id: "pro", monthlyCredits: 40000, drops: paidDrops(40000),
     questMonthlyCap: 5000, questPayout: { dailyLight: 20, dailyHeavy: 40, weekly: 120, weeklyHeavy: 160 },
     forgeCap: forgeCapFor("pro"), weeklyLocked: [], packBonusPct: 20,
   },
   ultra: {
-    id: "ultra", monthlyCredits: 88000, drops: drops50_25_25(88000),
+    id: "ultra", monthlyCredits: 88000, drops: paidDrops(88000),
     questMonthlyCap: 7000, questPayout: { dailyLight: 30, dailyHeavy: 60, weekly: 180, weeklyHeavy: 210 },
     forgeCap: forgeCapFor("ultra"), weeklyLocked: [], packBonusPct: 25,
   },
@@ -249,15 +297,30 @@ export function questMultiplierV2(): number {
   return Math.min(2, Math.max(0, raw));
 }
 
+/**
+ * The drops of one cycle of `plan` under a stored schedule key. This — not
+ * `PLANS_V2[plan].drops` — is what the release path reads, because the cycle
+ * a wallet is in may have opened under an older schedule than the one new
+ * cycles get. `PLANS_V2[plan].drops` is the CURRENT schedule: what a purchase
+ * today delivers, and what the plans page shows.
+ */
+export function dropsFor(plan: string, schedule: DropScheduleKey | string | null | undefined): PlanDrop[] {
+  const config = PLANS_V2[plan as PlanId] ?? PLANS_V2.free;
+  if (config.id === "free" || config.id === "internal") return config.drops;
+  return DROP_SCHEDULES[normalizeDropSchedule(schedule)](config.monthlyCredits);
+}
+
+const asDrops = (source: PlanConfigV2 | PlanDrop[]): PlanDrop[] => (Array.isArray(source) ? source : source.drops);
+
 /** Drops whose day threshold has passed, given the cycle start and now. */
-export function dueDrops(config: PlanConfigV2, periodStart: Date, now: Date): PlanDrop[] {
+export function dueDrops(source: PlanConfigV2 | PlanDrop[], periodStart: Date, now: Date): PlanDrop[] {
   const elapsedDays = Math.floor((now.getTime() - periodStart.getTime()) / 86_400_000);
-  return config.drops.filter((d) => d.day <= elapsedDays);
+  return asDrops(source).filter((d) => d.day <= elapsedDays);
 }
 
 /** The next drop not yet released, or null when the cycle's drops are all out. */
-export function nextDrop(config: PlanConfigV2, periodStart: Date, released: number): { day: number; amount: number; at: Date } | null {
-  const drop = config.drops[released];
+export function nextDrop(source: PlanConfigV2 | PlanDrop[], periodStart: Date, released: number): { day: number; amount: number; at: Date } | null {
+  const drop = asDrops(source)[released];
   if (!drop) return null;
   return { ...drop, at: new Date(periodStart.getTime() + drop.day * 86_400_000) };
 }

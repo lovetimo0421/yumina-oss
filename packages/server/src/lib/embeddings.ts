@@ -5,66 +5,26 @@
  * suitable for direct insertion into `worlds.embedding` (pgvector
  * `vector(1536)`).
  *
- * Provider is selected by env: OPENAI_EMBEDDING_MODEL (default
- * `text-embedding-3-small`) drives the OpenAI path. Future providers
- * (BGE-m3 via HuggingFace, etc.) can implement the same interface and
- * be selected by env without callers changing.
+ * The current provider is OpenAI text-embedding-3-small, using OPENAI_API_KEY.
  *
- * Cost ballpark for OpenAI text-embedding-3-small at 2026 prices:
- *   ~$0.02 per 1M input tokens. Average world embedding input ≈ 2k
- *   tokens (name + description + tags + first message + author note).
- *   Full catalog backfill of 1000 worlds ≈ $0.04.
+ * Input is versioned and bounded by embedding-content.ts, including enabled
+ * published greeting entries. Hooks log identifiers/hashes, never story bodies.
  *
- * Deterministic-ish: OpenAI's API is technically not bitwise stable,
- * but for the same input + model the embedding distance to itself is
- * effectively zero. Don't rely on bitwise equality across re-embeds;
- * do rely on cosine similarity ≥ 0.999 across re-embeds.
+ * The hash identifies the exact versioned input, not the returned vector.
  */
 
 import { env } from "./env.js";
+import { buildWorldEmbeddingInput, type WorldEmbeddingContent } from "./embedding-content.js";
+export { buildWorldEmbeddingInput, buildWorldEmbeddingText } from "./embedding-content.js";
 
 export const EMBEDDING_DIMENSIONS = 1536;
-
-/** Build the canonical text input that gets fed to the embedding model. */
-export function buildWorldEmbeddingText(world: {
-  name: string;
-  description?: string | null;
-  tags?: string[] | null;
-  announcement?: string | null;
-  /** First-message preview if available; trimmed below to keep token cost
-   * predictable. Pass the same field the hub card shows so the embedding
-   * matches "what the user sees when they preview." */
-  firstMessage?: string | null;
-}): string {
-  const parts: string[] = [];
-  parts.push(`Title: ${world.name.trim()}`);
-  if (world.description?.trim()) {
-    parts.push(`Description: ${world.description.trim()}`);
-  }
-  if (world.tags && world.tags.length > 0) {
-    parts.push(`Tags: ${world.tags.join(", ")}`);
-  }
-  if (world.announcement?.trim()) {
-    parts.push(`Announcement: ${world.announcement.trim()}`);
-  }
-  if (world.firstMessage?.trim()) {
-    // Cap to ~2000 chars so a single long opening doesn't blow the budget.
-    // Most worlds' first messages are 200–800 chars; the cap mostly trims
-    // outliers that pasted entire chapters into the opening.
-    const trimmed = world.firstMessage.trim().slice(0, 2000);
-    parts.push(`Opening: ${trimmed}`);
-  }
-  return parts.join("\n\n");
-}
 
 interface EmbeddingProvider {
   embed(input: string): Promise<number[]>;
   embedBatch(inputs: string[]): Promise<number[][]>;
 }
 
-/** OpenAI text-embedding-3-small. Native batch endpoint accepts up to 2048
- * inputs per request — we batch at 64 to stay well under any single-request
- * timeout (worst-case 64 × 8k tokens ≈ 500KB upload). */
+/** OpenAI text-embedding-3-small. The backfill batches at 64 inputs. */
 class OpenAIEmbeddingProvider implements EmbeddingProvider {
   constructor(
     private apiKey: string,
@@ -91,8 +51,8 @@ class OpenAIEmbeddingProvider implements EmbeddingProvider {
       }),
     });
     if (!res.ok) {
-      const body = await res.text().catch(() => "(unreadable body)");
-      throw new Error(`OpenAI embeddings ${res.status}: ${body.slice(0, 500)}`);
+      // A provider error can echo its input. Do not expose response bodies.
+      throw new Error(`OpenAI embeddings HTTP ${res.status}`);
     }
     const json = await res.json() as {
       data: Array<{ embedding: number[]; index: number }>;
@@ -146,41 +106,43 @@ export function __setEmbeddingProviderForTests(provider: EmbeddingProvider | nul
  *
  * Skipped silently when OPENAI_API_KEY is unset.
  *
- * The caller passes the world's content fields directly so this function
- * doesn't have to re-query the DB. If you only have an id, query the
- * row first or run scripts/embed-worlds.ts.
+ * Pass the row actually committed live, after the transaction commits. The
+ * conditional write discards results if publication/content changed in flight.
+ * No DB schema metadata is added: input version/hash are emitted for audits.
  */
-export async function embedAndStoreWorld(args: {
+export async function embedAndStoreWorld(args: WorldEmbeddingContent & {
   worldId: string;
-  name: string;
-  description?: string | null;
-  tags?: string[] | null;
-  announcement?: string | null;
-  firstMessage?: string | null;
 }): Promise<void> {
   if (!env.OPENAI_API_KEY) return;
+  let input: ReturnType<typeof buildWorldEmbeddingInput> | undefined;
   try {
-    const text = buildWorldEmbeddingText(args);
-    const vec = await embedText(text);
-    if (vec.length !== EMBEDDING_DIMENSIONS) {
-      console.warn(`[embeddings] dim mismatch on ${args.worldId}: got ${vec.length}`);
+    input = buildWorldEmbeddingInput(args);
+    const vec = await embedText(input.text);
+    if (vec.length !== EMBEDDING_DIMENSIONS || !vec.every(Number.isFinite)) {
+      console.warn(`[embeddings] invalid vector on ${args.worldId}`);
       return;
     }
     const { db } = await import("../db/index.js");
     const { worlds } = await import("../db/schema.js");
-    const { eq, sql } = await import("drizzle-orm");
+    const { sql } = await import("drizzle-orm");
     const vecLiteral = `[${vec.join(",")}]`;
-    await db.execute(sql`
+    const result = await db.execute(sql`
       UPDATE ${worlds}
       SET embedding = ${vecLiteral}::vector,
           embedding_updated_at = now()
       WHERE id = ${args.worldId}
+        AND is_published = true AND status = 'published'
+        AND schema IS NOT DISTINCT FROM ${JSON.stringify(args.schema ?? null)}::jsonb
+        AND name IS NOT DISTINCT FROM ${args.name}
+        AND description IS NOT DISTINCT FROM ${args.description ?? null}
+        AND tags IS NOT DISTINCT FROM ${JSON.stringify(args.tags ?? null)}::jsonb
+        AND announcement IS NOT DISTINCT FROM ${args.announcement ?? null}
+      RETURNING id
     `);
-    void eq; // satisfy unused-import on type-only import
-  } catch (err) {
-    console.warn(
-      `[embeddings] failed to embed ${args.worldId}:`,
-      err instanceof Error ? err.message : err,
-    );
+    const stored = (result as { rows: unknown[] }).rows.length > 0;
+    console.info(`[embeddings] ${stored ? "stored" : "superseded"} world=${args.worldId} version=${input.version} hash=${input.hash}`);
+  } catch {
+    // Both provider and SQL errors may include submitted story bodies.
+    console.warn(`[embeddings] failed world=${args.worldId} version=${input?.version ?? "unknown"} hash=${input?.hash ?? "unknown"}`);
   }
 }

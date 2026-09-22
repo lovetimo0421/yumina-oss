@@ -1,3 +1,4 @@
+import { getCatalogImageSupport, ensureOpenRouterCatalog } from "../lib/llm/model-catalog.js";
 import { Hono } from "hono";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -372,9 +373,19 @@ apiKeyRoutes.post("/:id/list-models", async (c) => {
   }
 
   const row = rows[0]!;
+  const imageCapabilities = (ids: string[]) => Object.fromEntries(ids.flatMap(id => {
+    if (row.provider === "custom" || row.provider === "ollama") return [];
+    const full = id.includes("/") || row.provider === "openrouter" ? id : `${row.provider}/${id}`;
+    const support = getCatalogImageSupport(full);
+    return support === undefined ? [] : [[full, support]];
+  }));
   if (c.req.query("refresh") === "auto" && privateCatalogIsFresh(row.metadata)) {
-    return c.json({ data: { ok: true, provider: row.provider, models: row.metadata?.models ?? [] } });
+    return c.json({ data: { ok: true, provider: row.provider, models: row.metadata?.models ?? [], imageCapabilities: imageCapabilities(row.metadata?.models ?? []) } });
   }
+  // A fresh private catalog stays entirely local. Only OpenRouter refreshes
+  // need its live modality catalog; other providers use the cached snapshot,
+  // and custom endpoints must never trigger an unrelated provider request.
+  if (row.provider === "openrouter") await ensureOpenRouterCatalog();
   const decrypted = decryptApiKey(row.encryptedKey, row.keyIv, row.keyTag);
   if (!decrypted) return c.json({ error: "Failed to decrypt API key — try re-saving it" }, 500);
 
@@ -432,7 +443,7 @@ apiKeyRoutes.post("/:id/list-models", async (c) => {
   // new list immediately instead of waiting up to 5 minutes for TTL.
   await invalidateModelCacheForUser(currentUser.id);
 
-  return c.json({ data: { ok: true, status, provider: row.provider, models: nextMeta.models } });
+  return c.json({ data: { ok: true, status, provider: row.provider, models: nextMeta.models, imageCapabilities: imageCapabilities(nextMeta.models ?? []) } });
 });
 
 /**

@@ -145,8 +145,30 @@ function numeric28Matches(key:number,n:z.infer<typeof source28NumericSchema>|und
 export const source28CurrentChoiceSchema=z.object({...source28ChoiceIdentity,kind:z.enum(['binary','numeric']),numeric:source28NumericSchema.optional()}).strict().superRefine((c,ctx)=>{
  if(source28NumericBounds(c.eventKey)?c.kind!=='numeric'||!numeric28Matches(c.eventKey,c.numeric):c.kind!=='binary'||c.numeric!==undefined)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Source28 input must match the current authored row'});
 });
+export function source110NumericBounds(key:number):{min:0;max:number;step:number}|undefined {
+ return key===-10008?{min:0,max:10000,step:100}:[-10009,-10010].includes(key)?{min:0,max:20,step:1}:undefined;
+}
+export function source21NumericBounds(key:number):{min:0;max:1000;step:50}|undefined {
+ return [-1016,-2007].includes(key)?{min:0,max:1000,step:50}:undefined;
+}
+const source110Key=z.union([z.literal(-10008),z.literal(-10009),z.literal(-10010)]);
+const source21Key=z.union([z.literal(-1016),z.literal(-2007)]);
+const source110ChoiceIdentity={sceneRevision:revision,storyRevision:revision,eventToken:eventSequence,eventKey:source110Key};
+const source21ChoiceIdentity={sceneRevision:revision,storyRevision:revision,eventToken:eventSequence,eventKey:source21Key};
+const sourceEarlyNumericSchema=z.object({value:z.number().int().min(0).max(10000),min:z.literal(0),max:z.number().int(),step:z.number().int().positive()}).strict();
+function numericEarlyMatches(key:number,n:z.infer<typeof sourceEarlyNumericSchema>){const b=source110NumericBounds(key)??source21NumericBounds(key);return !!b&&n.min===b.min&&n.max===b.max&&n.step===b.step&&sourceNumericAmountAllowed(key,n.value);}
+export const source110CurrentChoiceSchema=z.object({...source110ChoiceIdentity,kind:z.literal('numeric'),numeric:sourceEarlyNumericSchema}).strict().refine(c=>numericEarlyMatches(c.eventKey,c.numeric),'Source110 numeric bounds must match the authored row');
+export const source21CurrentChoiceSchema=z.object({...source21ChoiceIdentity,kind:z.literal('numeric'),numeric:sourceEarlyNumericSchema}).strict().refine(c=>numericEarlyMatches(c.eventKey,c.numeric),'Source21 numeric bounds must match the authored row');
+export function source22NumericBounds(key:number):{min:0|1;max:10|20;step:1}|undefined {
+ return key===-22003?{min:1,max:10,step:1}:key===-22005?{min:0,max:20,step:1}:undefined;
+}
+const source22Key=z.union([z.literal(-22003),z.literal(-22005)]);
+const source22ChoiceIdentity={sceneRevision:revision,storyRevision:revision,eventToken:eventSequence,eventKey:source22Key};
+const source22NumericSchema=z.object({value:z.number().int().min(0).max(20),min:z.union([z.literal(0),z.literal(1)]),max:z.union([z.literal(10),z.literal(20)]),step:z.literal(1)}).strict();
+function numeric22Matches(key:number,n:z.infer<typeof source22NumericSchema>){const b=source22NumericBounds(key);return !!b&&n.min===b.min&&n.max===b.max&&n.step===b.step&&sourceNumericAmountAllowed(key,n.value);}
+export const source22CurrentChoiceSchema=z.object({...source22ChoiceIdentity,kind:z.literal('numeric'),numeric:source22NumericSchema}).strict().refine(c=>numeric22Matches(c.eventKey,c.numeric),'Source22 numeric bounds must match the authored row');
 export function sourceNumericAmountAllowed(key:number,value:unknown):value is number {
- const n=[-25009,-25010].includes(key)?{min:0,max:1000,step:50}:source26NumericBounds(key)??source27NumericBounds(key)??source28NumericBounds(key)??source29NumericBounds(key)??source210NumericBounds(key);
+ const n=[-25009,-25010].includes(key)?{min:0,max:1000,step:50}:source110NumericBounds(key)??source21NumericBounds(key)??source22NumericBounds(key)??source26NumericBounds(key)??source27NumericBounds(key)??source28NumericBounds(key)??source29NumericBounds(key)??source210NumericBounds(key);
  return !!n&&typeof value==='number'&&Number.isInteger(value)&&value>=n.min&&value<=n.max&&(value-n.min)%n.step===0;
 }
 const source26NumericSchema=z.object({value:z.number().int().min(0).max(2000),min:z.union([z.literal(0),z.literal(1)]),max:z.union([z.literal(10),z.literal(1000),z.literal(2000)]),step:z.union([z.literal(1),z.literal(50)])}).strict();
@@ -223,7 +245,8 @@ export function sourceStoryObservationsOnly(sourceLevel:number|undefined):boolea
  return sourceLevel===40159||sourceLevel===40149||sourceLevel===40153||sourceLevel===40154||sourceLevel===40155||sourceLevel===40156||sourceLevel===40157||sourceLevel===40158||sourceLevel===40160||sourceLevel===40161||sourceLevel===40162||sourceLevel===40163||sourceLevel===40164||sourceLevel===40165||sourceLevel===40166||sourceLevel===40167;
 }
 const currentCard=z.object({
- sourceId:z.number().int().min(10).max(410).optional(),templateGeneration:z.string().regex(/^[1-9]\d{0,19}$/).refine(v=>/^[1-9]\d{0,19}$/.test(v)&&BigInt(v)<=18446744073709551615n).optional(),
+ sourceId:z.number().int().min(10).max(430).optional(),templateGeneration:z.string().regex(/^[1-9]\d{0,19}$/).refine(v=>/^[1-9]\d{0,19}$/.test(v)&&BigInt(v)<=18446744073709551615n).optional(),
+ extra:z.boolean().optional(),
  packetIndex:z.number().int().min(0).max(11),seed:z.number().int().min(0).max(48),
  cost:z.number().int().min(-2_147_483_648).max(2_147_483_647),
  cooldownTicks:z.number().int().min(-1_000_000).max(4_294_967_295),remainingCooldownTicks:tick,tier:z.number().int().min(0).max(3),
@@ -239,20 +262,32 @@ export const sourceStoryEventSchema=z.union([z.literal(2001),z.literal(3001),z.l
 export const sourceStoryActionSchema=z.object({
  opportunityId:revision.min(1),revision,actionId:z.number().int().min(1).max(16),
 }).strict();
+export const source31GiftedLiliesSchema=z.object({granted:z.boolean(),planted:z.number().int().min(0).max(4096)}).strict()
+ .refine(s=>s.granted||s.planted===0,'Planted gift requires the free packet');
+const examMark=z.union([z.literal(0),z.literal(1)]);
+// Correct/incorrect marks already shown on the paper, not answer identities.
+export const source23ExamMarksSchema=z.tuple([examMark,examMark,examMark,examMark,examMark]);
+export const source24ShoppingBillSchema=z.object({
+ total:z.number().int().min(0).max(1125),paid:z.number().int().min(0).max(1125),
+ purchases:z.tuple([z.boolean(),z.boolean(),z.boolean(),z.boolean(),z.boolean()]),
+}).strict().refine(s=>s.paid<=s.total&&(s.paid===s.total||s.paid%100===0),'Bill payment follows the native collection chunks');
 export const sourceStorySchema=z.object({
  version:z.literal(1),sourceLevel:z.number().int().min(1).max(1_000_000),revision:source31Revision,
  sceneId:z.number().int().min(-1_000_000).max(1_000_000),
  eventIdentityVersion:z.literal(1).optional(),sceneKind:sourceEventKindSchema.optional(),
+ observationOnly:z.literal(true).optional(),giftedLilies:source31GiftedLiliesSchema.optional(),
  phase:z.enum(['idle','talking','choice','acting','stunned','won','lost']),
  hammerPending:z.boolean(),difficulty:z.number().int().min(1).max(4),
  pressure:z.enum(['source','balanced']),
- choice:z.union([source31CurrentChoiceSchema,source25CurrentChoiceSchema,source26CurrentChoiceSchema,source27CurrentChoiceSchema,source28CurrentChoiceSchema,source29CurrentChoiceSchema,source210CurrentChoiceSchema]).optional(),
+ choice:z.union([source110CurrentChoiceSchema,source21CurrentChoiceSchema,source22CurrentChoiceSchema,source31CurrentChoiceSchema,source25CurrentChoiceSchema,source26CurrentChoiceSchema,source27CurrentChoiceSchema,source28CurrentChoiceSchema,source29CurrentChoiceSchema,source210CurrentChoiceSchema]).optional(),
  dave:z.union([z.object({hypnotized:z.boolean()}).strict(),z.object({hypnotized:z.boolean(),helmetTicks:tick,helmetColor:z.number().int().min(0).max(10)}).strict(),z.object({loanPrincipal:z.number().int().min(0).max(1000),returnVisits:z.number().int().min(0).max(5),blueLeave:z.boolean()}).strict()]).optional(),
  sunflower:sunflower.optional(),
  cards:z.array(currentCard).max(12)
   .refine(cards=>new Set(cards.map(c=>c.packetIndex)).size===cards.length,'Duplicate packet identity').optional(),
  guideRole:z.union([z.literal(0),z.literal(1)]).optional(),
  walletHalfUnits:z.number().int().min(0).max(2_000_000).optional(),
+ examReveal:z.object({sceneId:z.union([z.literal(23023),z.literal(23024)]),marks:source23ExamMarksSchema}).strict().optional(),
+ shoppingBill:source24ShoppingBillSchema.optional(),
  events:z.array(z.object({level:z.number().int().min(1).max(50),
  eventId:z.number().int().min(-1_000_000).max(1_000_000),
   eventKind:sourceEventKindSchema.optional(),
@@ -264,20 +299,29 @@ export const sourceStorySchema=z.object({
    .refine(a=>new Set(a.map(v=>v.eventId)).size===a.length,'Duplicate authored action'),
  }).strict().optional(),
 }).strict().superRefine((s,ctx)=>{
+ if(s.shoppingBill!==undefined&&(s.sourceLevel!==40162||s.shoppingBill.total!==Math.floor(
+  s.shoppingBill.purchases.reduce((sum,p,i)=>sum+(p?(i+1)*50:0),0)*[0,8,10,12,15][s.difficulty]!/10)))
+  ctx.addIssue({code:z.ZodIssueCode.custom,path:['shoppingBill'],message:'Bill must match this source24 purchase ledger and difficulty'});
+ if(s.examReveal!==undefined&&(s.sourceLevel!==40161||s.sceneKind!=='handle'||
+  s.sceneId!==23002||!['talking','acting'].includes(s.phase)))
+  ctx.addIssue({code:z.ZodIssueCode.custom,path:['examReveal'],message:'Exam reveal requires the active source23 scoring routine'});
  if(s.sourceLevel===40168){
-  if(s.eventIdentityVersion!==1||s.sceneKind!=='select'||s.phase!=='choice'||s.hammerPending||s.pressure!=='source'||
-   !source31CurrentChoiceSchema.safeParse(s.choice).success||s.choice?.eventKey!==s.sceneId||s.events.length||
+  const observation=s.observationOnly===true&&s.giftedLilies!==undefined&&s.sceneId===0&&s.phase==='idle'&&s.sceneKind===undefined&&s.choice===undefined;
+  const choice=s.observationOnly===undefined&&s.giftedLilies===undefined&&s.sceneKind==='select'&&s.phase==='choice'&&
+   source31CurrentChoiceSchema.safeParse(s.choice).success&&s.choice?.eventKey===s.sceneId;
+  if(s.eventIdentityVersion!==1||(!observation&&!choice)||s.hammerPending||s.pressure!=='source'||s.events.length||
    s.cards!==undefined||s.dave!==undefined||s.walletHalfUnits!==undefined||s.sunflower!==undefined||s.guideRole!==undefined||s.opportunity!==undefined)
-   ctx.addIssue({code:z.ZodIssueCode.custom,message:'Source31 admits only the exact current binary choice, without history or other capabilities'});
+   ctx.addIssue({code:z.ZodIssueCode.custom,message:'Source31 requires an exact current binary choice or a separate observation-only Lily receipt'});
   return;
  }
+ if(s.observationOnly!==undefined||s.giftedLilies!==undefined)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Pool receipt belongs to source31 only'});
  if(s.revision>1_000_000)ctx.addIssue({code:z.ZodIssueCode.custom,path:['revision'],message:'Legacy source revision exceeds its bound'});
  const source210=s.sourceLevel===40159,source29=s.sourceLevel===40167,source28=s.sourceLevel===40166,source27=s.sourceLevel===40165,source26=s.sourceLevel===40164,source25=s.sourceLevel===40163,source24=s.sourceLevel===40162,source23=s.sourceLevel===40161,source22=s.sourceLevel===40160,source21=s.sourceLevel===40158,source110=s.sourceLevel===40149,source16=s.sourceLevel===40154,source17=s.sourceLevel===40155,source18=s.sourceLevel===40156,source19=s.sourceLevel===40157;
  const observedOnly=sourceStoryObservationsOnly(s.sourceLevel),extended=s.sourceLevel===40152||observedOnly;
  const eventAllowed=source210?source210EventAllowed:source29?source29EventAllowed:source28?source28EventAllowed:source27?source27EventAllowed:source26?source26EventAllowed:source25?source25EventAllowed:source24?source24EventAllowed:source23?source23EventAllowed:source22?source22EventAllowed:source21?source21EventAllowed:source110?source110EventAllowed:source19?source19EventAllowed:source18?source18EventAllowed:source17?source17EventAllowed:source16?source16EventAllowed:source15EventAllowed;
  if(s.events.length>24&&!extended)
   ctx.addIssue({code:z.ZodIssueCode.custom,path:['events'],message:'Extended receipts require source1-4 through source2-4'});
- if((source210||source28||source29)&&(s.cards!==undefined||s.dave!==undefined||s.walletHalfUnits!==undefined))ctx.addIssue({code:z.ZodIssueCode.custom,message:'Native projections for this chapter are not integrated'});
+ if(((source210||source28)&&s.cards!==undefined)||((source210||source28||source29)&&(s.dave!==undefined||s.walletHalfUnits!==undefined)))ctx.addIssue({code:z.ZodIssueCode.custom,message:'Native projections for this chapter are not integrated'});
  if(source110&&s.cards!==undefined)
   ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards'],message:'Source1-10 conveyor templates have no selected-packet projection'});
  if(s.guideRole!==undefined&&!source22)
@@ -285,18 +329,20 @@ export const sourceStorySchema=z.object({
  s.cards?.forEach((card,index)=>{
   // olv scales remaining time separately from current duration. Prior changes
   // can leave a signed duration or remaining time greater than that duration.
-  if((source22||source23||source24||source25||source26||source27)?(Math.abs(card.cooldownTicks)>1_000_000||card.remainingCooldownTicks>1_000_000||Math.abs(card.cost)>1_000_000):
+  if((source22||source23||source24||source25||source26||source27||source29)?(Math.abs(card.cooldownTicks)>1_000_000||card.remainingCooldownTicks>1_000_000||Math.abs(card.cost)>1_000_000):
     (card.cooldownTicks<0||card.remainingCooldownTicks>card.cooldownTicks))
    ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards',index],message:'Card recharge exceeds its chapter bounds'});
-  if(card.tier===3&&!source21&&!source22&&!source23&&!source24&&!source25&&!source26&&!source27&&((s.sourceLevel!==40151&&s.sourceLevel!==40152)||card.seed>2))
+  if(card.tier===3&&!source21&&!source22&&!source23&&!source24&&!source25&&!source26&&!source27&&!source29&&((s.sourceLevel!==40151&&s.sourceLevel!==40152)||card.seed>2))
    ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards',index,'tier'],message:'Tier3 requires a supported source1-3 or source1-4 card'});
   if((source21||source22)&&![0,1,2,3,4,5,6,7,8,9,40].includes(card.seed))
    ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards',index],message:'This night chapter supports only native seeds0..9 and40 as selected cards'});
   if(source24&&(!((card.seed>=0&&card.seed<=11)||card.seed===40)||!card.templateGeneration||
     card.sourceId!==(card.sourceId===125?125:(card.seed+1)*10)||(card.sourceId===125&&(card.seed!==11||card.tier!==0))))
    ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards',index],message:'Source2-4 card requires its exact source and generation;125 is unupgraded native11'});
-  if(!source24&&!source25&&!source26&&!source27&&(card.sourceId!==undefined||card.templateGeneration!==undefined))
+  if(!source22&&!source24&&!source25&&!source26&&!source27&&!source29&&(card.sourceId!==undefined||card.templateGeneration!==undefined))
    ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards',index],message:'Card source identity projection requires source2-4'});
+  if(source22&&(card.sourceId!==undefined||card.templateGeneration!==undefined)&&(card.sourceId!==(card.seed+1)*10||!card.templateGeneration))ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards',index],message:'Source22 card identity must include its exact source and generation'});
+  if(!source29&&card.extra!==undefined)ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards',index,'extra'],message:'Explicit gift packet belongs to source29'});
   if(source23&&!((card.seed>=0&&card.seed<=10)||card.seed===40))
    ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards',index],message:'Source2-3 supports ordinary seeds0..10 and40'});
   if(source16&&(card.seed>5||(card.seed>2&&card.tier>0)))
@@ -318,9 +364,18 @@ export const sourceStorySchema=z.object({
   ctx.addIssue({code:z.ZodIssueCode.custom,path:['walletHalfUnits'],message:'Source1-10 wallet exceeds its ten physical diamonds'});
  if(source22&&s.walletHalfUnits!==undefined&&s.walletHalfUnits>22)
   ctx.addIssue({code:z.ZodIssueCode.custom,path:['walletHalfUnits'],message:'Source2-2 wallet exceeds ten scheduled diamonds and one reached gift'});
- if((s.choice||s.dave)&&!source25&&!source26&&!source27&&!source28&&!source29&&!source210)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Choice capability and Dave state require source2-5 or2-6'});
- if(s.choice&&((source210?!source210CurrentChoiceSchema.safeParse(s.choice).success:source29?!source29CurrentChoiceSchema.safeParse(s.choice).success:source28?!source28CurrentChoiceSchema.safeParse(s.choice).success:source27?!source27CurrentChoiceSchema.safeParse(s.choice).success:source26?!source26CurrentChoiceSchema.safeParse(s.choice).success:!source25CurrentChoiceSchema.safeParse(s.choice).success)||s.phase!=='choice'||s.sceneKind!=='select'||s.hammerPending||s.choice.eventKey!==s.sceneId))ctx.addIssue({code:z.ZodIssueCode.custom,path:['choice'],message:'Choice capability is not current'});
+ if(((s.choice&&!source110&&!source21&&!source22)||s.dave)&&!source25&&!source26&&!source27&&!source28&&!source29&&!source210)ctx.addIssue({code:z.ZodIssueCode.custom,message:'Choice capability and Dave state require source2-5 or2-6'});
+ if(s.choice&&((source110?!source110CurrentChoiceSchema.safeParse(s.choice).success:source21?!source21CurrentChoiceSchema.safeParse(s.choice).success:source22?!source22CurrentChoiceSchema.safeParse(s.choice).success:source210?!source210CurrentChoiceSchema.safeParse(s.choice).success:source29?!source29CurrentChoiceSchema.safeParse(s.choice).success:source28?!source28CurrentChoiceSchema.safeParse(s.choice).success:source27?!source27CurrentChoiceSchema.safeParse(s.choice).success:source26?!source26CurrentChoiceSchema.safeParse(s.choice).success:!source25CurrentChoiceSchema.safeParse(s.choice).success)||s.phase!=='choice'||s.sceneKind!=='select'||s.hammerPending||s.choice.eventKey!==s.sceneId))ctx.addIssue({code:z.ZodIssueCode.custom,path:['choice'],message:'Choice capability is not current'});
  if(s.dave&&(source27?Object.keys(s.dave).join(',')!=='hypnotized':source26?!('loanPrincipal' in s.dave):!('helmetTicks' in s.dave)))ctx.addIssue({code:z.ZodIssueCode.custom,path:['dave'],message:'Dave observations belong to another chapter'});
+ if(source22&&s.cards&&new Set(s.cards.filter(c=>c.templateGeneration).map(c=>c.templateGeneration)).size!==s.cards.filter(c=>c.templateGeneration).length)ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards'],message:'Source22 card generations must be distinct'});
+ if(source22&&s.choice?.eventKey===-22003&&(!s.cards?.length||s.cards.some(c=>!c.templateGeneration||c.sourceId!==(c.seed+1)*10)))ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards'],message:'Source22 numeric card choice requires the current selected cards'});
+ if(source29&&s.cards){const cards=s.cards,ordinary=cards.filter(c=>c.extra===false),gifts=cards.filter(c=>c.extra===true);
+  if(cards.some(c=>typeof c.extra!=='boolean'||!c.templateGeneration||!/^[1-9]\d{0,9}$/.test(c.templateGeneration)||BigInt(c.templateGeneration)>4294967295n||
+    (c.sourceId===155?(c.seed!==14||c.tier!==0||!c.extra):!((c.seed>=0&&c.seed<=15)||c.seed===40||c.seed===42)||c.sourceId!==(c.seed+1)*10))||
+    new Set(cards.map(c=>c.templateGeneration)).size!==cards.length||new Set(ordinary.map(c=>c.sourceId)).size!==ordinary.length||
+    ordinary.length>11||gifts.length>1||gifts.some(c=>![100,110,140,155].includes(c.sourceId??0)||c.packetIndex!==Math.max(...cards.map(v=>v.packetIndex))))
+   ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards'],message:'Source29 requires current card generations and at most one final gift packet'});
+ }
  if(source27&&s.cards){const cards=s.cards;
   if(cards.some(c=>!((c.seed>=0&&c.seed<=14)||c.seed===40)||!c.templateGeneration||(c.sourceId===155?(c.seed!==14||c.tier!==0):c.sourceId!==(c.seed+1)*10))||new Set(cards.map(c=>c.templateGeneration)).size!==cards.length||new Set(cards.map(c=>c.sourceId)).size!==cards.length)ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards'],message:'Source27 cards require exact current source and generation; special155 uses seed14 and has no tiers'});
  }
@@ -404,8 +459,8 @@ export const sourceStoryChoiceSchema=z.object({
  options:z.array(z.object({value:sourceChoiceValueSchema,label:z.string().trim().min(1).max(300)}).strict()).length(2)
   .refine(options=>new Set(options.map(option=>option.value)).size===2,'Choice options must have distinct native values'),
 }).strict().refine(valid31AnswerIdentity,'Choice identity belongs to another chapter or is incomplete');
-export const sourceStoryNumericSchema=z.union([z.object({...source210ChoiceIdentity,sceneId:source210Key,prompt:z.string().trim().min(1).max(2000),numeric:source210NumericSchema}).strict().refine(c=>c.sceneId===c.eventKey&&numeric210Matches(c.eventKey,c.numeric),'Numeric210 exact displayed row and limits required'),z.object({...source25ChoiceIdentity,sceneId:z.union([z.literal(-25009),z.literal(-25010)]),prompt:z.string().trim().min(1).max(2000),numeric:source25NumericSchema}).strict(),z.object({...source26ChoiceIdentity,sceneId:z.number().int().min(-26007).max(-26001),prompt:z.string().trim().min(1).max(2000),numeric:source26NumericSchema}).strict().refine(c=>c.sceneId===c.eventKey&&numeric26Matches(c.eventKey,c.numeric),'Numeric26 exact row and limits required'),z.object({...source27ChoiceIdentity,sceneId:z.union([z.literal(-27001),z.literal(-27006),z.literal(-27008)]),prompt:z.string().trim().min(1).max(2000),numeric:source26NumericSchema}).strict().refine(c=>c.sceneId===c.eventKey&&numeric27Matches(c.eventKey,c.numeric),'Numeric27 exact row and limits required'),z.object({...source28ChoiceIdentity,sceneId:z.union([z.literal(-28002),z.literal(-28004)]),prompt:z.string().trim().min(1).max(2000),numeric:source28NumericSchema}).strict().refine(c=>c.sceneId===c.eventKey&&numeric28Matches(c.eventKey,c.numeric),'Numeric28 exact row and limits required'),z.object({...source29ChoiceIdentity,sceneId:z.union([z.literal(-29006),z.literal(-27008),z.literal(-26001)]),prompt:z.string().trim().min(1).max(2000),numeric:source26NumericSchema}).strict().refine(c=>c.sceneId===c.eventKey&&numeric29Matches(c.eventKey,c.numeric),'Numeric29 exact row and limits required')]);
+export const sourceStoryNumericSchema=z.union([z.object({...source110ChoiceIdentity,sceneId:source110Key,prompt:z.string().trim().min(1).max(2000),numeric:sourceEarlyNumericSchema}).strict().refine(c=>c.sceneId===c.eventKey&&numericEarlyMatches(c.eventKey,c.numeric),'Numeric110 exact row and limits required'),z.object({...source21ChoiceIdentity,sceneId:source21Key,prompt:z.string().trim().min(1).max(2000),numeric:sourceEarlyNumericSchema}).strict().refine(c=>c.sceneId===c.eventKey&&numericEarlyMatches(c.eventKey,c.numeric),'Numeric21 exact row and limits required'),z.object({...source22ChoiceIdentity,sceneId:source22Key,prompt:z.string().trim().min(1).max(2000),numeric:source22NumericSchema}).strict().refine(c=>c.sceneId===c.eventKey&&numeric22Matches(c.eventKey,c.numeric),'Numeric22 exact row and limits required'),z.object({...source210ChoiceIdentity,sceneId:source210Key,prompt:z.string().trim().min(1).max(2000),numeric:source210NumericSchema}).strict().refine(c=>c.sceneId===c.eventKey&&numeric210Matches(c.eventKey,c.numeric),'Numeric210 exact displayed row and limits required'),z.object({...source25ChoiceIdentity,sceneId:z.union([z.literal(-25009),z.literal(-25010)]),prompt:z.string().trim().min(1).max(2000),numeric:source25NumericSchema}).strict(),z.object({...source26ChoiceIdentity,sceneId:z.number().int().min(-26007).max(-26001),prompt:z.string().trim().min(1).max(2000),numeric:source26NumericSchema}).strict().refine(c=>c.sceneId===c.eventKey&&numeric26Matches(c.eventKey,c.numeric),'Numeric26 exact row and limits required'),z.object({...source27ChoiceIdentity,sceneId:z.union([z.literal(-27001),z.literal(-27006),z.literal(-27008)]),prompt:z.string().trim().min(1).max(2000),numeric:source26NumericSchema}).strict().refine(c=>c.sceneId===c.eventKey&&numeric27Matches(c.eventKey,c.numeric),'Numeric27 exact row and limits required'),z.object({...source28ChoiceIdentity,sceneId:z.union([z.literal(-28002),z.literal(-28004)]),prompt:z.string().trim().min(1).max(2000),numeric:source28NumericSchema}).strict().refine(c=>c.sceneId===c.eventKey&&numeric28Matches(c.eventKey,c.numeric),'Numeric28 exact row and limits required'),z.object({...source29ChoiceIdentity,sceneId:z.union([z.literal(-29006),z.literal(-27008),z.literal(-26001)]),prompt:z.string().trim().min(1).max(2000),numeric:source26NumericSchema}).strict().refine(c=>c.sceneId===c.eventKey&&numeric29Matches(c.eventKey,c.numeric),'Numeric29 exact row and limits required')]);
 export const sourceChoiceSchema=z.object({
  sceneRevision:source31Revision,sceneId:z.number().int().min(-1_000_000).max(-1),value:sourceChoiceValueSchema,
- storyRevision:source31Revision.optional(),epoch:source31Identity.epoch.optional(),owner:source31Uint64Schema.optional(),choiceRevision:source31Uint64Schema.optional(),eventToken:eventSequence.optional(),eventKey:z.union([source31Key,source210Key,z.number().int().min(-25010).max(-25001),z.number().int().min(-26008).max(-26001),z.number().int().min(-27008).max(-27001),z.number().int().min(-28011).max(-28001),z.literal(-2004),z.literal(-2003),z.literal(-2002),z.literal(-3003),z.number().int().min(-29006).max(-29001)]).optional(),amount:z.number().int().min(0).max(2000).optional(),
-}).strict().refine(valid31AnswerIdentity,'Reply identity belongs to another chapter or is incomplete').refine(c=>c.amount===undefined||sourceNumericAmountAllowed(c.eventKey??0,c.amount),'Reply amount must match its authored numeric row');
+ storyRevision:source31Revision.optional(),epoch:source31Identity.epoch.optional(),owner:source31Uint64Schema.optional(),choiceRevision:source31Uint64Schema.optional(),eventToken:eventSequence.optional(),eventKey:z.union([source110Key,source21Key,source22Key,source31Key,source210Key,z.number().int().min(-25010).max(-25001),z.number().int().min(-26008).max(-26001),z.number().int().min(-27008).max(-27001),z.number().int().min(-28011).max(-28001),z.literal(-2004),z.literal(-2003),z.literal(-2002),z.literal(-3003),z.number().int().min(-29006).max(-29001)]).optional(),amount:z.number().int().min(0).max(10000).optional(),
+}).strict().refine(valid31AnswerIdentity,'Reply identity belongs to another chapter or is incomplete').refine(c=>c.amount===undefined||sourceNumericAmountAllowed(c.eventKey??0,c.amount),'Reply amount must match its authored numeric row').refine(c=>!(source110NumericBounds(c.eventKey??0)||source21NumericBounds(c.eventKey??0)||source22NumericBounds(c.eventKey??0))||(c.value===0&&c.amount!==undefined),'Source110, source21 and source22 numeric replies require delivery marker zero');

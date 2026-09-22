@@ -954,6 +954,8 @@
         "refresh": "更新",
         "shortfall": "あと {{amount}} キノコ",
         "errorStale": "内容が変更されています。編集を上書きしないよう、新しいリクエストを送信してください。",
+        "restartHere": "ここからやり直す",
+        "restartMessage": "さっき止まったところから、今のカードの内容をもとに続けてください。",
         "errorActive": "このタスクは実行中です。状態の更新をお待ちください。",
         "errorFailed": "タスクを再開できませんでした。保存済みの進捗は残っています。再試行してください。",
         "errorBillingMissing": "使用量を取得できません。結果は保存済みですが、料金の確認が必要です。",
@@ -1011,7 +1013,49 @@
       "deleteConv": "会話を削除",
       "deleteConvConfirm": "削除？",
       "attachmentUploadFailed": "画像なしで送信しました",
-      "undoRollbackFailed": "メッセージのみ取り消しました"
+      "undoRollbackFailed": "メッセージのみ取り消しました",
+      "imageBatch": {
+        "title": "画像を一括生成",
+        "declined": "生成をスキップしました",
+        "selectAll": "すべて選択 · {{count}}件選択中",
+        "library": "素材ライブラリに保存",
+        "portrait": "キャラクター画像",
+        "component": "UI画像 · {{key}}",
+        "existing": "画像あり · スキップ",
+        "bindingNote": "画像は保存済みです。割り当ての再試行では画像を再生成せず、追加料金もかかりません。",
+        "model": "画像モデル",
+        "estimateUnavailable": "見積もりを取得できません",
+        "billingNote": "選択した項目ごとに1枚生成します。画像の実際の使用量で精算し、アシスタントは画像ごとに呼び出しません。",
+        "confirm": "{{count}}枚を生成",
+        "background": "バックグラウンドで生成中です。後から戻って確認できます。",
+        "pausedNote": "Mushies不足で一時停止しました。完成した画像は保存済みです。",
+        "resume": "残りの画像を生成",
+        "retryBinding": "画像の割り当てを再試行",
+        "retry": "失敗した{{count}}件を再試行",
+        "syncFailed": "進捗を更新できませんでした。保存済みのタスクは実行中の可能性があります。",
+        "requestFailed": "送信を確認できません。状態を更新して再試行してください。",
+        "refresh": "状態を更新",
+        "phase": {
+          "running": "画像を生成中",
+          "paused": "生成を一時停止中",
+          "completed": "画像が完成しました",
+          "partial": "一部の画像に対応が必要です",
+          "failed": "生成に失敗しました"
+        },
+        "item": {
+          "pending": "待機中",
+          "queued": "順番待ち",
+          "running": "生成中",
+          "awaiting_credits": "一時停止",
+          "succeeded": "完了",
+          "failed": "失敗",
+          "skipped": "スキップ",
+          "binding_failed": "割り当て失敗"
+        },
+        "pausedStorageNote": "保存容量が不足しています。素材を整理してから続行してください。",
+        "pausedUnavailableNote": "画像生成を一時的に利用できません。完成した画像は保存済みです。",
+        "pausedGenericNote": "一時停止中です。完成した画像は保存済みです。しばらくしてから続行してください。"
+      }
     },
     "sidebar": {
       "title": "サイドバー",
@@ -1276,8 +1320,7 @@
       "newName": "新しい設定"
     },
     "advancedPromo": {
-      "title": "カードにもっとやらせたい？",
-      "subtitle": "シンプルモードは基本をカバー。アドバンストモードならエンジンの全機能が使えます — Yumina で最も遊ばれているワールドと同じ仕組みです：",
+      "title": "アドバンストエディター",
       "bulletVariables": "変数 — 好感度・恐怖・信頼などを記録し、ライブのステータスバーで表示",
       "bulletBehaviors": "ビヘイビア — 状態に反応するルール（「好感度 > 80 → ルート解放」）",
       "bulletLorebooks": "ロアブック — キーワードで発動する知識。特定の挨拶に紐付け可能",
@@ -1673,5 +1716,12 @@
       "metadata_issue": "カバー/説明/タグの問題",
       "other": "その他（下記に説明必須）"
     }
+  },
+  "imageInsert": {
+    "button": "画像を挿入",
+    "upload": "パソコンからアップロード",
+    "library": "アセットから選ぶ",
+    "uploading": "アップロード中…",
+    "failed": "アップロードに失敗しました：{{name}}"
   }
 }

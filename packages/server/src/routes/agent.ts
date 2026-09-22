@@ -1,5 +1,5 @@
 import { usageObservation } from "../lib/usage-observation.js";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
 import { eq, and, asc, desc, ne, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -19,7 +19,8 @@ import { settleStudioCreditReservation } from "../lib/credit-service.js";
 import {
   captureStudioCreditWorldRevision, pauseStudioForCredits, claimStudioCreditResume,
   restoreStudioCreditPause, withStudioCreditClaimTransaction, readStudioCreditCheckpoint,
-  stageStudioCreditIteration, isStudioCreditResumeEligible, type StudioCreditCheckpoint,
+  stageStudioCreditIteration, isStudioCreditResumeEligible, canRebaseStudioCreditCheckpoint,
+  type StudioCreditCheckpoint,
 } from "../lib/studio-credit-checkpoint.js";
 import { captureServerEvent } from "../lib/analytics.js";
 import { PLANS } from "../lib/plan-config.js";
@@ -27,9 +28,12 @@ import type { AppEnv } from "../lib/types.js";
 import { type SchemaChange, type ToolResult } from "../lib/studio-tools/index.js";
 import { buildToolResultMessages } from "../lib/studio-tools/tool-results.js";
 import { STUDIO_TOOLS, READ_TOOL_NAMES, WRITE_TOOL_NAMES, CONTROL_TOOL_NAMES } from "../lib/studio-tools/tools.js";
-import { STUDIO_MODEL_IDS, SMART_IMAGE_MODEL } from "@yumina/shared";
+import { STUDIO_MODEL_IDS, SMART_IMAGE_MODEL, type ImageBatchProposal } from "@yumina/shared";
 import { isSmartGenerationEnabled, smartImageEstimates, submitSmartGeneration, SmartSubmissionError } from "../lib/generation/smart.js";
 import { IMAGE_TOOL_NAME, imageToolMessages, normalizeImageProposal, waitForGeneratedImage } from "../lib/studio-tools/image-proposal.js";
+import { IMAGE_BATCH_TOOL_NAME, normalizeImageBatchProposal, editImageBatchProposal, estimateImageBatch, readPersistedImageBatchProposal } from "../lib/studio-tools/image-batch-proposal.js";
+import { createImageBatch, getImageBatch, listImageBatchesForRun, retryImageBatch, resumeImageBatch, isImageBatchEnabled, ImageBatchError } from "../lib/generation/image-batches.js";
+import { getImageBatchBindingState } from "../lib/generation/image-batch-bindings.js";
 import { resolveContext } from "../lib/studio-tools/context-resolver.js";
 import { loadAssetCatalog } from "../lib/studio-tools/asset-catalog.js";
 import { executeReadEntities, executeApplyChanges, executeGrepWorld, executeValidateWorld, executeAnalyzeTokenCost, toolCallsToSchemaChanges } from "../lib/studio-tools/tool-executor.js";
@@ -970,6 +974,106 @@ agentRoutes.post("/:worldId/agent/generate-image", async (c) => {
   });
 });
 
+function batchRouteError(c: Context<AppEnv>, error: unknown) {
+  if (error instanceof ImageBatchError) return c.json({ error: error.code, code: error.code }, error.status);
+  console.error("[Agent] image batch request failed", error);
+  return c.json({ error: "Image batch request failed", code: "BATCH_REQUEST_FAILED" }, 500);
+}
+
+function withBatchBindingState(proposal: ImageBatchProposal, schema: Record<string, unknown>): ImageBatchProposal {
+  return { ...proposal, items: proposal.items.map(item => {
+    if (!item.target) return item;
+    const binding = getImageBatchBindingState(schema, item.target);
+    if (!binding.ok) throw new ImageBatchError(binding.code, 409);
+    return { ...item, ...(binding.existingImage ? { existingAssetId: binding.existingImage } : {}) };
+  }) };
+}
+
+/** Confirmation only queues the durable batch. It must never resume the LLM. */
+agentRoutes.post("/:worldId/agent/generate-images", async (c) => {
+  const userId = c.get("user").id;
+  const worldId = c.req.param("worldId");
+  const body = await c.req.json<{
+    runId: string; approved: boolean; items?: Array<{ id: string; prompt?: string }>;
+    model?: string; aspectRatio?: string; resolution?: string;
+  }>().catch(() => null);
+  if (!body || typeof body.runId !== "string" || typeof body.approved !== "boolean") {
+    return c.json({ error: "Invalid batch confirmation", code: "INVALID_PROPOSAL" }, 400);
+  }
+  try {
+    const [ownedWorld] = await db.select({ id: worlds.id }).from(worlds).where(and(eq(worlds.id, worldId), eq(worlds.creatorId, userId)));
+    if (!ownedWorld) throw new ImageBatchError("WORLD_NOT_FOUND", 404);
+    const [run] = await db.select().from(agentRuns).where(and(eq(agentRuns.id, body.runId), eq(agentRuns.userId, userId), eq(agentRuns.worldId, worldId)));
+    if (!run) throw new ImageBatchError("RUN_NOT_FOUND", 404);
+    const saved = run.context?.imageBatchProposal as Record<string, unknown> | undefined;
+    const pending = (run.pendingToolCalls ?? []) as unknown as ToolCall[];
+    const call = pending.length === 1 && pending[0]?.function.name === IMAGE_BATCH_TOOL_NAME ? pending[0] : undefined;
+    const raw = saved ?? (call ? parseToolArgs(call.function.arguments) : null);
+    const original = normalizeImageBatchProposal(raw);
+    const toolCallId = call?.id ?? (typeof saved?.toolCallId === "string" ? saved.toolCallId : undefined);
+    if (!original || !toolCallId) throw new ImageBatchError("NOT_IMAGE_BATCH_PROPOSAL", 409);
+
+    if (!body.approved) {
+      if (run.context?.imageBatchDeclined === true) return c.json({ data: null, declined: true });
+      if (!call) throw new ImageBatchError("BATCH_ALREADY_SUBMITTED", 409);
+      const toolResults = buildToolResultMessages([{ tool_call_id: call.id, name: IMAGE_BATCH_TOOL_NAME,
+        status: "error", result: null, error: "The creator declined this batch. Nothing was generated or charged. Do not propose it again unless asked." }]);
+      const declined = await db.update(agentRuns).set({ status: "completed", pendingToolCalls: null, readToolResults: null,
+        context: { ...run.context, imageBatchDeclined: true },
+        messages: [...run.messages, { role: "assistant", content: run.textContent ?? "", tool_calls: [call] }, ...toolResults] as Array<Record<string, unknown>>,
+        updatedAt: new Date(),
+      }).where(and(eq(agentRuns.id, run.id), eq(agentRuns.userId, userId), eq(agentRuns.status, "awaiting_approval"))).returning();
+      if (!declined.length) throw new ImageBatchError("BATCH_ALREADY_SUBMITTED", 409);
+      return c.json({ data: null, declined: true });
+    }
+    const proposal = editImageBatchProposal(original, body);
+    if (!proposal) throw new ImageBatchError("INVALID_PROPOSAL");
+    const [binding] = await db.select({ folderId: worldFolderBindings.folderId }).from(worldFolderBindings)
+      .where(eq(worldFolderBindings.worldId, worldId)).orderBy(asc(worldFolderBindings.createdAt)).limit(1);
+    return c.json({ data: await createImageBatch({ userId, worldId, runId: run.id, toolCallId, folderId: binding?.folderId, proposal }) });
+  } catch (error) { return batchRouteError(c, error); }
+});
+
+agentRoutes.get("/:worldId/agent/image-batches", async (c) => {
+  try {
+    const runId = c.req.query("runId");
+    if (!runId) throw new ImageBatchError("RUN_REQUIRED");
+    const [run] = await db.select({ id: agentRuns.id }).from(agentRuns).where(and(eq(agentRuns.id, runId),
+      eq(agentRuns.userId, c.get("user").id), eq(agentRuns.worldId, c.req.param("worldId"))));
+    if (!run) throw new ImageBatchError("RUN_NOT_FOUND", 404);
+    return c.json({ data: await listImageBatchesForRun(c.get("user").id, runId) });
+  } catch (error) { return batchRouteError(c, error); }
+});
+
+agentRoutes.get("/:worldId/agent/image-batches/:batchId", async (c) => {
+  try {
+    const batch = await getImageBatch(c.get("user").id, c.req.param("batchId"));
+    if (batch.worldId !== c.req.param("worldId")) throw new ImageBatchError("BATCH_NOT_FOUND", 404);
+    return c.json({ data: batch });
+  } catch (error) { return batchRouteError(c, error); }
+});
+
+agentRoutes.post("/:worldId/agent/image-batches/:batchId/retry", async (c) => {
+  try {
+    const batch = await getImageBatch(c.get("user").id, c.req.param("batchId"));
+    if (batch.worldId !== c.req.param("worldId")) throw new ImageBatchError("BATCH_NOT_FOUND", 404);
+    const body = await c.req.json<{ itemIds?: string[]; requestId?: string }>().catch(() => null);
+    if (!body || typeof body.requestId !== "string" || !/^[a-zA-Z0-9_-]{1,100}$/.test(body.requestId)
+      || (body.itemIds !== undefined && (!Array.isArray(body.itemIds) || body.itemIds.length > 30 || !body.itemIds.every(id => typeof id === "string")))) {
+      throw new ImageBatchError("INVALID_ITEMS");
+    }
+    return c.json({ data: await retryImageBatch(c.get("user").id, batch.id, body.itemIds, body.requestId) });
+  } catch (error) { return batchRouteError(c, error); }
+});
+
+agentRoutes.post("/:worldId/agent/image-batches/:batchId/resume", async (c) => {
+  try {
+    const batch = await getImageBatch(c.get("user").id, c.req.param("batchId"));
+    if (batch.worldId !== c.req.param("worldId")) throw new ImageBatchError("BATCH_NOT_FOUND", 404);
+    return c.json({ data: await resumeImageBatch(c.get("user").id, batch.id) });
+  } catch (error) { return batchRouteError(c, error); }
+});
+
 // ── GET /api/studio/:worldId/agent/changes/:runId/:toolCallId — Stable compare payload ──
 
 agentRoutes.get("/:worldId/agent/changes/:runId/:toolCallId", async (c) => {
@@ -1047,6 +1151,8 @@ agentRoutes.get("/:worldId/agent/status", async (c) => {
   }
 
   const run = runs[0]!;
+  const imageBatchProposal = readPersistedImageBatchProposal(run.context, run.status);
+  const imageBatches = imageBatchProposal?.status === "submitted" ? await listImageBatchesForRun(currentUser.id, run.id) : [];
   const recoveryEnabled = studioCreditRecoveryEnabled();
   const checkpoint = recoveryEnabled ? readStudioCreditCheckpoint(run.creditCheckpoint) : null;
   // Refreshed pages need current spendable funds, not the balance at the time
@@ -1054,7 +1160,7 @@ agentRoutes.get("/:worldId/agent/status", async (c) => {
   // only an eligible paused or abandoned worker may offer recovery.
   const creditPause = checkpoint
     ? { ...publicCreditPause(checkpoint), ...await getAvailableCredits(currentUser.id),
-      resumable: isStudioCreditResumeEligible(run, checkpoint) && checkpoint.reason !== "STALE_WORLD"
+      resumable: isStudioCreditResumeEligible(run, checkpoint) && !isStuckStaleWorld(checkpoint)
         && !(checkpoint.phase === "generated" && checkpoint.generated.billingUnavailable) }
     : null;
   return c.json({
@@ -1072,6 +1178,7 @@ agentRoutes.get("/:worldId/agent/status", async (c) => {
       committedTurns: run.committedTurns,
       pendingToolCalls: run.pendingToolCalls,
       readToolResults: run.readToolResults,
+      ...(imageBatchProposal ? { imageBatchProposal, imageBatches } : {}),
       error: run.error,
       ...(recoveryEnabled ? { creditPause } : {}),
       messages: run.messages,
@@ -1182,7 +1289,7 @@ function getContextBudget(modelId: string): number {
  * when approaching the budget. Short messages use less capacity,
  * long messages get compacted sooner. Like Claude Code's auto-compaction.
  */
-function buildWindowedMessages(messages: ChatMessage[], modelId = ""): ChatMessage[] {
+export function buildWindowedMessages(messages: ChatMessage[], modelId = ""): ChatMessage[] {
   if (messages.length <= MIN_RECENT_MESSAGES) return messages;
 
   // Calculate total tokens
@@ -1209,6 +1316,15 @@ function buildWindowedMessages(messages: ChatMessage[], modelId = ""): ChatMessa
     }
     splitIdx = i;
   }
+
+  // Never open the kept window on a tool result whose assistant tool_calls
+  // message was summarized away. Strict OpenAI-compatible endpoints (DeepSeek
+  // official, others) reject that history outright — "Messages with role
+  // 'tool' must be a response to a preceding message with 'tool_calls'" — and
+  // on a 50K-budget model a code card hit it every run around step 6–12
+  // (9 runs, 2 BYOK creators, 2026-09-18..21). Walk back over the result
+  // group to the assistant turn that owns it so they stay together.
+  while (splitIdx > 0 && splitIdx < messages.length && messages[splitIdx]!.role === "tool") splitIdx--;
 
   if (splitIdx <= 0) return messages;
 
@@ -1388,17 +1504,25 @@ export interface AgentLoopParams {
   prelude?: (hooks: { send: (event: string, data: string) => Promise<void>; progress: () => void }) => Promise<ChatMessage[]>;
 }
 
+/** A stale pause the resume path can rebase is presented as an interrupted,
+ *  resumable step: Continue regenerates it against the current world. Only a
+ *  paid, unapplied result keeps STALE_WORLD, which the client renders as stuck. */
+function isStuckStaleWorld(checkpoint: StudioCreditCheckpoint): boolean {
+  return checkpoint.reason === "STALE_WORLD" && !canRebaseStudioCreditCheckpoint(checkpoint);
+}
+
 function publicCreditPause(checkpoint: StudioCreditCheckpoint | null) {
   if (!checkpoint) return null;
   const reason = checkpoint.reason === undefined ? undefined
+    : checkpoint.reason === "STALE_WORLD" ? (isStuckStaleWorld(checkpoint) ? "STALE_WORLD" : "GENERATION_FAILED")
     : new Set(["INSUFFICIENT_CREDITS", "insufficient_credits", "pricing_unavailable", "output_limit_too_small",
-      "USAGE_UNAVAILABLE", "BILLING_DETAILS_MISSING", "STALE_WORLD", "SERVER_RESTART", "GENERATION_FAILED"]).has(checkpoint.reason)
+      "USAGE_UNAVAILABLE", "BILLING_DETAILS_MISSING", "SERVER_RESTART", "GENERATION_FAILED"]).has(checkpoint.reason)
       ? checkpoint.reason : "GENERATION_FAILED";
   return {
     phase: checkpoint.phase, requiredCredits: checkpoint.requiredCredits,
     iteration: checkpoint.iteration, hasSavedResult: checkpoint.phase === "generated",
     billingUnavailable: checkpoint.phase === "generated" && !!checkpoint.generated.billingUnavailable,
-    resumable: checkpoint.reason !== "STALE_WORLD"
+    resumable: !isStuckStaleWorld(checkpoint)
       && !(checkpoint.phase === "generated" && checkpoint.generated.billingUnavailable),
     ...(reason === undefined ? {} : { reason }),
     ...(checkpoint.phase === "generated" ? { cost: checkpoint.generated.cost, settled: !!checkpoint.generated.settled } : {}),
@@ -1468,6 +1592,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       provider, isByok, apiKeyTier, context, iteration, maxIterations,
       tools,
     } = params;
+    if (!isImageBatchEnabled()) tools = tools.filter(tool => tool.function.name !== IMAGE_BATCH_TOOL_NAME);
     const unlimited = params.unlimited ?? false;
     const creditRecovery = studioCreditRecoveryEnabled() && !isByok && (!unlimited || !!params.creditResume);
     const creditScope = { runId, worldId: params.worldId, userId };
@@ -1521,7 +1646,9 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           iteration: nextIteration, worldRevision: checkpoint.worldRevision, requiredCredits: 0,
         },
         runUpdates: { messages: nextMessages as unknown as Array<Record<string, unknown>>, iteration: nextIteration },
-      }));
+      // This step's writes are already committed. An editor save that landed
+      // after them is the next step's starting point, not a conflict.
+      }), { rebase: true });
       creditCheckpoint = saved.checkpoint;
     };
     const finalizeRun = async (set: Partial<typeof agentRuns.$inferInsert>, opts?: { consumeClaim?: boolean }) => {
@@ -1541,9 +1668,11 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         // Consume the checkpoint and publish the terminal state atomically.
         // A deploy must never leave a running row without its recovery record.
         const status = set.status;
+        // Consuming replays nothing, so a save during the last step must not
+        // turn a finished run into a stale pause.
         await withStudioCreditClaimTransaction(creditScope, creditClaimId, async () => ({
           value: null, checkpoint: null, status, runUpdates: set,
-        }));
+        }), { rebase: true });
         creditCheckpoint = null;
         creditClaimId = undefined;
         return;
@@ -1698,6 +1827,30 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
     const MAX_CONSECUTIVE_TRUNCATIONS = 2;
     let consecutiveTruncations = 0;
 
+    // An editor save landed while this step was in flight: the 60s autosave
+    // after any edit, the "Merged with agent changes → save again" round trip,
+    // or a manual save while the model was still thinking. The step's result
+    // was computed from the older world and is never applied over that save,
+    // but until 2026-09-21 the whole run parked as a STALE_WORLD pause whose
+    // only button was Refresh (15 runs / 9 creators in one week, rage clicks
+    // in PostHog). Nothing was billed for the dropped result, so restart the
+    // step against the current world instead. Bounded, so a creator who keeps
+    // saving cannot make the run spin; past the bound it pauses with the reason.
+    const MAX_STALE_RESTARTS = 2;
+    let staleRestarts = 0;
+    const restartStaleStep = async (phase: "preflight" | "generated"): Promise<boolean> => {
+      if (staleRestarts >= MAX_STALE_RESTARTS) return false;
+      staleRestarts++;
+      console.log(`[Agent] Run ${runId} iteration ${iteration}: world changed during ${phase}; restarting the step (${staleRestarts}/${MAX_STALE_RESTARTS}).`);
+      if (reservationId) {
+        await releaseStudioCreditReservation(userId, reservationId).catch(() => {});
+        reservationId = undefined;
+      }
+      // The client drops whatever this attempt streamed; the retry streams fresh.
+      await safeSend("step_restarted", JSON.stringify({ runId, iteration, reason: "STALE_WORLD" }));
+      return true;
+    };
+
     // Server-owned log of committed assistant text turns. Each entry = one persistent chat
     // bubble on the client. This is the SINGLE source of truth for "has this text been
     // shown to the user as a bubble yet?" — replaces the fragile implicit-commit logic that
@@ -1712,10 +1865,10 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
      *  mid-task stall), `notice` (server-injected guard/nudge text). `step`/`notice`
      *  are UI-only, so the model is never trained on announcements that never act.
      *  `actions` is the compact tool trace for `step` turns. */
-    async function commitTextTurn(iter: number, text: string, opts?: { writeToolCalls?: ToolCall[]; lane?: "answer" | "step" | "notice"; actions?: Array<{ op: string; target?: string }> }) {
+    async function commitTextTurn(iter: number, text: string, opts?: { writeToolCalls?: ToolCall[]; lane?: "answer" | "step" | "notice"; actions?: Array<{ op: string; target?: string }>; allowEmpty?: boolean }) {
       const writeToolCalls = opts?.writeToolCalls;
       const trimmed = text.trim();
-      if (!trimmed && !writeToolCalls?.length) return;
+      if (!trimmed && !writeToolCalls?.length && !opts?.allowEmpty) return;
       if (committedTurns.some((t) => t.iteration === iter)) return;
       const commitId = crypto.randomUUID();
       const lane = opts?.lane;
@@ -1869,8 +2022,15 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           };
           if (!budget.ok) { await pauseForCredits(preflight, budget.reason); return; }
           outputBudget = budget.maxTokens;
-          const staged = await stageStudioCreditIteration(creditScope, preflight, creditClaimId);
+          const staged = await stageStudioCreditIteration(creditScope, preflight, creditClaimId, { staleWorld: "reject" });
           if (!staged.ok) {
+            if (staged.code === "STALE_WORLD") {
+              // A save between capturing the revision and journaling it:
+              // nothing was generated, so re-read the world and rebuild the prompt.
+              if (await restartStaleStep("preflight")) continue;
+              await pauseForCredits(preflight, "STALE_WORLD");
+              return;
+            }
             await safeSend("error", JSON.stringify({ error: staged.code, code: staged.code }));
             return;
           }
@@ -2066,11 +2226,21 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
                 return;
               }
               if (creditRecovery && !replay && sourceRevision) {
-                const staged = await stageStudioCreditIteration(creditScope, {
+                const generatedCheckpoint: StudioCreditCheckpoint = {
                   version: 1, phase: "generated", messages, iteration, worldRevision: sourceRevision.revision, requiredCredits: cost,
                   generated: { textContent, reasoningContent, toolCalls, usage: iterationUsage, cost, usageLogId, stopReason: iterationStopReason },
-                }, creditClaimId);
+                };
+                const staged = await stageStudioCreditIteration(creditScope, generatedCheckpoint, creditClaimId, { staleWorld: "reject" });
                 if (!staged.ok) {
+                  if (staged.code === "STALE_WORLD") {
+                    // The world moved while the model was generating. This
+                    // result is unpaid and must not land on the newer save:
+                    // regenerate against it. Past the bound, keep the result
+                    // for inspection and pause with the reason.
+                    if (await restartStaleStep("generated")) continue;
+                    await pauseForCredits(generatedCheckpoint, "STALE_WORLD");
+                    return;
+                  }
                   await safeSend("error", JSON.stringify({ error: staged.code, code: staged.code }));
                   return;
                 }
@@ -2263,6 +2433,42 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             runId,
             status: "awaiting_user",
           }));
+          return;
+        }
+
+        const batchCall = controlCalls.find(tc => tc.function.name === IMAGE_BATCH_TOOL_NAME);
+        if (batchCall) {
+          let proposal = normalizeImageBatchProposal(parseToolArgs(batchCall.function.arguments));
+          let error: string | undefined;
+          if (!isImageBatchEnabled()) error = "Batch image generation is not available in this environment.";
+          else if (toolCalls.length !== 1) error = "Call generate_images alone, after preparing any custom-UI bindings. None of this turn's other tools were executed.";
+          else if (!proposal) error = "Provide 1–30 unique items, each with an id, label and non-empty prompt of at most 2000 characters. Use one independent prompt per picture.";
+          else {
+            try { proposal = withBatchBindingState(proposal, world as unknown as Record<string, unknown>); }
+            catch (failure) { error = `The binding plan is not ready (${failure instanceof ImageBatchError ? failure.code : "INVALID_TARGET"}). Read the current targets and prepare the managed image mapping before proposing the batch.`; }
+          }
+          if (error || !proposal) {
+            messages = [...messages, assistantToolCallMessage(textContent, toolCalls, reasoningContent),
+              ...buildToolResultMessages(toolCalls.map(call => ({ tool_call_id: call.id, name: call.function.name,
+                status: "error" as const, result: null, error: error ?? "Invalid image batch" })))];
+            await commitTextTurn(iteration, textContent, { lane: "step" });
+            await finishCreditIteration(messages, iteration + 1);
+            iteration++;
+            lastTextContent = textContent;
+            continue;
+          }
+          const price = estimateImageBatch(proposal, await smartImageEstimates());
+          const payload = { runId, toolCallId: batchCall.id, textContent, ...proposal, ...price };
+          const [savedRun] = await db.select({ context: agentRuns.context }).from(agentRuns).where(eq(agentRuns.id, runId));
+          // A tool-only response still needs a recoverable bubble for its card.
+          await commitTextTurn(iteration, textContent, { lane: "answer", allowEmpty: true });
+          await finalizeRun({ status: "awaiting_approval",
+            messages: messages as unknown as Array<Record<string, unknown>>,
+            pendingToolCalls: [batchCall] as unknown as Array<Record<string, unknown>>,
+            context: { ...savedRun?.context, imageBatchProposal: payload },
+            readToolResults: [], textContent, iteration,
+          });
+          await safeSend("image_batch_proposal", JSON.stringify(payload));
           return;
         }
 

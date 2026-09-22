@@ -56,6 +56,8 @@ test("a soft-capped story summary offers dismiss and one-shot resume controls", 
   assert.match(modalSource, /setDismissedSummaryError\(summaryPayload\.error\)/);
   assert.match(modalSource, /api\.resumeSessionSummaryAutoCompaction\(\)/);
   assert.match(worldRendererSource, /fetch\(`\$\{endpoint\}\/resume-auto`/);
-  assert.match(modalSource, /Automatic Story Summary paused after 150 summary calls/);
+  // The wording was shortened; what must hold is that the copy names the
+  // 150-update soft cap and not some other ceiling.
+  assert.match(modalSource, /Automatic summaries paused after 150 updates/);
   assert.doesNotMatch(modalSource, /300-call UTC daily safety ceiling/);
 });

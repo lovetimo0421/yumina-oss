@@ -289,18 +289,16 @@
       "description": "イマーシブページの下部にかかる暗いフェードの強さを調整します。",
       "minLabel": "薄め",
       "maxLabel": "濃いめ",
-      "ariaLabel": "下部グラデーションの強さ",
-      "hint": "ページ固有のスタイルを維持したまま下部の黒いフェードを変更します"
+      "ariaLabel": "下部グラデーションの強さ"
     },
     "cloudyGlass": {
       "title": "曇りガラスの強さ",
       "description": "クリアなガラスのプリセットに切り替えることなく、曇りガラスをよりぼかして濃くします。",
       "minLabel": "クリア寄り",
       "maxLabel": "曇り寄り",
-      "ariaLabel": "曇りガラスの強さ",
-      "hint": "ドラッグ中もライブプレビュー"
+      "ariaLabel": "曇りガラスの強さ"
     },
-    "autoSaves": "ドラッグを離すと自動保存されます",
+    "autoSaves": "変更は自動保存されます",
     "library": {
       "title": "壁紙ライブラリ",
       "description": "壁紙をクリックして、どのページで使うかを選びます。"
@@ -358,9 +356,7 @@
     "privacyPolicy": "プライバシーポリシー",
     "licenses": "ライセンス",
     "contactSupport": "Yuminaに連絡",
-    "contactSupportDescription": "すべてのメッセージに目を通しています。",
     "messageOfficial": "{{username}} にメッセージ",
-    "messageOfficialHint": "ダイレクトメッセージを開く",
     "emailSupport": "メールサポート",
     "emailCopied": "メールをコピーしました: {{email}}"
   }

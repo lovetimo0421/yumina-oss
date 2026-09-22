@@ -59,9 +59,7 @@
     "title": "生成設定",
     "subtitle": "AI生成のグローバルデフォルト値",
     "resetDefaults": "デフォルトにリセット",
-    "contextSize": "ターンごとのコンテキスト上限",
     "contextSizeTokens": "{{count}} トークン",
-    "contextSizeDesc": "AIが1ターンで参照する合計トークン数：ペルソナ、ワールド、ロアブック、チャット履歴を含む（4,096〜2,000,000）。設定が重いほどチャット履歴に割ける余地が減ります。",
     "contextCapped": "現在のプランでは {{limit}} に制限されています",
     "contextUpgrade": "より多くのコンテキストへアップグレード",
     "responseLength": "応答の長さ",
@@ -74,8 +72,6 @@
     "streaming": "ストリーミング",
     "streamingDesc": "AI応答を生成中に表示する",
     "streamingBypass": "フィルター回避のためオフに",
-    "memory": "メモリ",
-    "memoryDesc": "AIが記憶するトークン数（多いほどクレジット消費が増えます）",
     "advancedParams": "詳細パラメーター",
     "topP": "Top P",
     "narrow": "狭い（0）",
@@ -102,7 +98,15 @@
       "mediumDesc": "ほとんどのセッションに適した、より熟考された推論。",
       "high": "高",
       "highDesc": "最も深い推論。遅いがより慎重。"
-    }
+    },
+    "storyMemory": "ストーリー記憶",
+    "storyMemorySuggested": "推奨",
+    "storyMemoryDesc": "過去の会話をどれだけ残すか。それより前は要約になります。世界設定はここに含まれません。",
+    "overallLimit": "全体の上限",
+    "overallUncapped": "上限なし",
+    "overallLimitDesc": "1 リクエストの合計上限（世界設定込み）。通常は上限なしのままで。",
+    "overallLimitCapped": "このプランが送れる世界設定の上限です。超えた分は削られ、ストーリー記憶は影響を受けません。",
+    "storyMemoryShort": "残す過去の会話"
   },
   "aiProvider": {
     "yuminaApi": "Yumina API",
@@ -172,8 +176,9 @@
       "supplyAboveFloor": "デイリーサプライ：残高が {{floor}} を下回ると自動補充",
       "supplyInfoAria": "デイリーサプライの仕組みの詳細を見る",
       "supplyInfoTitle": "デイリーサプライについて",
+      "supplyTitle": "デイリー補給",
       "supplyInfoClose": "閉じる",
-      "supplyInfoBody": "毎日 UTC 20:00（全ユーザー共通、デイリーチェックインと同じリセット時刻）に残高をチェックします。プランの下限を下回っている場合、下限まで自動補充します。下限を超えている場合は何も行いません。補充は、現在の請求サイクルに適用される回復上限までです。",
+      "supplyInfoBody": "毎日 UTC 20:00（全ユーザー共通、デイリークエストと同じリセット時刻）に残高をチェックします。プランの下限を下回っている場合、下限まで自動補充します。下限を超えている場合は何も行いません。補充は、現在の請求サイクルに適用される回復上限までです。",
       "supplyInfoFloorLabel": "プラン別の下限（月間上限）",
       "supplyInfoCurrent": "あなた",
       "supplyInfoNote": "注意：これは「下限まで回復」であり、「残高にXを加算」ではありません。例：残高750 → 800 では+50のみクレジットされます。",
@@ -220,7 +225,7 @@
       "admin": "管理者",
       "refund": "返金",
       "expire": "失効",
-      "check_in": "チェックイン",
+      "check_in": "クエスト",
       "daily_recovery": "デイリーサプライ",
       "reward": "投稿報酬",
       "referral_reward": "友達招待報酬",
@@ -356,8 +361,8 @@
         "hint": "昨日使っていないモデルで1ターン完了する。"
       },
       "community": {
-        "title": "ひと言どうぞ",
-        "hint": "コミュニティで投稿・返信・いいねのいずれかをする。"
+        "title": "コミュニティを見る",
+        "hint": "コミュニティタブで1分間過ごす。"
       },
       "invite": {
         "title": "友達を招待",
@@ -389,7 +394,8 @@
     "monthlyExpiryPlanEnded": "プラン終了時に未使用の月次 Mushie が期限切れ",
     "bonusExpired": "未使用のボーナス Mushie が期限日に期限切れ",
     "ledgerReconciliation": "台帳の修正：残高を確認。以前の変動が記録されていませんでした",
-    "ledgerOpeningBalance": "期首残高（ここから台帳を開始）"
+    "ledgerOpeningBalance": "期首残高（ここから台帳を開始）",
+    "pilePerMonth": "月 {{amount}}"
   },
   "summary": {
     "chooseModel": "モデルを選択",
@@ -535,7 +541,6 @@
     "mushiesReceived": "{{amount}} Mushie を受け取りました",
     "codeRedeemed": "招待コードを引き換えました",
     "title": "友達を招待",
-    "subtitle": "友達にYuminaをシェアしよう。",
     "inviteLink": "招待リンク",
     "copyLink": "リンクをコピー",
     "inviteCode": "招待コード",
@@ -762,7 +767,7 @@
     "session": {
       "current": "現在のペルソナ：{{name}}",
       "following": "現在のペルソナに従う",
-      "followingHint": "設定や他の場所でペルソナを切り替えると、このセッションも切り替わります。",
+      "followingHint": "プロフィールのペルソナに従います。ここで選ぶと、このセーブだけに適用されます。",
       "locked": "このセッションのペルソナを固定",
       "lockedHint": "アカウントのペルソナを切り替えても、このセッションは選択したペルソナを維持します。",
       "saveError": "ペルソナを保存できませんでした。もう一度お試しください。"
@@ -932,7 +937,8 @@
   },
   "questBoard": {
     "title": "クエスト",
-    "unavailable": "このアカウントはデイリーボーナス方式のため、クエストボードは表示されません。",
+    "unavailable": "このアカウントではクエストボードを利用できません。",
+    "legacyNotice": "デイリーチェックインは全員クエストに変わりました。リセット時刻は同じ、報酬はプランに応じた額で、翌月末に失効します。デイリー補給はそのままウォレットカードに表示されます。",
     "thisCycle": "今サイクル",
     "claimedToday": "本日受取",
     "todayWorth": "本日の合計",
@@ -972,8 +978,8 @@
         "hint": "どれかの世界をお気に入りに追加します。"
       },
       "community": {
-        "title": "コミュニティで発言",
-        "hint": "投稿・返信・いいねのいずれか。"
+        "title": "コミュニティを見る",
+        "hint": "コミュニティタブで1分間過ごす。"
       },
       "world_depth": {
         "title": "1 つの世界で {{n}} ターン",
@@ -1002,10 +1008,6 @@
       "week_dailies": {
         "title": "今週デイリーを {{n}} 件受け取る",
         "hint": "デイリークエストの受取ごとに 1 件。"
-      },
-      "invite_day": {
-        "title": "今日あなたの招待コードが使われた",
-        "hint": "1 日 1 枠。"
       },
       "week_active_friends": {
         "title": "今週 {{n}} 人のアクティブな友達を招待",

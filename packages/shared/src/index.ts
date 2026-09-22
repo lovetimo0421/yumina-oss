@@ -1,6 +1,10 @@
 // Types
 export { AI_GENERATION_DEFAULTS, aiGenerationConfigSchema, resolveAiGenerationConfig } from './ai-generation.js';
 export type { AiGenerationConfig } from './ai-generation.js';
+export { resolveStoryMemory, SUGGESTED_STORY_MEMORY, MIN_STORY_MEMORY, MAX_STORY_MEMORY } from './story-memory.js';
+export type { StoryMemoryInput, StoryMemoryResolution } from './story-memory.js';
+export { resolveLorebookBudget } from './lorebook-budget.js';
+export type { LorebookBudgetInput } from './lorebook-budget.js';
 export type {
   User,
   UserProfile,
@@ -315,6 +319,7 @@ export type {
   TimeBasedAvgCostMushies,
 } from "./constants/models.js";
 export * from "./game-npc.js";
+export {classicTinDecisions} from "./game-classic-story.js";
 export * from "./admin-analytics.js";
 export { layoutAtlas } from './admin-atlas.js';
 export * from "./types/model-fallback.js";
@@ -378,6 +383,17 @@ export type {
 } from "./constants/generation.js";
 
 export { blendModelPopularity, type ModelPopularitySnapshot } from "./types/model-popularity.js";
+export { DISCOVERY_INTEREST_IDS, DISCOVERY_INTEREST_GROUPS, DISCOVERY_INTEREST_TAGS,
+  discoveryInterestsForTags, discoveryStarterStrength, type DiscoveryInterestId } from "./constants/discovery-interests.js";
 export { MODEL_POPULARITY_SEED } from "./constants/model-popularity-seed.js";
 export type { StateValidationAudit, StateGuardSettings } from "./types/state-validation.js";
 export { parseStateGuardModel, stateGuardModelSelection, DEFAULT_STATE_GUARD_MODEL, FREE_STATE_GUARD_MODEL } from "./types/state-guard-model.js";
+export { MUSIC_MODELS, MUSIC_MAX_PROMPT_CHARS, MUSIC_MARKUP, isMusicLength } from "./constants/music.js";
+export type { MusicLength, MusicModel } from "./constants/music.js";
+export { MAX_IMAGE_BATCH_ITEMS } from "./types/image-batch.js";
+export { CHAT_IMAGE_MIME_TYPES, MAX_CHAT_IMAGES, MAX_CHAT_IMAGE_BYTES, MAX_CHAT_IMAGE_TOTAL_BYTES } from "./types/chat-images.js";
+export type { ChatImageInput, ImageMessageContent, ImageCompletionMessage } from "./types/chat-images.js";
+export type { ImageBatchTarget, ImageBatchProposalItem, ImageBatchProposal,
+  ImageBatchItemStatus, ImageBatchItem, ImageBatchSnapshot } from "./types/image-batch.js";
+
+export { IMAGE_MODEL_CAPABILITIES } from "./constants/image-models.js";

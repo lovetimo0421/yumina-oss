@@ -28,7 +28,7 @@
 
 import type Stripe from "stripe";
 import { PLANS, planMeetsMinimum, STRIPE_PLAN_TO_PRICE, STRIPE_PRICE_TO_PLAN, type PlanId } from "./plan-config.js";
-import { PLANS_V2 } from "./plan-config-v2.js";
+import { CURRENT_DROP_SCHEDULE, PLANS_V2, dropsFor, type DropScheduleKey } from "./plan-config-v2.js";
 import {
   ensureWallet,
   refreshMonthlyCredits,
@@ -38,7 +38,7 @@ import {
   syncPlan,
   type CreditWallet,
 } from "./credit-service.js";
-import { releasedDropsFor } from "./plan-drops.js";
+import { dropCycleFor } from "./plan-drops.js";
 
 // ─── Feature flag ───────────────────────────────────────────────────────
 
@@ -219,15 +219,17 @@ export function upgradeMushiePreview(
   dropsReleased: number,
   targetPlan: PlanId,
   now: Date,
+  /** Schedule the wallet's CURRENT cycle opened under (wallet_plan_drops.schedule); the new plan always starts on the current one. */
+  leavingSchedule: DropScheduleKey = CURRENT_DROP_SCHEDULE,
 ): UpgradeMushiePreview {
   const keep = Math.floor(wallet.balance);
   if (wallet.planVersion !== 2) {
     const grantNow = PLANS[targetPlan].monthlyCredits;
     return { keep, settledDrops: [], grantNow, laterDrops: [], newMonthlyCredits: grantNow, total: keep + grantNow };
   }
-  const leaving = PLANS_V2[wallet.plan as PlanId] ?? PLANS_V2.free;
+  const leaving = dropsFor(wallet.plan, leavingSchedule);
   const released = Math.max(1, dropsReleased);
-  const settledDrops = leaving.drops.slice(released).map((d, i) => ({ index: released + i, amount: d.amount }));
+  const settledDrops = leaving.slice(released).map((d, i) => ({ index: released + i, amount: d.amount }));
   const next = PLANS_V2[targetPlan];
   const grantNow = next.drops[0]?.amount ?? 0;
   const laterDrops = next.drops.slice(1).map((d) => ({
@@ -416,7 +418,7 @@ export async function previewPlanChange(deps: PlanChangeDeps, userId: string, ta
     },
   });
   const fullLine = preview.lines.data.find((l) => !l.parent?.subscription_item_details?.proration) ?? preview.lines.data[0];
-  const dropsReleased = await releasedDropsFor(wallet);
+  const cycle = wallet.planVersion === 2 ? await dropCycleFor(wallet) : null;
   return {
     status: "ok",
     direction,
@@ -426,7 +428,7 @@ export async function previewPlanChange(deps: PlanChangeDeps, userId: string, ta
     currency: preview.currency,
     renewsAt: fullLine ? new Date(fullLine.period.end * 1000).toISOString() : null,
     cancelPending: !!(sub.cancel_at || sub.cancel_at_period_end),
-    mushies: upgradeMushiePreview(wallet, dropsReleased, targetPlan, now),
+    mushies: upgradeMushiePreview(wallet, cycle?.released ?? 0, targetPlan, now, cycle?.schedule),
   };
 }
 

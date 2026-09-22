@@ -16,6 +16,40 @@ function boot(url: string, mobile = true) {
   return dom;
 }
 
+test("every app entry paints the document before React, independently of its scroll owner", () => {
+  for (const [path, mode] of [
+    ["/", "wallpaper"], ["/app/hub", "wallpaper"],
+    ["/app/library", "wallpaper"], ["/app/profile", "wallpaper"],
+    ["/app/profile/achievements", "wallpaper"], ["/app/settings", "wallpaper"],
+    ["/app/messages/123", "wallpaper"], ["/app/chat/123", "plain"],
+    ["/app/preview/123", "plain"], ["/app/studio", "plain"],
+    ["/app/admin", "plain"], ["/app/worlds/123/edit", "plain"],
+    ["/app/worlds/create", "wallpaper"],
+  ]) {
+    const dom = boot(`https://yumina.io${path}`);
+    try {
+      const doc = dom.window.document;
+      assert.equal(doc.documentElement.getAttribute("data-mobile-app-canvas"), mode, path);
+      for (const selector of ["body", "#root", "#app-splash"]) {
+        assert.equal(dom.window.getComputedStyle(doc.querySelector(selector)!).backgroundColor, "rgba(0, 0, 0, 0)", `${path}: ${selector}`);
+      }
+    } finally { dom.window.close(); }
+  }
+});
+
+test("shared app canvas stays off desktop and outside the app, and clears on redirect", () => {
+  for (const [url, mobile] of [["https://yumina.io/app/settings", false], ["https://creator.yumina.io/app/hub", true], ["https://yumina.io/login", true]] as const) {
+    const dom = boot(url, mobile);
+    try { assert.equal(dom.window.document.documentElement.hasAttribute("data-mobile-app-canvas"), false); }
+    finally { dom.window.close(); }
+  }
+  const dom = boot("https://yumina.io/app/chat/123");
+  try {
+    clearReadingPageBootstrap(dom.window.document, "/login");
+    assert.equal(dom.window.document.documentElement.hasAttribute("data-mobile-app-canvas"), false);
+  } finally { dom.window.close(); }
+});
+
 test("the DM inbox owns document scroll while open conversations retain their keyboard viewport", () => {
   const list = boot("https://yumina.io/app/messages");
   const conversation = boot("https://yumina.io/app/messages/conversation-123");
@@ -60,11 +94,12 @@ test("account forms and sibling routes keep their contained viewport", () => {
   }
 });
 
-test("Create picker and editor keep their contained viewport", () => {
+test("Create picker uses document scroll until an editor opens at the same URL", () => {
   const dom = boot("https://yumina.io/app/worlds/create");
   try {
-    assert.equal(dom.window.document.documentElement.hasAttribute("data-mobile-page-scroll"), false);
-    assert.equal(getMobileReadingPageId("/app/worlds/create"), undefined);
+    assert.equal(dom.window.document.documentElement.getAttribute("data-mobile-page-scroll"), "create-picker");
+    assert.equal(getMobileReadingPageId("/app/worlds/create"), "create-picker");
+    assert.equal(getMobileReadingPageId("/app/worlds/create", {}, false), undefined);
     assert.equal(getMobileReadingPageId("/app/worlds/123/edit"), undefined);
   } finally { dom.window.close(); }
 });
@@ -92,7 +127,7 @@ test("the initial HTML has the final browser-edge color while external styleshee
       // native rule instead; browsers match each selector independently.
       const surface = doc.querySelector<HTMLStyleElement>("style#reading-page-surface")!;
       const canvasRule = [...surface.sheet!.cssRules].find((rule) =>
-        "selectorText" in rule && rule.selectorText === "html[data-mobile-page-scroll], html[data-mobile-message-canvas]",
+        "selectorText" in rule && String(rule.selectorText).includes('html[data-mobile-app-canvas="wallpaper"]') && "style" in rule && (rule as CSSStyleRule).style.getPropertyValue("background-image"),
       ) as CSSStyleRule;
       assert.equal(canvasRule.style.getPropertyValue("background-color"), "var(--reading-canvas-color)", "Safari's document background must already use the shared color");
       assert.equal(computed(doc.body).backgroundColor, "rgba(0, 0, 0, 0)", "the old body fill must not override Safari's document background");

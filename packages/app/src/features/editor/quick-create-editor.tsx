@@ -1696,9 +1696,6 @@ function AdvancedPromoCard({ onOpenFullEditor }: { onOpenFullEditor: () => void 
           </div>
           <h2 className="text-base font-bold text-foreground">{t("simple.advancedPromo.title")}</h2>
         </div>
-        <p className="mb-4 text-xs leading-relaxed text-muted-foreground/80">
-          {t("simple.advancedPromo.subtitle")}
-        </p>
         <ul className="mb-5 grid gap-2 sm:grid-cols-2">
           {bullets.map(({ icon: Icon, text }) => (
             <li key={text} className="flex items-start gap-2 rounded-lg bg-card/40 px-3 py-2 text-xs leading-relaxed text-muted-foreground">

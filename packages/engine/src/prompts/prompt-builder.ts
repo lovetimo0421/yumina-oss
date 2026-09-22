@@ -26,6 +26,8 @@ function isAiWritableStatic(v: { internal?: boolean; aiAccess?: "write" | "read"
 }
 
 export interface ChatMessage {
+  /** Host estimate for image parts attached after text prompt construction. */
+  imageTokens?: number;
   role: "user" | "assistant" | "system";
   content: string;
 }
@@ -696,6 +698,14 @@ export class PromptBuilder {
 
   /** Same trimming decisions as the synchronous API, with a host-supplied
    * scheduler so long histories cannot monopolize the server's request loop. */
+  /**
+   * @param maxTokens        Ceiling on the whole prompt, pinned blocks included.
+   * @param maxHistoryTokens Separate ceiling on the TRIMMABLE history alone
+   *   ("story memory"). Without it, a big world eats the conversation and a
+   *   small world lets it sprawl, because one number governed both. With it,
+   *   the world is charged to the overall ceiling and the conversation is charged to
+   *   this, so lowering one does not silently change the other.
+   */
   async buildMessageHistoryAsync(
     messages: ChatMessage[],
     yieldControl: () => Promise<unknown>,
@@ -703,8 +713,9 @@ export class PromptBuilder {
     pinnedPrefix?: number,
     pinnedSuffix?: number,
     modelId?: string,
+    maxHistoryTokens?: number,
   ): Promise<ChatMessage[]> {
-    const steps = this.messageHistorySteps(messages, maxTokens, pinnedPrefix, pinnedSuffix, modelId);
+    const steps = this.messageHistorySteps(messages, maxTokens, pinnedPrefix, pinnedSuffix, modelId, maxHistoryTokens);
     let deadline = performance.now() + 8;
     let step = steps.next();
     while (!step.done) {
@@ -723,8 +734,10 @@ export class PromptBuilder {
     pinnedPrefix?: number,
     pinnedSuffix?: number,
     modelId?: string,
+    maxHistoryTokens?: number,
   ): Generator<void, ChatMessage[], void> {
-    if (!maxTokens || messages.length === 0) return [...messages];
+    if (!maxTokens && !maxHistoryTokens) return [...messages];
+    if (messages.length === 0) return [...messages];
 
     const pPrefix = pinnedPrefix ?? 0;
     const pSuffix = pinnedSuffix ?? 0;
@@ -737,17 +750,27 @@ export class PromptBuilder {
     // Budget consumed by pinned messages (always included)
     let pinnedTokens = 0;
     for (const msg of prefix) {
-      pinnedTokens += estimateTokens(msg.content, modelId);
+      pinnedTokens += (estimateTokens(msg.content, modelId) + (msg.imageTokens ?? 0));
       yield;
     }
     for (const msg of suffix) {
-      pinnedTokens += estimateTokens(msg.content, modelId);
+      pinnedTokens += (estimateTokens(msg.content, modelId) + (msg.imageTokens ?? 0));
       yield;
     }
 
-    const historyBudget = maxTokens - pinnedTokens;
+    // Whichever ceiling bites first. An absent maxTokens means "no overall
+    // ceiling", so the story-memory cap alone governs.
+    const overallAllowance = maxTokens === undefined ? Number.POSITIVE_INFINITY : maxTokens - pinnedTokens;
+    const historyAllowance = maxHistoryTokens ?? Number.POSITIVE_INFINITY;
+    const historyBudget = Math.min(overallAllowance, historyAllowance);
 
-    if (historyBudget <= 0 || history.length === 0) {
+    // Only bail when there is genuinely nothing to keep. A zero or negative
+    // budget used to return here too, which dropped the ENTIRE conversation
+    // including the message the player had just typed, leaving the model
+    // nothing to answer. The loop below always keeps the newest message
+    // (its break is guarded on trimmed.length), so a world that leaves no
+    // room now costs history, never the current turn.
+    if (history.length === 0) {
       return [...prefix, ...suffix];
     }
 
@@ -756,7 +779,7 @@ export class PromptBuilder {
     let totalTokens = 0;
     for (let i = history.length - 1; i >= 0; i--) {
       const msg = history[i]!;
-      const msgTokens = estimateTokens(msg.content, modelId);
+      const msgTokens = (estimateTokens(msg.content, modelId) + (msg.imageTokens ?? 0));
       yield;
       if (totalTokens + msgTokens > historyBudget && trimmed.length > 0) break;
       totalTokens += msgTokens;

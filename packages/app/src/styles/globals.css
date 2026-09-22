@@ -727,6 +727,35 @@ body {
   padding-block: 0;
 }
 
+/* Refresh targets the first new card below the application's overlay header. */
+.discovery-feed-start {
+  scroll-margin-top: var(--hub-topbar-overlay-height, 0px);
+}
+
+html[data-mobile-page-scroll="hub-main"] .discovery-feed-start {
+  scroll-margin-top: calc(var(--mobile-topbar-height) + var(--mobile-safe-top));
+}
+
+.hub-floating-action {
+  margin-bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
+}
+
+.discovery-refresh-feedback {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.6rem);
+  width: max-content;
+  max-width: min(16rem, calc(100vw - 6.5rem));
+  padding: 0.65rem 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: 0.75rem;
+  background: var(--color-popover);
+  color: var(--color-foreground);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.2);
+}
+
 .hub-feed-search-header {
   display: flex;
   flex-direction: column;
@@ -1690,6 +1719,8 @@ html:lang(zh) .hub-hero--world .hub-hero-subtitle {
   min-height: 0;
 }
 
+.play-mobile-top-edge { display: none; }
+
 .play-composer-inner {
   /* The composer is application chrome, not story content. Keep its controls at
      viewport scale so play zoom cannot shrink touch targets or distort the
@@ -1988,7 +2019,12 @@ html:lang(zh) .hub-hero--world .hub-hero-subtitle {
   width: min(72%, 46rem);
   max-width: 100%;
   margin-left: auto;
-  color: rgba(242, 248, 244, 0.92);
+  /* Follow the theme's ink, not a fixed near-white: a custom-UI card with a
+     light page (cream/paper palettes) re-points --color-foreground to its own
+     dark ink, and a fixed white left the player's own lines unreadable there
+     (review on "Your Sister's Best Friend", 2026-09-21: "player text ... its
+     unreadable"). On the stock dark theme this resolves to the same colour. */
+  color: color-mix(in srgb, var(--color-foreground) 92%, transparent);
   font-family: var(--font-family-chat);
   font-size: 1rem;
   font-weight: 500;
@@ -3673,6 +3709,17 @@ html.dm-mobile-selection-locked body * {
     padding-block: 0.25rem;
   }
 
+  /* Own the notch outside the sandbox, even when a creator replaces the
+     session header. Keyboard panning already supplies some/all of this gap.
+     The iframe can use the entire remaining height, down to the screen edge. */
+  .app-shell-root[data-play-page="true"] .app-shell-main {
+    padding-top: max(0px, calc(var(--mobile-safe-top) - var(--mobile-viewport-top, 0px)));
+    padding-bottom: 0;
+  }
+  .app-shell-root[data-play-page="true"] .play-page-root {
+    overflow: hidden !important;
+  }
+
   .play-header-inner {
     width: calc(100% / max(var(--play-ui-scale), 1));
     max-width: 100%;
@@ -3966,6 +4013,46 @@ iframe[title="Yumina Sandbox"] {
 
 @media (max-width: 767px) and (display-mode: standalone),
   (max-width: 767px) and (display-mode: fullscreen) {
+  /* A fixed body can clip the extra viewport-fit=cover area in installed
+     WebKit apps even when its child has the correct full-screen height.
+     Play and DM conversations both use the measured full viewport. Keep
+     their document unpinned so the last row (including the reply composer)
+     isn't cropped by a shorter fixed body. Inbox pages retain native scroll.
+     https://bugs.webkit.org/show_bug.cgi?id=237961 */
+  html[data-mobile-viewport]:not([data-mobile-page-scroll]):has(.app-shell-root[data-play-page="true"]),
+  html[data-mobile-viewport][data-mobile-message-canvas]:not([data-mobile-page-scroll]) {
+    height: auto;
+    min-height: 100vh;
+    overflow: clip;
+  }
+  html[data-mobile-viewport]:not([data-mobile-page-scroll]):has(.app-shell-root[data-play-page="true"]) body,
+  html[data-mobile-viewport]:not([data-mobile-page-scroll]):has(.app-shell-root[data-play-page="true"]) #root,
+  html[data-mobile-viewport][data-mobile-message-canvas]:not([data-mobile-page-scroll]) body,
+  html[data-mobile-viewport][data-mobile-message-canvas]:not([data-mobile-page-scroll]) #root {
+    position: static;
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+  .app-shell-root[data-play-page="true"],
+  html[data-mobile-viewport][data-mobile-message-canvas]:not([data-mobile-page-scroll]) .app-shell-root {
+    position: absolute;
+  }
+
+  /* Tighten the gap below the iPhone status row without moving the canvas.
+     Keep a small padding floor on devices with no top safe-area inset. */
+  .topbar-shell {
+    padding-top: max(0.2rem, calc(var(--mobile-safe-top) - 0.5rem));
+  }
+
+  html[data-mobile-page-scroll="admin-main"] {
+    --admin-safe-top: max(0.2rem, calc(var(--mobile-safe-top) - 0.5rem));
+  }
+  html[data-mobile-page-scroll="admin-main"] .aw-topbar {
+    padding-top: var(--admin-safe-top);
+    min-height: calc(55px + var(--admin-safe-top));
+  }
+
   body[data-publish-modal-open="true"] .topbar-search-region,
   body[data-publish-modal-open="true"] .hub-topbar-search {
     display: none !important;
@@ -3977,10 +4064,6 @@ iframe[title="Yumina Sandbox"] {
 
   .animate-float-bar-in[data-admin-review-preview="true"] {
     top: calc(env(safe-area-inset-top, 0px) + 0.75rem);
-  }
-
-  .play-composer-shell {
-    padding-bottom: 0.25rem;
   }
 
   .immersive-exit-button-shell {
@@ -4751,7 +4834,52 @@ html[data-mobile-page-scroll="dm-page-conversation-list"] :is(.dm-page-root, .dm
 
 html[data-mobile-page-scroll="dm-page-conversation-list"] .dm-page-list-toolbar { position: static; }
 
-html[data-mobile-message-canvas]:not([data-mobile-page-scroll]) .topbar-shell {
+/* These are page wrappers, not dialogs or chat message scrollers. Releasing
+   the entire height chain is essential: a fixed inner pane still ends above
+   iOS's bottom edge even when its wallpaper is painted on the document. */
+html[data-mobile-page-scroll="settings-main"] :is(.settings-page, .settings-layout, .settings-nav-scroll, .settings-content),
+html[data-mobile-page-scroll="admin-main"] :is(.admin-workspace, .aw-main-shell, .aw-scroll),
+html[data-mobile-page-scroll="create-picker"] :is(.create-shell, .create-col) {
+  height: auto;
+  overflow: visible;
+  overscroll-behavior-y: auto;
+}
+
+html[data-mobile-page-scroll="dm-page-conversation-list"] :is(.dm-page-frame, .dm-page-sidebar) {
+  background: transparent;
+  box-shadow: none;
+  border-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+html[data-mobile-page-scroll="create-picker"] .create-mobile-grid {
+  /* Cards can grow with translated copy and larger text instead of forcing
+     the entire page into a clipped viewport. */
+  grid-auto-rows: minmax(clamp(4.5rem, 10svh, 6rem), auto);
+}
+
+html[data-mobile-page-scroll="admin-main"] .aw-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--aw-bg);
+}
+html[data-mobile-page-scroll="admin-main"] {
+  scroll-padding-top: calc(120px + var(--admin-safe-top, var(--mobile-safe-top)));
+}
+html[data-mobile-page-scroll="admin-main"] .aw-mobile-nav {
+  position: sticky;
+  top: calc(55px + var(--admin-safe-top, var(--mobile-safe-top)));
+  z-index: 20;
+  background: var(--aw-bg);
+}
+html[data-mobile-page-scroll="admin-main"] .aw-content {
+  /* The shared main already reserves the home-indicator inset. */
+  padding-bottom: 35px;
+}
+
+html[data-mobile-app-canvas="wallpaper"]:not([data-mobile-page-scroll]) .topbar-shell {
   position: relative;
   padding-bottom: 2rem;
   margin-bottom: -1.5rem;
@@ -4773,6 +4901,26 @@ html[data-mobile-page-scroll] .app-shell-main {
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+/* The detail action bar paints through the home-indicator inset itself.
+   Keep main's inset for loading/deleted entries that have no action bar. */
+html[data-mobile-page-scroll="library-detail"] .app-shell-main:has(.library-detail-mobile-cta) {
+  padding-bottom: 0;
+}
+
+/* Profile replaces TopBar with banner controls. Give its artwork the same
+   document-edge fade as Discover, below the buttons and above the image. */
+html[data-mobile-app-canvas="wallpaper"] .profile-mobile-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: max(96px, calc(var(--mobile-safe-top) + 3rem));
+  z-index: 15;
+  pointer-events: none;
+  background: var(--mobile-canvas-edge-gradient);
+  -webkit-mask-image: linear-gradient(to bottom, #000 64px, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 64px, transparent 100%);
+}
+
 html[data-mobile-page-scroll] .app-shell-root {
   background: transparent;
 }
@@ -4783,7 +4931,7 @@ html[data-mobile-page-scroll] .app-shell-content {
   padding-bottom: 0 !important;
 }
 
-html[data-mobile-message-canvas] [data-immersive-bg],
+html[data-mobile-app-canvas="wallpaper"] [data-immersive-bg],
 html[data-mobile-page-scroll] [data-immersive-bg] {
   display: none;
 }
@@ -4848,7 +4996,35 @@ html[data-mobile-page-scroll] .topbar-shell[data-motion-active]::after {
   background: var(--reading-canvas-color);
 }
 
-html[data-mobile-message-canvas]:not([data-mobile-page-scroll]) .topbar-shell::before,
+/* The installed app's status row is inside the viewport. Keep the tint
+   solid through that safe area, then fade below it over the menu as in a
+   browser tab. Resolve the gradient on the pseudo-element as well as html
+   so this local offset does not move the play/profile edge treatments. */
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell::before {
+  --mobile-canvas-edge-offset: var(--mobile-safe-top, 0px);
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas]),
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell::before {
+  --mobile-canvas-edge-gradient: linear-gradient(
+    to bottom,
+    var(--reading-canvas-color) 0px,
+    var(--reading-canvas-color) calc(var(--mobile-canvas-edge-offset, 0px) + 8px),
+    rgba(var(--mobile-canvas-edge-rgb, 25, 27, 36), 0.95) calc(var(--mobile-canvas-edge-offset, 0px) + 12px),
+    rgba(var(--mobile-canvas-edge-rgb, 25, 27, 36), 0.86) calc(var(--mobile-canvas-edge-offset, 0px) + 18px),
+    rgba(var(--mobile-canvas-edge-rgb, 25, 27, 36), 0.77) calc(var(--mobile-canvas-edge-offset, 0px) + 24px),
+    rgba(var(--mobile-canvas-edge-rgb, 25, 27, 36), 0.67) calc(var(--mobile-canvas-edge-offset, 0px) + 32px),
+    rgba(var(--mobile-canvas-edge-rgb, 25, 27, 36), 0.56) calc(var(--mobile-canvas-edge-offset, 0px) + 40px),
+    rgba(var(--mobile-canvas-edge-rgb, 25, 27, 36), 0.44) calc(var(--mobile-canvas-edge-offset, 0px) + 48px),
+    rgba(var(--mobile-canvas-edge-rgb, 25, 27, 36), 0.32) calc(var(--mobile-canvas-edge-offset, 0px) + 56px),
+    rgba(var(--mobile-canvas-edge-rgb, 25, 27, 36), 0.22) calc(var(--mobile-canvas-edge-offset, 0px) + 64px),
+    rgba(var(--mobile-canvas-edge-rgb, 25, 27, 36), 0.14) calc(var(--mobile-canvas-edge-offset, 0px) + 72px),
+    rgba(var(--mobile-canvas-edge-rgb, 25, 27, 36), 0.08) calc(var(--mobile-canvas-edge-offset, 0px) + 80px)
+  );
+}
+
+.play-mobile-top-edge,
+html[data-mobile-app-canvas="wallpaper"]:not([data-mobile-page-scroll]) .topbar-shell::before,
 html[data-mobile-page-scroll] .topbar-shell::before {
   content: "";
   position: absolute;
@@ -4858,22 +5034,8 @@ html[data-mobile-page-scroll] .topbar-shell::before {
      extension. Keep both tint and mask solid through that strip so scrolling
      artwork cannot change its color. This surface still moves with controls. */
   /* Ease the tint out of the solid edge, then release it evenly through the
-     controls and tail. Keep the same reach and neutral hue on every page. */
-  background: linear-gradient(
-    to bottom,
-    var(--reading-canvas-color) 0px,
-    var(--reading-canvas-color) 8px,
-    rgba(25, 27, 36, 0.95) 12px,
-    rgba(25, 27, 36, 0.86) 18px,
-    rgba(25, 27, 36, 0.77) 24px,
-    rgba(25, 27, 36, 0.67) 32px,
-    rgba(25, 27, 36, 0.56) 40px,
-    rgba(25, 27, 36, 0.44) 48px,
-    rgba(25, 27, 36, 0.32) 56px,
-    rgba(25, 27, 36, 0.22) 64px,
-    rgba(25, 27, 36, 0.14) 72px,
-    rgba(25, 27, 36, 0.08) 80px
-  );
+     controls and tail. Share the fade while letting play use a neutral tint. */
+  background: var(--mobile-canvas-edge-gradient);
   -webkit-backdrop-filter: blur(18px) saturate(115%);
   backdrop-filter: blur(18px) saturate(115%);
   /* A fixed falloff starts behind the final controls, including search.
@@ -4888,13 +5050,29 @@ html[data-mobile-page-scroll] .topbar-shell::before {
   mask-image: var(--topbar-ambient-mask);
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-region:empty {
+@media (max-width: 767px) {
+  .app-shell-root[data-play-page="true"] > .play-mobile-top-edge {
+    display: block;
+    inset: 0 0 auto;
+    /* Reuse Discover's glass/fade, with only a short transparent tail over
+       the iframe. Its controls remain below the notch and stay clickable. */
+    --play-edge-inset: max(0px, calc(var(--mobile-safe-top) - var(--mobile-viewport-top, 0px)));
+    height: calc(var(--play-edge-inset) + min(16px, var(--play-edge-inset)));
+    /* A browser tab or a keyboard pan can leave no notch reservation. In
+       that case the whole edge collapses; short insets must also fade within
+       their own height rather than inherit Discover's 44px minimum. */
+    --topbar-fade-start: max(0px, calc(var(--play-edge-inset) - 16px));
+    z-index: 40;
+  }
+}
+
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-region:empty {
   display: none;
 }
 
 /* Preserve Community's breathing room explicitly, instead of letting an
    empty search flex item add an accidental row gap on only some pages. */
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell:not(.topbar-shell--discover) .topbar-inner {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell:not(.topbar-shell--discover) .topbar-inner {
   padding-bottom: 0.75rem;
 }
 
@@ -4930,19 +5108,19 @@ html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell:n
   }
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-inner {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-inner {
   position: relative;
   pointer-events: auto;
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell {
   --topbar-control-size: 44px;
 }
 
 /* Visual circles and hit areas share one metric. The older buttons mixed
    p-2, h-11 and negative touch-target margins, exposing three bubble sizes. */
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-content-level),
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .topbar-notification-anchor {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-content-level),
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell .topbar-notification-anchor {
   width: var(--topbar-control-size);
   height: var(--topbar-control-size);
   min-width: var(--topbar-control-size);
@@ -4955,24 +5133,24 @@ html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .
   border-radius: 50%;
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-content-level) svg {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-content-level) svg {
   width: 16px;
   height: 16px;
   flex: none;
   filter: none;
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target) {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target) {
   color: #f4f5f7;
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .topbar-profile-button > span:first-child {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell .topbar-profile-button > span:first-child {
   width: 28px;
   height: 28px;
 }
 
 .topbar-account-controls .topbar-unread-badge,
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .topbar-unread-badge {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell .topbar-unread-badge {
   top: 2px;
   right: 2px;
   min-width: 16px;
@@ -4985,36 +5163,36 @@ html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .
 /* On very narrow phones, keep the five circles together and place credits
    beside search, instead of letting the menu occupy a row by itself. */
 @media (max-width: 359px) {
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) {
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-row:has([data-credit-plan]) {
     display: grid;
     grid-template-columns: repeat(5, minmax(44px, 1fr));
     column-gap: 4px;
   }
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]):has(a[href="/app/partner"]) {
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-row:has([data-credit-plan]):has(a[href="/app/partner"]) {
     grid-template-columns: repeat(6, minmax(44px, 1fr));
   }
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) :is(.topbar-end, .topbar-account-controls) {
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-row:has([data-credit-plan]) :is(.topbar-end, .topbar-account-controls) {
     display: contents;
   }
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) .topbar-start {
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-row:has([data-credit-plan]) .topbar-start {
     grid-area: 1 / 1;
     justify-self: start;
   }
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) .topbar-account-controls > * {
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-row:has([data-credit-plan]) .topbar-account-controls > * {
     grid-row: 1;
     justify-self: center;
   }
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) .topbar-account-controls > :last-child {
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-row:has([data-credit-plan]) .topbar-account-controls > :last-child {
     grid-column: -2 / -1;
     justify-self: end;
   }
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) .topbar-account-controls > :has(> [data-credit-plan]) {
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-row:has([data-credit-plan]) .topbar-account-controls > :has(> [data-credit-plan]) {
     grid-row: 2;
     grid-column: -3 / -1;
     align-self: center;
     justify-self: end;
   }
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-row:has([data-credit-plan]) .topbar-search-region {
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-row:has([data-credit-plan]) .topbar-search-region {
     grid-row: 2;
     grid-column: 1 / -3;
     min-width: 0;
@@ -5023,7 +5201,7 @@ html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .
 
 /* Use DM's quiet controls on every mobile surface. The 44px hit area stays
    consistent, while only an active control receives a compact glass highlight. */
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level) {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level) {
   position: relative;
   z-index: 0;
   border: 0;
@@ -5033,7 +5211,7 @@ html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :
   backdrop-filter: none;
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level)::before {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level)::before {
   content: "";
   position: absolute;
   inset: 4px;
@@ -5047,17 +5225,17 @@ html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :
   transition: opacity 160ms ease;
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level):is(:active, [aria-current="page"], [aria-expanded="true"])::before {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level):is(:active, [aria-current="page"], [aria-expanded="true"])::before {
   opacity: 1;
 }
 
 @media (hover: hover) {
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level):hover::before { opacity: 1; }
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level):hover::before { opacity: 1; }
 }
 
 /* Retain the avatar's quiet outline, without turning the whole hit target
    into another large bubble. Its visible diameter matches the active lens. */
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .topbar-profile-button::after {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell .topbar-profile-button::after {
   content: "";
   position: absolute;
   inset: 4px;
@@ -5068,7 +5246,7 @@ html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .
 
 /* Match the existing desktop search material instead of a brightness-filtered
    silver fill. Vertical sampling keeps text below the lower edge diffused. */
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-glass {
   position: relative;
   z-index: 0;
   border-radius: 999px;
@@ -5076,7 +5254,7 @@ html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 8px 24px rgba(0, 0, 0, 0.22);
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass::before {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-glass::before {
   content: "";
   position: absolute;
   inset: -32px 0;
@@ -5088,7 +5266,7 @@ html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-
   backdrop-filter: blur(20px) saturate(140%);
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass::after {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-glass::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -5097,7 +5275,7 @@ html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-
   border: 1px solid rgba(255, 255, 255, 0.14);
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-input--glass {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-input--glass {
   height: 3.25rem;
   min-height: 48px;
   border-radius: 999px;
@@ -5110,29 +5288,29 @@ html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-
   padding-inline: 3rem 1.125rem;
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-icon { z-index: 1; color: inherit; }
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-input--glass::placeholder { color: inherit; opacity: 1; }
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-icon { z-index: 1; color: inherit; }
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-input--glass::placeholder { color: inherit; opacity: 1; }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell .topbar-sign-in-button {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell .topbar-sign-in-button {
   border-radius: 999px;
   background: rgba(var(--cloudy-surface-rgb), 0.62);
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level):focus-visible {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level):focus-visible {
   outline: 2px solid var(--color-primary);
   outline-offset: 3px;
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass:focus-within {
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-glass:focus-within {
   outline: 2px solid var(--color-primary);
   outline-offset: 2px;
 }
 
-html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell [data-credit-plan="free"] { color: var(--color-muted-foreground); }
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell [data-credit-plan="free"] { color: var(--color-muted-foreground); }
 
 @supports not (((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) and (clip-path: inset(1px round 1px))) {
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass { background: #262936; }
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass::before { display: none; }
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-glass { background: #262936; }
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-glass::before { display: none; }
 }
 
 /* Safari can keep its home-indicator inset while editing. No shell sizing or
@@ -5149,32 +5327,32 @@ html[data-mobile-page-scroll]:has(:is(textarea, input, [contenteditable="true"])
 /* Keep controls legible when transparency is unwanted or the old-kernel
    compatibility mode disables backdrop filters. */
 @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell::before {
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell::before {
     background: var(--reading-canvas-color);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
     -webkit-mask-image: none;
     mask-image: none;
   }
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass,
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level) {
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-glass,
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level) {
     background: #262936;
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass::before,
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level)::before {
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-glass::before,
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level)::before {
     display: none;
   }
 }
 
-html.compat-lite:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass,
-html.compat-lite:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level) {
+html.compat-lite:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-glass,
+html.compat-lite:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level) {
   background: #262936;
 }
 
-html.compat-lite:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-search-glass::before,
-html.compat-lite:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level)::before {
+html.compat-lite:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-search-glass::before,
+html.compat-lite:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell :is(.topbar-mobile-trigger, .topbar-hit-target, .topbar-profile-button, .topbar-sign-in-button, .topbar-content-level)::before {
   display: none;
 }
 
@@ -5183,6 +5361,7 @@ html[data-mobile-page-scroll] .hub-back-to-top {
   inset-inline: auto var(--mobile-gutter);
   bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
   width: max-content;
+  max-width: calc(100% - 2 * var(--mobile-gutter));
 }
 
 html[data-mobile-page-scroll] .hub-back-to-top .hub-container {
@@ -5217,7 +5396,7 @@ html[data-mobile-page-scroll]:has(.mobile-nav-drawer--open) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  html:is([data-mobile-page-scroll], [data-mobile-message-canvas]) .topbar-shell button::before {
+  html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell button::before {
     transition: none;
   }
   html[data-mobile-page-scroll] .topbar-shell,

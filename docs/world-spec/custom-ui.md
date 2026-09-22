@@ -113,7 +113,8 @@ interface SandboxedYuminaAPI {
 ### Chat Actions
 
 ```typescript
-sendMessage(text: string): void;
+type ChatImageInput = { type: "image"; mimeType: string; name: string; data: string };
+sendMessage(text: string, attachments?: ChatImageInput[]): void;
 editMessage(messageId: string, content: string): Promise<boolean>;
 deleteMessage(messageId: string): Promise<boolean>;
 regenerateMessage(messageId: string): void;
@@ -150,7 +151,11 @@ deleteCheckpoint(checkpointId: string): Promise<void>;
 
 ```typescript
 ai.complete(params: {
-  messages: Array<{ role: string; content: string }>;
+  messages: Array<{
+    role: string;
+    content: string | Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string } }>;
+    attachments?: ChatImageInput[];
+  }>;
   onDelta?: (text: string) => void;
   model?: string;
   maxTokens?: number;
@@ -160,6 +165,8 @@ ai.complete(params: {
 ```
 
 Make raw LLM calls with optional streaming and lorebook injection. Use for NPC generators, dynamic descriptions, hint systems, or any AI logic outside the main chat flow.
+
+User messages can include images through `attachments` in either API. Pass bare base64 in `data` (remove the `data:...;base64,` prefix); `sendMessage("", attachments)` sends images without text. A request accepts up to four PNG/JPEG/WebP/GIF images, 8 MB each and 16 MB total. For `ai.complete`, ordered `text`/`image_url` parts also work; image URLs must be data URLs or Yumina's public `/cdn/key/` URLs. Rendering an `<img>` or placing its URL in plain text does not send the image to the model. Use an image-capable model, handle failures and retain the draft. `supportsImages` is present only when capability is known; an omitted value does not establish support.
 
 ### Game Actions
 
@@ -223,7 +230,7 @@ renderMarkdown(text: string): string;
 ```typescript
 setModel(modelId: string): void;
 getModels(): Promise<{
-  models: Array<{ id: string; name: string; provider: string; contextLength: number }>;
+  models: Array<{ id: string; name: string; provider: string; contextLength: number; supportsImages?: boolean }>;
   pinnedModels: string[];
   recentlyUsed: string[];
 }>;

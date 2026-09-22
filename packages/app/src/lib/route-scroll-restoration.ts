@@ -4,6 +4,7 @@ import { getPageScrollTop, isDocumentPageScroller } from "./page-scroll";
 
 const STORAGE_PREFIX = "yumina:route-scroll:v1:";
 const TANSTACK_STORAGE_KEY = "tsr-scroll-restoration-v1_3";
+const DM_TRANSCRIPT_SELECTOR = '[data-scroll-restoration-id="dm-conversation-messages"]';
 const SNAPSHOT_VERSION = 1;
 const SNAPSHOT_TTL_MS = 4 * 60 * 60 * 1000;
 const MAX_SNAPSHOTS = 100;
@@ -49,6 +50,30 @@ function getSessionStorage(): HistoryEntryStateStorage | null {
   } catch {
     return null;
   }
+}
+
+/** DM's virtual list owns its message anchor; route offsets cannot restore it.
+ * Runs immediately before TanStack reads its persisted cache on navigation,
+ * including caches written by older clients and floating DMs on other routes.
+ */
+export function prepareRouteScrollRestoration(): true {
+  const storage = getSessionStorage();
+  try {
+    const cache: unknown = JSON.parse(storage?.getItem(TANSTACK_STORAGE_KEY) ?? "{}");
+    if (isRecord(cache)) {
+      let changed = false;
+      for (const positions of Object.values(cache)) {
+        if (isRecord(positions) && DM_TRANSCRIPT_SELECTOR in positions) {
+          delete positions[DM_TRANSCRIPT_SELECTOR];
+          changed = true;
+        }
+      }
+      if (changed) storage?.setItem(TANSTACK_STORAGE_KEY, JSON.stringify(cache));
+    }
+  } catch {
+    // Storage can be disabled. The transcript still manages its own position.
+  }
+  return true;
 }
 
 function snapshotKey(entryKey: string): string {
@@ -201,7 +226,7 @@ export function captureRegisteredScrollPositions(): RouteScrollPosition[] {
 
   document.querySelectorAll<HTMLElement>("[data-scroll-restoration-id]").forEach((element) => {
     const selector = selectorForElement(element);
-    if (!selector) return;
+    if (!selector || selector === DM_TRANSCRIPT_SELECTOR) return;
     positions.push({
       selector,
       top: Math.max(0, getPageScrollTop(element)),
@@ -246,6 +271,7 @@ export function restoreScrollPositions(
 
   for (const position of positions) {
     if (!isScrollPosition(position)) continue;
+    if (position.selector === DM_TRANSCRIPT_SELECTOR) continue;
     if (position.selector === "window") {
       // A named page survives desktop/mobile changes and old nested snapshots.
       // Its saved position takes precedence over the incidental window entry.

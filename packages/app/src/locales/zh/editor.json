@@ -1202,6 +1202,8 @@
         "refresh": "刷新",
         "shortfall": "还差 {{amount}} 蘑菇",
         "errorStale": "内容已修改，请发起新请求，避免覆盖你的改动。",
+        "restartHere": "从这里重新开始",
+        "restartMessage": "从刚才停下的地方继续，以卡片现在的内容为准。",
         "errorActive": "该任务正在运行，请等待状态更新。",
         "errorFailed": "未能恢复任务，已保存的进度仍在，请重试。",
         "errorBillingMissing": "暂未取得用量信息，结果已保留，需要核对费用。",
@@ -1259,7 +1261,49 @@
       "deleteConv": "删除会话",
       "deleteConvConfirm": "删除？",
       "attachmentUploadFailed": "已发送，但未包含图片",
-      "undoRollbackFailed": "已撤销消息，但作品改动未回滚"
+      "undoRollbackFailed": "已撤销消息，但作品改动未回滚",
+      "imageBatch": {
+        "title": "批量生图",
+        "declined": "已跳过生成",
+        "selectAll": "全选 · 已选 {{count}} 项",
+        "library": "保存到素材库",
+        "portrait": "角色立绘",
+        "component": "界面图片 · {{key}}",
+        "existing": "已有图片 · 跳过",
+        "bindingNote": "图片已保存。重试绑定不会重新生图或再次收费。",
+        "model": "生图模型",
+        "estimateUnavailable": "暂时无法估价",
+        "billingNote": "每个选中项目生成一张图，按实际生图用量结算，不逐张调用助手。",
+        "confirm": "生成 {{count}} 张图片",
+        "background": "正在后台生成，可以离开后再回来查看。",
+        "pausedNote": "Mushies 不足，任务已暂停。完成的图片已保存。",
+        "resume": "继续生成剩余图片",
+        "retryBinding": "重试图片绑定",
+        "retry": "重试 {{count}} 个失败项目",
+        "syncFailed": "暂时无法刷新进度，已保存的任务可能仍在运行。",
+        "requestFailed": "提交未确认，请刷新任务后重试。",
+        "refresh": "刷新状态",
+        "phase": {
+          "running": "正在批量生图",
+          "paused": "生图已暂停",
+          "completed": "图片已完成",
+          "partial": "部分图片需要处理",
+          "failed": "生成失败"
+        },
+        "item": {
+          "pending": "待生成",
+          "queued": "排队中",
+          "running": "生成中",
+          "awaiting_credits": "已暂停",
+          "succeeded": "已完成",
+          "failed": "失败",
+          "skipped": "已跳过",
+          "binding_failed": "绑定失败"
+        },
+        "pausedStorageNote": "素材存储空间不足，请清理素材后继续。",
+        "pausedUnavailableNote": "生图服务暂时不可用，已完成的图片已保存。",
+        "pausedGenericNote": "任务暂时暂停，已完成的图片已保存。稍后继续。"
+      }
     },
     "sidebar": {
       "title": "侧边栏",
@@ -1524,8 +1568,7 @@
       "newName": "新设定"
     },
     "advancedPromo": {
-      "title": "想让你的卡做到更多？",
-      "subtitle": "简易模式覆盖了基础。高级模式解锁完整引擎——Yumina 上最热门的世界用的就是同一套：",
+      "title": "高级编辑器",
       "bulletVariables": "变量——记录好感度、恐惧、信任……还能实时显示成状态条",
       "bulletBehaviors": "行为——根据状态触发的规则（「好感度 > 80 → 解锁隐藏路线」）",
       "bulletLorebooks": "世界书——关键词触发的知识库，还能绑定到指定开场白",
@@ -1921,5 +1964,12 @@
       "metadata_issue": "封面 / 描述 / 标签问题",
       "other": "其他（必须在下方说明）"
     }
+  },
+  "imageInsert": {
+    "button": "插入图片",
+    "upload": "从电脑上传",
+    "library": "从素材库选",
+    "uploading": "上传中…",
+    "failed": "上传失败：{{name}}"
   }
 }

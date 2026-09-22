@@ -213,7 +213,7 @@ export type { ParseResult } from "./parser/response-parser.js";
 export { StructuredResponseParser } from "./parser/structured-response-parser.js";
 export { IncrementalSegmentExtractor } from "./parser/incremental-segment-extractor.js";
 export type { ExtractedSegment, ExtractionResult } from "./parser/incremental-segment-extractor.js";
-export { parseImageEmbeds, renderImageEmbedHtml } from "./parser/image-embed-parser.js";
+export { parseImageEmbeds, renderImageEmbedHtml, isImageEmbedSource } from "./parser/image-embed-parser.js";
 export { ThinkingTagFilter } from "./parser/thinking-tag-filter.js";
 export type { ImageEmbed, ImageEmbedPlacement, ImageEmbedSize, ParsedImageEmbeds } from "./parser/image-embed-parser.js";
 

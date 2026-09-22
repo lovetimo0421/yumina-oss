@@ -71,9 +71,7 @@
     "title": "生成配置",
     "subtitle": "AI 生成的全局默认设置",
     "resetDefaults": "重置为默认值",
-    "contextSize": "单次上下文上限",
     "contextSizeTokens": "{{count}} 个 token",
-    "contextSizeDesc": "AI 每次能看到的全部内容上限：人物设定、世界观、Lorebook、对话历史的总和（4,096 - 2,000,000）。设定写得越多，留给对话历史的空间就越少。",
     "contextCapped": "当前方案上限为 {{limit}}",
     "contextUpgrade": "升级以获得更多上下文",
     "responseLength": "回复长度",
@@ -86,8 +84,6 @@
     "streaming": "流式输出",
     "streamingDesc": "在生成过程中实时显示 AI 回复",
     "streamingBypass": "关闭以绕过内容过滤",
-    "memory": "记忆",
-    "memoryDesc": "AI 能记住多少对话内容（越高消耗越多积分）",
     "advancedParams": "高级参数",
     "topP": "Top P",
     "narrow": "窄 (0)",
@@ -114,7 +110,15 @@
       "mediumDesc": "适用于大多数对话的更深入推理。",
       "high": "高",
       "highDesc": "最深入的推理，更慢但更有思考性。"
-    }
+    },
+    "storyMemory": "剧情记忆",
+    "storyMemorySuggested": "建议",
+    "storyMemoryDesc": "保留多少历史对话。更早的会整理成摘要，世界设定不占这里的额度。",
+    "overallLimit": "整体上限",
+    "overallUncapped": "不限",
+    "overallLimitDesc": "单次请求的总量上限，含世界设定。一般保持「不限」。",
+    "overallLimitCapped": "当前方案能承载的世界设定上限。超出部分会被裁剪，不影响剧情记忆。",
+    "storyMemoryShort": "保留的历史对话"
   },
   "aiProvider": {
     "yuminaApi": "梦坞 API",
@@ -184,8 +188,9 @@
       "supplyAboveFloor": "每日补给：余额低于 {{floor}} 时自动补满",
       "supplyInfoAria": "查看每日补给详细机制",
       "supplyInfoTitle": "每日补给说明",
+      "supplyTitle": "每日补给",
       "supplyInfoClose": "关闭",
-      "supplyInfoBody": "每天 UTC 20:00（全站统一，与每日签到同步），系统自动检查你的余额。如果低于你方案的保底额度，会自动补到保底。已经在保底以上不会触发。",
+      "supplyInfoBody": "每天 UTC 20:00（全站统一，与每日任务同步），系统自动检查你的余额。如果低于你方案的保底额度，会自动补到保底。已经在保底以上不会触发。",
       "supplyInfoFloorLabel": "各方案保底额度",
       "supplyInfoCurrent": "你当前",
       "supplyInfoNote": "注：每日补给是\"补到保底\"不是\"在余额上加 X\"。例如余额 750、保底 800 时只入账 +50。",
@@ -232,8 +237,8 @@
         "hint": "用一个昨天没用过的模型完成一回合。"
       },
       "community": {
-        "title": "说点什么",
-        "hint": "在社区发帖、回复或点赞。"
+        "title": "逛逛社区",
+        "hint": "在社区页停留一分钟。"
       },
       "invite": {
         "title": "邀请一位朋友",
@@ -285,7 +290,7 @@
       "admin": "管理员调整",
       "refund": "退款",
       "expire": "过期",
-      "check_in": "签到",
+      "check_in": "任务",
       "daily_recovery": "每日补给",
       "reward": "帖子奖励",
       "referral_reward": "邀请好友奖励",
@@ -401,7 +406,8 @@
     "monthlyExpiryPlanEnded": "方案结束时未使用的月度蘑菇币已过期",
     "bonusExpired": "未使用的奖励蘑菇币已按到期日过期",
     "ledgerReconciliation": "账本校正：余额已确认，此前有一笔变动未被记录",
-    "ledgerOpeningBalance": "期初余额（账本从这里开始）"
+    "ledgerOpeningBalance": "期初余额（账本从这里开始）",
+    "pilePerMonth": "每月 {{amount}}"
   },
   "summary": {
     "chooseModel": "选择模型",
@@ -547,7 +553,6 @@
     "mushiesReceived": "你收到了 {{amount}} 蘑菇币",
     "codeRedeemed": "邀请码已兑换",
     "title": "邀请好友",
-    "subtitle": "与好友分享 Yumina。",
     "inviteLink": "邀请链接",
     "copyLink": "复制链接",
     "inviteCode": "邀请码",
@@ -774,7 +779,7 @@
     "session": {
       "current": "当前人设：{{name}}",
       "following": "跟随当前人设",
-      "followingHint": "在设置或其他地方切换人设时，这个会话也会同步切换。",
+      "followingHint": "跟随个人资料中的全局人设。在这里选择人设，只影响当前存档。",
       "locked": "为这个会话锁定人设",
       "lockedHint": "账号当前人设变化时，这个会话仍会保留这里选择的人设。",
       "saveError": "人设保存失败，请重试。"
@@ -944,7 +949,8 @@
   },
   "questBoard": {
     "title": "任务",
-    "unavailable": "这个账号使用的是每日签到，任务板暂不适用。",
+    "unavailable": "这个账号暂不提供任务板。",
+    "legacyNotice": "每日签到已全面改为任务。每日重置时间不变，奖励按方案分档，并在次月底过期。你的每日补给保持不变，仍显示在钱包卡片上。",
     "thisCycle": "本周期",
     "claimedToday": "今日已领",
     "todayWorth": "今日合计",
@@ -984,8 +990,8 @@
         "hint": "把任意世界加入收藏。"
       },
       "community": {
-        "title": "社区互动一次",
-        "hint": "在社区发帖、回帖或点赞。"
+        "title": "逛逛社区",
+        "hint": "在社区页停留一分钟。"
       },
       "world_depth": {
         "title": "在一个世界里打 {{n}} 个回合",
@@ -1014,10 +1020,6 @@
       "week_dailies": {
         "title": "本周领满 {{n}} 个每日任务",
         "hint": "每日任务每领一个记一次。"
-      },
-      "invite_day": {
-        "title": "今天有人用了你的邀请码",
-        "hint": "每天 1 个名额。"
       },
       "week_active_friends": {
         "title": "本周邀请 {{n}} 个活跃朋友",

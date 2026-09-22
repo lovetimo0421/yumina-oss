@@ -7,7 +7,7 @@ const source = readFileSync(
   "utf8",
 );
 
-test("mobile create picker is a contained one-screen layout", () => {
+test("Create keeps desktop panes and identifies its mobile document scroll surface", () => {
   assert.match(
     source,
     /className="create-shell flex h-full min-h-0 w-full overflow-hidden[^\"]*md:overflow-y-auto/,
@@ -18,10 +18,10 @@ test("mobile create picker is a contained one-screen layout", () => {
   );
   assert.match(
     source,
-    /className="mt-\[clamp\([^\"]+\)\] grid min-h-0 flex-1 auto-rows-fr grid-cols-1 gap-\[clamp\([^\"]+\)\] md:hidden"/,
+    /className="create-mobile-grid mt-\[clamp\([^\"]+\)\] grid min-h-0 flex-1 auto-rows-fr grid-cols-1 gap-\[clamp\([^\"]+\)\] md:hidden"/,
   );
   assert.match(source, /className="group relative grid min-h-0 cursor-pointer/);
-  assert.doesNotMatch(source, /data-scroll-restoration-id="create-picker"/);
+  assert.match(source, /data-scroll-restoration-id="create-picker"/);
   assert.doesNotMatch(source, /min-h-28/);
 });
 

@@ -282,7 +282,7 @@
     "worldNotFound": "未找到世界",
     "backToHub": "返回發現頁",
     "signUpToPlay": "註冊即可遊玩",
-    "signUpToStart": "註冊開始你的冒險",
+    "signUpToStart": "註冊後遊玩",
     "signInToSend": "登入以傳送訊息"
   },
   "zoom": {
@@ -291,7 +291,7 @@
   },
   "errors": {
     "PROTECTED_WORLD": "創作者已保護此世界的提示詞，防止被竊取。只能使用夢塢官方 API 模型，不支援私有 API 金鑰。",
-    "NO_CREDITS": "蘑菇幣用完了！每天簽到可領取免費額度，或升級方案獲取更多。",
+    "NO_CREDITS": "蘑菇幣用完了！完成每日任務可領取免費額度，或升級方案獲取更多。",
     "NO_CREDITS_MSG_TOO_EXPENSIVE": "這局對話太長，剩餘 {{balance}} 蘑菇幣不夠傳送這條。換更省的模型或精簡對話後重試。",
     "MODEL_NOT_ALLOWED": "此模型需要更高的方案。請切換到免費模型或升級方案。",
     "MODEL_SWITCHED_FALLBACK": "該模型不在目前方案內，已自動切換到 {{model}} 並重新傳送。",

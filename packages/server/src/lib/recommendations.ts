@@ -37,6 +37,10 @@ export function rankRecommendedWorlds(..._args: any[]): { data: any[]; total: nu
   return { data: [], total: 0 };
 }
 
+export async function completeRecommendedCatalogPage(..._args: any[]): Promise<{ data: any[]; total: number }> {
+  return { data: [], total: 0 };
+}
+
 export async function invalidateRecommendationProfile(_userId: string): Promise<void> {}
 export async function invalidateRecommendationFeed(_userId: string): Promise<void> {}
 

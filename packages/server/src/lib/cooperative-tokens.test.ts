@@ -63,3 +63,14 @@ test("prepared summary counts preserve selection and invalidate after content, m
   changed.attachments.push({});
   assert.equal(estimateMessageTokens(changed, "openrouter/free"), estimateMessageTokens({ ...changed }, "openrouter/free"));
 });
+
+test("image token estimates count toward the history window before bytes are attached", async () => {
+  const history = [
+    { role: "user" as const, content: "old image", imageTokens: 1600 },
+    { role: "assistant" as const, content: "seen" },
+    { role: "user" as const, content: "new image", imageTokens: 1600 },
+  ];
+  const result = await new PromptBuilder().buildMessageHistoryAsync(history, async () => {}, 2000);
+  assert.deepEqual(result, history.slice(1));
+  assert.ok(await countPromptTokensCooperatively(history, "google/gemini-2.5-flash") > 3200);
+});

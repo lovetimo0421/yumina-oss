@@ -1397,7 +1397,12 @@ describe("PromptBuilder", () => {
       const all = [prefix, old, newest, suffix];
       const yieldControl = async () => {};
       expect(await pb.buildMessageHistoryAsync(all, yieldControl, 20, 1, 1)).toEqual([prefix, newest, suffix]);
-      expect(await pb.buildMessageHistoryAsync(all, yieldControl, 1, 1, 1)).toEqual([prefix, suffix]);
+      // Changed deliberately 2026-09-22. This used to expect [prefix, suffix]:
+      // when the pinned blocks alone blew the budget, the whole conversation
+      // went, including the turn the player had just typed, so the model was
+      // asked to reply to nothing. That contradicted this test's own name.
+      // A world too big for the plan now costs history, never the newest turn.
+      expect(await pb.buildMessageHistoryAsync(all, yieldControl, 1, 1, 1)).toEqual([prefix, newest, suffix]);
       expect(await pb.buildMessageHistoryAsync(all, yieldControl)).toEqual(all);
       expect(await pb.buildMessageHistoryAsync([], yieldControl, 20)).toEqual([]);
       for (const model of ["openrouter/free", "google/gemini-2.5-flash"]) {
@@ -2234,5 +2239,147 @@ describe("speaker tag prompt block", () => {
       variables: [createMockVariable({ id: "speaker", type: "string", initial: "" })],
     });
     expect(pb.buildStaticFormatBlock(world)).not.toContain("<speaker-format>");
+  });
+});
+
+describe("story memory: a separate ceiling for the conversation", () => {
+  const pb = new PromptBuilder();
+  const yieldControl = () => Promise.resolve();
+  // ~1 token each at the estimator's 4-chars-per-token heuristic; the exact
+  // ratio does not matter, only that prefix and history are comparable.
+  const msg = (role: "system" | "user" | "assistant", content: string) => ({ role, content } as never);
+
+  it("caps the conversation without touching the pinned world block", async () => {
+    const world = msg("system", "W".repeat(400));
+    const history = Array.from({ length: 10 }, (_, i) => msg("user", `h${i}`.repeat(40)));
+    const all = [world, ...history];
+
+    // A generous overall ceiling, a tight story memory: the world survives
+    // whole and only the conversation is cut.
+    const out = await pb.buildMessageHistoryAsync(all, yieldControl, 100_000, 1, 0, undefined, 60);
+    expect(out[0]).toBe(world);
+    expect(out.length).toBeLessThan(all.length);
+    expect(out[out.length - 1]).toBe(history[history.length - 1]);
+  });
+
+  it("keeps the newest turns when it cuts", async () => {
+    const history = Array.from({ length: 6 }, (_, i) => msg("user", `m${i}`.repeat(40)));
+    const out = await pb.buildMessageHistoryAsync(history, yieldControl, 100_000, 0, 0, undefined, 120);
+    expect(out[out.length - 1]).toBe(history[5]);
+    expect(out).not.toContain(history[0]);
+  });
+
+  it("the overall ceiling still wins when it is the tighter one", async () => {
+    const world = msg("system", "W".repeat(4_000));
+    const history = Array.from({ length: 6 }, (_, i) => msg("user", `m${i}`.repeat(40)));
+    const tight = await pb.buildMessageHistoryAsync([world, ...history], yieldControl, 1_050, 1, 0, undefined, 100_000);
+    const loose = await pb.buildMessageHistoryAsync([world, ...history], yieldControl, 100_000, 1, 0, undefined, 100_000);
+    expect(tight.length).toBeLessThan(loose.length);
+  });
+
+  it("no story-memory cap behaves exactly as before", async () => {
+    const world = msg("system", "W".repeat(400));
+    const history = Array.from({ length: 6 }, (_, i) => msg("user", `m${i}`.repeat(40)));
+    const all = [world, ...history];
+    const before = await pb.buildMessageHistoryAsync(all, yieldControl, 200, 1, 0);
+    const after = await pb.buildMessageHistoryAsync(all, yieldControl, 200, 1, 0, undefined, undefined);
+    expect(after).toEqual(before);
+  });
+});
+
+describe("story memory: injected lore does not eat the conversation", () => {
+  const pb = new PromptBuilder();
+  const yieldControl = () => Promise.resolve();
+  const msg = (role: "system" | "user" | "assistant", content: string) => ({ role, content } as never);
+  // The trimmer's own estimator, not an approximation of it: the server
+  // measures the same way, and a test that guesses differently proves nothing.
+  const tokensOf = (list: Array<{ content: string }>) =>
+    list.reduce((n, m) => n + estimateTokens(m.content), 0);
+
+  // Keyword-triggered entries default to depth 0, which splices them at the
+  // END of history — exactly where the trimmer looks first. That is the case
+  // that bites, so it is the case under test.
+  const chat = () => Array.from({ length: 12 }, (_, i) => msg(i % 2 ? "assistant" : "user", `turn${i} `.repeat(30)));
+  const lore = () => [msg("system", "L".repeat(2_000)), msg("system", "L".repeat(2_000))];
+  const STORY_MEMORY = 300;
+
+  it("a bare cap lets injected lore swallow the whole conversation", () => {
+    // The bug this guards against. Kept because it is the reason the server
+    // adds the measured lore cost to the allowance.
+    const c = chat();
+    const l = lore();
+    return pb.buildMessageHistoryAsync([...c, ...l], yieldControl, 100_000, 0, 0, undefined, STORY_MEMORY)
+      .then((naive) => {
+        const kept = naive.filter((m) => !l.includes(m as never));
+        expect(kept.length).toBe(0);
+      });
+  });
+
+  it("adding the lore's measured cost gives the conversation its budget back", async () => {
+    const c = chat();
+    const l = lore();
+    const plain = await pb.buildMessageHistoryAsync(c, yieldControl, 100_000, 0, 0, undefined, STORY_MEMORY);
+    const out = await pb.buildMessageHistoryAsync(
+      [...c, ...l], yieldControl, 100_000, 0, 0, undefined, STORY_MEMORY + tokensOf(l),
+    );
+    const kept = out.filter((m) => !l.includes(m as never));
+    // Never fewer turns than the same player would keep in a world with no
+    // triggered lore at all. More is fine: that only happens when some lore
+    // was itself trimmed, which frees the budget it was reserved.
+    expect(kept.length).toBeGreaterThanOrEqual(plain.length);
+    expect(kept[kept.length - 1]).toBe(c[c.length - 1]);
+  });
+
+  it("the conversation kept does not grow without bound", async () => {
+    const c = chat();
+    const l = lore();
+    const out = await pb.buildMessageHistoryAsync(
+      [...c, ...l], yieldControl, 100_000, 0, 0, undefined, STORY_MEMORY + tokensOf(l),
+    );
+    const kept = out.filter((m) => !l.includes(m as never));
+    expect(kept.length).toBeLessThan(c.length);
+  });
+});
+
+describe("story memory: the conversation always keeps a floor", () => {
+  const pb = new PromptBuilder();
+  const yieldControl = () => Promise.resolve();
+  const msg = (role: "system" | "user" | "assistant", content: string) => ({ role, content } as never);
+
+  it("a world that fills the whole window still leaves the player's message", async () => {
+    // The bug: budget <= 0 returned prefix + suffix and dropped every chat
+    // message, including the one just typed, so the model had nothing to
+    // answer. A world bigger than the plan carries must cost history, not
+    // the current turn.
+    const world = msg("system", "W".repeat(40_000));
+    const chat = Array.from({ length: 5 }, (_, i) => msg(i % 2 ? "assistant" : "user", `turn${i}`.repeat(20)));
+    const out = await pb.buildMessageHistoryAsync([world, ...chat], yieldControl, 1_000, 1, 0);
+
+    expect(out[0]).toBe(world);
+    expect(out).toContain(chat[chat.length - 1]);
+    expect(out.length).toBe(2);
+  });
+
+  it("holds when the story-memory cap is the thing at zero", async () => {
+    const world = msg("system", "W".repeat(40_000));
+    const chat = [msg("user", "the only thing I said")];
+    const out = await pb.buildMessageHistoryAsync([world, ...chat], yieldControl, 1_000, 1, 0, undefined, 0);
+    expect(out).toContain(chat[0]);
+  });
+
+  it("pinned suffix blocks still survive alongside the kept turn", async () => {
+    const world = msg("system", "W".repeat(40_000));
+    const chat = Array.from({ length: 4 }, (_, i) => msg("user", `m${i}`.repeat(20)));
+    const format = msg("system", "FORMAT");
+    const out = await pb.buildMessageHistoryAsync([world, ...chat, format], yieldControl, 500, 1, 1);
+    expect(out[0]).toBe(world);
+    expect(out[out.length - 1]).toBe(format);
+    expect(out).toContain(chat[chat.length - 1]);
+  });
+
+  it("an empty conversation is still allowed to be empty", async () => {
+    const world = msg("system", "W".repeat(400));
+    const out = await pb.buildMessageHistoryAsync([world], yieldControl, 10, 1, 0);
+    expect(out).toEqual([world]);
   });
 });

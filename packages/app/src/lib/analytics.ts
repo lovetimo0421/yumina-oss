@@ -24,7 +24,7 @@
 import posthog from "posthog-js";
 import { isAnalyticsEnabled } from "./analytics-enabled";
 import { arrivalProperties } from "./arrival-attribution";
-import { queueFeedEvent } from "./feed-beacon";
+import { queueFeedEvent, type FeedBeaconEvent } from "./feed-beacon";
 import { linkObservedGameGuest } from "./game-identity";
 
 /**
@@ -76,6 +76,7 @@ export type HubEventMap = {
       | "continue" | "because_played" | "trending" | "new_rising";
     position: number;
     feed_request_id: string | null;
+    attribution_token?: string;
   };
 
   /**
@@ -88,6 +89,7 @@ export type HubEventMap = {
     surface: HubEventMap["hub_impression"]["surface"];
     position: number;
     feed_request_id: string | null;
+    attribution_token?: string;
   };
 
   /**
@@ -110,12 +112,15 @@ export type HubEventMap = {
     world_id: string;
     dwell_ms: number;
     reason: "backdrop" | "close-button" | "navigated-away" | "other";
+    surface?: string | null;
+    position?: number | null;
+    feed_request_id?: string | null;
+    attribution_token?: string;
   };
 
   /**
    * User clicked "Start Playing" from the preview modal. This is the
-   * real conversion event for the recommendation funnel: impression →
-   * click → preview_open is interest; play_start is commitment. Fires
+   * play intent for the recommendation funnel. Fires
    * on the click itself (before the actual session is provisioned) so
    * we count intent even when the server call fails. The server will
    * still get its own play-session-created log separately, so we never
@@ -138,17 +143,21 @@ export type HubEventMap = {
     surface?: HubEventMap["hub_impression"]["surface"] | null;
     position?: number | null;
     feed_request_id?: string | null;
+    attribution_token?: string;
   };
 
   /**
    * User clicked "Add to Library" from the preview modal. Another
-   * meaningful conversion — the user found the world valuable enough
-   * to save it. Distinct from play_start because plenty of users add
-   * first, play later.
+   * save intent, including login gates and failed mutations. The server
+   * alone records a confirmed save.
    */
   hub_library_add: {
     world_id: string;
     creator_id: string;
+    surface?: string | null;
+    position?: number | null;
+    feed_request_id?: string | null;
+    attribution_token?: string;
   };
 
   /**
@@ -197,31 +206,36 @@ export function captureHubEvent<K extends keyof HubEventMap>(
     // this file without a window.
     if (typeof window === "undefined") return;
 
-    // Ship 1: tee the funnel trio into OUR feed_events log (the training
-    // data), alongside the PostHog copy (the dashboards). One chokepoint
-    // so every surface that emits the PostHog event feeds the log too.
+    // One canonical occurrence, mirrored to product analytics with the same
+    // ID. Training consumes the feed log, not both copies as separate labels.
+    let occurrence: Readonly<FeedBeaconEvent> | undefined;
     if (event === "hub_impression" || event === "hub_click") {
       const p = props as HubEventMap["hub_click"];
-      queueFeedEvent({
+      occurrence = queueFeedEvent({
         eventType: event === "hub_impression" ? "impression" : "click",
         worldId: p.world_id,
         position: p.position >= 0 ? p.position : null,
         feedRequestId: p.feed_request_id,
         surface: p.surface,
+        attributionToken: p.attribution_token,
       });
-    } else if (event === "hub_play_start") {
-      const p = props as HubEventMap["hub_play_start"];
-      queueFeedEvent({
-        eventType: "play",
+    } else if (event === "hub_play_start" || event === "hub_library_add" || event === "hub_preview_close") {
+      const p = props as HubEventMap["hub_play_start"] & Partial<HubEventMap["hub_preview_close"]>;
+      occurrence = queueFeedEvent({
+        eventType: event === "hub_play_start" ? "play" : event === "hub_library_add" ? "save_intent" : "preview_dwell",
         worldId: p.world_id,
         position: p.position ?? null,
         feedRequestId: p.feed_request_id ?? null,
         surface: p.surface ?? null,
+        attributionToken: p.attribution_token,
+        ...(event === "hub_preview_close" ? { durationMs: Math.max(0, Math.min(30 * 60_000, Math.round(p.dwell_ms ?? 0))) } : {}),
       });
     }
 
+    const { attribution_token: _token, ...productProps } = props as HubEventMap[K] & { attribution_token?: string };
     if (isAnalyticsEnabled()) posthog.capture(event, {
-      ...props,
+      ...productProps,
+      ...(occurrence ? { event_id: occurrence.eventId, $insert_id: occurrence.eventId, occurred_at: occurrence.occurredAt, event_source: "feed_beacon" } : {}),
       environment: ENVIRONMENT,
       app_release: APP_RELEASE,
     });

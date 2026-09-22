@@ -15,7 +15,7 @@ interface PersonaManagerDialogProps {
   sessionId?: string;
 }
 
-/** Unlocked sessions select the account persona; locked sessions keep their own choice. */
+/** A chat selection belongs to this save; following the account is explicit. */
 export function PersonaManagerDialog({ open, onClose, sessionId }: PersonaManagerDialogProps) {
   const { t } = useTranslation("profile");
   const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
@@ -75,11 +75,7 @@ export function PersonaManagerDialog({ open, onClose, sessionId }: PersonaManage
     previousSource.current = { sessionId, sourceVersion };
   }, [sessionId, sourceVersion]);
   const select = async (personaId: string | null) => {
-    if (locked) {
-      await controller.current?.setLock(true, personaId);
-      return;
-    }
-    if (await controller.current?.select(personaId)) await fetchPersonas(true);
+    await controller.current?.setLock(true, personaId);
   };
   const toggleLock = async () => {
     await controller.current?.setLock(!locked, saved?.id ?? null);

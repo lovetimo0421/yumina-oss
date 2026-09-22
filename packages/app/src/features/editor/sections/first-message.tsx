@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Trash2, MessageCircle, BookOpen } from "lucide-react";
 import {
@@ -24,6 +24,7 @@ import { DOCS_URLS } from "@/lib/docs-urls";
 import { useEditorStore } from "@/stores/editor";
 import { estimateTokens } from "@yumina/engine";
 import { DebouncedTextarea } from "../components/debounced-field";
+import { ImageInsertButton, useImageInsert } from "../components/image-insert";
 
 const EMPTY_WB: import("@yumina/engine").Worldbook[] = [];
 
@@ -78,6 +79,10 @@ export function FirstMessageSection({ compact }: { compact?: boolean } = {}) {
   // Clamp activeIndex to valid range
   const clampedIndex = greetings.length === 0 ? 0 : Math.min(activeIndex, greetings.length - 1);
   const activeGreeting = greetings[clampedIndex];
+  // Pictures land in the opening text at the caret: the toolbar button,
+  // a dropped file or a pasted image all go through the asset library.
+  const contentRef = useRef<HTMLDivElement>(null);
+  const imageInsert = useImageInsert(() => contentRef.current?.querySelector("textarea") ?? null);
 
   function handleCreate() {
     addEntry("greeting", "system-presets");
@@ -182,20 +187,28 @@ export function FirstMessageSection({ compact }: { compact?: boolean } = {}) {
 
             {/* Content textarea */}
             {activeGreeting && (
-              <div className="space-y-3" data-tour="fm-content">
+              <div ref={contentRef} className="space-y-3" data-tour="fm-content">
                 <DebouncedTextarea
                   value={activeGreeting.content}
                   onCommit={(content) => updateEntry(activeGreeting.id, { content })}
                   syncKey={activeGreeting.id}
                   rows={12}
                   placeholder={t("firstMessage.placeholder")}
-                  className="min-h-[240px] w-full resize-y rounded-xl border border-border bg-card px-4 py-4 font-mono text-sm leading-relaxed text-foreground shadow-inner transition-all placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                  {...imageInsert.dropProps}
+                  className={cn(
+                    "min-h-[240px] w-full resize-y rounded-xl border border-border bg-card px-4 py-4 font-mono text-sm leading-relaxed text-foreground shadow-inner transition-all placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50",
+                    imageInsert.dragOver && "border-primary/60 ring-2 ring-primary/40",
+                  )}
                 />
-                <div className="flex items-center justify-between">
-                  <p className="text-xs text-muted-foreground/50">
-                    {t("firstMessage.macros")} <code className="rounded bg-accent px-1 py-0.5 text-[11px]">{"{{user}}"}</code>{" "}
-                    <code className="rounded bg-accent px-1 py-0.5 text-[11px]">{"{{char}}"}</code>
-                  </p>
+                {imageInsert.overlays}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <ImageInsertButton insert={imageInsert} />
+                    <p className="text-xs text-muted-foreground/50">
+                      {t("firstMessage.macros")} <code className="rounded bg-accent px-1 py-0.5 text-[11px]">{"{{user}}"}</code>{" "}
+                      <code className="rounded bg-accent px-1 py-0.5 text-[11px]">{"{{char}}"}</code>
+                    </p>
+                  </div>
                   <p className="text-xs text-muted-foreground/40">
                     ~{estimateTokens(activeGreeting.content).toLocaleString()} {estimateTokens(activeGreeting.content) === 1 ? "token" : "tokens"}
                   </p>

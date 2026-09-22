@@ -22,6 +22,40 @@ describe("deepEqual", () => {
 });
 
 describe("mergeWorldDefinition — entries (id-keyed)", () => {
+  it("retains a background portrait while the creator edits that character's text", () => {
+    const base = world({ entries: [e("alice", "Original")] });
+    const local = world({ entries: [e("alice", "Creator's edits")] });
+    const server = world({ entries: [{ ...e("alice", "Original"), portrait: "generated-portrait" }] });
+    const { merged, conflicts } = mergeWorldDefinition(base, local, server);
+    expect(merged.entries[0]).toMatchObject({ content: "Creator's edits", portrait: "generated-portrait" });
+    expect(conflicts).toEqual([]);
+    // The next autosave/merge uses the newly accepted server as its ancestor;
+    // the generated portrait must remain present in that local save candidate.
+    expect(mergeWorldDefinition(server, merged, server).merged.entries[0]?.portrait).toBe("generated-portrait");
+    expect(local.entries[0]?.portrait).toBeUndefined();
+  });
+
+  it("keeps an explicitly replaced or removed local portrait during a concurrent image result", () => {
+    const base = world({ entries: [{ ...e("alice", "Original"), portrait: "old-portrait" }] });
+    const server = world({ entries: [{ ...e("alice", "Server text"), portrait: "generated-portrait" }] });
+    for (const portrait of ["creator-upload", undefined]) {
+      const local = world({ entries: [{ ...e("alice", "Original"), portrait }] });
+      const { merged, conflicts } = mergeWorldDefinition(base, local, server);
+      expect(merged.entries[0]?.portrait).toBe(portrait);
+      expect(merged.entries[0]?.content).toBe("Server text");
+      expect(conflicts).toEqual([{ collection: "entries", id: "alice", reason: "both-edited" }]);
+    }
+  });
+
+  it("absorbs a server portrait even when the same entry also has a text conflict", () => {
+    const base = world({ entries: [e("alice", "Original")] });
+    const local = world({ entries: [e("alice", "Local text")] });
+    const server = world({ entries: [{ ...e("alice", "Server text"), portrait: "generated-portrait" }] });
+    const { merged, conflicts } = mergeWorldDefinition(base, local, server);
+    expect(merged.entries[0]).toMatchObject({ content: "Local text", portrait: "generated-portrait" });
+    expect(conflicts).toEqual([{ collection: "entries", id: "alice", reason: "both-edited" }]);
+  });
+
   it("auto-merges disjoint edits (the Mode B win): agent adds, user edits a DIFFERENT entry", () => {
     const base = world({ entries: [e("a", "A0"), e("b", "B0")] });
     const local = world({ entries: [e("a", "A-user"), e("b", "B0")] }); // user edited a

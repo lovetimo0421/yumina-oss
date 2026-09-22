@@ -278,7 +278,7 @@ export function WorldRenderer({
           })().catch(error => ({ error: error instanceof Error ? error.message : "Social request failed" }));
         }
         case "sendMessage":
-          currentApi.sendMessage(args[0] as string);
+          currentApi.sendMessage(args[0] as string, args[1] as import("@yumina/shared").ChatImageInput[] | undefined);
           return;
         case "patchVariables": {
           const sid = sessionIdRef.current;

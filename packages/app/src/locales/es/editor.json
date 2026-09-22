@@ -960,6 +960,8 @@
         "refresh": "Actualizar",
         "shortfall": "Faltan {{amount}} Mushies",
         "errorStale": "El contenido ha cambiado. Envía una nueva solicitud para no sobrescribir tus cambios.",
+        "restartHere": "Empezar de nuevo desde aquí",
+        "restartMessage": "Continúa desde donde te quedaste, tomando la tarjeta tal como está ahora.",
         "errorActive": "Esta tarea ya está en curso. Espera a que se actualice su estado.",
         "errorFailed": "No se pudo reanudar la tarea. Tu progreso guardado sigue disponible; vuelve a intentarlo.",
         "errorBillingMissing": "Faltan los datos de uso. El resultado está guardado y requiere revisar el coste.",
@@ -1018,7 +1020,49 @@
       "deleteConv": "Eliminar conversación",
       "deleteConvConfirm": "¿Eliminar?",
       "attachmentUploadFailed": "Enviado sin las imágenes",
-      "undoRollbackFailed": "Mensajes deshechos, cambios no revertidos"
+      "undoRollbackFailed": "Mensajes deshechos, cambios no revertidos",
+      "imageBatch": {
+        "title": "Generar imágenes",
+        "declined": "Generación omitida",
+        "selectAll": "Seleccionar todo · {{count}} seleccionados",
+        "library": "Guardar en la biblioteca",
+        "portrait": "Retrato del personaje",
+        "component": "Imagen de la interfaz · {{key}}",
+        "existing": "Ya tiene imagen · omitida",
+        "bindingNote": "La imagen está guardada. Reintentar la asignación no genera ni cobra otra imagen.",
+        "model": "Modelo de imagen",
+        "estimateUnavailable": "Estimación no disponible",
+        "billingNote": "Se genera una imagen por elemento seleccionado. Se cobra el uso real de imágenes, sin turnos adicionales del asistente.",
+        "confirm": "Generar {{count}} imágenes",
+        "background": "Generando en segundo plano. Puedes salir y volver después.",
+        "pausedNote": "En pausa por falta de Mushies. Las imágenes completadas están guardadas.",
+        "resume": "Continuar con las imágenes restantes",
+        "retryBinding": "Reintentar la asignación",
+        "retry": "Reintentar {{count}} elementos fallidos",
+        "syncFailed": "No se pudo actualizar el progreso. La tarea guardada podría seguir en curso.",
+        "requestFailed": "No se confirmó el envío. Actualiza la tarea e inténtalo de nuevo.",
+        "refresh": "Actualizar estado",
+        "phase": {
+          "running": "Generando imágenes",
+          "paused": "Generación en pausa",
+          "completed": "Imágenes listas",
+          "partial": "Algunas imágenes requieren atención",
+          "failed": "La generación falló"
+        },
+        "item": {
+          "pending": "Pendiente",
+          "queued": "En cola",
+          "running": "Generando",
+          "awaiting_credits": "En pausa",
+          "succeeded": "Lista",
+          "failed": "Fallida",
+          "skipped": "Omitida",
+          "binding_failed": "Asignación fallida"
+        },
+        "pausedStorageNote": "El almacenamiento está lleno. Libera espacio en la biblioteca para continuar.",
+        "pausedUnavailableNote": "La generación no está disponible temporalmente. Las imágenes completadas están guardadas.",
+        "pausedGenericNote": "En pausa temporalmente. Las imágenes completadas están guardadas. Intenta continuar más tarde."
+      }
     },
     "sidebar": {
       "title": "Barra lateral",
@@ -1284,8 +1328,7 @@
       "newName": "Nuevo ajuste"
     },
     "advancedPromo": {
-      "title": "¿Quieres que tu tarjeta haga más?",
-      "subtitle": "El modo simple cubre lo esencial. El modo avanzado desbloquea el motor completo — el mismo detrás de los mundos más jugados de Yumina:",
+      "title": "Editor avanzado",
       "bulletVariables": "Variables — registra afinidad, miedo, confianza… y muéstralas como barras de estado en vivo",
       "bulletBehaviors": "Comportamientos — reglas que reaccionan al estado (\"afinidad > 80 → desbloquear ruta\")",
       "bulletLorebooks": "Lorebooks — conocimiento activado por palabras clave, vinculable a una apertura concreta",
@@ -1682,5 +1725,12 @@
       "metadata_issue": "Problema en portada, descripción o etiquetas",
       "other": "Otro (debe explicar abajo)"
     }
+  },
+  "imageInsert": {
+    "button": "Insertar imagen",
+    "upload": "Subir desde el ordenador",
+    "library": "Desde recursos",
+    "uploading": "Subiendo…",
+    "failed": "No se pudo subir: {{name}}"
   }
 }

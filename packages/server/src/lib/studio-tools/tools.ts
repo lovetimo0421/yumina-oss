@@ -1,5 +1,5 @@
 import { getSmartImageCapabilities, SMART_IMAGE_MODEL, SMART_IMAGE_MODELS,
-  SMART_IMAGE_ASPECTS, SMART_IMAGE_RESOLUTIONS } from "@yumina/shared";
+  SMART_IMAGE_ASPECTS, SMART_IMAGE_RESOLUTIONS, MAX_IMAGE_BATCH_ITEMS } from "@yumina/shared";
 import type { ToolDefinition } from "../llm/types.js";
 
 /** The assistant picks its own model, so the schema advertises the union across
@@ -164,6 +164,7 @@ export const WRITE_TOOLS: ToolDefinition[] = [
           id: { type: "string", description: "Descriptive kebab-case ID (e.g. 'tavern-lore', 'alice-greeting')." },
           name: { type: "string" },
           content: { type: "string", description: "Entry text sent to the LLM. Supports {{char}}, {{user}}, {{variableId}} macros." },
+          portrait: { type: "string", description: "Character portrait @asset reference. Empty string removes the portrait." },
           role: { type: "string", enum: ["system", "character", "personality", "scenario", "lore", "plot", "style", "example", "greeting", "custom"] },
           section: { type: "string", enum: ["system-presets", "examples", "chat-history", "post-history"] },
           keywords: { type: "array", items: { type: "string" }, description: "Trigger words for chat-history entries." },
@@ -497,6 +498,41 @@ const CONTROL_TOOLS: ToolDefinition[] = [
           },
         },
         required: ["prompt"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "generate_images",
+      description:
+        "Prepare one batch of independently described images for ONE creator confirmation. Use for multiple characters, scenes, or freeform requests such as '10 women with different hair colors'. Write one item and distinct English prompt per requested output; these are separate pictures, not a collage or variations of a single prompt. No images are generated or billed before confirmation; assistant preparation still has its normal cost. Default to the least expensive suitable model. Omit target to save in the asset library. For character portraits use an existing entry_portrait target, or first wire custom UI once to the managed characterImages module and use component_image targets. Existing pictures are skipped. The backend generates, saves and binds the entire confirmed batch without calling you per image. Call this tool ALONE and end the turn; do not launch generate_image repeatedly or ask the creator to return for every picture. Maximum 30 images per batch; for a larger request clarify the first batch size rather than silently dropping items.",
+      parameters: {
+        type: "object",
+        properties: {
+          purpose: { type: "string", description: "Brief batch label in the creator's language." },
+          model: { type: "string", enum: IMAGE_TOOL_MODELS.map(model => model.id),
+            description: IMAGE_TOOL_MODELS.map(model => model.line).join("\n") + `\nDefault ${SMART_IMAGE_MODEL}.` },
+          modelReason: { type: "string", description: "Brief reason for the selected model in the creator's language." },
+          aspectRatio: { type: "string", enum: [...IMAGE_TOOL_CAPABILITIES.aspectRatios] },
+          resolution: { type: "string", enum: [...IMAGE_TOOL_CAPABILITIES.resolutions] },
+          items: {
+            type: "array", minItems: 1, maxItems: MAX_IMAGE_BATCH_ITEMS,
+            items: {
+              type: "object", properties: {
+                id: { type: "string", description: "Unique stable ID using letters, digits, hyphens or underscores; at most 80 characters." },
+                label: { type: "string", description: "Short name shown on the confirmation card, e.g. 'Red hair' or 'Alice'." },
+                prompt: { type: "string", maxLength: 2000, description: "Complete visual description for THIS picture, with the intended variation explicitly specified." },
+                target: { type: "object", properties: {
+                  kind: { type: "string", enum: ["entry_portrait", "component_image"] },
+                  entryId: { type: "string", description: "Existing character entry ID, for entry_portrait." },
+                  key: { type: "string", description: "Existing key in _generated/character-images.tsx, for component_image." },
+                }, required: ["kind"] },
+              }, required: ["id", "label", "prompt"],
+            },
+          },
+        },
+        required: ["items"],
       },
     },
   },

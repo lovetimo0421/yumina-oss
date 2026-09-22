@@ -289,18 +289,16 @@
       "description": "控制沉浸式页面底部暗色渐变的强度。",
       "minLabel": "较浅",
       "maxLabel": "较深",
-      "ariaLabel": "底部渐变强度",
-      "hint": "改变底部的黑色渐变而不移除页面特定样式"
+      "ariaLabel": "底部渐变强度"
     },
     "cloudyGlass": {
       "title": "模糊玻璃强度",
       "description": "让模糊玻璃更模糊更密集，而不切换到更清晰的玻璃预设。",
       "minLabel": "更清晰",
       "maxLabel": "更模糊",
-      "ariaLabel": "模糊玻璃强度",
-      "hint": "拖动时实时预览"
+      "ariaLabel": "模糊玻璃强度"
     },
-    "autoSaves": "停止拖动后自动保存",
+    "autoSaves": "更改会自动保存",
     "library": {
       "title": "壁纸库",
       "description": "点击壁纸即可选择哪个页面使用它。"
@@ -358,9 +356,7 @@
     "privacyPolicy": "隐私政策",
     "licenses": "开源许可",
     "contactSupport": "联系梦坞",
-    "contactSupportDescription": "我们会阅读每一条消息。",
     "messageOfficial": "私信 {{username}}",
-    "messageOfficialHint": "直接发消息给官方账号",
     "emailSupport": "邮件支持",
     "emailCopied": "已复制邮箱：{{email}}"
   }

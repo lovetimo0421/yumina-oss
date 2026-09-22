@@ -1,6 +1,9 @@
+import { readChatImages, pastedImageFiles, chatImageCopy } from "../../src/lib/chat-image-input";
+import { PLAY_MODELS, type ChatImageInput } from "@yumina/shared";
 import { useState, useRef, useCallback, useEffect, useMemo, type ReactNode } from "react";
 import {
   Send,
+  ImagePlus,
   Square,
   Plus,
   X,
@@ -36,9 +39,6 @@ import {
 // enough that a reload arriving mid-sentence still finds the text.
 const COMPOSER_DRAFT_SYNC_MS = 400;
 
-// TODO: Attachment support — the bridge currently only takes text via api.sendMessage(text).
-// FileReader works in sandbox, but we need the bridge to support attachments before enabling.
-
 export function MessageInput() {
   const api = useYumina();
   const {
@@ -50,7 +50,6 @@ export function MessageInput() {
     continueLastMessage,
     restartChat,
     clearPendingChoices,
-    showToast,
     openPersonaManager,
     openModelPicker,
     openSessionManager,
@@ -66,6 +65,36 @@ export function MessageInput() {
     && api.mode !== "guest-preview";
 
   const [content, setContent] = useState("");
+  const [images, setImages] = useState<ChatImageInput[]>([]);
+  const imagesRef = useRef(images);
+  imagesRef.current = images;
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [readingImages, setReadingImages] = useState(false);
+  const readingRef = useRef(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastImagesRef = useRef<ChatImageInput[]>([]);
+  const [modelImages, setModelImages] = useState<Record<string, boolean | undefined>>({});
+  const imageText = (key: string) => chatImageCopy(api.language, key);
+  useEffect(() => {
+    let active = true;
+    setModelImages({});
+    api.getModels().then(data => { if (active) setModelImages(Object.fromEntries(data.models.map(m => [m.id, m.supportsImages]))); }).catch(() => {});
+    return () => { active = false; };
+  }, [api.preferredProvider, api.selectedModel]);
+  const candidates = api.mixMode && api.modelPool.length > 1 ? api.modelPool.map(m => m.modelId) : [api.selectedModel];
+  const incompatibleImages = images.length > 0 && candidates.some(id =>
+    (modelImages[id] ?? (api.preferredProvider === "official" ? PLAY_MODELS.find(m => m.id === id)?.supportsImages : undefined)) === false);
+  const addImages = async (files: File[]) => {
+    if (!files.length || readingRef.current) return;
+    readingRef.current = true;
+    setReadingImages(true);
+    setImageError(null);
+    try {
+      const added = await readChatImages(files, imagesRef.current);
+      setImages(current => [...current, ...added]);
+    } catch (error) { setImageError(error instanceof Error ? error.message : "read"); }
+    finally { readingRef.current = false; setReadingImages(false); }
+  };
   const messageLimitState = getComposerMessageLimitState(content);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -146,19 +175,23 @@ export function MessageInput() {
 
   const handleSend = useCallback(() => {
     const trimmed = content.trim();
-    if (!trimmed) return;
+    if (!trimmed && !images.length) return;
+    if (readingImages || incompatibleImages) return;
     if (generationBlocked) return;
     lastSentRef.current = trimmed;
-    sendMessage(trimmed);
+    lastImagesRef.current = images;
+    sendMessage(trimmed, images);
+    setImages([]);
     setContent("");
     // Height resets itself: the CSS auto-grow wrapper shrinks to one line once
     // `content` is empty (no manual style write, so no forced reflow).
-  }, [content, generationBlocked, sendMessage]);
+  }, [content, images, readingImages, incompatibleImages, generationBlocked, sendMessage]);
 
   const handleChoiceClick = useCallback(
     (choice: string) => {
       if (generationBlocked) return;
       lastSentRef.current = choice;
+      lastImagesRef.current = [];
       sendMessage(choice);
       setContent("");
     },
@@ -194,8 +227,7 @@ export function MessageInput() {
   const handleRestart = useCallback(async () => {
     setConfirmRestart(false);
     restartChat();
-    showToast(t("chatRestarted"), "success");
-  }, [restartChat, showToast, t]);
+  }, [restartChat]);
 
   const handleContinue = useCallback(() => {
     if (generationBlocked) return;
@@ -336,8 +368,11 @@ export function MessageInput() {
   useEffect(() => {
     const prev = prevErrorRef.current;
     prevErrorRef.current = api.error;
-    if (api.error && api.error !== prev && lastSentRef.current) {
+    if (api.error && api.error !== prev && lastSentRef.current !== null) {
       const failed = lastSentRef.current;
+      const failedImages = lastImagesRef.current;
+      lastImagesRef.current = [];
+      setImages(cur => cur.length ? cur : failedImages);
       lastSentRef.current = null;
       setContent((cur) => (cur.trim() ? cur : failed));
     }
@@ -352,8 +387,11 @@ export function MessageInput() {
   useEffect(() => {
     if (api.sendFailureNonce === lastHandledNonceRef.current) return;
     lastHandledNonceRef.current = api.sendFailureNonce;
-    if (lastSentRef.current) {
+    if (lastSentRef.current !== null) {
       const failed = lastSentRef.current;
+      const failedImages = lastImagesRef.current;
+      lastImagesRef.current = [];
+      setImages(cur => cur.length ? cur : failedImages);
       lastSentRef.current = null;
       setContent((cur) => (cur.trim() ? cur : failed));
     }
@@ -367,7 +405,7 @@ export function MessageInput() {
   // failure signal and ate the stash before the restore effects could run.
   useEffect(() => {
     if (isStreaming || api.error) return;
-    const t = window.setTimeout(() => { lastSentRef.current = null; }, 2000);
+    const t = window.setTimeout(() => { lastSentRef.current = null; lastImagesRef.current = []; }, 2000);
     return () => window.clearTimeout(t);
   }, [isStreaming, api.error]);
 
@@ -427,6 +465,19 @@ export function MessageInput() {
             </div>
           )}
 
+          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden
+            onChange={e => { void addImages(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
+          {images.length > 0 && <div className="flex flex-wrap gap-2 px-4 pt-3">
+            {images.map((image, index) => <div key={index} className="relative">
+              <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} className="h-16 w-16 rounded-lg border border-border object-cover" />
+              <button type="button" aria-label={imageText("remove")} onClick={() => setImages(cur => cur.filter((_, i) => i !== index))}
+                className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-popover text-foreground shadow"><X className="h-3 w-3" /></button>
+            </div>)}
+          </div>}
+          {(imageError || incompatibleImages) && <div role="status" className="px-4 pt-2 text-xs text-muted-foreground">
+            {imageText(imageError ?? "unsupported")}
+            {incompatibleImages && <button type="button" onClick={openModelPicker} className="ml-2 text-primary underline">{imageText("choose")}</button>}
+          </div>}
           {/* Textarea — full width. The wrapper grows to a hidden text replica
               (data-replicated-value) so the textarea auto-sizes via CSS only —
               no per-keystroke scrollHeight read / forced reflow. Padding, font
@@ -439,6 +490,12 @@ export function MessageInput() {
               maxLength={MAX_USER_MESSAGE_CHARS}
               onChange={(e) => setContent(clampComposerMessage(e.target.value))}
               onKeyDown={handleKeyDown}
+              onPaste={e => {
+                const files = pastedImageFiles(e.clipboardData.items);
+                if (!files.length) return;
+                e.preventDefault();
+                void addImages(files);
+              }}
               onCompositionStart={() => { composingRef.current = true; }}
               onCompositionEnd={() => { composingRef.current = false; }}
               placeholder={
@@ -521,6 +578,11 @@ export function MessageInput() {
                 )}
               </div>
 
+              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={readingImages}
+                className="play-composer-icon-button hover-surface rounded-lg text-foreground/70 transition-colors hover:text-foreground disabled:opacity-40"
+                aria-label={imageText("add")} title={imageText("add")}>
+                {readingImages ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+              </button>
               {/* Branch panel — opens upward from the "+" area. Rendered only
                   while open so the wrapper doesn't add a stray flex gap when
                   closed; click-outside is scoped to the panel, not the "+" menu
@@ -655,7 +717,7 @@ export function MessageInput() {
               ) : (
                 <button
                   onClick={handleSend}
-                  disabled={!content.trim() || generationBlocked}
+                  disabled={(!content.trim() && !images.length) || generationBlocked || readingImages || incompatibleImages}
                   className="play-composer-send flex h-9 w-9 items-center justify-center rounded-full bg-primary text-primary-foreground transition-opacity disabled:pointer-events-none disabled:opacity-20"
                   title={t("sendMessage")}
                 >

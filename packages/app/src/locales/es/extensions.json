@@ -56,24 +56,37 @@
     "uninstallFailed": "Error al desinstalar",
     "reviewSubmitted": "Reseña enviada",
     "reviewFailed": "Error al enviar la reseña",
-    "memoryCostNotice": "Las actualizaciones de memoria cuestan un poco — cambia a gratis en el chat"
+    "memoryCostNotice": "Las actualizaciones de memoria cuestan algo. Cambia al modelo gratuito cuando quieras desde el chat."
   },
   "catalog": {
     "state-update-guard": {
       "name": "Protección de estado (Beta)",
       "shortDescription": "Comprueba los cambios de la IA antes de guardar la respuesta. Si falta el formato o es incorrecto, intenta corregirlo una vez.",
       "longDescription": "Ayuda a que los valores de la historia sigan actualizándose cuando la IA usa un formato incorrecto. Funciona con las tarjetas existentes. Cada respuesta debe incluir cambios válidos o indicar expresamente que no hay cambios. Si la comprobación o la corrección falla, se conserva el estado anterior y no se cobra esa respuesta. Se comprueba el formato, no la exactitud de la historia.\n\nLas comprobaciones son gratis. Solo las correcciones guardadas con modelos de pago de Yumina cuestan mushies. El modelo predeterminado es Gemini 2.5 Flash Lite, como en Memoria. Pulsa «Usar modelo gratuito» en el panel para corregir gratis. Con tu propia clave de API no se descuentan mushies de Yumina, pero tu proveedor puede cobrar.\n\nAbre el panel desde la barra del chat para activar o desactivar la función, elegir un modelo de corrección y ver los cambios. Al desactivarla se recuperan las actualizaciones normales de la tarjeta. Desinstalarla no borra el estado ni el historial guardados. Los cambios de instalación pueden tardar hasta 60 segundos en aplicarse.",
-      "tags": { "state": "estado", "reliability": "fiabilidad", "beta": "beta" },
+      "tags": {
+        "state": "estado",
+        "reliability": "fiabilidad",
+        "beta": "beta"
+      },
       "explanations": [
-        { "title": "Compatible con tus tarjetas", "body": "Usa las variables y los comandos que ya tiene la tarjeta. No hace falta reescribir las instrucciones ni la interfaz." },
-        { "title": "Resultados claros", "body": "Consulta si una respuesta necesitó corrección y qué valores cambiaron. La ausencia de cambios también debe confirmarse. Las reglas automáticas del juego siguen funcionando." },
-        { "title": "Solo corrige cuando hace falta", "body": "Las respuestas válidas no requieren otra llamada al modelo. Las incorrectas reciben un intento con el modelo elegido. Las correcciones guardadas con modelos de pago de Yumina cuestan mushies; los modelos gratuitos y tu propia API no los consumen. Tu proveedor de API puede cobrar." }
+        {
+          "title": "Compatible con tus tarjetas",
+          "body": "Usa las variables y los comandos que ya tiene la tarjeta. No hace falta reescribir las instrucciones ni la interfaz."
+        },
+        {
+          "title": "Resultados claros",
+          "body": "Consulta si una respuesta necesitó corrección y qué valores cambiaron. La ausencia de cambios también debe confirmarse. Las reglas automáticas del juego siguen funcionando."
+        },
+        {
+          "title": "Solo corrige cuando hace falta",
+          "body": "Las respuestas válidas no requieren otra llamada al modelo. Las incorrectas reciben un intento con el modelo elegido. Las correcciones guardadas con modelos de pago de Yumina cuestan mushies; los modelos gratuitos y tu propia API no los consumen. Tu proveedor de API puede cobrar."
+        }
       ]
     },
     "session-memory-summary": {
       "name": "Memoria de sesión y resumen de historia (Beta)",
-      "shortDescription": "En chats largos la IA olvida cosas. Esta extensión le toma notas: registra los hechos clave y comprime el chat antiguo en un resumen — que además ahorra tokens. Beta.",
-      "longDescription": "En chats largos la IA olvida cosas. Esta extensión le toma notas en segundo plano: los hechos clave (relaciones, objetos, promesas, metas) van a una lista, el chat antiguo se comprime en un resumen de lo ocurrido, y ambos se le pasan a la IA antes de cada respuesta — los detalles sobreviven y cada turno gasta menos tokens. Hay además un resumen por capas experimental para historias larguísimas.\n\nTomar notas tiene un pequeño costo: el modelo por defecto es Gemini 2.5 Flash Lite, normalmente bastante menos de 1 mushie por actualización. ¿No quieres gastar nada? Cámbialo a Yumina Free en el panel de Memoria.\n\nTodo lo que escribe está en el panel de Memoria (el botón sobre el cuadro de chat; en algunos mundos con interfaz totalmente propia el botón no existe — lleva el cursor al borde superior y usa la barra de controles). Léelo, edítalo, bórralo y regenéralo, cambia el modelo, ajusta cuándo se comprime.\n\nDesinstalar solo lo apaga — tus notas se conservan y al reinstalar continúas. Beta: a veces se equivoca en algún detalle.",
+      "shortDescription": "Mantiene pequena tu memoria de la historia sin perder la trama. Las escenas antiguas pasan a un resumen y los datos clave a una lista. Beta.",
+      "longDescription": "La memoria de la historia solo conserva palabra por palabra la parte mas reciente de la conversacion. Esta extension se encarga de que el resto no se pierda sin mas: las escenas antiguas se comprimen en un resumen y los datos clave (relaciones, objetos, promesas, metas) pasan a una lista. Ambos se envian con cada respuesta.\n\nPor eso funciona una memoria de la historia pequena. Dejala en torno a 16.000 y deja que esto cargue con todo lo anterior.\n\nEscribir las notas cuesta algo, normalmente bastante menos de 1 mushie por actualizacion. Un toque en el panel de Memoria lo cambia al modelo gratuito.\n\nBeta: de vez en cuando se equivoca en un detalle. Todo lo que escribe se puede leer y editar en el panel de Memoria, encima del chat.",
       "tags": {
         "memory": "memoria",
         "context": "contexto",
@@ -82,16 +95,16 @@
       },
       "explanations": [
         {
-          "title": "Memoria de sesión",
-          "body": "Los hechos clave van a una lista — relaciones, objetos, promesas, metas pendientes — y se le pasan a la IA antes de cada respuesta, para que los detalles sobrevivan a las sesiones largas."
+          "title": "Funciona con tu memoria de la historia",
+          "body": "Pon la memoria de la historia en unos 16.000 en los ajustes de AI. Esto carga con lo anterior, asi una ventana pequena sale barata y precisa sin perder la trama."
         },
         {
-          "title": "Resumen de historia",
-          "body": "El chat antiguo se comprime en un \"resumen de lo ocurrido\". La IA mantiene la trama sin la transcripción completa, y cada turno cuesta menos tokens."
+          "title": "Puedes leerlo y cambiarlo",
+          "body": "Abre el panel de Memoria encima del chat. Edita las notas, fija los hechos que nunca deben cambiar, borra y regenera, o cambia el modelo."
         },
         {
-          "title": "Costo y control",
-          "body": "Tomar notas cuesta poco (por defecto: Gemini 2.5 Flash Lite; un toque en el panel de Memoria lo cambia al modelo gratuito). Todo lo que escribe se puede ver, editar o borrar."
+          "title": "Desinstalar conserva tus notas",
+          "body": "Apagarlo deja intacto todo lo escrito. Si lo reinstalas mas adelante, retoma las mismas notas."
         }
       ]
     }

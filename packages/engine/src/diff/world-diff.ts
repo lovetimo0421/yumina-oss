@@ -41,7 +41,7 @@ const COLLECTIONS: CollectionSpec[] = [
   // purely organizational metadata (tags, folderId, presetId). Keep in sync with
   // the WorldEntry interface: a new AI-affecting field added there should be
   // added here too, or it would change LIVE on a published card with no review.
-  { kind: "entry",    get: (w) => (w.entries as unknown as Row[]) ?? [],     fields: ["name", "content", "role", "apiRole", "depth", "alwaysSend", "keywords", "conditions", "conditionLogic", "matchWholeWords", "secondaryKeywords", "secondaryKeywordLogic", "preventRecursion", "excludeRecursion", "section", "enabled"] },
+  { kind: "entry",    get: (w) => (w.entries as unknown as Row[]) ?? [],     fields: ["name", "content", "role", "portrait", "apiRole", "depth", "alwaysSend", "keywords", "conditions", "conditionLogic", "matchWholeWords", "secondaryKeywords", "secondaryKeywordLogic", "preventRecursion", "excludeRecursion", "section", "enabled"] },
   { kind: "variable", get: (w) => (w.variables as unknown as Row[]) ?? [],   fields: ["name", "type", "defaultValue", "description", "behaviorRules"] },
   { kind: "rule",     get: (w) => (w.rules as unknown as Row[]) ?? [],       fields: ["name", "enabled"] },
   { kind: "reaction", get: (w) => (w.reactions as unknown as Row[]) ?? [],   fields: ["name"] },

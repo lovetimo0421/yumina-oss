@@ -123,7 +123,7 @@ test("guard backdrop and real Memory picker isolate correction provider from the
     assert.ok(guard());
     await act(async () => guard().querySelector<HTMLButtonElement>('[data-hint-anchor="model"]')!.click());
     await act(async () => button("Yumina API", picker()!).click());
-    const official = [...picker()!.querySelectorAll<HTMLButtonElement>("button")].find((item) => !item.disabled && item.textContent?.includes("Free for everyone"));
+    const official = [...picker()!.querySelectorAll<HTMLButtonElement>("button")].find((item) => !item.disabled && item.textContent?.includes("Yumina Free"));
     assert.ok(official, "official free model is selectable alongside BYOK models");
     await act(async () => official.click());
     assert.equal(picker(), null);

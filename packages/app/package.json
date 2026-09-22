@@ -13,7 +13,9 @@
     "check:edition": "node scripts/check-edition-boundary.mjs",
     "preview": "vite preview",
     "i18n:zh-hant": "node scripts/gen-zh-hant.mjs",
-    "i18n:zh-hant:missing": "node scripts/sync-zh-hant-missing.mjs"
+    "i18n:zh-hant:missing": "node scripts/sync-zh-hant-missing.mjs",
+    "preview:ui": "vite build --config vite.preview.config.ts",
+    "preview:ui:dev": "vite --config vite.preview.config.ts"
   },
   "dependencies": {
     "@fontsource/inter": "^5.2.8",

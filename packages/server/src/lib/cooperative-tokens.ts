@@ -18,12 +18,12 @@ export async function forEachCooperatively<T>(items: readonly T[], visit: (item:
 /** Exact sum when under budget. For an overflow decision, stop as soon as
  * the threshold is crossed instead of tokenizing thousands of older rows. */
 export async function countPromptTokensCooperatively(
-  messages: readonly { content: string }[], modelId: string, stopAfter = Infinity,
+  messages: readonly { content: string; imageTokens?: number }[], modelId: string, stopAfter = Infinity,
 ): Promise<number> {
   let tokens = 0;
   let deadline = performance.now() + 8;
   for (let i = messages.length - 1; i >= 0; i--) {
-    tokens += estimateTokens(messages[i]!.content, modelId);
+    tokens += estimateTokens(messages[i]!.content, modelId) + (messages[i]!.imageTokens ?? 0);
     if (tokens > stopAfter) break;
     if (performance.now() >= deadline) {
       await setImmediate();

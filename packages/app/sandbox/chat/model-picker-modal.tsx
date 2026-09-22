@@ -1,3 +1,4 @@
+import { ImageCapabilityBadge } from "../../src/components/image-capability-badge";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { X, Search, Star, Clock, Lock, Unlock, Sparkles, ChevronRight, Layers, Shuffle, Plus, Minus, ArrowLeft } from "lucide-react";
 import { useModelControls as useYumina } from "./model-controls-context";
@@ -526,7 +527,35 @@ interface ModelPickerModalProps {
   onSelectionProviderChange?: (provider: "official" | "private") => void;
 }
 
-export function ModelPickerModal({
+export function ModelPickerModal(props: ModelPickerModalProps) {
+  const api = useYumina();
+  // Existing cards call this global directly, bypassing the composer trigger.
+  // Use the host's shared chat picker; secondary choices and adapters without
+  // a session bridge must keep their own selection callbacks and constraints.
+  const delegate = api.mode === "session" && typeof api.openModelPicker === "function"
+    && !props.onSelectModel && !props.providerOverride && !props.selectionProvider
+    && props.allowOfficialModels !== false && !props.onSelectionProviderChange
+    && !props.title && !props.subtitle;
+  const opened = useRef(false);
+  const closeRef = useRef(props.onClose);
+  closeRef.current = props.onClose;
+
+  useEffect(() => {
+    if (!props.open) {
+      opened.current = false;
+      return;
+    }
+    if (!delegate || opened.current) return;
+    opened.current = true;
+    api.openModelPicker!();
+    // Reset the card's local flag so its next click can open the host again.
+    closeRef.current();
+  }, [props.open, delegate, api.openModelPicker]);
+
+  return delegate ? null : <InlineModelPickerModal {...props} />;
+}
+
+function InlineModelPickerModal({
   open,
   onClose,
   selectedModel: selectedModelProp,
@@ -757,7 +786,13 @@ function OfficialPicker({
   title?: string;
   subtitle?: string;
 }) {
-  const { userPlan, language, mixMode, modelPool } = useYumina();
+  const { userPlan, language, mixMode, modelPool, getModels } = useYumina();
+  const [imageSupport, setImageSupport] = useState<Record<string, boolean | undefined>>({});
+  useEffect(() => {
+    let active = true;
+    getModels().then(data => { if (active) setImageSupport(Object.fromEntries(data.models.map(m => [m.id, m.supportsImages]))); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
   const deepSeekPricingCopy: DeepSeekPricingCopy = {
     triggerLabel: t("deepSeekPricingTrigger"),
     title: t("deepSeekPricingTitle"),
@@ -879,6 +914,7 @@ function OfficialPicker({
                       <span className={`text-sm font-medium ${locked ? "text-white/30" : isSelected ? "text-white" : "text-white/80"}`}>
                         {m.name}
                       </span>
+                      <ImageCapabilityBadge supported={imageSupport[m.id] ?? m.supportsImages} language={language} />
                       {m.badge && !locked && (
                         <span className="rounded bg-[#f3d361]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#f3d361]/80">
                           {m.badge}
@@ -942,6 +978,7 @@ function OfficialPicker({
 // ─── BYOK picker (search + list) ──────────────────────────────────
 
 interface ByokModel {
+  supportsImages?: boolean;
   id: string;
   name: string;
   provider: string;
@@ -969,7 +1006,7 @@ function ByokPicker({
   subtitle?: string;
   independentProvider?: boolean;
 }) {
-  const { getModels, pinModel, unpinModel, mixMode, modelPool } = useYumina();
+  const { getModels, pinModel, unpinModel, mixMode, modelPool, language } = useYumina();
   const isMixActive = Boolean(onMixMode && mixMode && modelPool && modelPool.length >= 2);
   const [query, setQuery] = useState("");
   const [models, setModels] = useState<ByokModel[]>([]);
@@ -1097,6 +1134,7 @@ function ByokPicker({
         <div className="flex-1 min-w-0">
           <p className={`truncate text-sm font-medium ${isSelected ? "text-white" : "text-white/80"}`}>
             {m.name || formatModelId(m.id)}
+            <ImageCapabilityBadge supported={m.supportsImages} language={language} />
           </p>
         </div>
 
@@ -1292,9 +1330,9 @@ function SandboxMixPill({ onClick, t }: { onClick: () => void; t: T }) {
 }
 
 function SandboxMixConfig({ onBack, onClose, t }: { onBack: () => void; onClose: () => void; t: T }) {
-  const { mixMode, modelPool, addToPool, removeFromPool, setPoolWeight, togglePoolLock, setMixMode, getModels } = useYumina();
+  const { mixMode, modelPool, addToPool, removeFromPool, setPoolWeight, togglePoolLock, setMixMode, getModels, language } = useYumina();
   const [addQuery, setAddQuery] = useState("");
-  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; provider: string }>>([]);
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; provider: string; supportsImages?: boolean }>>([]);
   const canActivate = modelPool && modelPool.length >= 2;
   const canLockWeights = !!modelPool && modelPool.length > 2;
   const pcts = useMemo(() => poolPercentages(modelPool ?? []), [modelPool]);
@@ -1418,7 +1456,7 @@ function SandboxMixConfig({ onBack, onClose, t }: { onBack: () => void; onClose:
                   <button key={m.id} onClick={() => { addToPool(m.id); setAddQuery(""); }}
                     className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-all hover:bg-white/[0.04]">
                     <Plus className="h-3.5 w-3.5 shrink-0 text-primary/60" />
-                    <span className="flex-1 truncate text-xs font-medium text-white/70">{m.name || formatModelId(m.id)}</span>
+                    <span className="flex-1 truncate text-xs font-medium text-white/70">{m.name || formatModelId(m.id)}</span><ImageCapabilityBadge supported={m.supportsImages} language={language} />
                     <span className="shrink-0 text-[10px] text-white/25">{m.provider}</span>
                   </button>
                 ))}

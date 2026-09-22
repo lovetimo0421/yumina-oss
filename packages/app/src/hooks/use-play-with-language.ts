@@ -13,6 +13,7 @@ import { ContextGateModal, type ContextGateInfo, type WorldContextRequirement } 
 import { getEffectiveContextInfo, raiseMaxContext } from "@/lib/context-budget";
 import { recordWorldHistoryClick, type WorldHistoryInteraction, type WorldHistorySource } from "@/lib/history-clicks";
 import { captureStoryReturnContext, type StoryReturnContext } from "@/lib/story-return";
+import { discoveryAttribution, type FeedOrigin } from "@/lib/discovery-attribution";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
@@ -46,6 +47,7 @@ interface UsePlayWithLanguageOptions {
 }
 
 interface PlaySessionPickerState {
+  feedOrigin: FeedOrigin | null;
   open: boolean;
   variants: LanguageVariant[];
   pendingWorld: PlayableWorld | null;
@@ -59,6 +61,7 @@ interface PlaySessionPickerState {
 }
 
 const initialPickerState: PlaySessionPickerState = {
+  feedOrigin: null,
   open: false,
   variants: [],
   pendingWorld: null,
@@ -202,7 +205,7 @@ export function PlaySessionPickerHost() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ worldId }),
+        body: JSON.stringify({ worldId, discoveryAttribution: discoveryAttribution(state.feedOrigin) }),
         signal: controller.signal,
       });
 
@@ -275,8 +278,10 @@ export function usePlayWithLanguage(options: UsePlayWithLanguageOptions) {
   }, []);
 
   const handlePlay = useCallback(
-    (world: PlayableWorld): Promise<void> => {
+    (world: PlayableWorld, feedOrigin?: FeedOrigin | null): Promise<void> => {
       if (loading) return Promise.resolve();
+      const origin = feedOrigin ? Object.freeze({ ...feedOrigin, worldId: feedOrigin.worldId ?? world.id }) : null;
+      const attribution = discoveryAttribution(origin);
 
       variantsAbortController?.abort();
 
@@ -316,7 +321,7 @@ export function usePlayWithLanguage(options: UsePlayWithLanguageOptions) {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   credentials: "include",
-                  body: JSON.stringify({ worldId: world.id }),
+                  body: JSON.stringify({ worldId: world.id, discoveryAttribution: attribution }),
                 });
                 if (!createRes.ok) {
                   startSessionFailed();
@@ -338,6 +343,7 @@ export function usePlayWithLanguage(options: UsePlayWithLanguageOptions) {
         }
 
         resetPickerState({
+          feedOrigin: origin,
           pendingWorld: world,
           onNavigate,
           onSessionCreated: onSessionCreated ?? null,

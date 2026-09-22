@@ -16,6 +16,7 @@ import { resolveWorldAudience, resolveWorldAudienceEdit } from "../lib/world-aud
 import {
   buildHubBaseFilters,
   createEmptyRecommendationProfile,
+  completeRecommendedCatalogPage,
   generateRecommendationCandidates,
   invalidateRecommendationProfile,
   invalidateRecommendationFeed,
@@ -29,7 +30,14 @@ import {
   writeCachedFeedPage,
 } from "../lib/recommendations.js";
 import { authMiddleware, optionalAuthMiddleware } from "../middleware/auth.js";
-import { rateLimitMiddleware } from "../middleware/rate-limit.js";
+import { createDiscoveryRolloutMiddleware } from "../middleware/discovery-rollout.js";
+import { buildDiscoveryInterestQuery, parseDiscoveryStarter } from "../lib/discovery-starter.js";
+import { accountDiscoveryStarter, loadStarterAccountPreferences } from "../lib/discovery-starter-preferences.js";
+import { withDatabaseQueryTimeout } from "../db/query-deadline.js";
+import { rateLimitMiddleware, ipRateLimitMiddleware } from "../middleware/rate-limit.js";
+import { env } from "../lib/env.js";
+import { serveDiscoveryFeed, DISCOVERY_POLICY_VERSION, DiscoveryCursorError, DiscoveryAdmissionError, discoveryMeasurementEnabled, recordDiscoveryServe } from "../lib/discovery-feed.js";
+import { edition } from "../edition/index.js";
 import { sanitizeContent } from "../lib/sanitize.js";
 import { createWorldSchema, updateWorldSchema } from "@yumina/shared";
 import { hasPublishableCover, isDefaultWorldName } from "@yumina/shared";
@@ -103,10 +111,14 @@ function normalizeTagsForStorage(tags: string[]): string[] {
 
 const worldRoutes = new Hono<AppEnv>();
 
-/** Deepest feed offset the hub will compute (see the /hub handler). ~25
- * pages of 24; past this is never real traffic (median scroll depth is
- * position 11) and each distinct offset is a full uncached re-rank. */
+/** Compatibility bound for explicit filtered/default feeds. Clean Recommended
+ * instead continues through its eligible catalog with bounded page hydration. */
 const MAX_FEED_OFFSET = 600;
+
+function isCleanRecommendedQuery(query: Record<string, string>): boolean {
+  return query.feed === "recommended" && !query.q?.trim() && !query.tag && !query.tags
+    && !query.creatorId && query.followedOnly !== "true";
+}
 
 // No global auth — browse routes use optionalAuthMiddleware, write routes use authMiddleware
 
@@ -488,6 +500,34 @@ worldRoutes.get("/mine/shareable", authMiddleware, async (c) => {
 // GET /api/worlds/hub/tags — popular shortcuts without q; full-catalog tag
 // search with q, including rare tags and localized labels. Both follow the
 // viewer's content, language and access scope.
+worldRoutes.get("/hub/interests", async (c, next) => {
+  if (!edition.info().features.hub) return c.notFound();
+  return next();
+}, optionalAuthMiddleware, ipRateLimitMiddleware(60, 60, 'discovery-interests'), async (c) => {
+  c.header('Cache-Control', 'private, no-store');
+  c.header('Vary', 'Cookie');
+  const currentUser = getOptionalUser(c);
+  const rd = await readDb(currentUser?.id);
+  try {
+    const options = await withDatabaseQueryTimeout(2500, async () => {
+      const lang = c.req.query('lang') || null;
+      const filters = await buildHubBaseFilters(rd, {
+        currentUserId: currentUser?.id, lang, feed: 'recommended',
+        preferredLang: resolveHubLanguageScope(lang, c.req.query('includeOtherLanguages') === 'true'),
+        contentLevelParam: parseContentLevelParam(c.req.query('contentLevel')),
+        nsfwOnly: c.req.query('nsfwOnly') === 'true',
+      });
+      if (filters.noResults) return [];
+      const result = await rd.execute(buildDiscoveryInterestQuery(filters.conditions, currentUser?.id));
+      return (result.rows as Array<{ id: string; family_count: number }>).map(row => ({ id: row.id, familyCount: Number(row.family_count) }));
+    });
+    return c.json({ options });
+  } catch {
+    c.header('Retry-After', '5');
+    return c.json({ error: 'Interests are temporarily unavailable' }, 503);
+  }
+});
+
 worldRoutes.get("/hub/tags", optionalAuthMiddleware, async (c) => {
   const currentUser = getOptionalUser(c);
   const rd = await readDb(currentUser?.id);
@@ -646,10 +686,32 @@ worldRoutes.get("/batch", optionalAuthMiddleware, async (c) => {
 });
 
 // GET /api/worlds/hub — public browse
-worldRoutes.get("/hub", optionalAuthMiddleware, async (c) => {
+const discoveryRateLimit = ipRateLimitMiddleware(180, 60, "discovery");
+worldRoutes.get("/hub", async (c, next) => {
+  if (!edition.info().features.hub) return c.notFound();
+  return next();
+}, optionalAuthMiddleware, createDiscoveryRolloutMiddleware({
+  secret: env.BETTER_AUTH_SECRET, rateLimit: discoveryRateLimit,
+}), async (c, next) => {
+  // The cohort middleware limits only admitted cursor traffic. Baseline and
+  // positive-offset continuation need the same origin protection independently.
+  if (!c.get("discoveryCursorActor") && isCleanRecommendedQuery(c.req.query())) {
+    const response = await discoveryRateLimit(c, next);
+    if (response instanceof Response) {
+      response.headers.set("Cache-Control", "private, no-store");
+      response.headers.set("CDN-Cache-Control", "no-store");
+      response.headers.set("Vary", "Cookie");
+      return response;
+    }
+    return;
+  }
+  return next();
+}, async (c) => {
   try {
   const currentUser = getOptionalUser(c);
-  const rd = await readDb(currentUser?.id);
+  const cursorActor = c.get("discoveryCursorActor");
+  const cursorRequested = cursorActor !== undefined;
+  const rd = cursorRequested ? db : await readDb(currentUser?.id);
   const lang = c.req.query("lang") || null;
   const includeOtherLanguages = c.req.query("includeOtherLanguages") === "true";
   const preferredLang = resolveHubLanguageScope(lang, includeOtherLanguages);
@@ -665,14 +727,24 @@ worldRoutes.get("/hub", optionalAuthMiddleware, async (c) => {
   const followedOnly = c.req.query("followedOnly") === "true";
   const limit = Math.min(Math.max(parseInt(c.req.query("limit") || "50") || 50, 1), 100);
   const offset = Math.max(parseInt(c.req.query("offset") || "0") || 0, 0);
-  // Deep-pagination cap. The recommended feed re-ranks the FULL candidate
-  // pool and slices per request (CPU-bound ~2s) and every distinct offset is
-  // a fresh cache miss, so an unbounded offset lets one authed client (who
-  // bypasses the CF edge cache) pin a core recomputing worthless deep pages.
-  // Median scroll depth is position 11 — nothing past ~25 pages is real
-  // traffic. Return empty so infinite-scroll stops cleanly instead of
-  // clamping (which would loop the client on a duplicated page).
-  if (offset >= MAX_FEED_OFFSET) {
+  const completeCatalog = isCleanRecommendedQuery(c.req.query());
+  // Account preferences are canonical across browsers, including an untouched
+  // account. Read primary before the output-cache lookup; reuse this snapshot
+  // for content/audience filtering instead of performing a second prefs read.
+  const accountPreferences = completeCatalog && currentUser
+    ? await loadStarterAccountPreferences(db, currentUser.id) : undefined;
+  let starter: ReturnType<typeof parseDiscoveryStarter>;
+  try { starter = completeCatalog
+    ? currentUser ? accountDiscoveryStarter(accountPreferences ?? null) : parseDiscoveryStarter(c.req.query())
+    : undefined; }
+  catch { return c.json({ error: 'Invalid discovery interests' }, 400); }
+  if (completeCatalog && !Number.isSafeInteger(offset)) {
+    return c.json({ error: "Invalid recommendation offset" }, 400);
+  }
+  // Clean Recommended has a bounded ranked head plus catalog continuation.
+  // Keep the older cap only for other feed modes; request limits and query
+  // deadlines protect Recommended without inventing an end to its inventory.
+  if (!cursorRequested && !completeCatalog && offset >= MAX_FEED_OFFSET) {
     return c.json({ data: [], total: offset, feedRequestId: null });
   }
 
@@ -714,6 +786,7 @@ worldRoutes.get("/hub", optionalAuthMiddleware, async (c) => {
 
   const baseFilters = await buildHubBaseFilters(rd, {
     currentUserId: currentUser?.id,
+    accountPreferences,
     q,
     tag,
     tagsParam,
@@ -733,6 +806,57 @@ worldRoutes.get("/hub", optionalAuthMiddleware, async (c) => {
 
   const whereClause = and(...baseFilters.conditions);
 
+  if (cursorActor) {
+    try {
+      const startedAt = performance.now();
+      const page = await serveDiscoveryFeed(rd, {
+        actor: cursorActor,
+        userId: currentUser?.id, filters: baseFilters, limit, nsfwOnly, cursor: c.req.query("cursor"), starter,
+      });
+      const data = resolveHubMedia(page.data.map(stripRecommendationInternals) as any[]);
+      let attributionToken: string | undefined;
+      if (discoveryMeasurementEnabled()) {
+        try {
+          attributionToken = await recordDiscoveryServe(db, page, cursorActor, env.BETTER_AUTH_SECRET);
+        } catch {
+          // Missing telemetry must never invent an attributable opportunity or
+          // make a healthy feed unavailable. Coverage monitors count this gap.
+          console.warn("[discovery-measurement] serving snapshot unavailable");
+        }
+      }
+      if (!c.req.raw.signal?.aborted) {
+        logFeedServe({ id: page.feedRequestId, userId: currentUser?.id ?? null, surface: "recommended", feed,
+          tier: page.tier, variant: page.variant, lang: baseFilters.preferredLang, offset: page.offset, worldIds: page.servedIds });
+        captureHubEvent(currentUser?.id, "hub_serve", {
+          feed_request_id: page.feedRequestId, feed, surface: "recommended", sort, has_query: false, tag_count: 0,
+          offset: page.offset, limit, returned_count: data.length, total_count: null,
+          world_ids: page.ids, tier: page.tier, variant: page.variant, cache: "cursor",
+          policy_version: DISCOVERY_POLICY_VERSION, catalog_scans: page.scans,
+          duration_ms: Math.round(performance.now() - startedAt), has_more: page.hasMore,
+          measurement_status: discoveryMeasurementEnabled() ? (attributionToken ? "recorded" : "unavailable") : "off",
+          snapshot_bytes: attributionToken ? Buffer.byteLength(JSON.stringify(page.snapshots), "utf8") : 0,
+        });
+      }
+      return c.json({ data, feedRequestId: page.feedRequestId, offset: page.offset,
+        positions: page.positions, nextCursor: page.nextCursor, hasMore: page.hasMore, ...(attributionToken ? { attributionToken } : {}) });
+    } catch (error) {
+      if (error instanceof DiscoveryCursorError) {
+        return c.json({ error: "Your Discover session has changed. Refresh to continue.", code: "discovery_cursor_expired" }, 409);
+      }
+      if (error instanceof DiscoveryAdmissionError && !c.req.query("cursor")) {
+        // Finished visits and other filter scopes still occupy bounded Redis
+        // slots until expiry. A new visit can use the existing offset feed;
+        // its positive-offset requests stay on that transport in middleware.
+        // Never replace an established cursor stream or weaken storage caps.
+        console.warn("[discovery] fresh session capacity reached; serving baseline feed:", error.scope);
+      } else {
+        console.warn("[discovery] cursor page failed:", error instanceof Error ? error.message : error);
+        c.header("Retry-After", "1");
+        return c.json({ error: "Discover is temporarily unavailable. Please retry.", code: "discovery_retry" }, 503);
+      }
+    }
+  }
+
   if (feed === "recommended") {
     // Only the CLEAN discovery path participates in the output cache: no search,
     // no tag/creator narrowing, not followed-only. Those variants are rarer and
@@ -751,6 +875,7 @@ worldRoutes.get("/hub", optionalAuthMiddleware, async (c) => {
             offset,
             limit,
             rotationBucket,
+            starterKey: starter?.key,
           })
         : null;
 
@@ -777,6 +902,7 @@ worldRoutes.get("/hub", optionalAuthMiddleware, async (c) => {
             world_ids: cachedWorldIds,
             tier: cached.tier,
             cache: "hit",
+            starter_policy: starter ? 'catalog-hints-v1' : null,
             variant: rankingVariant,
           });
           // Cache hits are still slates the user saw — log them or the
@@ -834,12 +960,14 @@ worldRoutes.get("/hub", optionalAuthMiddleware, async (c) => {
         filters: baseFilters,
         sort,
         coPlayedSeedIds: recentPlayedRows.map((r) => r.worldId),
+        starter,
       });
 
-      const ranked = rankRecommendedWorlds(candidates, profile, {
+      const ranking = rankRecommendedWorlds(candidates, profile, {
+        starter,
         sort,
-        limit,
-        offset,
+        limit: completeCatalog ? candidates.length : limit,
+        offset: completeCatalog ? 0 : offset,
         // ALL treatment arms (engage_v1 AND engage_v2) must receive the
         // engagement context — v2 is where the learned model lift lives.
         // This was `=== "engage_v1"` (written in Ship 1 before v2 existed),
@@ -862,6 +990,10 @@ worldRoutes.get("/hub", optionalAuthMiddleware, async (c) => {
               : profile.followedCreatorIds,
         },
       });
+
+      const ranked = completeCatalog
+        ? await completeRecommendedCatalogPage(rd, ranking.data, baseFilters, { userId: currentUser?.id, offset, limit })
+        : ranking;
 
       const stripped = ranked.data.map((candidate) => stripRecommendationInternals(candidate));
       const mediaResolved = resolveHubMedia(stripped as any[]);
@@ -903,6 +1035,7 @@ worldRoutes.get("/hub", optionalAuthMiddleware, async (c) => {
           world_ids: servedWorldIds,
           tier: profile.tier,
           cache: "miss",
+          starter_policy: starter ? 'catalog-hints-v1' : null,
           variant: rankingVariant,
         });
         logFeedServe({
@@ -927,6 +1060,16 @@ worldRoutes.get("/hub", optionalAuthMiddleware, async (c) => {
       c.header("Vary", "Cookie");
       return c.json({ data: mediaResolved, total: ranked.total, feedRequestId });
     } catch (error) {
+      if (completeCatalog) {
+        // A timeout/outage is not exhaustion and must not switch this stream
+        // to a differently ordered feed without Library exclusions.
+        console.warn("[HUB] Recommended catalog page unavailable");
+        c.header("Cache-Control", "private, no-store");
+        c.header("CDN-Cache-Control", "no-store");
+        c.header("Vary", "Cookie");
+        c.header("Retry-After", "1");
+        return c.json({ error: "Discover is temporarily unavailable. Please retry.", code: "discovery_retry" }, 503);
+      }
       console.warn("[HUB] Recommended feed failed, falling back to default sort:", error);
     }
   }

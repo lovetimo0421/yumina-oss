@@ -103,6 +103,25 @@ function mergeById(
     const s = serverM.get(id);
 
     if (l && s) {
+      if (collection === "entries" && b) {
+        // Portraits arrive independently from background image tasks. Keeping
+        // the whole local entry after a text edit would silently drop a newly
+        // bound portrait, then autosave that loss with the new server version.
+        const { portrait: bp, ...baseEntry } = b;
+        const { portrait: lp, ...localEntry } = l;
+        const { portrait: sp, ...serverEntry } = s;
+        const localEntryChanged = !deepEqual(localEntry, baseEntry);
+        const serverEntryChanged = !deepEqual(serverEntry, baseEntry);
+        const localPortraitChanged = !deepEqual(lp, bp);
+        const serverPortraitChanged = !deepEqual(sp, bp);
+        if ((localEntryChanged && serverEntryChanged && !deepEqual(localEntry, serverEntry))
+          || (localPortraitChanged && serverPortraitChanged && !deepEqual(lp, sp))) {
+          conflicts.push({ collection, id, reason: "both-edited" });
+        }
+        const portrait = localPortraitChanged ? lp : sp;
+        out.push({ ...(localEntryChanged ? localEntry : serverEntry), ...(portrait !== undefined ? { portrait } : {}) });
+        continue;
+      }
       const localChanged = !inBase || !deepEqual(l, b);
       const serverChanged = !inBase || !deepEqual(s, b);
       if (localChanged && serverChanged && !deepEqual(l, s)) {

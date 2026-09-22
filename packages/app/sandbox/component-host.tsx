@@ -69,7 +69,7 @@ function suspendTrackedAudioContexts(suspended: boolean): void {
 }
 import { buildComponent } from "../src/features/studio/lib/tsx-component-builder";
 import { useAssetFont } from "../src/lib/asset-font";
-import { resolveAssetUrl, resolveAssetRefs } from "../src/lib/asset-url";
+import { originalImageUrl, resolveAssetUrl, resolveAssetRefs } from "../src/lib/asset-url";
 import { rewriteSandboxRootSelectors } from "../src/lib/sandbox-style-isolation";
 import {
   classifyTopEdgeSample,
@@ -1673,10 +1673,21 @@ function hardenImageEl(img: HTMLImageElement): void {
   if (!img.dataset.yuminaRetryBound) {
     img.dataset.yuminaRetryBound = "1";
     img.addEventListener("error", () => {
+      const errSrc = img.getAttribute("src");
+      if (!errSrc) return;
+      // An edge-sized picture (message images go through /cdn-cgi/image/) can
+      // only fail outright where the transform endpoint does not exist — off
+      // Cloudflare, or the feature toggled off — because on-edge failures are
+      // already answered with the original via onerror=redirect. Fall back to
+      // the untransformed path first; it is a no-op on a plain /cdn/ src, so
+      // the cache-bust retry below still gets its one shot.
+      const original = originalImageUrl(errSrc);
+      if (original !== errSrc) {
+        img.src = original;
+        return;
+      }
       if (!img.dataset.yuminaRetried) {
         img.dataset.yuminaRetried = "1";
-        const errSrc = img.getAttribute("src");
-        if (!errSrc) return;
         const sep = errSrc.includes("?") ? "&" : "?";
         img.src = `${errSrc}${sep}_cb=${Date.now()}`;
       }

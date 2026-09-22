@@ -5,6 +5,7 @@ export interface EntryToolArgs {
   id?: string;
   name?: string;
   content?: string;
+  portrait?: string;
   role?: WorldEntry["role"];
   always_send?: boolean;
   keywords?: string[];
@@ -53,6 +54,7 @@ export function mapEntryUpdates(args: EntryToolArgs): Partial<WorldEntry> {
   const updates: Partial<WorldEntry> = {};
   if (args.name !== undefined) updates.name = args.name;
   if (args.content !== undefined) updates.content = args.content;
+  if (args.portrait !== undefined) updates.portrait = args.portrait;
   if (args.role !== undefined) updates.role = args.role;
   if (args.always_send !== undefined) updates.alwaysSend = args.always_send;
   if (args.keywords !== undefined) updates.keywords = toStringArray(args.keywords);
@@ -106,6 +108,7 @@ export function buildCreatedEntry(baseEntry: WorldEntry, args: EntryToolArgs): W
     id: args.id ?? baseEntry.id,
     name: args.name ?? "New Entry",
     content: args.content ?? "",
+    portrait: args.portrait ?? baseEntry.portrait,
     role: args.role ?? "custom",
     // Variable-bound (condition-gated) entries never use always-send.
     alwaysSend: args.always_send ?? (conditions.length > 0 ? false : defaults.alwaysSend),

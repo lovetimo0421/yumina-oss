@@ -9,7 +9,7 @@ import { buildSocialReplyPrompt } from "./social-reply-prompt.js";
 Object.assign(process.env, { DATABASE_URL: "", DATABASE_READ_URL: "", PGLITE_DATA_DIR: "memory://",
   BETTER_AUTH_SECRET: "isolated-persona-test-secret", REDIS_URL: "", POSTHOG_API_KEY: "", NODE_ENV: "test" });
 const { db } = await import("../db/index.js");
-const { resolvePersonaForWorld, resolvePersonaForSession, setSessionPersona, setSessionPersonaLock } = await import("./resolve-persona.js");
+const { resolvePersonaForWorld, resolvePersonaForSession, setAccountPersona, setSessionPersona, setSessionPersonaLock } = await import("./resolve-persona.js");
 const A = { id: "A", name: "Persona A", appearance: "A_LOOK", personality: "A_TRAIT", backstory: "A_STORY" };
 const B = { id: "B", name: "Persona B", appearance: "B_LOOK", personality: "B_TRAIT", backstory: "B_STORY" };
 async function session(id: string) {
@@ -63,13 +63,17 @@ test("legacy and no-persona snapshots follow the current profile without migrati
   assert.equal((await resolvePersonaForSession(await session("B")))?.id, "A");
 });
 
-test("in-chat selection updates the profile and previously loaded sessions", async () => {
+test("in-chat selection locks only its session and preserves the profile and other sessions", async () => {
   const stale = await session("A");
   const result = await setSessionPersona("tester", "B", "B");
   assert.equal(result.data?.persona?.id, "B");
   assert.ok(!JSON.stringify(result).includes("PRIVATE NOTE"));
-  assert.equal((await resolvePersonaForSession(stale))?.id, "B");
-  assert.equal((await resolvePersonaForWorld("tester", "world"))?.id, "B");
+  const selected = await session("B");
+  assert.equal(selected.personaLocked, true);
+  assert.equal((await resolvePersonaForSession(selected))?.id, "B");
+  assert.equal((await resolvePersonaForSession(stale))?.id, "A");
+  assert.deepEqual(await session("A"), stale, "other sessions are unchanged");
+  assert.equal((await resolvePersonaForWorld("tester", "world"))?.id, "A");
 });
 
 test("a locked session stays on its persona while unlocked sessions follow profile changes", async () => {
@@ -79,9 +83,12 @@ test("a locked session stays on its persona while unlocked sessions follow profi
   assert.ok(!JSON.stringify(lockResult).includes("PRIVATE NOTE"));
   assert.equal((await resolvePersonaForSession(await session("A")))?.id, "B");
 
-  await setSessionPersona("tester", "B", "A");
+  await setAccountPersona("tester", "B");
+  assert.equal((await resolvePersonaForSession(await session("B")))?.id, "B");
+  await setAccountPersona("tester", "A");
   assert.equal((await resolvePersonaForSession(await session("A")))?.id, "B", "locked session stays on B");
   assert.equal((await resolvePersonaForSession(await session("B")))?.id, "A", "unlocked session follows A");
+  assert.equal((await session("B")).personaLocked, false);
 
   await db.execute(sql`UPDATE user_personas SET backstory='B_EDITED' WHERE id='B'`);
   assert.equal((await resolvePersonaForSession(await session("A")))?.backstory, "B_EDITED", "lock follows edits to the same persona ID");
@@ -99,16 +106,20 @@ test("locking explicit no-persona is independent from the account selection", as
 
 test("selection and disabling are owner scoped; invalid selections preserve the current persona", async () => {
   await db.execute(sql`INSERT INTO user_personas (id,user_id,name,is_active) VALUES ('foreign','stranger','Foreign',true)`);
+  const originalSession = await session("A");
   assert.deepEqual(await setSessionPersona("stranger", "A", "B"), { error: "Session not found" });
   assert.deepEqual(await setSessionPersona("tester", "missing", null), { error: "Session not found" });
   assert.deepEqual(await setSessionPersona("tester", "A", "foreign"), { error: "Persona not found" });
   assert.deepEqual(await setSessionPersonaLock("stranger", "A", true, "foreign"), { error: "Session not found" });
   assert.deepEqual(await setSessionPersonaLock("tester", "missing", true, "A"), { error: "Session not found" });
   assert.deepEqual(await setSessionPersonaLock("tester", "A", true, "foreign"), { error: "Persona not found" });
+  assert.deepEqual(await session("A"), originalSession, "invalid selections do not change the session binding");
   assert.equal((await resolvePersonaForSession(await session("A")))?.id, "A");
   assert.deepEqual(await setSessionPersona("tester", "A", null), { data: { persona: null } });
-  for (const id of ["A", "B"]) assert.equal(await resolvePersonaForSession(await session(id)), null);
-  assert.equal(await resolvePersonaForWorld("tester", "world"), null);
+  assert.equal(await resolvePersonaForSession(await session("A")), null);
+  assert.equal((await session("A")).personaLocked, true, "no-persona is an explicit session choice");
+  assert.equal((await resolvePersonaForSession(await session("B")))?.id, "A", "disabling one session leaves other sessions following the profile");
+  assert.equal((await resolvePersonaForWorld("tester", "world"))?.id, "A");
   assert.equal((await resolvePersonaForWorld("stranger", null))?.id, "foreign");
 });
 

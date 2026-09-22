@@ -305,7 +305,7 @@
     "worldNotFound": "未找到世界",
     "backToHub": "返回发现页",
     "signUpToPlay": "注册即可游玩",
-    "signUpToStart": "注册开始你的冒险",
+    "signUpToStart": "注册后游玩",
     "signInToSend": "登录以发送消息"
   },
   "zoom": {
@@ -314,7 +314,7 @@
   },
   "errors": {
     "PROTECTED_WORLD": "创作者已保护此世界的提示词，防止被窃取。只能使用梦坞官方 API 模型，不支持私有 API 密钥。",
-    "NO_CREDITS": "蘑菇币用完了！每天签到可领取免费额度，或升级方案获取更多。",
+    "NO_CREDITS": "蘑菇币用完了！完成每日任务可领取免费额度，或升级方案获取更多。",
     "NO_CREDITS_MSG_TOO_EXPENSIVE": "这局对话太长，剩余 {{balance}} 蘑菇币不够发送这条。换更省的模型或精简对话后重试。",
     "MODEL_NOT_ALLOWED": "此模型需要更高的方案。请切换到免费模型或升级方案。",
     "MODEL_SWITCHED_FALLBACK": "该模型不在当前方案内，已自动切换到 {{model}} 并重新发送。",

@@ -8,6 +8,10 @@ In the editor, custom UI lives in **Custom UI**, audio tracks in **Audio**, and 
 
 Give a character a face: in the simple editor, click the camera square next to the character's name; in Studio, open the character's entry in **Lorebook** and use **Portrait**. Pick an image from **Assets** or upload one on the spot. In chat, that image and the character's name appear above every line they speak. When several characters have portraits, the AI is asked to open every reply with a hidden `[speaker: Name]` tag, so the right face is on screen before the first word arrives. A reply tagged as narration shows no face; if a model skips the tag, the chat falls back to a `Name:` marker or a name in the first sentence.
 
+## Pictures in the opening
+
+An opening can carry a picture. Under the opening's text box, press **Insert image** and either upload a file or pick one from **Assets**; you can also drop a file onto the text box or paste one. The picture goes in at the cursor as `[image:@asset:…|alt=…]` and shows in chat where you put it. Options after the `|`: `alt=` (what the picture is), `caption=` (a line under it), `size=sm|md|lg|full`, `placement=left|center|right`. Plain markdown works too — `![](@asset:{id})` — and both accept an `https://` link instead of an asset.
+
 ## Custom UI
 
 The default chat is enough for most worlds. Custom UI is how you go beyond it:

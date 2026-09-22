@@ -30,6 +30,9 @@ type UsageLogInsert = typeof usageLogs.$inferInsert;
  */
 export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-design" | "byok-only"> = {
   send: "billed",
+  // Music generation (Lyria through OpenRouter): one charge per piece,
+  // taken from the provider-reported cost in routes/music.ts.
+  music: "billed",
   regenerate: "billed",
   continue: "billed",
   // Empty replies are never charged (2026-05-31 empty-reply policy) — logged

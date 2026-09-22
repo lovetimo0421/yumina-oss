@@ -268,3 +268,30 @@ function resolveOfficialKey(plan: string): string | null {
   }
   return env.YUMINA_OPENROUTER_KEY || null;
 }
+
+/**
+ * The OpenRouter key a side call (music generation) should use for this user.
+ * Mirrors resolveProviderForModel: private-mode BYOK first, then the official
+ * key for the user's plan, then BYOK as the no-official-key fallback.
+ */
+export async function resolveOpenRouterKeyForUser(userId: string): Promise<{
+  apiKey: string;
+  isByok: boolean;
+  apiKeyTier: ApiKeyTier;
+} | null> {
+  const { plan, preferredProvider } = await getUserMeta(userId);
+
+  if (preferredProvider === "private") {
+    const byok = await getUserApiKey(userId, "openrouter");
+    if (byok) return { apiKey: byok, isByok: true, apiKeyTier: "byok" };
+  }
+
+  const officialKey = resolveOfficialKey(plan);
+  if (officialKey) {
+    return { apiKey: officialKey, isByok: false, apiKeyTier: plan as ApiKeyTier };
+  }
+
+  const byok = await getUserApiKey(userId, "openrouter");
+  if (byok) return { apiKey: byok, isByok: true, apiKeyTier: "byok" };
+  return null;
+}

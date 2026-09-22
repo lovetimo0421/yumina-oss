@@ -31,13 +31,43 @@ You can **pin up to 8 models** for quick access in the model picker. Four are pi
 
 Models you've used recently appear below your pinned list (if they aren't already pinned). You can pin them from there.
 
-## Context size
+## Story memory, and what the AI actually sees
 
-**What it is:** How much conversation history the AI can "see" when generating a response, measured in tokens. More context means the AI remembers more of what happened earlier in your session.
+Before we get to the setting, we want to briefly explain what the AI actually sees and remembers, because the number makes a lot more sense once you know this. Here is a very basic example of what the AI sees each time you send a message.
 
-**Plan caps:** 64,000 tokens on Free, 96,000 tokens on Gold, uncapped (up to the model's native max — typically 200k, up to ~2M for some models) on **Platinum** and above. BYOK is uncapped on every plan.
+```
+// ——  World setup ——
+[lore 1: AI Instruction]
+You're the narrator of this survival horror game. Cold and
+restrained in tone, you never decide the player's actions for them.
 
-**Recommendation:** For most play, 42k–62k is the sweet spot -- enough context for the AI to maintain narrative consistency without unnecessary cost. Going above 96k rarely improves the experience unless you're in a very long session with complex state. The setting is in **Settings > AI Configuration > Context Size**.
+[lore 2: World Settings]
+The long-abandoned Matsuzaki Sanatorium, sealed off in the winter of 1987.
+
+// —— Conversation history ——
+[user]
+I push the door open
+
+[assistant]
+A hand grabs your wrist — the skin unnaturally cold...
+
+[user]
+I drink the potion
+```
+
+The world setup, or the lorebook, is what the author decides. It's where authors define the world and the general instructions for the AI, and it's a fixed amount. The conversation history is the part that gradually builds up as you talk. Every time you send a request, the AI basically looks at the lorebook and your conversation history again, from the top. It has no memory between turns, so it is re-reading all of it every single time.
+
+Now, what AI providers do is charge more as your input tokens rise, meaning the more conversation history you have, the more they charge. That is why you can see the mushie cost per round going up the longer you play. It isn't a fee for playing longer, there is just more text to read.
+
+Ideally you would want the AI to see everything that happened in the past plus the full lorebook every turn, so it doesn't forget anything. Yet in the real world, between the cost and the model's own context limit, this can never infinitely build up. That is why we have this config in your settings and on your profile page. Basically, what it does is limit the maximum amount that gets sent, while always keeping the full lorebook. The world the author built never gets cut.
+
+This does mean that as your conversation progresses, the AI will gradually forget what you talked about at the really really start. The good news is that most of the time, as the story goes on, the AI doesn't actually need that much from the very beginning to keep writing a good story, because it still remembers everything you did recently. However, sometimes this can still hurt quality and be annoying, and that is why we have **Session Memory & Story Summary**. It summarizes the earlier conversation instead of discarding it completely, so you lose the exact wording but not the events.
+
+Now, what is an actual good setup? Some of you might think that if you have the budget you can just keep it as high as possible, however, this is wrong. When your conversation history gets too long it can actually distract the AI from the things it really needs to pay attention to, like the lorebook or your most recent messages. This is even more of a problem on smaller models. So we actually recommend everyone, no matter your budget, to lower it.
+
+What you set is the **story memory**, the part of your conversation kept word for word, and we recommend anything from 12,000 to 24,000 alongside the memory plugin. Our default is 16,000. For a typical world, which is around 7,500 tokens on our side, that gives you roughly 7,500 + 15,000, so about 22,500 per turn, and 15,000 of that is pure story. For larger worlds the total goes up because the lorebook half is bigger, but your story memory stays exactly where you set it. That is the whole reason we split this into two numbers, one for the world that your plan carries, and one for the story that is yours.
+
+On plan caps, the lorebook side is capped at 64,000 tokens on Free and 96,000 on Gold. Platinum and above is never trimmed, and if you bring your own key there is no cap on any plan.
 
 ## Creativity (temperature)
 

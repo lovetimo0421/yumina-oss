@@ -106,6 +106,8 @@ Do **not** gate player input on `useState` (resets on remount) or on `api.storag
 
 `api.ai.complete({ messages, includeLorebook, temperature, maxTokens })` runs a side LLM call (e.g. an in-world messenger/DM). It uses the **player's currently selected chat model** and defaults to `temperature: 1.0` — which causes OOC/off-topic replies on weaker models. For in-character side chats, pass an explicit `temperature` (~0.6–0.7) and a `maxTokens`, give a strong identity anchor in the system prompt ("You ARE <character>; stay in character; never refuse"), and feed enough recent main-story context so replies stay coherent.
 
+For image posting/messenger features, pass the uploaded bytes to the model too: `api.sendMessage(text, attachments)` for story turns, or `api.ai.complete({ messages: [{ role: "user", content: text, attachments }] })` for side calls. Attachments use `{ type: "image", mimeType, name, data }` (bare base64). Showing an `<img>` or storing a URL in a variable alone does not let the model see it. Keep image drafts on failure, and let the player choose a model marked Vision. See the TSX SDK reference for limits and content-part support.
+
 ### Frontend-controlled lore: `<LoreButton>` / `<LoreSlot>`
 
 When the PLAYER should turn a piece of lore (or a whole knowledge base) on/off from the UI — a "show advanced rules" toggle, a route picker, a codex chip — use these **ambient globals** (no import; the sandbox injects them):

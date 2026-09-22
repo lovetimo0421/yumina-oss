@@ -360,8 +360,8 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
   const summaryErrorMessage = (summary: SessionSummaryPayload): string => {
     if (!summary.autoCompactionPaused) return formatSummaryJobError(summary.error ?? "");
     return tt(
-      "Automatic Story Summary paused after 150 summary calls. Chat still works.",
-      "自动摘要已暂停（150 次调用），聊天不受影响。",
+      "Automatic summaries paused after 150 updates. Your chat is unaffected.",
+      "自动摘要已暂停（150 次更新），聊天不受影响。",
     );
   };
 
@@ -386,19 +386,13 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
           if (currentRaw > keptLimit) {
             const excess = currentRaw - keptLimit;
             return tt(
-              `Only ${formatTokenCount(excess)} older tokens; keep playing or lower the retained context limit.`,
-              `较早内容仅 ${formatTokenCount(excess)} tokens；继续游玩或调低原文保留量。`,
+              `Only ${formatTokenCount(excess)} older than your story memory. Not enough to fold in yet.`,
+              `超出剧情记忆的只有 ${formatTokenCount(excess)}，还不够折进摘要。`,
             );
           }
-          return tt(
-            `Chat is within the retained context limit (${formatTokenCount(currentRaw)} / ${formatTokenCount(keptLimit)} tokens). Nothing to compress.`,
-            `原文未超过保留量（${formatTokenCount(currentRaw)} / ${formatTokenCount(keptLimit)} tokens），无需压缩。`,
-          );
+          return tt("Nothing older than your story memory yet.", "还没有超出剧情记忆的内容。");
         }
-        return tt(
-          "Nothing to compress. Keep playing or lower the retained context limit.",
-          "暂无可压缩内容。继续游玩或调低原文保留量。",
-        );
+        return tt("Nothing to compress yet.", "暂无可压缩内容。");
       }
       case "batch-already-compacted":
         return tt("This batch has already been compressed.", "这一批次已经压缩过了。");
@@ -461,15 +455,8 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
       const data = await api.resumeSessionSummaryAutoCompaction();
       refreshFromSummaryPayload(data);
       setDismissedSummaryError(null);
-      if (data.autoCompactionResumePending) {
-        api.showToast(
-          tt(
-            "Automatic story summaries will make one recovery attempt the next time compaction is needed.",
-            "下次需要压缩时，自动剧情摘要将进行一次恢复尝试。",
-          ),
-          "success",
-        );
-      }
+      // No toast. The banner below the button already says "Resuming", and
+      // saying it twice for one tap is what made this feel chatty.
     } catch (err) {
       const message = err instanceof Error ? err.message : tt("Failed to resume automatic summaries", "恢复失败");
       setError(message);
@@ -1191,7 +1178,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                       {payload?.memory.warning === "truncated" && (
                         <p role="status" className="mt-3 flex items-start gap-2 rounded-lg border border-amber-300/20 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-100/90">
                           <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
-                          {tt("Memory was truncated and may omit information. The saved content is in use. Regenerate or edit it to repair missing details.", "记忆摘要被截断，可能遗漏信息。已保存的内容会正常使用；可重新生成或编辑以补全。")}
+                          {tt("Memory was cut short and may be missing details. Regenerate or edit it.", "记忆被截断，可能缺少细节。可重新生成或编辑。")}
                         </p>
                       )}
                       {payload?.autoPaused && (
@@ -1233,8 +1220,8 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                           </div>
                           <p className="mt-1 text-[11px] leading-relaxed text-white/40">
                             {tt(
-                              "Written by you, never rewritten by the AI, sent with the memory every turn. Put the facts and settings that must never drift here.",
-                              "你自己写，AI 永远不会改写，每回合都随记忆一起发送。把绝不能变的设定和事实放在这里。",
+                              "Facts that must never drift. The AI never rewrites these.",
+                              "绝不能跑偏的事实。AI 不会改写这里。",
                             )}
                           </p>
                         </div>
@@ -1373,15 +1360,15 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                       {summaryPayload?.autoCompactionResumePending && (
                         <p className="mt-2 text-[11px] leading-relaxed text-amber-200/70">
                           {tt(
-                            "Recovery queued; automatic summaries resume after success.",
-                            "恢复已排队，成功后继续自动摘要。",
+                            "Resuming on the next compression.",
+                            "下次压缩时恢复。",
                           )}
                         </p>
                       )}
                       <details className="mt-3">
                         <summary className="cursor-pointer py-1 text-xs text-white/60 hover:text-white/80">{tt("Settings & context", "设置与上下文")}</summary>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-white/25">{tt("Trigger tokens", "触发 tokens")}</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-white/25">{tt("Compress when chat passes", "对话超过时压缩")}</span>
                         <input
                           type="number"
                           min={MIN_SUMMARY_TRIGGER_TOKENS}
@@ -1394,7 +1381,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                             if (e.key === "Enter") handleApplySummaryTrigger();
                           }}
                           className="h-8 w-32 rounded-lg border border-white/[0.08] bg-black/25 px-3 text-[11px] font-semibold text-white/70 outline-none focus:border-primary/35"
-                          title={tt("Raw chat token threshold for story summary compaction", "剧情摘要压缩的原始聊天 token 阈值")}
+                          title={tt("Older scenes get folded into the recap once raw chat grows past this.", "原文超过这个长度后，更早的场景会被折进前情提要。")}
                         />
                         <button
                           onClick={handleApplySummaryTrigger}
@@ -1404,7 +1391,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                         </button>
                       </div>
                       <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] font-semibold uppercase tracking-wide text-white/25">{tt("Raw kept tokens", "保留原文 tokens")}</span>
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-white/25">{tt("Story memory, this story", "本篇剧情记忆")}</span>
                         <input
                           type="number"
                           min={MIN_SUMMARY_RECENT_TAIL_TOKENS}
@@ -1417,7 +1404,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                             if (e.key === "Enter") handleApplySummaryRecentTail();
                           }}
                           className="h-8 w-32 rounded-lg border border-white/[0.08] bg-black/25 px-3 text-[11px] font-semibold text-white/70 outline-none focus:border-primary/35"
-                          title={tt("Recent raw chat tokens kept after summary compression", "摘要压缩后保留的最近原始聊天 tokens")}
+                          title={tt("How much recent chat this story keeps word for word. Overrides your global story memory setting.", "本篇逐字保留多少最近对话。会覆盖设置里的全局剧情记忆。")}
                         />
                         <button
                           onClick={handleApplySummaryRecentTail}
@@ -1430,7 +1417,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                         <div className="mt-3 rounded-lg border border-white/[0.06] bg-black/18 p-3">
                           <div className="mb-2 flex items-center justify-between gap-3">
                             <div>
-                              <p className="text-[11px] font-semibold text-white/70">{tt("Raw chat context", "原始聊天上下文")}</p>
+                              <p className="text-[11px] font-semibold text-white/70">{tt("Chat waiting to be compressed", "待压缩的对话")}</p>
                               <p className="mt-0.5 text-[10px] text-white/35">
                                 {formatTokenCount(rawProgress.currentTokens)} / {formatTokenCount(rawProgress.triggerTokens)} tokens
                               </p>
@@ -1441,7 +1428,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                                 {rawProgress.canCompactNow
                                   ? tt("Ready", "就绪")
                                   : rawProgress.remainingTokens <= 0
-                                    ? tt("Raw chat not yet beyond kept tail", "原文未超过保留量")
+                                    ? tt("Still fits in story memory", "还没超过剧情记忆")
                                     : tt(`${formatTokenCount(rawProgress.remainingTokens)} left`, `还差 ${formatTokenCount(rawProgress.remainingTokens)}`)}
                               </p>
                             </div>
@@ -1454,12 +1441,15 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
                               style={{ width: `${rawProgressPercent}%` }}
                             />
                           </div>
-                          <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-white/35">
-                            <span>{tt(`${rawProgress.messageCount} raw messages`, `${rawProgress.messageCount} 条原始消息`)}</span>
-                            <span>{tt(`${rawProgress.assistantMessageCount} AI replies`, `${rawProgress.assistantMessageCount} 条 AI 回复`)}</span>
-                            <span>{tt(`${rawProgress.userMessageCount} user messages`, `${rawProgress.userMessageCount} 条用户消息`)}</span>
-                            <span>{tt(`${formatTokenCount(rawProgress.recentTailTokens)} kept after compression`, `压缩后保留 ${formatTokenCount(rawProgress.recentTailTokens)}`)}</span>
-                          </div>
+                          {/* The bar above already gives current, limit, percent
+                              and remaining. Message counts answered a question
+                              nobody was asking. */}
+                          <p className="mt-2 text-[10px] text-white/35">
+                            {tt(
+                              `${formatTokenCount(rawProgress.recentTailTokens)} stays word for word`,
+                              `逐字保留 ${formatTokenCount(rawProgress.recentTailTokens)}`,
+                            )}
+                          </p>
                         </div>
                       )}
                       </details>

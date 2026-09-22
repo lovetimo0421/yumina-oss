@@ -72,10 +72,8 @@
     "title": "Generation Config",
     "subtitle": "Global defaults for AI generation",
     "resetDefaults": "Reset to defaults",
-    "contextSize": "Per-turn context cap",
     "contextSizeTokens_one": "{{count}} token",
     "contextSizeTokens": "{{count}} tokens",
-    "contextSizeDesc": "Total tokens the AI sees per turn: persona, world, lorebook, and chat history combined (4,096 - 2,000,000). Heavier setup leaves less room for chat history.",
     "contextCapped": "Capped at {{limit}} on your plan",
     "contextUpgrade": "Upgrade for more context",
     "responseLength": "Response Length",
@@ -88,8 +86,6 @@
     "streaming": "Streaming",
     "streamingDesc": "Show AI responses as they generate",
     "streamingBypass": "Disable to bypass filters",
-    "memory": "Memory",
-    "memoryDesc": "How many tokens the AI remembers (higher = more credits)",
     "advancedParams": "Advanced Parameters",
     "topP": "Top P",
     "narrow": "Narrow (0)",
@@ -116,7 +112,15 @@
       "mediumDesc": "More deliberate reasoning for most sessions.",
       "high": "High",
       "highDesc": "Deepest reasoning, slower but more thoughtful."
-    }
+    },
+    "storyMemory": "Story memory",
+    "storyMemorySuggested": "suggested",
+    "storyMemoryDesc": "How much past conversation is kept. Older scenes become a recap. The world's lorebook does not count against this.",
+    "overallLimit": "Overall limit",
+    "overallUncapped": "As high as it goes",
+    "overallLimitDesc": "Total per request, world included. Leave it uncapped.",
+    "overallLimitCapped": "The biggest world your plan carries. Anything over is trimmed; story memory is untouched.",
+    "storyMemoryShort": "Past conversation kept"
   },
   "aiProvider": {
     "yuminaApi": "Yumina API",
@@ -189,8 +193,9 @@
       "supplyAboveFloor": "Daily supply: auto-refills if balance drops below {{floor}}",
       "supplyInfoAria": "View daily supply mechanism details",
       "supplyInfoTitle": "About Daily Supply",
+      "supplyTitle": "Daily supply",
       "supplyInfoClose": "Close",
-      "supplyInfoBody": "Every day at 20:00 UTC — the same reset as daily check-in, the same for everyone — we check your balance. If it's below your plan's floor, we auto-refill to the floor. Above floor → nothing happens.",
+      "supplyInfoBody": "Every day at 20:00 UTC — the same reset as your daily quests, the same for everyone — we check your balance. If it's below your plan's floor, we auto-refill to the floor. Above floor → nothing happens.",
       "supplyInfoFloorLabel": "Per-plan floor",
       "supplyInfoCurrent": "you",
       "supplyInfoNote": "Note: this is \"restore to floor\", not \"add X to balance\". E.g. balance 750 → 800 only credits +50.",
@@ -237,8 +242,8 @@
         "hint": "Finish a turn on a model you didn't use yesterday."
       },
       "community": {
-        "title": "Say something",
-        "hint": "Post, reply or like in the community."
+        "title": "Visit the community",
+        "hint": "Spend a minute in the Community tab."
       },
       "invite": {
         "title": "Invite a friend",
@@ -290,7 +295,7 @@
       "admin": "Admin",
       "refund": "Refund",
       "expire": "Expired",
-      "check_in": "Check-in",
+      "check_in": "Quest",
       "daily_recovery": "Daily Supply",
       "reward": "Post Reward",
       "referral_reward": "Friend-invite Reward",
@@ -406,7 +411,8 @@
       "openai_gpt_4_1": "Follows detailed settings without extra reasoning",
       "anthropic_claude_opus_4_5": "Older Opus for a different writing style"
     },
-    "avgCostPerChatRange": "typically {{typical}} · up to {{heavy}} mushies / reply"
+    "avgCostPerChatRange": "typically {{typical}} · up to {{heavy}} mushies / reply",
+    "pilePerMonth": "{{amount}} a month"
   },
   "summary": {
     "chooseModel": "Choose Model",
@@ -552,7 +558,6 @@
     "mushiesReceived": "You received {{amount}} mushies",
     "codeRedeemed": "Invite code redeemed",
     "title": "Invite Friends",
-    "subtitle": "Share Yumina with your friends.",
     "inviteLink": "Invite Link",
     "copyLink": "Copy Link",
     "inviteCode": "Invite Code",
@@ -781,7 +786,7 @@
     "session": {
       "current": "Current persona: {{name}}",
       "following": "Follow current persona",
-      "followingHint": "This session changes whenever you switch personas in Settings or elsewhere.",
+      "followingHint": "This session follows the persona selected in your profile. Choosing one here applies only to this save.",
       "locked": "Lock persona for this session",
       "lockedHint": "This session keeps this persona when your account selection changes.",
       "saveError": "Could not save the session persona. Please try again."
@@ -957,7 +962,8 @@
   },
   "questBoard": {
     "title": "Quests",
-    "unavailable": "This account uses daily check-ins; the quest board does not apply.",
+    "unavailable": "The quest board is not available on this account.",
+    "legacyNotice": "Daily check-ins are now quests for everyone. Same daily reset, rewards sized by your plan, and they expire at the end of next month. Your daily supply is unchanged and stays on the wallet card.",
     "thisCycle": "This cycle",
     "claimedToday": "Claimed today",
     "todayWorth": "Today's total",
@@ -997,8 +1003,8 @@
         "hint": "Add any world to your favorites."
       },
       "community": {
-        "title": "Say something",
-        "hint": "Post, reply or like in the community."
+        "title": "Visit the community",
+        "hint": "Spend a minute in the Community tab."
       },
       "world_depth": {
         "title": "Play {{n}} turns in one world",
@@ -1027,10 +1033,6 @@
       "week_dailies": {
         "title": "Claim {{n}} daily quests this week",
         "hint": "Every daily quest you claim counts once."
-      },
-      "invite_day": {
-        "title": "Someone used your invite code today",
-        "hint": "One slot a day."
       },
       "week_active_friends": {
         "title": "Invite {{n}} active friends this week",

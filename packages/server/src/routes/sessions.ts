@@ -1,4 +1,5 @@
 import { playtimeDecision } from "../lib/playtime-policy.js";
+import { discoveryIdentity, prepareDiscoveryOutcome, recordDiscoveryOutcome } from "../lib/discovery-outcomes.js";
 import { deleteSessionsKeepingUsage } from "../lib/delete-sessions.js";
 import { PLAY_ENGAGEMENT_LUA } from "../lib/play-engagement.js";
 import { redis } from "../lib/redis.js";
@@ -52,7 +53,7 @@ async function touchLibraryLastPlayed(userId: string, worldId: string, playedAt:
 // POST /api/sessions — create session
 sessionRoutes.post("/", async (c) => {
   const currentUser = c.get("user");
-  const body = await c.req.json<{ worldId: string; name?: string; ephemeral?: boolean; adminPreview?: boolean }>();
+  const body = await c.req.json<{ worldId: string; name?: string; ephemeral?: boolean; adminPreview?: boolean; discoveryAttribution?: unknown }>();
 
   if (!body.worldId) {
     return c.json({ error: "worldId is required" }, 400);
@@ -193,7 +194,9 @@ sessionRoutes.post("/", async (c) => {
     // A session and its opening message are one logical record. Previously the
     // session committed first, so a greeting insert failure left an orphan chat
     // in the session list while the API returned 500.
+    const identity = await discoveryIdentity(c, currentUser.id);
     session = await db.transaction(async (tx) => {
+      const attribution = body.ephemeral ? null : await prepareDiscoveryOutcome(tx, body.discoveryAttribution, identity, world);
       const [createdSession] = await tx
         .insert(playSessions)
         .values({
@@ -221,6 +224,7 @@ sessionRoutes.post("/", async (c) => {
         });
       }
 
+      await recordDiscoveryOutcome(tx, attribution, "session_started", createdSession.id);
       return createdSession;
     });
   } catch (err) {
@@ -518,7 +522,7 @@ sessionRoutes.delete("/:id", async (c) => {
   return c.json({ data: { deleted: true } });
 });
 
-// PUT /api/sessions/:id/persona — unlocked in-chat selection updates the shared profile persona.
+// PUT /api/sessions/:id/persona — in-chat selection overrides only this save.
 sessionRoutes.put("/:id/persona", async (c) => {
   const currentUser = c.get("user");
   const sessionId = c.req.param("id");
@@ -1896,7 +1900,7 @@ sessionRoutes.post("/:id/playtime", async (c) => {
   try {
     const result=await db.transaction(async tx=>{
       await tx.execute(sql`SET LOCAL lock_timeout = '250ms'`);
-      const [session]=await tx.select({id:playSessions.id,worldId:playSessions.worldId,leaseId:playSessions.playtimeLeaseId,
+      const [session]=await tx.select({id:playSessions.id,worldId:playSessions.worldId,leaseId:playSessions.playtimeLeaseId,ephemeral:playSessions.ephemeral,
         seenAt:playSessions.playtimeLastSeenAt,syncedAt:playSessions.lastHeartbeatAt}).from(playSessions)
         .where(and(eq(playSessions.id,sessionId),eq(playSessions.userId,currentUser.id))).for("update");
       if(!session)return null;
@@ -1918,8 +1922,15 @@ sessionRoutes.post("/:id/playtime", async (c) => {
         const end=decision.syncedAt ?? now;
         const start=new Date(+end-decision.deltaSeconds*1000);
         const id=`${sessionId}:${leaseId}:${session.syncedAt!.toISOString()}`;
-        await tx.execute(sql`INSERT INTO analytics_play_intervals (id,user_id,world_id,started_at,ended_at)
-          VALUES (${id},${currentUser.id},${session.worldId},${start.toISOString()},${end.toISOString()}) ON CONFLICT (id) DO NOTHING`);
+        if (process.env.DISCOVERY_MEASUREMENT_ENABLED === "true") {
+          const [playedWorld] = await tx.select({creatorId:worlds.creatorId,status:worlds.status}).from(worlds).where(eq(worlds.id,session.worldId));
+          const consumerEligible = !session.ephemeral && playedWorld?.status === "published" && playedWorld.creatorId !== currentUser.id;
+          await tx.execute(sql`INSERT INTO analytics_play_intervals (id,user_id,world_id,started_at,ended_at,session_id,consumer_eligible)
+            VALUES (${id},${currentUser.id},${session.worldId},${start.toISOString()},${end.toISOString()},${session.id},${consumerEligible}) ON CONFLICT (id) DO NOTHING`);
+        } else {
+          await tx.execute(sql`INSERT INTO analytics_play_intervals (id,user_id,world_id,started_at,ended_at)
+            VALUES (${id},${currentUser.id},${session.worldId},${start.toISOString()},${end.toISOString()}) ON CONFLICT (id) DO NOTHING`);
+        }
       }
       return decision;
     });

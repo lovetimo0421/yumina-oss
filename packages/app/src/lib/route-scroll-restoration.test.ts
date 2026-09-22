@@ -9,6 +9,7 @@ import {
   restoreScrollPositions,
   suspendRouteScrollCapture,
   writeRouteScrollSnapshot,
+  prepareRouteScrollRestoration,
 } from "./route-scroll-restoration.js";
 import type { HistoryEntryStateStorage } from "./history-entry-state.js";
 
@@ -21,6 +22,40 @@ class MemoryStorage implements HistoryEntryStateStorage {
   removeItem(key: string) { this.values.delete(key); }
   setItem(key: string, value: string) { this.values.set(key, value); }
 }
+
+test("DM owns its scroll position in both router caches, including old saved offsets", () => {
+  const dom = new JSDOM('<div data-scroll-restoration-id="dm-conversation-messages"></div><div data-scroll-restoration-id="dm-conversation-list"></div>');
+  const storage = new MemoryStorage();
+  const selector = '[data-scroll-restoration-id="dm-conversation-messages"]';
+  const listSelector = '[data-scroll-restoration-id="dm-conversation-list"]';
+  const transcript = dom.window.document.querySelector<HTMLElement>(selector)!;
+  const list = dom.window.document.querySelector<HTMLElement>(listSelector)!;
+  const globals = { window: dom.window, document: dom.window.document, sessionStorage: storage };
+  const previous = new Map(Object.keys(globals).map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, value });
+  for (const element of [transcript, list]) {
+    Object.defineProperty(element, "clientHeight", { value: 500 });
+    Object.defineProperty(element, "scrollHeight", { value: 5000 });
+  }
+  try {
+    transcript.scrollTop = 2500;
+    assert.equal(captureRegisteredScrollPositions().some((position) => position.selector === selector), false);
+    assert.equal(restoreScrollPositions([{ selector, top: 900, left: 0 }, { selector: listSelector, top: 300, left: 0 }]), true);
+    assert.equal(transcript.scrollTop, 2500);
+    assert.equal(list.scrollTop, 300, "normal route restoration stays enabled for the conversation list");
+    storage.setItem("tsr-scroll-restoration-v1_3", JSON.stringify({ oldEntry: { [selector]: { scrollY: 900, scrollX: 0 }, [listSelector]: { scrollY: 300, scrollX: 0 } } }));
+    assert.equal(prepareRouteScrollRestoration(), true);
+    const cache = JSON.parse(storage.getItem("tsr-scroll-restoration-v1_3")!);
+    assert.equal(cache.oldEntry[selector], undefined);
+    assert.equal(cache.oldEntry[listSelector].scrollY, 300);
+  } finally {
+    dom.window.close();
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
 
 test("an overlay cannot save its scroll offset into the underlying route's history", () => {
   const dom = new JSDOM('<div data-scroll-restoration-id="community-main"></div>');

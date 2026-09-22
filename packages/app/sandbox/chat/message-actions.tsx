@@ -136,7 +136,6 @@ export function MessageActions({
     setConfirmRevert(false);
     try {
       await api.revertToMessage(message.id);
-      api.showToast(t("revertedToHere"), "success");
     } catch {
       api.showToast(t("failedRevert"), "error");
     }

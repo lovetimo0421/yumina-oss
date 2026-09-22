@@ -1,3 +1,4 @@
+import { IMAGE_MODEL_CAPABILITIES } from "@yumina/shared";
 import { randomUUID } from "node:crypto";
 import type { ReadableStreamReadResult } from "node:stream/web";
 import type { LLMProvider, GenerateParams, StreamChunk, Model, ChatMessage, ToolCall } from "./types.js";
@@ -241,6 +242,7 @@ export function parseGoogleModels(data?: Array<{ id: string }>): Model[] {
     .filter((id) => id.startsWith("gemini-") && !id.includes("-image-") && !id.includes("-live-") && !id.includes("-embedding"))
     .map((id) => ({
       id: `google/${id}`,
+      supportsImages: IMAGE_MODEL_CAPABILITIES[`google/${id}`],
       name: id.replace(/-/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
       contextLength: 1_048_576,
     }));

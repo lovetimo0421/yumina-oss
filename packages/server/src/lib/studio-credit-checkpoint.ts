@@ -139,6 +139,33 @@ export function readStudioCreditCheckpoint(value: unknown): StudioCreditCheckpoi
   return row as StudioCreditCheckpoint;
 }
 
+/**
+ * What a stale checkpoint becomes when the world moved on under it. The
+ * revision guard exists so a result the model computed from an older world is
+ * never applied over a newer editor save — but a preflight step has generated
+ * nothing yet, so it simply continues against the world as it is now, and an
+ * UNPAID generated result is dropped and regenerated: the creator never paid
+ * for it, and the step costs the same to redo as it would have to settle.
+ * A PAID result stays put (null): discarding it would double-charge and
+ * applying it is exactly the overwrite the guard prevents. Before this, every
+ * stale checkpoint was a dead end — 7 days of prod (2026-09-21): 15 runs, 9
+ * creators, rage-clicking a Refresh button that could never change anything.
+ */
+export function rebaseStudioCreditCheckpoint(checkpoint: StudioCreditCheckpoint, revision: string): StudioCreditCheckpoint | null {
+  if (!canRebaseStudioCreditCheckpoint(checkpoint)) return null;
+  const { reason, ...rest } = checkpoint;
+  const kept = reason !== undefined && reason !== "STALE_WORLD" ? { reason } : {};
+  if (checkpoint.phase === "preflight") return { ...rest, ...kept, worldRevision: revision };
+  const { generated: _dropped, ...base } = rest;
+  return { ...base, ...kept, phase: "preflight", worldRevision: revision };
+}
+
+/** A stale checkpoint the creator can still continue from. The DB keeps the
+ * STALE_WORLD diagnostic either way; only the public "resumable" flag differs. */
+export function canRebaseStudioCreditCheckpoint(checkpoint: StudioCreditCheckpoint): boolean {
+  return checkpoint.phase === "preflight" || !checkpoint.generated.settled;
+}
+
 /** Persist an unaffordable step without discarding its already-generated result. */
 export async function pauseStudioForCredits(
   scope: StudioCreditScope,
@@ -175,6 +202,12 @@ export async function stageStudioCreditIteration(
   scope: StudioCreditScope,
   checkpoint: StudioCreditCheckpoint,
   expectedClaimId?: string,
+  opts?: {
+    /** `pause` (default) parks the run as a stale pause. `reject` reports the
+     *  stale world and writes nothing, for a caller that restarts the step
+     *  itself against the current world instead of stranding the run. */
+    staleWorld?: "pause" | "reject";
+  },
 ) {
   if (!readStudioCreditCheckpoint(checkpoint)) {
     throw new StudioCreditCheckpointError("INVALID_CHECKPOINT");
@@ -191,6 +224,7 @@ export async function stageStudioCreditIteration(
     const current = await worldState(tx, world);
     const { claim: _claim, ...body } = checkpoint;
     if (current.revision !== checkpoint.worldRevision) {
+      if (opts?.staleWorld === "reject") return { ok: false as const, code: "STALE_WORLD" as const };
       // Keep the generated work for inspection, but it may not overwrite a
       // newer editor save. Normal resume will continue to reject this revision.
       await tx.update(agentRuns).set({ status: "awaiting_credits", creditCheckpoint: { ...body, reason: "STALE_WORLD" },
@@ -219,23 +253,33 @@ export async function claimStudioCreditResume(scope: StudioCreditScope) {
     if (!world) return { ok: false as const, code: "NOT_FOUND" as const };
     const [run] = await tx.select().from(agentRuns).where(scopedRun(scope)).for("update");
     if (!run) return { ok: false as const, code: "NOT_FOUND" as const };
-    const checkpoint = readStudioCreditCheckpoint(run.creditCheckpoint);
-    if (!isStudioCreditResumeEligible(run, checkpoint)) return { ok: false as const, code: "NOT_PAUSED" as const };
-    if (!checkpoint) return { ok: false as const, code: "INVALID_CHECKPOINT" as const };
+    const stored = readStudioCreditCheckpoint(run.creditCheckpoint);
+    if (!isStudioCreditResumeEligible(run, stored)) return { ok: false as const, code: "NOT_PAUSED" as const };
+    if (!stored) return { ok: false as const, code: "INVALID_CHECKPOINT" as const };
     const [active] = await tx.select({ id: agentRuns.id }).from(agentRuns)
       .where(and(eq(agentRuns.worldId, scope.worldId), ne(agentRuns.id, scope.runId), eq(agentRuns.status, "running"))).limit(1);
     if (active) return { ok: false as const, code: "ACTIVE_RUN" as const };
     const current = await worldState(tx, world);
-    if (current.revision !== checkpoint.worldRevision) {
-      await tx.update(agentRuns).set({ creditCheckpoint: { ...checkpoint, reason: "STALE_WORLD" } }).where(scopedRun(scope));
-      return { ok: false as const, code: "STALE_WORLD" as const };
+    let checkpoint = stored;
+    let rebased = false;
+    if (current.revision !== stored.worldRevision) {
+      // The creator kept editing while this was paused (that is the normal
+      // case: a pause outlives a save). Continue against the world as it is
+      // now; only a paid, unapplied result must still refuse.
+      const next = rebaseStudioCreditCheckpoint(stored, current.revision);
+      if (!next) {
+        await tx.update(agentRuns).set({ creditCheckpoint: { ...stored, reason: "STALE_WORLD" } }).where(scopedRun(scope));
+        return { ok: false as const, code: "STALE_WORLD" as const };
+      }
+      checkpoint = next;
+      rebased = true;
     }
     const claimId = randomUUID();
     const claimed = { ...checkpoint, claim: { id: claimId, claimedAt: new Date().toISOString() } };
     await tx.update(agentRuns).set({
       status: "running", creditCheckpoint: claimed as unknown as Record<string, unknown>, error: null, updatedAt: new Date(),
     }).where(scopedRun(scope));
-    return { ok: true as const, claimId, run, checkpoint: claimed, workingSchema: current.schema };
+    return { ok: true as const, claimId, run, checkpoint: claimed, workingSchema: current.schema, rebased };
   });
 }
 
@@ -270,6 +314,12 @@ export async function withStudioCreditClaimTransaction<T>(
     status?: "running" | "completed" | "awaiting_credits" | "awaiting_user" | "awaiting_approval" | "error";
     runUpdates?: Pick<Partial<typeof agentRuns.$inferInsert>, "messages" | "iteration" | "textContent" | "committedTurns" | "pendingToolCalls" | "readToolResults" | "error">;
   }>,
+  opts?: {
+    /** The caller applies nothing computed from the checkpoint's world (it
+     *  closes an iteration or consumes the claim), so a newer editor save is
+     *  not a conflict: the next step simply starts from the current world. */
+    rebase?: boolean;
+  },
 ): Promise<{ value: T; checkpoint: StudioCreditCheckpoint | null }> {
   return db.transaction(async tx => {
     const world = await lockedWorld(tx, scope);
@@ -278,7 +328,7 @@ export async function withStudioCreditClaimTransaction<T>(
     const checkpoint = readStudioCreditCheckpoint(run?.creditCheckpoint);
     if (!run || run.status !== "running" || checkpoint?.claim?.id !== claimId) throw new StudioCreditCheckpointError("CLAIM_LOST");
     const current = await worldState(tx, world);
-    if (current.revision !== checkpoint.worldRevision) throw new StudioCreditCheckpointError("STALE_WORLD");
+    if (!opts?.rebase && current.revision !== checkpoint.worldRevision) throw new StudioCreditCheckpointError("STALE_WORLD");
     const result = await work(tx, checkpoint, current.schema);
     const status = result.status ?? "running";
     if (status === "awaiting_credits" && !result.checkpoint) throw new StudioCreditCheckpointError("INVALID_CHECKPOINT");

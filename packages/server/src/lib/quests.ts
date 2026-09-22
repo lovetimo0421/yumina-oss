@@ -6,9 +6,13 @@
  *
  *   DAILY   Six quests form a pool; three of them are on the board each day,
  *           on a fixed weekly schedule so the whole site sees the same three
- *           and every quest comes round several times a week. A fourth card,
- *           the invite quest, is on the board every day. Three chances a day
- *           means no day is lost to "this one I can't do".
+ *           and every quest comes round several times a week. Three chances a
+ *           day means no day is lost to "this one I can't do". There is no
+ *           fourth card: the daily invite card (a signup with your code today,
+ *           fixed 50) came off on 2026-09-22 (owner). In its first day on the
+ *           universal board 36 of roughly 400 daily claimers finished it — for
+ *           everyone else it was a grey card, every day, and the referral
+ *           ladder already pays for invites and counts active friends.
  *
  *   WEEKLY  Four goals that put a THRESHOLD ON WHAT PLAYERS ALREADY DO rather
  *           than asking for new behaviour, plus the weekly invite quest. Every
@@ -27,8 +31,8 @@
  * Two kinds of reward:
  *   - COUNTED quests pay the tier's amount (PLANS_V2.questPayout), scaled by
  *     the global dial and clamped to the cycle cap (questMonthlyCap).
- *   - FIXED quests (both invite quests, every forge rung) pay a set amount at
- *     every tier, scaled only by the dial, and never count against the cap.
+ *   - FIXED quests (the weekly invite quest, every forge rung) pay a set amount
+ *     at every tier, scaled only by the dial, and never count against the cap.
  *
  * Two quests were deliberately NOT included. "Write a review" and "share a
  * playthrough" would pollute the very thing they measure: the site has 478
@@ -45,12 +49,36 @@
 import { and, eq, gt, gte, lt, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import {
-  creditTransactions, creditWallets, favorites, messages, playSessions, posts, questClaims,
-  referralQualifications, threadLikes, threads, usageLogs, user,
+  analyticsActivity, creditTransactions, creditWallets, favorites, messages, playSessions, posts, questClaims,
+  referralQualifications, threadLikes, threads, usageLogs,
 } from "../db/schema.js";
 import { planMeetsMinimum, type PlanId } from "./plan-config.js";
 import { FORGE_RUNGS, INVITE_QUEST_PAYOUT, PLANS_V2, questMultiplierV2, type QuestPayoutTable } from "./plan-config-v2.js";
 import type { LedgerDatabase } from "./transaction-hash.js";
+
+/**
+ * Check-ins are retired for everyone (owner decision 2026-09-21): every wallet,
+ * on either billing lineup, earns its daily rewards on the quest board, sized
+ * by tier. QUESTS_FOR_EVERYONE is the switch:
+ *   unset / 1 / true   → on now
+ *   0 / false / off    → kill switch: version-1 wallets go back to the legacy
+ *                        check-in ladder, no deploy needed
+ *   an ISO instant     → on from that moment. Set it to a 20:00 UTC daily
+ *                        boundary so nobody straddles one day on both systems.
+ */
+export function questsForEveryone(now: Date = new Date()): boolean {
+  const raw = (process.env.QUESTS_FOR_EVERYONE ?? "").trim();
+  const lower = raw.toLowerCase();
+  if (lower === "" || lower === "1" || lower === "true" || lower === "on") return true;
+  if (lower === "0" || lower === "false" || lower === "off") return false;
+  const at = Date.parse(raw);
+  return Number.isFinite(at) ? now.getTime() >= at : true;
+}
+
+/** Does this wallet earn on the quest board, as opposed to the legacy check-in ladder? */
+export function walletUsesQuests(planVersion: number | null | undefined, now: Date = new Date()): boolean {
+  return (planVersion ?? 1) === 2 || questsForEveryone(now);
+}
 
 export type QuestPeriod = "day" | "week" | "cycle";
 
@@ -60,8 +88,7 @@ export type DailyQuestKey =
   | "community"     // post, reply or like
   | "world_depth"   // ten turns inside one world
   | "new_world"     // open a world never played before
-  | "two_models"    // finish turns on two different models
-  | "invite_day";   // someone signed up with your code today (fixed)
+  | "two_models";   // finish turns on two different models
 
 export type WeeklyQuestKey =
   | "week_messages"        // 100 turns across the week
@@ -97,8 +124,14 @@ export const DAILY_POOL: readonly QuestDef[] = [
   { key: "two_models",  period: "day", target: 2,  payout: "dailyHeavy" },
 ];
 
-/** On the board every day, after the three rotating ones. Fixed, outside the cap. */
-export const DAILY_INVITE: QuestDef = { key: "invite_day", period: "day", target: 1, payout: "dailyLight", fixed: INVITE_QUEST_PAYOUT.day };
+/**
+ * Retired quest keys. Rows for them still sit in `quest_claims`, and their
+ * rewards were fixed and outside the cap when they were paid, so they must stay
+ * outside it: without this a player who cleared the old invite card would see
+ * that 50 subtracted from this cycle's board budget. Nothing else reads them.
+ * A claim for one answers QUEST_UNKNOWN (questDef returns null).
+ */
+export const RETIRED_FIXED_QUEST_KEYS: readonly string[] = ["invite_day"];
 
 /**
  * The five weekly goals. All of them are claimable in the same week.
@@ -142,20 +175,14 @@ const DAILY_SCHEDULE: Record<number, readonly DailyQuestKey[]> = {
   7: ["play_3", "favorite", "two_models"],
 };
 
-/** Today's three rotating quests (without the invite card). */
+/** Today's daily board: the three rotating quests. */
 export function dailyBoardFor(weekdayIndex: number): QuestDef[] {
   const slot = (((weekdayIndex - 1) % 7) + 7) % 7 + 1;
   const keys = DAILY_SCHEDULE[slot] ?? DAILY_SCHEDULE[1]!;
   return keys.map((k) => DAILY_POOL.find((q) => q.key === k)).filter((q): q is QuestDef => !!q);
 }
 
-/** Today's full daily board: the three rotating quests, then the invite card. */
-export function dailyBoardWithInvite(weekdayIndex: number): QuestDef[] {
-  return [...dailyBoardFor(weekdayIndex), DAILY_INVITE];
-}
-
 export function questDef(key: string): QuestDef | null {
-  if (key === DAILY_INVITE.key) return DAILY_INVITE;
   return DAILY_POOL.find((q) => q.key === key)
     ?? WEEKLY_BOARD.find((q) => q.key === key)
     ?? CYCLE_BOARD.find((q) => q.key === key)
@@ -314,7 +341,14 @@ export async function questProgress(
           .where(and(eq(favorites.userId, userId), gte(favorites.createdAt, windowStart), lt(favorites.createdAt, windowEnd)))));
 
       case "community": {
-        const [t, p, l] = await Promise.all([
+        // Visiting counts (owner 2026-09-21): about a minute of real activity on
+        // the community pages writes one 'browse-engaged-60s' row per five-minute
+        // bucket (routes/browse-engagement.ts). Posting, replying or liking still
+        // count too, so an active poster never has to go and scroll as well.
+        const [v, t, p, l] = await Promise.all([
+          first(database.select({ n: sql<number>`COUNT(*)` }).from(analyticsActivity)
+            .where(and(eq(analyticsActivity.userId, userId), eq(analyticsActivity.surface, "community"),
+              gte(analyticsActivity.occurredAt, windowStart), lt(analyticsActivity.occurredAt, windowEnd)))),
           first(database.select({ n: sql<number>`COUNT(*)` }).from(threads)
             .where(and(eq(threads.authorId, userId), gte(threads.createdAt, windowStart), lt(threads.createdAt, windowEnd)))),
           first(database.select({ n: sql<number>`COUNT(*)` }).from(posts)
@@ -322,7 +356,7 @@ export async function questProgress(
           first(database.select({ n: sql<number>`COUNT(*)` }).from(threadLikes)
             .where(and(eq(threadLikes.userId, userId), gte(threadLikes.createdAt, windowStart), lt(threadLikes.createdAt, windowEnd)))),
         ]);
-        return finish(t + p + l);
+        return finish(v + t + p + l);
       }
 
       // Deepest single world in the window — the RP shape. Progress is the best
@@ -342,18 +376,14 @@ export async function questProgress(
           ))));
 
       case "week_dailies":
-        // Every daily claim counts, the invite card included — it is on the
-        // daily board, so a player who did four things a day did four.
+        // Every daily claim counts: three a day, so twelve is four full boards.
+        // Claims of the retired invite card still count here; they were daily
+        // claims when they were made.
         return finish(await first(database.select({ n: sql<number>`COUNT(*)` }).from(questClaims)
           .where(and(
             eq(questClaims.userId, userId), eq(questClaims.periodKind, "day"),
             gte(questClaims.claimedAt, windowStart), lt(questClaims.claimedAt, windowEnd),
           ))));
-
-      case "invite_day":
-        // Registrations, not qualified play: one slot a day, a signup is enough.
-        return finish(await first(database.select({ n: sql<number>`COUNT(*)` }).from(user)
-          .where(and(eq(user.referredBy, userId), gte(user.referredAt, windowStart), lt(user.referredAt, windowEnd)))));
 
       case "week_active_friends":
         // Friends whose referral qualification settled as rewarded this week —
@@ -386,10 +416,11 @@ export function countsAgainstCap(quest: QuestDef): boolean {
   return quest.fixed === undefined;
 }
 
-/** Every quest key whose reward is fixed and outside the cap. */
-export const FIXED_QUEST_KEYS: readonly string[] = [DAILY_INVITE, ...WEEKLY_BOARD, ...CYCLE_BOARD]
-  .filter((q) => !countsAgainstCap(q))
-  .map((q) => q.key);
+/** Every quest key whose reward is fixed and outside the cap, retired ones included. */
+export const FIXED_QUEST_KEYS: readonly string[] = [
+  ...[...WEEKLY_BOARD, ...CYCLE_BOARD].filter((q) => !countsAgainstCap(q)).map((q) => q.key),
+  ...RETIRED_FIXED_QUEST_KEYS,
+];
 
 /** What one quest pays this wallet, before the cycle cap. */
 export function questReward(plan: PlanId, quest: QuestDef): number {
@@ -443,13 +474,12 @@ export async function claimedInPeriod(
 /** Guard for the claim route: is this key actually on today's board? */
 export function isOnBoard(quest: QuestDef, weekdayIndex: number): boolean {
   if (quest.period === "week" || quest.period === "cycle") return true;
-  return dailyBoardWithInvite(weekdayIndex).some((q) => q.key === quest.key);
+  return dailyBoardFor(weekdayIndex).some((q) => q.key === quest.key);
 }
 
 /** Every key the boards can produce — used to keep the i18n bundles honest. */
 export const ALL_QUEST_KEYS: readonly QuestKey[] = [
   ...DAILY_POOL.map((q) => q.key),
-  DAILY_INVITE.key,
   ...WEEKLY_BOARD.map((q) => q.key),
   ...CYCLE_BOARD.map((q) => q.key),
 ];

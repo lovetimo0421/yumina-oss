@@ -71,6 +71,113 @@ test("Home Screen native reading pages fill the window without following keyboar
   assert.equal(h.root.style.getPropertyValue("--mobile-viewport-top"), "");
   assert.equal(h.root.style.getPropertyValue("--keyboard-inset"), "0px");
 });
+
+test("Home Screen iframes fill the layout viewport when innerHeight reports only the safe content height", (t) => {
+  const h = viewportHarness(t, undefined, false, true);
+  Object.defineProperty(h.root, "clientHeight", { configurable: true, value: 852 });
+  h.height(793);
+  h.vv.height = 793;
+  h.win.dispatchEvent(new h.win.Event("pageshow"));
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "852px");
+  const iframe = h.win.document.createElement("iframe");
+  h.win.document.body.appendChild(iframe);
+  iframe.focus();
+  h.vv.height = 480;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "480px", "a real keyboard still bounds the focused iframe");
+  h.height(480);
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "480px", "a shrinking innerHeight cannot hide a keyboard that still covers the layout viewport");
+  h.height(793);
+  h.vv.height = 793;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "852px", "dismissal restores the bottom even while iframe focus remains");
+  h.height(393);
+  Object.defineProperty(h.root, "clientHeight", { value: 393 });
+  h.vv.height = 393;
+  h.win.dispatchEvent(new h.win.Event("orientationchange"));
+  h.settle();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "393px");
+});
+
+test("native page content and browser tabs cannot inflate the fixed viewport baseline", (t) => {
+  for (const page of [undefined, "settings-main"] as const) {
+    const h = viewportHarness(t, page, false, page !== undefined);
+    Object.defineProperty(h.root, "clientHeight", { value: 3000 });
+    h.win.dispatchEvent(new h.win.Event("pageshow"));
+    assert.equal(h.root.style.getPropertyValue("--mobile-vh"), page ? "844px" : "");
+  }
+});
+
+test("legacy vh fills Home Screen when both JavaScript heights exclude its safe area", (t) => {
+  const h = viewportHarness(t, undefined, false, true);
+  h.height(793);
+  h.vv.height = 793;
+  Object.defineProperty(h.root, "clientHeight", { value: 793 });
+  const probe = h.win.document.querySelector<HTMLElement>("[data-mobile-full-height-probe]")!;
+  assert.equal(probe.style.height, "100vh");
+  let fullHeight = 852;
+  probe.getBoundingClientRect = () => ({ height: fullHeight } as DOMRect);
+  h.win.dispatchEvent(new h.win.Event("pageshow"));
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "852px", "innerHeight/clientHeight alone leave the photographed bottom band");
+  h.win.document.querySelector("input")!.focus();
+  h.vv.height = 480;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "480px", "legacy vh must not cover an open keyboard");
+  h.vv.height = 793;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "852px");
+  fullHeight = 900;
+  h.visibility("hidden");
+  h.visibility("visible");
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "900px", "resume remeasures rather than keeping a stale full height");
+  h.cleanup();
+  assert.equal(probe.isConnected, false);
+});
+
+test("new document pages retain native keyboard handling and Create can switch to its editor", (t) => {
+  for (const page of ["settings-main", "admin-main", "create-picker"] as const) {
+    const h = viewportHarness(t, page, false, true);
+    h.root.scrollTop = 350;
+    h.win.document.querySelector("input")!.focus();
+    h.vv.height = 500;
+    h.vv.offsetTop = 60;
+    h.vv.dispatchEvent(new h.win.Event("resize"));
+    h.frame();
+    assert.equal(h.root.getAttribute("data-mobile-page-scroll"), page);
+    assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "844px");
+    assert.equal(h.root.style.getPropertyValue("--mobile-viewport-top"), "");
+    assert.equal(h.root.scrollTop, 350);
+    h.cleanup();
+    if (page === "create-picker") {
+      const closeEditor = mobileViewport.installMobileViewport(h.win as unknown as Window);
+      assert.equal(h.root.hasAttribute("data-mobile-page-scroll"), false);
+      assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "500px", "the editor must regain its keyboard-sized pane at the same URL");
+      closeEditor();
+    }
+  }
+});
+
+test("Home Screen panels fill the window when the keyboard closes but focus remains", (t) => {
+  const h = viewportHarness(t, undefined, false, true);
+  h.win.document.querySelector("input")!.focus();
+  h.vv.height = 500;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "500px");
+  h.vv.height = 810;
+  h.vv.offsetTop = 0;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--keyboard-inset"), "0px");
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "844px", "a focused field must not leave a home-indicator band after keyboard dismissal");
+  assert.equal(h.root.style.getPropertyValue("--mobile-viewport-top"), "");
+});
 test("browser chrome expansion is not mistaken for the soft keyboard", () => {
   assert.equal(
     calculateSoftKeyboardInset({

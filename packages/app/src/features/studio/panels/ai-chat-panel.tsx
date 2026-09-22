@@ -38,6 +38,7 @@ import { StreamingText } from "../components/streaming-text";
 import { ProposalCard } from "../components/proposal-card";
 import { CreditPauseCard } from "../components/credit-pause-card";
 import { ImageProposalCard } from "../components/image-proposal-card";
+import { ImageBatchProposalCard } from "../components/image-batch-proposal-card";
 import { useTranslation } from "react-i18next";
 import { feedback } from "@/lib/feedback";
 import { classifyUsage, estimateHistoryTokens, getContextBudget, type ContextHealth } from "../lib/context-tokens";
@@ -252,6 +253,7 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
   const creditPauseError = useStudioStore(s => s.creditPauseError);
   const resumeCreditPause = useStudioStore(s => s.resumeCreditPause);
   const refreshCreditPause = useStudioStore(s => s.refreshCreditPause);
+  const restartFromPause = useStudioStore(s => s.restartFromPause);
   const agentIteration = useStudioStore(s => s.agentIteration);
   const agentMaxIterations = useStudioStore(s => s.agentMaxIterations);
   const reasoningChars = useStudioStore(s => s.reasoningChars);
@@ -264,6 +266,10 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
   const rejectProposal = useStudioStore(s => s.rejectProposal);
   const _pendingApproval = useStudioStore(s => s._pendingApproval);
   const _pendingImage = useStudioStore(s => s._pendingImage);
+  const _pendingImageBatch = useStudioStore(s => s._pendingImageBatch);
+  const updateImageBatchProposal = useStudioStore(s => s.updateImageBatchProposal);
+  const chatWorldId = useStudioStore(s => s.chatWorldId);
+  const chatConversationId = useStudioStore(s => s.chatConversationId);
   const confirmImageProposal = useStudioStore(s => s.confirmImageProposal);
   const declineImageProposal = useStudioStore(s => s.declineImageProposal);
   const chatAttachments = useStudioStore(s => s.chatAttachments);
@@ -463,6 +469,7 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
         isAgentWorking: false,
         _pendingApproval: null,
         _pendingImage: null,
+        _pendingImageBatch: null,
         _currentRunId: null,
         creditPause: null,
         creditPauseError: null,
@@ -855,6 +862,17 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
                       onDecline={declineImageProposal}
                     />
                   )}
+                  {msg.imageBatchProposal && serverWorldId && chatWorldId === serverWorldId && (
+                    <ImageBatchProposalCard
+                      key={`${serverWorldId}:${chatConversationId}:${msg.imageBatchProposal.runId}:${msg.imageBatchProposal.toolCallId}`}
+                      proposal={msg.imageBatchProposal}
+                      worldId={serverWorldId}
+                      conversationId={chatConversationId}
+                      interactive={_pendingImageBatch?.runId === msg.imageBatchProposal.runId
+                        && _pendingImageBatch?.toolCallId === msg.imageBatchProposal.toolCallId}
+                      onUpdate={proposal => updateImageBatchProposal(serverWorldId, chatConversationId, proposal)}
+                    />
+                  )}
                 </>
               )}
             </div>
@@ -957,6 +975,7 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
             onTopUp={() => { const href = getPlansHref("packs"); if (href) window.open(href, "_blank", "noopener,noreferrer"); }}
             onResume={() => { if (!conversationLoadingRef.current) void resumeCreditPause(); }}
             onRefresh={() => { void refreshCreditPause(visibleCreditPause.worldId, visibleCreditPause.conversationId, visibleCreditPause.runId); }}
+            onRestart={() => { if (serverWorldId && !conversationLoadingRef.current) void restartFromPause(serverWorldId, model, activeConversationId); }}
           />
         )}
 

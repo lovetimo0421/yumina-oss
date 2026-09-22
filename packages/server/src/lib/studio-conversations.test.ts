@@ -494,6 +494,41 @@ describe("studio conversation world scoping", () => {
 
     assert.deepEqual(history, []);
   });
+
+  it("restores a tool-only batch card after disconnect, trusts run status, and respects a later undo", async () => {
+    const runId = crypto.randomUUID();
+    const imageBatchProposal = {
+      runId, toolCallId: "batch-call", model: "google/gemini-3.1-flash-image-preview",
+      aspectRatio: "1:1", textContent: "", unitMushies: 35, estimatedMushies: 35,
+      items: [{ id: "red", label: "Red hair", prompt: "A girl with red hair" }],
+    };
+    // Use the supported model from the real normalizer rather than a test-only provider.
+    const { SMART_IMAGE_MODEL } = await import("@yumina/shared");
+    imageBatchProposal.model = SMART_IMAGE_MODEL;
+    await db.insert(agentRuns).values({
+      id: runId, userId, worldId: worldAId, conversationId: convAId,
+      status: "awaiting_approval", model: "test-model", messages: [],
+      context: { imageBatchProposal },
+      committedTurns: [{ iteration: 0, textContent: "", lane: "answer", commitId: "batch-commit", createdAt: new Date().toISOString() }],
+    });
+    const scope = { userId, worldId: worldAId, conversationId: convAId };
+    const loaded = await loadStudioConversationForDisplay(scope);
+    const card = loaded!.messages.find(message => message.agentRunId === runId)!;
+    assert.ok(card, "a tool-only response still has a persisted confirmation card");
+    assert.equal(card.content, "");
+    assert.equal((card.imageBatchProposal as { status: string }).status, "pending");
+
+    await updateStudioConversationForWorld({ ...scope, updates: { messages: loaded!.messages } });
+    await db.update(agentRuns).set({ status: "completed", context: { imageBatchProposal, imageBatchSubmitted: true } })
+      .where(eq(agentRuns.id, runId));
+    const restored = await loadStudioConversationForDisplay(scope);
+    const restoredCard = restored!.messages.find(message => message.agentRunId === runId)!;
+    assert.equal((restoredCard.imageBatchProposal as { status: string }).status, "submitted",
+      "the stale saved pending card cannot override the authoritative submission");
+
+    await updateStudioConversationForWorld({ ...scope, updates: { messages: [], updatedAt: new Date(Date.now() + 60_000) } });
+    assert.deepEqual((await loadStudioConversationForDisplay(scope))!.messages, [], "undo does not resurrect the batch card");
+  });
 });
 
 describe("serverOwnedStudioRunsToAgentHistory", () => {

@@ -132,6 +132,14 @@ export function installMobileViewport(
   safeAreaProbe.style.cssText =
     "position:fixed;bottom:0;left:0;width:0;height:env(safe-area-inset-bottom,0px);visibility:hidden;pointer-events:none;";
   document.body.appendChild(safeAreaProbe);
+  // WebKit's installed-app safe-content measurements can ALL omit the status
+  // area (innerHeight and clientHeight included). Measure legacy vh separately:
+  // https://bugs.webkit.org/show_bug.cgi?id=254868#c2
+  const fullHeightProbe = document.createElement("div");
+  fullHeightProbe.setAttribute("data-mobile-full-height-probe", "");
+  fullHeightProbe.style.cssText =
+    "position:absolute;top:0;left:0;width:0;height:100vh;visibility:hidden;pointer-events:none;";
+  document.body.appendChild(fullHeightProbe);
 
   let frame: number | null = null;
   let scrollFrame: number | null = null;
@@ -151,12 +159,21 @@ export function installMobileViewport(
   const write = (property: string, value: string) => {
     if (root.style.getPropertyValue(property) !== value) root.style.setProperty(property, value);
   };
+  const isStandalone = () => displayMode?.matches ||
+    (view.navigator as Navigator & { standalone?: boolean }).standalone === true;
+  // Use one baseline for idle size and keyboard detection. Some engines resize
+  // innerHeight for the keyboard before resizing the actual layout viewport.
+  const getLayoutHeight = () => isStandalone() && !usesDocumentScroll()
+    ? Math.max(view.innerHeight, root.clientHeight, fullHeightProbe.getBoundingClientRect().height) : view.innerHeight;
   const updateIdleHeight = () => {
-    const standalone = displayMode?.matches ||
-      (view.navigator as Navigator & { standalone?: boolean }).standalone === true;
-    if (!standalone) root.style.removeProperty("--mobile-vh");
+    if (!isStandalone()) root.style.removeProperty("--mobile-vh");
     else if ((!vv || vv.scale === 1) && Number.isFinite(view.innerHeight) && view.innerHeight > 0) {
-      write("--mobile-vh", `${view.innerHeight}px`);
+      // WebKit can report the safe content height as innerHeight while the
+      // fixed layout viewport still extends farther down the Home Screen.
+      // Use the actual layout viewport as well, never screen.height (which
+      // could include areas outside a window). Native pages have auto-height
+      // roots, so their clientHeight must not size a viewport from page content.
+      write("--mobile-vh", `${getLayoutHeight()}px`);
     }
   };
   const stopKeyboardTimer = () => {
@@ -221,7 +238,7 @@ export function installMobileViewport(
     }
     // Zoom must magnify the existing layout, not resize it to the zoomed viewport.
     if (vv && vv.scale !== 1) return;
-    const layoutHeight = view.innerHeight;
+    const layoutHeight = getLayoutHeight();
     const visualHeight = vv?.height ?? layoutHeight;
     // Transient zero/invalid geometry during restore must never collapse the app.
     if (!Number.isFinite(layoutHeight) || layoutHeight <= 0 ||
@@ -240,7 +257,10 @@ export function installMobileViewport(
     const height = Math.round(visualHeight);
     const previousHeight = Number.parseFloat(root.style.getPropertyValue("--mobile-vh"));
     write("--keyboard-inset", `${inset}px`);
-    if (textEntryFocused && vv) {
+    // Home Screen's visual viewport can exclude the home indicator even with
+    // no keyboard. Focus can survive keyboard dismissal (including in a game
+    // iframe); only a real keyboard may shorten its full-window shell.
+    if (textEntryFocused && vv && (!isStandalone() || inset > 0)) {
       write("--mobile-vh", `${height}px`);
       // iOS can pan the visual viewport to reveal a field. Keep the fixed
       // shell at that origin without transforming its fixed/portal children.
@@ -425,6 +445,7 @@ export function installMobileViewport(
     document.removeEventListener("focusout", settle);
     document.removeEventListener("scroll", onOuterScroll, { capture: true });
     safeAreaProbe.remove();
+    fullHeightProbe.remove();
     root.style.removeProperty("--keyboard-inset");
     root.style.removeProperty("--mobile-vh");
     root.style.removeProperty("--mobile-viewport-top");

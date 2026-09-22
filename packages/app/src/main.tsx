@@ -10,7 +10,7 @@ import {
   clearChunkErrorFlag,
 } from "@/lib/stale-chunk-reload";
 import { installAudioUnlock } from "@/lib/ios-audio-unlock";
-import { installRouteScrollRestoration } from "@/lib/route-scroll-restoration";
+import { installRouteScrollRestoration, prepareRouteScrollRestoration } from "@/lib/route-scroll-restoration";
 import { installDeployRefresh } from "@/lib/deploy-refresh";
 import { clearReadingPageBootstrap } from "@/lib/reading-page-canvas";
 import posthog from "posthog-js";
@@ -354,7 +354,7 @@ const router = createRouter({
   defaultErrorComponent: RouteErrorFallback,
   // Router-owned entries keep window and nested scroller positions keyed to
   // the exact history entry, so safe Back navigation restores page position.
-  scrollRestoration: true,
+  scrollRestoration: prepareRouteScrollRestoration,
   // Keep old route visible while new route loads (prevents black flash)
   defaultPendingMs: 0,
   defaultPendingMinMs: 0,

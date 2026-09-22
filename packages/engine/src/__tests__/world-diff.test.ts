@@ -39,6 +39,16 @@ describe("diffWorldSchemas", () => {
     expect(detail.changes[0]!.fields).toContainEqual({ field: "content", before: "很安静", after: "传来脚步声" });
   });
 
+  it("includes character portrait replacements in the reviewer diff", () => {
+    const character = { id: "alice", name: "Alice", role: "character", content: "An explorer" };
+    const before = w({ entries: [{ ...character, portrait: "@asset:old" } as any] });
+    const after = w({ entries: [{ ...character, portrait: "@asset:new" } as any] });
+    expect(diffWorldSchemas(before, after, { detail: true }).changes[0]).toMatchObject({
+      kind: "entry", op: "modified", id: "alice",
+      fields: [{ field: "portrait", before: "@asset:old", after: "@asset:new" }],
+    });
+  });
+
   it("falls back to id when name is absent", () => {
     const prev = w({ rules: [] });
     const next = w({ rules: [{ id: "r1", enabled: true } as any] });

@@ -338,7 +338,7 @@
     "worldNotFound": "Mundo no encontrado",
     "backToHub": "Volver al Hub",
     "signUpToPlay": "Regístrate para jugar",
-    "signUpToStart": "Regístrate para comenzar tu aventura",
+    "signUpToStart": "Regístrate para jugar",
     "signInToSend": "Inicia sesión para enviar mensajes"
   },
   "zoom": {
@@ -347,7 +347,7 @@
   },
   "errors": {
     "PROTECTED_WORLD": "El creador de este mundo lo ha protegido contra la extracción de prompts. Solo están disponibles los modelos oficiales de la API de Yumina — no se pueden usar claves API privadas.",
-    "NO_CREDITS": "¡Te has quedado sin mushies! Haz check-in a diario para conseguir créditos gratis, o actualiza tu plan.",
+    "NO_CREDITS": "¡Te has quedado sin mushies! Completa las misiones diarias para conseguir mushies gratis, o actualiza tu plan.",
     "NO_CREDITS_MSG_TOO_EXPENSIVE": "Esta conversación es demasiado larga para tus {{balance}} mushies restantes. Cambia a un modelo más barato o acorta el chat, y vuelve a intentarlo.",
     "MODEL_NOT_ALLOWED": "Este modelo requiere un plan superior. Cambia a un modelo gratuito o actualiza tu plan.",
     "MODEL_SWITCHED_FALLBACK": "Ese modelo no está incluido en tu plan — cambiamos a {{model}} y reenviamos tu mensaje.",

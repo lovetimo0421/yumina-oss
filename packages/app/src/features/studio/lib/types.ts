@@ -1,3 +1,5 @@
+import type { ImageBatchProposal, ImageBatchSnapshot } from "@yumina/shared";
+
 /** A tool call returned by the LLM */
 export interface ToolCall {
   id: string;
@@ -67,6 +69,22 @@ export interface StudioImageProposal {
   error?: string;
 }
 
+export interface StudioImageBatchProposal extends ImageBatchProposal {
+  runId: string;
+  toolCallId: string;
+  unitMushies: number;
+  estimatedMushies: number;
+  status: "pending" | "declined" | "submitted";
+  batch?: ImageBatchSnapshot;
+}
+
+export interface StudioImageBatchEdits {
+  items: Array<{ id: string; prompt: string }>;
+  model: string;
+  aspectRatio: string;
+  resolution?: string;
+}
+
 /** Attachment stored on a chat message */
 export interface ChatAttachment {
   url: string;
@@ -93,6 +111,7 @@ export interface StudioChatMessage {
   proposalStatus?: ProposalStatus;
   /** A generate_image card attached to this assistant turn */
   imageProposal?: StudioImageProposal;
+  imageBatchProposal?: StudioImageBatchProposal;
   /** Links assistant messages to the agent run that produced them (for undo/rollback) */
   agentRunId?: string;
   /** Server-assigned ID for a committed text turn (`assistant_turn_commit` event).
@@ -123,6 +142,7 @@ export function serializeStudioChatMessages(messages: StudioChatMessage[]): Arra
     toolResults,
     proposalStatus,
     imageProposal,
+    imageBatchProposal,
     agentRunId,
     commitId,
     stopped,
@@ -136,6 +156,7 @@ export function serializeStudioChatMessages(messages: StudioChatMessage[]): Arra
     ...(toolResults && { toolResults }),
     ...(proposalStatus && { proposalStatus }),
     ...(imageProposal && { imageProposal }),
+    ...(imageBatchProposal && { imageBatchProposal }),
     ...(agentRunId && { agentRunId }),
     ...(commitId && { commitId }),
     ...(stopped && { stopped }),

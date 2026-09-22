@@ -8,6 +8,10 @@ const SITE_URL = PUBLIC_ORIGIN;
 const DEFAULT_DESCRIPTION =
   "Play and create AI-powered interactive worlds on Yumina. Open-source platform for AI-native games, interactive fiction, and roleplay. Browse thousands of worlds or build your own with Studio AI.";
 const DEFAULT_TITLE = "Yumina - AI Interactive Fiction Platform";
+// krew.io (the pirate .io game) redirects permanently to /krew, so this page is
+// what search engines index for the game. Keep its identity, not Yumina's.
+const KREW_DESCRIPTION =
+  "Krew.io is a free online 3D pirate game: crew up, sail the seas, fire cannons, sink other players' ships and rule the leaderboard. Play instantly in your browser on Yumina.";
 
 export interface PageMeta {
   title: string;
@@ -16,6 +20,8 @@ export interface PageMeta {
   image?: string;
   type?: string;
   noindex?: boolean;
+  /** Structured data emitted as a JSON-LD script in <head>. */
+  jsonLd?: Record<string, unknown>;
 }
 
 const UUID_RE =
@@ -51,6 +57,29 @@ const STATIC_META: Record<string, PageMeta> = {
       "Build AI-powered interactive worlds with Yumina Studio. No coding required — Studio AI writes the code for you. Earn 80% revenue share as a creator.",
     url: `${SITE_URL}/app/worlds`,
   },
+  "/krew": {
+    title: "Krew.io - The Pirate .IO Game",
+    description: KREW_DESCRIPTION,
+    url: `${SITE_URL}/krew`,
+    image: `${SITE_URL}/krew-og.png`,
+    jsonLd: {
+      "@context": "https://schema.org",
+      "@type": "VideoGame",
+      name: "Krew.io",
+      alternateName: "Krew2.io",
+      url: `${SITE_URL}/krew`,
+      image: `${SITE_URL}/krew-og.png`,
+      description: KREW_DESCRIPTION,
+      genre: ["Action", "Multiplayer", ".io game"],
+      gamePlatform: "Web browser",
+      applicationCategory: "Game",
+      operatingSystem: "Any",
+      playMode: "MultiPlayer",
+      isAccessibleForFree: true,
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      publisher: { "@type": "Organization", name: "Yumina", url: SITE_URL },
+    },
+  },
   "/login": {
     title: "Sign In - Yumina",
     description:
@@ -78,7 +107,10 @@ const NOINDEX_PREFIXES = [
   "/app/preview/",
 ];
 
-export async function getMetaForPath(path: string): Promise<PageMeta> {
+export async function getMetaForPath(rawPath: string): Promise<PageMeta> {
+  // "/krew/" and "/krew" are one page: strip trailing slashes so both get the
+  // same canonical URL and the same static entry.
+  const path = rawPath.length > 1 ? rawPath.replace(/\/+$/, "") || "/" : rawPath;
   const staticMeta = STATIC_META[path];
   if (staticMeta) return staticMeta;
 
@@ -190,12 +222,16 @@ function escapeAttr(str: string): string {
   return str
     .replace(/&/g, "&amp;")
     .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
+    .replace(/</g, "\\u003c")
     .replace(/>/g, "&gt;");
 }
 
 export function injectMeta(baseHtml: string, meta: PageMeta): string {
   let html = baseHtml;
+
+  // Browser tabs use the brand consistently; route-specific titles belong to
+  // the social/link-preview metadata below.
+  html = html.replace(/<title>[^<]*<\/title>/, "<title>Yumina</title>");
 
   html = html.replace(
     /(<meta name="description" content=")[^"]*(" \/>)/,
@@ -247,6 +283,13 @@ export function injectMeta(baseHtml: string, meta: PageMeta): string {
     );
   }
 
+  if (meta.jsonLd) {
+    // "<" escaped so a "</script>" inside a string can never close the tag.
+    const json = JSON.stringify(meta.jsonLd).replace(/</g, "\u003c");
+    html = html.replace("</head>", `    <script type="application/ld+json">${json}</script>
+  </head>`);
+  }
+
   return html;
 }
 
@@ -264,6 +307,7 @@ export async function generateSitemap(): Promise<string> {
     { url: "/app/community", changefreq: "daily", priority: "0.7" },
     { url: "/app/bundles", changefreq: "weekly", priority: "0.6" },
     { url: "/app/worlds", changefreq: "weekly", priority: "0.5" },
+    { url: "/krew", changefreq: "weekly", priority: "0.8" },
     { url: "/register", changefreq: "monthly", priority: "0.3" },
   ];
 

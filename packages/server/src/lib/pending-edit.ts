@@ -598,6 +598,7 @@ export async function commitPendingEditsForGroup(
       .from(worlds)
       .where(inArray(worlds.id, worldIds));
     const liveById = new Map(liveRows.map((r) => [r.id, r]));
+    const publishedForEmbedding: Array<typeof worlds.$inferSelect> = [];
     const postedUpdates: Array<{ worldId: string; updateId: string; title: string; isMajor: boolean }> = [];
 
     for (const p of pendings) {
@@ -621,7 +622,10 @@ export async function commitPendingEditsForGroup(
           updatedAt: now,
         })
         .where(eq(worlds.id, p.worldId)).returning();
-      if (published) await captureAutomaticVersion(tx, published, "live", published);
+      if (published) {
+        await captureAutomaticVersion(tx, published, "live", published);
+        publishedForEmbedding.push(published);
+      }
 
       // Now that the edit is actually live, publish the creator's update note.
       const noteTitle = p.updateTitle?.trim();
@@ -653,11 +657,11 @@ export async function commitPendingEditsForGroup(
       targetId: groupKey,
       metadata: { count: pendings.length, worldIds },
     });
-    return { pendings, liveById, postedUpdates };
+    return { pendings, liveById, postedUpdates, publishedForEmbedding };
   });
 
   if (!committed) return { handled: false, count: 0 };
-  const { pendings, liveById, postedUpdates } = committed;
+  const { pendings, liveById, postedUpdates, publishedForEmbedding } = committed;
 
   // Post-commit side effects.
   const afterCommit=async()=>{
@@ -673,17 +677,14 @@ export async function commitPendingEditsForGroup(
       autoApproved: false,
     }).catch(() => {});
   }
-  for (const p of pendings) {
-    const live = liveById.get(p.worldId);
-    if (!live) continue;
-    const fm = (p.schema as { firstMessage?: unknown })?.firstMessage;
+  for (const live of publishedForEmbedding) {
     embedAndStoreWorld({
-      worldId: p.worldId,
+      worldId: live.id,
       name: live.name,
       description: live.description,
       tags: live.tags,
       announcement: live.announcement,
-      firstMessage: typeof fm === "string" ? fm : null,
+      schema: live.schema,
     }).catch(() => {});
   }
 

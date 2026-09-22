@@ -105,12 +105,9 @@ export function VerifiedPage() {
             </svg>
           </div>
 
-          <h1 className="mb-2 text-2xl font-bold text-[#E6E4DD]">
+          <h1 className="mb-8 text-2xl font-bold text-[#E6E4DD]">
             {t("verified.title")}
           </h1>
-          <p className="mb-8 text-sm text-[#B9B6AE] leading-relaxed">
-            {t("verified.description")}
-          </p>
 
           {/* Progress ring / redirect notice */}
           <p className="text-xs text-[#B9B6AE]/50">

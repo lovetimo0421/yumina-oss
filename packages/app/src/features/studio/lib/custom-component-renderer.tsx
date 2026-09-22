@@ -20,7 +20,7 @@ export interface YuminaAPI {
     canUseSessionApis: boolean;
     requiresAuth: boolean;
   };
-  sendMessage: (text: string) => void;
+  sendMessage: (text: string, attachments?: import("@yumina/shared").ChatImageInput[]) => void;
   setVariable: (id: string, value: number | string | boolean | Record<string, unknown> | unknown[], options?: { scope?: string; targetUserId?: string }) => void;
   executeAction: (actionId: string) => void;
   navigateTo?: (path: string) => void;

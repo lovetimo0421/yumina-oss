@@ -2762,6 +2762,9 @@ export async function ensureBillingV2Schema() {
     drops_released INTEGER NOT NULL DEFAULT 1,
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
   )`));
+  // Per-cycle delivery calendar (2026-09-22, scripts/paid-drops-weekly-2026-09-22.sql).
+  // NULL rows are cycles that opened under the launch schedule.
+  await db.execute(sql.raw(`ALTER TABLE wallet_plan_drops ADD COLUMN IF NOT EXISTS schedule TEXT`));
   await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS quest_claims (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,

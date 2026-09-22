@@ -2,10 +2,11 @@ import { create } from "zustand";
 import { useCreditStore } from "@/edition/slots.state";
 import { useUserProfileStore } from "./user-profile";
 import { composeSelectedModelId } from "@/lib/model-id";
-import { PLAY_MODELS, type CostTier, type TimeBasedAvgCostMushies } from "@yumina/shared";
+import { PLAY_MODELS, IMAGE_MODEL_CAPABILITIES, type CostTier, type TimeBasedAvgCostMushies } from "@yumina/shared";
 import type { ModelCostStats } from "@yumina/shared";
 
 export interface ModelInfo {
+  supportsImages?: boolean;
   id: string;
   name: string;
   provider: string;
@@ -105,6 +106,7 @@ function buildOfficialFallbackModels(): ModelInfo[] {
     avgCostMushies: model.avgCostMushies,
     avgCostMushiesByPeriod: model.avgCostMushiesByPeriod,
     badge: model.badge,
+    supportsImages: model.supportsImages,
   }));
 }
 
@@ -176,6 +178,7 @@ function buildPrivateModelInfos(provider: string, rawModels: string[]): ModelInf
       id,
       name: bare,
       provider: display,
+      supportsImages: provider === "custom" || provider === "ollama" ? undefined : IMAGE_MODEL_CAPABILITIES[id],
       contextLength: 0,
       isCurated: false,
     });
@@ -243,7 +246,7 @@ async function fetchLivePrivateModels(
       return dedupeModels(buildPrivateModelInfos(target.provider, [
         ...ids,
         ...(target.metadata?.defaultModel ? [target.metadata.defaultModel] : []),
-      ]));
+      ])).map(m => ({ ...m, supportsImages: data.imageCapabilities?.[m.id] ?? m.supportsImages }));
     } catch {
       return fallback;
     }
@@ -345,6 +348,7 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
           avgCostMushiesByPeriod: model.avgCostMushiesByPeriod,
           costStats: fromApi?.costStats,
           badge: model.badge,
+          supportsImages: fromApi?.supportsImages ?? model.supportsImages,
         } satisfies ModelInfo;
       });
       const fallbackOfficial = buildOfficialFallbackModels();

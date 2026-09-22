@@ -1156,6 +1156,8 @@
         "refresh": "重新整理",
         "shortfall": "還差 {{amount}} 蘑菇",
         "errorStale": "內容已修改，請發起新請求，避免覆蓋你的改動。",
+        "restartHere": "從這裡重新開始",
+        "restartMessage": "從剛才停下的地方繼續，以卡片現在的內容為準。",
         "errorActive": "該任務正在執行，請等待狀態更新。",
         "errorFailed": "未能恢復任務，已儲存的進度仍在，請重試。",
         "errorBillingMissing": "暫未取得用量資訊，結果已保留，需要核對費用。",
@@ -1213,7 +1215,49 @@
       "deleteConv": "刪除會話",
       "deleteConvConfirm": "刪除？",
       "attachmentUploadFailed": "已發送，但未包含圖片",
-      "undoRollbackFailed": "已撤銷訊息，但作品變更未回滾"
+      "undoRollbackFailed": "已撤銷訊息，但作品變更未回滾",
+      "imageBatch": {
+        "title": "批次生圖",
+        "declined": "已跳過生成",
+        "selectAll": "全選 · 已選 {{count}} 項",
+        "library": "儲存至素材庫",
+        "portrait": "角色立繪",
+        "component": "介面圖片 · {{key}}",
+        "existing": "已有圖片 · 跳過",
+        "bindingNote": "圖片已儲存。重試綁定不會重新生圖或再次收費。",
+        "model": "生圖模型",
+        "estimateUnavailable": "暫時無法估價",
+        "billingNote": "每個選取項目生成一張圖，按實際生圖用量結算，不逐張呼叫助手。",
+        "confirm": "生成 {{count}} 張圖片",
+        "background": "正在背景生成，可以離開後再回來查看。",
+        "pausedNote": "Mushies 不足，任務已暫停。完成的圖片已儲存。",
+        "resume": "繼續生成剩餘圖片",
+        "retryBinding": "重試圖片綁定",
+        "retry": "重試 {{count}} 個失敗項目",
+        "syncFailed": "暫時無法重新整理進度，已儲存的任務可能仍在執行。",
+        "requestFailed": "提交未確認，請重新整理任務後重試。",
+        "refresh": "重新整理狀態",
+        "phase": {
+          "running": "正在批次生圖",
+          "paused": "生圖已暫停",
+          "completed": "圖片已完成",
+          "partial": "部分圖片需要處理",
+          "failed": "生成失敗"
+        },
+        "item": {
+          "pending": "待生成",
+          "queued": "排隊中",
+          "running": "生成中",
+          "awaiting_credits": "已暫停",
+          "succeeded": "已完成",
+          "failed": "失敗",
+          "skipped": "已跳過",
+          "binding_failed": "綁定失敗"
+        },
+        "pausedStorageNote": "素材儲存空間不足，請清理素材後繼續。",
+        "pausedUnavailableNote": "生圖服務暫時無法使用，已完成的圖片已儲存。",
+        "pausedGenericNote": "任務暫時暫停，已完成的圖片已儲存。稍後繼續。"
+      }
     },
     "sidebar": {
       "title": "側邊欄",
@@ -1478,8 +1522,7 @@
       "newName": "新設定"
     },
     "advancedPromo": {
-      "title": "想讓你的卡做到更多？",
-      "subtitle": "簡易模式覆蓋了基礎。高階模式解鎖完整引擎——Yumina 上最熱門的世界用的就是同一套：",
+      "title": "進階編輯器",
       "bulletVariables": "變數——記錄好感度、恐懼、信任……還能即時顯示成狀態條",
       "bulletBehaviors": "行為——根據狀態觸發的規則（「好感度 > 80 → 解鎖隱藏路線」）",
       "bulletLorebooks": "世界書——關鍵字觸發的知識庫，還能綁定到指定開場白",
@@ -1875,5 +1918,12 @@
       "metadata_issue": "封面 / 描述 / 標籤問題",
       "other": "其他（必須在下方說明）"
     }
+  },
+  "imageInsert": {
+    "button": "插入圖片",
+    "upload": "從電腦上傳",
+    "library": "從素材庫選",
+    "uploading": "上傳中…",
+    "failed": "上傳失敗：{{name}}"
   }
 }

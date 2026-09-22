@@ -69,7 +69,7 @@ export function ProfileAiSettings() {
     loading: creditLoading, fetchCredits,
   } = useCreditStore();
 
-  const { selectedModel, maxContext, streaming, mixMode, modelPool, setConfig } = useConfigStore();
+  const { selectedModel, storyMemory, streaming, mixMode, modelPool, setConfig } = useConfigStore();
 
   const [provider, setProvider] = useState<"official" | "private">(storedProvider);
   const [switching, setSwitching] = useState(false);
@@ -185,6 +185,14 @@ export function ProfileAiSettings() {
   const memoryCap = useCreditStore.getState().memoryCap;
   const contextCapped = !isByok && memoryCap !== null && memoryCap > 0;
   const contextMax = contextCapped ? memoryCap : 2000000;
+  // This quick control used to be a second copy of maxContext labelled
+  // "Memory", recommending 64K, while Settings called the same value the
+  // overall limit and recommended 16,000 for story memory. Three names, two
+  // recommendations, one number. It is the story-memory dial now, matching
+  // Settings > AI Configuration.
+  const storyMemoryMax = Math.min(contextMax, 200_000);
+  // null = never chosen, so show what the account gets today.
+  const storyMemoryValue = storyMemory ?? storyMemoryMax;
   const providerSwitchCopy: ProviderSwitchCopy = {
     official: {
       title: tChat("modelBrowser.switchToOfficial"),
@@ -279,35 +287,34 @@ export function ProfileAiSettings() {
         {/* ── Controls Section ── */}
         <div className={`px-5 py-4 ${provider === "private" ? "bg-slate-400/[0.03]" : "bg-white/[0.01]"}`}>
           <div className="flex flex-col gap-2 md:flex-row md:items-center">
-            {/* Memory */}
+            {/* Story memory — the same dial as Settings, nothing else. */}
             <div className="flex flex-1 flex-col gap-2 rounded-lg bg-white/[0.02] px-3 py-2.5 sm:flex-row sm:items-center sm:gap-2.5">
               <div className="flex flex-col">
-                <span className="text-xs font-medium text-white/60">{t("config.memory", { defaultValue: "Memory" })}</span>
-                <span className="text-[11px] text-white/30">{t("config.memoryDesc", { defaultValue: "How many tokens the AI remembers (higher = more credits)" })}</span>
+                <span className="text-xs font-medium text-white/60">{t("config.storyMemory")}</span>
+                <span className="text-[11px] text-white/30">{t("config.storyMemoryShort")}</span>
               </div>
               <div className="flex items-center gap-2 sm:ml-auto">
                 <input
                   type="text"
                   inputMode="numeric"
-                  value={maxContext.toLocaleString()}
-                  placeholder="64,000"
+                  value={storyMemoryValue.toLocaleString()}
+                  placeholder="16,000"
                   onChange={(e) => {
                     const raw = e.target.value.replace(/,/g, "");
                     const num = parseInt(raw, 10);
                     if (!isNaN(num)) {
-                      const clamped = Math.max(4096, Math.min(contextMax, num));
-                      setConfig("maxContext", clamped);
+                      setConfig("storyMemory", Math.max(2048, Math.min(storyMemoryMax, num)));
                     }
                   }}
-                  className={`${maxContext >= 1_000_000 ? "w-[6.5rem]" : maxContext >= 100_000 ? "w-[5.5rem]" : "w-[5rem]"} rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-right text-xs font-semibold tabular-nums text-white/70 placeholder:text-white/20 focus:border-gold/30 focus:outline-none`}
+                  className={`${storyMemoryValue >= 100_000 ? "w-[5.5rem]" : "w-[5rem]"} rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-right text-xs font-semibold tabular-nums text-white/70 placeholder:text-white/20 focus:border-gold/30 focus:outline-none`}
                 />
-                {maxContext !== 64000 && (
+                {storyMemoryValue !== 16000 && (
                   <button
                     type="button"
-                    onClick={() => setConfig("maxContext", Math.min(64000, contextMax))}
+                    onClick={() => setConfig("storyMemory", Math.min(16000, storyMemoryMax))}
                     className="shrink-0 rounded-md bg-gold/15 px-2 py-0.5 text-[10px] font-bold text-gold/80 transition-colors hover:bg-gold/25 hover:text-gold"
                   >
-                    {t("summary.memoryRecommended", { value: "64K" })}
+                    {t("summary.memoryRecommended", { value: "16,000" })}
                   </button>
                 )}
               </div>

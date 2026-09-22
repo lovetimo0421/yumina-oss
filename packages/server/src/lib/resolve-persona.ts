@@ -1,5 +1,5 @@
 import { and, eq, sql } from "drizzle-orm";
-import { db } from "../db/index.js";
+import { db, type DrizzleDB } from "../db/index.js";
 import { playSessions, userPersonas } from "../db/schema.js";
 
 import { captureSessionPersona, type SessionPersona } from "./session-persona.js";
@@ -11,9 +11,10 @@ export type ResolvedPersona = typeof userPersonas.$inferSelect;
  * Legacy world pins remain historical data and never override this choice. */
 export async function resolvePersonaForWorld(
   userId: string,
-  _worldId: string | null | undefined
+  _worldId: string | null | undefined,
+  database: DrizzleDB = db,
 ): Promise<ResolvedPersona | null> {
-  const [active] = await db
+  const [active] = await database
     .select()
     .from(userPersonas)
     .where(and(eq(userPersonas.userId, userId), eq(userPersonas.isActive, true)))
@@ -36,7 +37,7 @@ export async function resolvePersonaForSession(session: Pick<typeof playSessions
   return current ?? snapshot;
 }
 
-/** Shared by profile and in-chat selection. Lock in a stable order so concurrent
+/** Account/profile selection only. Lock in a stable order so concurrent
  * choices cannot leave multiple personas active. Never copy private notes. */
 export async function setAccountPersona(userId: string, personaId: string | null) {
   return db.transaction(async (tx) => {
@@ -56,19 +57,10 @@ export async function setAccountPersona(userId: string, personaId: string | null
 export async function setSessionPersona(userId: string, sessionId: string, personaId: string | null): Promise<
   { data: SessionPersona; error?: never } | { error: "Session not found" | "Persona not found"; data?: never }
 > {
-  const [owned] = await db.select({ id: playSessions.id }).from(playSessions)
-    .where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, userId)));
-  if (!owned) return { error: "Session not found" } as const;
-  const result = await setAccountPersona(userId, personaId);
-  if ("error" in result) return result;
-  // Backward-compatible behavior for older clients: choosing from the chat
-  // picker changes the global persona and puts this session back in follow mode.
-  await db.update(playSessions).set({
-    personaLocked: false,
-    sessionPersona: result.data,
-    updatedAt: new Date(),
-  }).where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, userId)));
-  return result;
+  const result = await setSessionPersonaLock(userId, sessionId, true, personaId);
+  if (result.error) return { error: result.error };
+  // Preserve the legacy response shape, but never write the account default.
+  return { data: result.data.sessionPersona };
 }
 
 /** Lock one session to a persona (including explicit no-persona), or release it

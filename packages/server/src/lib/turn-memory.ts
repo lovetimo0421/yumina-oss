@@ -7,7 +7,7 @@
 // src/extensions/session-memory/hooks.ts — adding another extension never
 // touches this file or routes/messages.ts.
 
-import { eq, and, lte, desc } from "drizzle-orm";
+import { eq, and, lte, desc, sql } from "drizzle-orm";
 import { estimateTokens } from "@yumina/engine";
 import { db } from "../db/index.js";
 import { messages } from "../db/schema.js";
@@ -33,6 +33,7 @@ export type TurnPromptMessage = {
   role: "user" | "assistant" | "system";
   content: string;
   sourceMessageId?: string;
+  imageTokens?: number;
 };
 
 export interface TurnMemory {
@@ -97,7 +98,7 @@ export async function loadBoundedRawHistory(
   sessionId: string,
   turn: Pick<TurnMemory, "historyConditions">,
   opts?: { upTo?: Date },
-): Promise<Array<{ id: string; role: string; content: string; createdAt: Date | null }>> {
+): Promise<Array<{ id: string; role: string; content: string; imageTokens: number; createdAt: Date | null }>> {
   const where = opts?.upTo
     ? and(buildRawHistoryWhere(sessionId, turn), lte(messages.createdAt, opts.upTo))
     : buildRawHistoryWhere(sessionId, turn);
@@ -106,6 +107,7 @@ export async function loadBoundedRawHistory(
       id: messages.id,
       role: messages.role,
       content: messages.content,
+      imageTokens: sql<number>`COALESCE(jsonb_array_length(${messages.attachments}), 0) * 1600`,
       createdAt: messages.createdAt,
     })
     .from(messages)
@@ -143,12 +145,12 @@ export function injectMemoryPromptBlocks(
   return { positions };
 }
 
-function estimatePromptMessageTokens(message: Pick<TurnPromptMessage, "content">, modelId: string): number {
-  return estimateTokens(message.content, modelId);
+function estimatePromptMessageTokens(message: Pick<TurnPromptMessage, "content" | "imageTokens">, modelId: string): number {
+  return estimateTokens(message.content, modelId) + (message.imageTokens ?? 0);
 }
 
 export function estimatePromptMessagesTokens(
-  messageList: Array<Pick<TurnPromptMessage, "content">>,
+  messageList: Array<Pick<TurnPromptMessage, "content" | "imageTokens">>,
   modelId: string,
 ): number {
   return messageList.reduce((total, message) => total + estimatePromptMessageTokens(message, modelId), 0);
@@ -157,6 +159,8 @@ export function estimatePromptMessagesTokens(
 async function estimateFinalRawHistoryBudget(args: {
   messages: TurnPromptMessage[];
   maxContext: number;
+  /** Story-memory ceiling on the raw conversation, when the turn has one. */
+  storyMemory?: number;
   historyStart: number;
   suffixCount: number;
   modelId: string;
@@ -168,7 +172,15 @@ async function estimateFinalRawHistoryBudget(args: {
     ? await countPromptTokensCooperatively(args.messages.slice(suffixStart), args.modelId)
     : 0;
   const nonRawHistoryTokens = await countPromptTokensCooperatively(args.nonRawHistoryMessages ?? [], args.modelId);
-  return { budget: Math.max(1, args.maxContext - prefixTokens - suffixTokens - nonRawHistoryTokens - STORY_SUMMARY_PROMPT_RESERVE_TOKENS), nonRawHistoryTokens };
+  // Compaction has to fire on the SAME number the prompt is trimmed to.
+  // Budgeting off maxContext alone while the prompt is cut to story memory
+  // means the older scenes are dropped rather than folded into the recap,
+  // which is exactly the loss the recap exists to prevent.
+  const fromContext = args.maxContext - prefixTokens - suffixTokens - nonRawHistoryTokens - STORY_SUMMARY_PROMPT_RESERVE_TOKENS;
+  const ceiling = typeof args.storyMemory === "number" && Number.isFinite(args.storyMemory)
+    ? Math.min(fromContext, args.storyMemory)
+    : fromContext;
+  return { budget: Math.max(1, ceiling), nonRawHistoryTokens };
 }
 
 /**
@@ -188,6 +200,8 @@ export async function compactTurnOverflowIfNeeded(args: {
   userId: string;
   model: string;
   maxContext: number;
+  /** Story-memory ceiling for this turn; undefined = governed by maxContext alone. */
+  storyMemory?: number;
   contextMessages: TurnPromptMessage[];
   historyStart: number;
   suffixCount: number;
@@ -201,6 +215,7 @@ export async function compactTurnOverflowIfNeeded(args: {
   const { budget: finalRawHistoryBudget, nonRawHistoryTokens } = await estimateFinalRawHistoryBudget({
     messages: contextMessages,
     maxContext,
+    storyMemory: args.storyMemory,
     historyStart: args.historyStart,
     suffixCount,
     modelId: model,

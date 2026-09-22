@@ -1,3 +1,4 @@
+import { IMAGE_MODEL_CAPABILITIES } from "@yumina/shared";
 import type { LLMProvider, GenerateParams, StreamChunk, Model, MessageContent } from "./types.js";
 import { LLM_CONNECTION_TIMEOUT_MS, LLM_REQUEST_TIMEOUT_MS, LLM_STREAM_INACTIVITY_TIMEOUT_MS } from "./constants.js";
 import { clampTemperatureForModel } from "./sampling-limits.js";
@@ -570,6 +571,7 @@ export class AnthropicProvider implements LLMProvider {
       .filter((m) => m.id.startsWith("claude-"))
       .map((m) => ({
         id: `anthropic/${m.id}`,
+        supportsImages: IMAGE_MODEL_CAPABILITIES[`anthropic/${m.id}`],
         name: m.display_name ?? m.id,
         contextLength: m.max_input_tokens ?? 200_000,
       }));

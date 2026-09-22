@@ -48,7 +48,7 @@ const recoveryScenarios: Array<{
   { name: "saved unpaid result", pause: { phase: "generated", hasSavedResult: true, cost: 9.5 }, title: "restart", action: "settleResume", detail: "restartSavedDetail", debitNote: "settleNote" },
   { name: "paid result with zero funds", pause: { phase: "generated", hasSavedResult: true, settled: true, requiredCredits: 0, cost: 9.5, balance: 0, availableCredits: 0 }, title: "restart", action: "resume", debitNote: "settledNote" },
   { name: "unconfirmed billing", pause: { phase: "generated", billingUnavailable: true, reason: "BILLING_DETAILS_MISSING", requiredCredits: 0, cost: 0, resumable: false }, title: "billing", action: "refresh", detail: "billingDetail" },
-  { name: "world changed", pause: { reason: "STALE_WORLD", resumable: false }, error: "errorStale", title: "unavailable", action: "refresh", detail: "errorStale" },
+  { name: "world changed under a paid result", pause: { reason: "STALE_WORLD", resumable: false }, error: "errorStale", title: "unavailable", action: "restartHere", detail: "errorStale" },
   { name: "live claim", pause: { reason: undefined, resumable: false }, title: "unavailable", action: "refresh", detail: "errorActive" },
   { name: "unknown step budget", pause: { reason: "pricing_unavailable", requiredCredits: 0 }, title: "unavailable", action: "retryStep", detail: "budgetDetail" },
   { name: "saved result and insufficient funds", pause: { phase: "generated", hasSavedResult: true, cost: 9.5, reason: "INSUFFICIENT_CREDITS", balance: 6.2, availableCredits: 6.2 }, title: "saved", action: "topUp", debitNote: "settleNote" },
@@ -60,6 +60,8 @@ const recoveryScenarios: Array<{
 async function withCard(initial: Partial<CardProps>, check: (view: {
   document: Document;
   calls: { topUp: number; resume: number; refresh: number };
+  /** Counted apart from `calls` so every existing tally stays exact. */
+  restarts: () => number;
   render: (patch: Partial<CardProps>) => Promise<void>;
   button: (key: string) => HTMLButtonElement | undefined;
   click: (key: string) => Promise<void>;
@@ -69,8 +71,10 @@ async function withCard(initial: Partial<CardProps>, check: (view: {
   const previous = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
   const calls = { topUp: 0, resume: 0, refresh: 0 };
+  let restarts = 0;
   let props: CardProps = { pause: pause(), resuming: false, refreshing: false, error: null,
-    onTopUp: () => { calls.topUp++; }, onResume: () => { calls.resume++; }, onRefresh: () => { calls.refresh++; }, ...initial };
+    onTopUp: () => { calls.topUp++; }, onResume: () => { calls.resume++; }, onRefresh: () => { calls.refresh++; },
+    onRestart: () => { restarts++; }, ...initial };
   const root = createRoot(dom.window.document.getElementById("root")!);
   const render = async (patch: Partial<CardProps>) => {
     props = { ...props, ...patch };
@@ -80,7 +84,7 @@ async function withCard(initial: Partial<CardProps>, check: (view: {
     .find(node => node.textContent === translate(`studio.aiChat.creditPause.${key}`));
   try {
     await render({});
-    await check({ document: dom.window.document, calls, render, button,
+    await check({ document: dom.window.document, calls, restarts: () => restarts, render, button,
       click: async key => { const node = button(key); assert.ok(node, `Missing ${key} action`); await act(async () => node.click()); },
     });
   } finally {
@@ -141,14 +145,20 @@ test("unknown billing hides the zero-cost sentinel and never suggests funding or
   });
 });
 
-test("a stale saved world only permits refreshing its status", async () => {
+test("a stale saved world offers a fresh start from here — never a Refresh that can change nothing", async () => {
+  // Only a PAID result the editor outran reaches the client as STALE_WORLD
+  // (an unpaid one is presented as an interrupted, resumable step and
+  // regenerated on Continue). Refresh re-polled a status that could never
+  // change; one creator clicked it 10 times in 17 seconds (2026-09-20).
   await withCard({ pause: pause({ reason: "STALE_WORLD", balance: 100, availableCredits: 100 }) }, async view => {
     assert.equal(view.button("resume"), undefined);
     assert.equal(view.button("settleResume"), undefined);
     assert.equal(view.button("topUp"), undefined);
+    assert.equal(view.button("refresh"), undefined);
     assert.ok(view.document.body.textContent?.includes(translate("studio.aiChat.creditPause.errorStale")));
-    await view.click("refresh");
-    assert.deepEqual(view.calls, { topUp: 0, resume: 0, refresh: 1 });
+    await view.click("restartHere");
+    assert.deepEqual(view.calls, { topUp: 0, resume: 0, refresh: 0 });
+    assert.equal(view.restarts(), 1);
   });
 });
 
@@ -197,6 +207,7 @@ for (const scenario of recoveryScenarios) {
           refresh: scenario.action === "refresh" ? 1 : 0,
           resume: ["resume", "settleResume", "retryResume", "retryStep"].includes(scenario.action) ? 1 : 0,
         });
+        assert.equal(view.restarts(), scenario.action === "restartHere" ? 1 : 0);
       }
     });
   });
@@ -204,7 +215,8 @@ for (const scenario of recoveryScenarios) {
 
 test("recovery messages have translations in every supported locale", () => {
   const keys = ["restart", "restartDetail", "interrupted", "interruptedDetail", "restartBudgetDetail",
-    "restartSavedDetail", "retryNote", "retryFailed", "retryResume", "resumingDetail", "balanceUnknown", "errorFailed"];
+    "restartSavedDetail", "retryNote", "retryFailed", "retryResume", "resumingDetail", "balanceUnknown", "errorFailed",
+    "restartHere", "restartMessage"];
   for (const locale of ["zh", "zh-Hant", "en", "ja", "es"]) {
     const messages = JSON.parse(readFileSync(new URL(`../../../locales/${locale}/editor.json`, import.meta.url), "utf8")).studio.aiChat.creditPause;
     for (const key of keys) assert.ok(typeof messages[key] === "string" && messages[key].trim(), `${locale}/${key}`);

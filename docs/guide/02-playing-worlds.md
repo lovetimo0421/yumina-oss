@@ -10,6 +10,12 @@
 
 Use the **Filters** button to sort by Recommended / Popular / Newest, filter by tags, and toggle Limitless content visibility.
 
+Recommended can offer an optional **Personalize Discover** interest picker. Pick any available topics or experiences, or skip it. **Personalize** / **Edit interests** above the recommended cards lets you change or clear your choices later. These are starting hints, so other kinds of worlds remain in your feed; Filters still control what you explicitly browse.
+
+Starter choices stay in this browser, separately for guests and each account. They do not transfer automatically when you sign in or to another device. While signed in, your reading, favorites and positive ratings carry more weight as Discover learns; the starting hints also fade with time. Skipping or saving the same choices does not restart your feed.
+
+Recommended loads 10 cards at a time on phones. Larger screens load complete rows based on the available space: usually 12–18 cards on tablets and 18–30 on desktop. More cards load as you scroll; resizing the window keeps the cards you already have and your reading position.
+
 Click any world card to see the full description, gallery, ratings, and reviews. Hit **Start Playing** to jump in.
 
 ## Sessions
@@ -48,7 +54,9 @@ Hover over any message (long-press on mobile) for action buttons:
 The **+** menu next to the input box:
 - **Continue** -- have the AI keep writing without you saying anything
 - **Restart Chat** -- clear all messages and start over
-- **Attach Image** -- send an image to the AI
+- **Persona**, **Share Play**, and **Branches** retain their existing actions.
+
+Use the image button beside **+**, or paste an image into the input box with Ctrl/Cmd+V. You can remove previews before sending, send an image by itself, or add text. Choose a model with the **Vision** badge. PNG, JPEG, WebP and GIF are supported, up to four images per message, 8 MB each and 16 MB total. A failed send keeps your draft available to retry.
 
 ### Fullscreen and exit
 

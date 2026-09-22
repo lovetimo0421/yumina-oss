@@ -306,7 +306,7 @@ export function AppShell({ children }: AppShellProps) {
     };
   }, [userIdForAnalytics]);
 
-  const mobilePageScrollId = getMobileReadingPageId(location.pathname, location.search);
+  const mobilePageScrollId = getMobileReadingPageId(location.pathname, location.search, isPickerActive);
   useLayoutEffect(() => installMobileViewport(window, (recovery) => {
     captureHubEvent("ui_recovery", recovery);
   }, mobilePageScrollId, isMessages), [mobilePageScrollId, isMessages]);
@@ -330,13 +330,12 @@ export function AppShell({ children }: AppShellProps) {
   const targetGradient = getGradientOverlay(wallpaperGradientScale);
 
   useLayoutEffect(() => {
-    if (!mobilePageScrollId && !isMessages) return;
-    return installReadingPageCanvas(document, {
+    return installReadingPageCanvas(document, isImmersiveBg ? {
       imageUrl: bgImageSrc,
       opacity: targetOpacity,
       gradient: targetGradient,
-    });
-  }, [mobilePageScrollId, isMessages, bgImageSrc, targetOpacity, targetGradient]);
+    } : null);
+  }, [isImmersiveBg, bgImageSrc, targetOpacity, targetGradient]);
 
   // Track previous wallpaper src for crossfade
   const [displayedSrc, setDisplayedSrc] = useState(bgImageSrc);
@@ -400,8 +399,8 @@ export function AppShell({ children }: AppShellProps) {
     // home indicator and gets visually cut off. Reserve the bottom safe-area
     // inset here so all chrome sits above it. env() is 0 on desktop/non-notch
     // devices, so this is a no-op there. Play/fullscreen pages are excluded —
-    // the game canvas stays edge-to-edge and handles its own safe area (the
-    // composer already pads with --mobile-safe-bottom). Once the keyboard
+    // main reserves the notch outside the iframe, while the game canvas fills
+    // the bottom edge (the composer owns its bottom safe padding). Once the keyboard
     // occludes the home indicator, it needs no additional safe-area gap.
     paddingBottom: isPlayPage ? undefined : isMessages ? `min(12px, ${shellSafeBottom})` : shellSafeBottom,
   } as CSSProperties;
@@ -428,6 +427,7 @@ export function AppShell({ children }: AppShellProps) {
   return (
     <div
       className="app-shell-root relative overflow-hidden bg-background"
+      data-play-page={isPlayPage ? "true" : undefined}
       data-clouded-glass-texture="cloudy"
       style={appShellRootStyle}
     >
@@ -506,6 +506,7 @@ export function AppShell({ children }: AppShellProps) {
           {children}
         </main>
       </div>
+      {isPlayPage && <div className="play-mobile-top-edge" aria-hidden="true" />}
       <PlaySessionPickerHost />
       <HostedShellOverlays />
       <Toaster />

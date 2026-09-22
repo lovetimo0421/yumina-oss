@@ -1131,6 +1131,7 @@ function applyEntryChange(draft: WorldDefinition, action: string, id: string, da
       name: (data.name as string) ?? "New Entry",
       content: (data.content as string) ?? "",
       role: (data.role as WorldEntry["role"]) ?? "custom",
+      portrait: typeof data.portrait === "string" ? data.portrait : undefined,
       alwaysSend: (data.alwaysSend as boolean) ?? defaults.alwaysSend,
       keywords: toStringArray(data.keywords),
       conditions: mapConditions(data.conditions),
@@ -1215,6 +1216,7 @@ function applyEntryUpdates(entry: WorldEntry, data: Record<string, unknown>): vo
   if (data.name !== undefined) entry.name = data.name as string;
   if (data.content !== undefined) entry.content = data.content as string;
   if (data.role !== undefined) entry.role = data.role as WorldEntry["role"];
+  if (typeof data.portrait === "string") entry.portrait = data.portrait;
   if (data.keywords !== undefined) entry.keywords = toStringArray(data.keywords);
   if (data.conditions !== undefined) entry.conditions = mapConditions(data.conditions);
   if (data.conditionLogic !== undefined) entry.conditionLogic = data.conditionLogic as "all" | "any";

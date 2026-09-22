@@ -32,6 +32,7 @@ export function logFeedServe(row: {
   void db
     .insert(feedServes)
     .values(row)
+    .onConflictDoNothing()
     .catch((err: unknown) => {
       // Pre-DDL environment or transient failure — warn once per boot.
       if (warned) return;

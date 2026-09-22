@@ -51,6 +51,7 @@ export const HOSTED_FILES = [
   "components/account-wallet",
   "components/review-replies",
   "components/daily-check-in-card",
+  "components/daily-supply-row",
   "components/invite-code-panel",
   "components/invite-modal",
   "components/referral-reward-notice",
