@@ -712,6 +712,8 @@
       "PRICING_UPDATED": "El cobro de imágenes ha cambiado. Actualiza la página e inténtalo de nuevo.",
       "PROVIDER_UNAVAILABLE": "El servicio de imágenes no está disponible temporalmente. Inténtalo más tarde.",
       "PROVIDER_REQUEST": "El modelo no aceptó estos ajustes. Cambia el modelo o los ajustes de imagen.",
+      "PROVIDER_TIMEOUT": "El modelo tardó demasiado y se agotó el tiempo. No se te cobró. Prueba un modelo más rápido o una resolución menor.",
+      "PROVIDER_REJECTED": "El modelo rechazó esta solicitud. No se te cobró. Prueba con otro modelo.",
       "CONTENT_FILTERED": "El proveedor del modelo rechazó esta imagen, no es una restricción de Yumina. No se te cobró; prueba con otro modelo o reformula la descripción."
     },
     "queue": {

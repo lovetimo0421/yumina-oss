@@ -711,6 +711,8 @@
       "PRICING_UPDATED": "Image billing has changed. Refresh the page and try again.",
       "PROVIDER_UNAVAILABLE": "The image service is temporarily unavailable. Try again later.",
       "PROVIDER_REQUEST": "The model did not accept these settings. Change the model or image settings.",
+      "PROVIDER_TIMEOUT": "The model took too long and timed out. You were not charged. Try a faster model or a lower resolution.",
+      "PROVIDER_REJECTED": "The model declined this request. You were not charged. Try another model.",
       "CONTENT_FILTERED": "The model provider refused this one — not a Yumina restriction. You were not charged; try another model or reword the description."
     },
     "queue": {

@@ -380,6 +380,10 @@ export const GENERATION_ERROR_CODES = [
   "PROVIDER_CREDITS",
   "PROVIDER_UNAVAILABLE",
   "PROVIDER_REQUEST",
+  /** A proxy in front of the model gave up waiting (Cloudflare 522/524, 504). */
+  "PROVIDER_TIMEOUT",
+  /** The model answered 4xx with a reason we do not recognise. Not our crash. */
+  "PROVIDER_REJECTED",
   "CONTENT_FILTERED",
   "BILLING_UNAVAILABLE",
   "INSUFFICIENT_CREDITS",

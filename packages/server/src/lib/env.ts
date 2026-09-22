@@ -158,6 +158,10 @@ const envSchema = z.object({
   // without another deploy.
   OPENROUTER_IMAGE_LOCAL_CONCURRENT: z.coerce.number().int().min(1).max(64).default(8),
   OPENROUTER_IMAGE_MAX_QUEUED: z.coerce.number().int().min(1).max(50_000).default(100),
+  // Per-creator jobs in flight. Was the shared GPU cap of 2, which a creator hit
+  // after two clicks on a two-minute model; smart jobs cost us no GPU, so let
+  // them queue. The fleet limits above still bound total load.
+  OPENROUTER_IMAGE_MAX_ACTIVE_PER_USER: z.coerce.number().int().min(1).max(50).default(4),
   // Daily supplier-cost reservation (USD); isolates image spend from chat.
   OPENROUTER_IMAGE_DAILY_BUDGET_USD: z.coerce.number().positive().default(25),
   RUNPOD_COMFY_ENDPOINT_ID: z.string().default(""),

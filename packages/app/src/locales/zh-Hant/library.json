@@ -694,6 +694,8 @@
       "PRICING_UPDATED": "生圖計費已更新，請刷新頁面後重試。",
       "PROVIDER_UNAVAILABLE": "模型服務暫時無法使用，請稍後再試。",
       "PROVIDER_REQUEST": "模型未接受這組設定，請更換模型或調整圖片設定。",
+      "PROVIDER_TIMEOUT": "模型出圖逾時了，本次未扣款。可以換個更快的模型，或調低清晰度再試。",
+      "PROVIDER_REJECTED": "模型方拒絕了這次請求，本次未扣款。可以換個模型再試。",
       "CONTENT_FILTERED": "這張圖被模型方拒絕了，不是 Yumina 的限制。未扣款，可以換個模型或調整描述再試。"
     },
     "queue": {
