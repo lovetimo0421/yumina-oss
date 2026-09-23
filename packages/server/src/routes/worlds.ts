@@ -689,7 +689,11 @@ worldRoutes.get("/batch", optionalAuthMiddleware, async (c) => {
 const discoveryRateLimit = ipRateLimitMiddleware(180, 60, "discovery");
 worldRoutes.get("/hub", async (c, next) => {
   if (!edition.info().features.hub) return c.notFound();
-  return next();
+  const startedAt = performance.now();
+  await next();
+  if (c.req.query("feed") === "recommended") {
+    c.header("Server-Timing", `discover;dur=${(performance.now() - startedAt).toFixed(1)}`, { append: true });
+  }
 }, optionalAuthMiddleware, createDiscoveryRolloutMiddleware({
   secret: env.BETTER_AUTH_SECRET, rateLimit: discoveryRateLimit,
 }), async (c, next) => {
@@ -820,8 +824,10 @@ worldRoutes.get("/hub", async (c, next) => {
         actor: cursorActor,
         userId: currentUser?.id, filters: baseFilters, limit, nsfwOnly, cursor: c.req.query("cursor"), starter,
       });
+      const rankingMs = performance.now() - startedAt;
       const data = resolveHubMedia(page.data.map(stripRecommendationInternals) as any[]);
       let attributionToken: string | undefined;
+      const measurementStartedAt = performance.now();
       if (discoveryMeasurementEnabled()) {
         try {
           attributionToken = await recordDiscoveryServe(db, page, cursorActor, env.BETTER_AUTH_SECRET);
@@ -831,6 +837,8 @@ worldRoutes.get("/hub", async (c, next) => {
           console.warn("[discovery-measurement] serving snapshot unavailable");
         }
       }
+      const measurementMs = performance.now() - measurementStartedAt;
+      c.header("Server-Timing", `rank;dur=${rankingMs.toFixed(1)}, measure;dur=${measurementMs.toFixed(1)}`);
       if (!c.req.raw.signal?.aborted) {
         logFeedServe({ id: page.feedRequestId, userId: currentUser?.id ?? null, surface: "recommended", feed,
           tier: page.tier, variant: page.variant, lang: baseFilters.preferredLang, offset: page.offset, worldIds: page.servedIds });
@@ -840,6 +848,8 @@ worldRoutes.get("/hub", async (c, next) => {
           world_ids: page.ids, tier: page.tier, variant: page.variant, cache: "cursor",
           policy_version: DISCOVERY_POLICY_VERSION, catalog_scans: page.scans,
           duration_ms: Math.round(performance.now() - startedAt), has_more: page.hasMore,
+          ranking_ms: Math.round(rankingMs), measurement_ms: Math.round(measurementMs),
+          authenticated: Boolean(currentUser),
           measurement_status: discoveryMeasurementEnabled() ? (attributionToken ? "recorded" : "unavailable") : "off",
           snapshot_bytes: attributionToken ? Buffer.byteLength(JSON.stringify(page.snapshots), "utf8") : 0,
         });

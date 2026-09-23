@@ -18,6 +18,7 @@
 
 import { posthog } from "./posthog.js";
 import { env } from "./env.js";
+import { runtimeIdentity } from "./runtime-identity.js";
 
 /** Deployment environment for filtering in PostHog dashboards. */
 function detectEnvironment(): "production" | "development" | "preview" | "test" {
@@ -80,6 +81,10 @@ export type ServerHubEventMap = {
     policy_version?: string;
     catalog_scans?: number;
     duration_ms?: number;
+    /** Cursor work, split without including world/account identifiers. */
+    ranking_ms?: number;
+    measurement_ms?: number;
+    authenticated?: boolean;
     has_more?: boolean;
     measurement_status?: "recorded" | "unavailable" | "off";
     snapshot_bytes?: number;
@@ -114,6 +119,8 @@ export function captureHubEvent<K extends keyof ServerHubEventMap>(
         ...props,
         environment: ENVIRONMENT,
         app_release: APP_RELEASE,
+        region: runtimeIdentity.region,
+        deployment_id: runtimeIdentity.deployment_id,
       },
     });
   } catch {

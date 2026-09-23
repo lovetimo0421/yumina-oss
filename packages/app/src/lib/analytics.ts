@@ -48,6 +48,14 @@ const APP_RELEASE = import.meta.env?.VITE_APP_RELEASE ?? "unknown";
  * `posthog.capture(arbitraryString, ...)` elsewhere.
  */
 export type HubEventMap = {
+  /** Client elapsed time through fetch, body decoding and accepting a Discover page; excludes paint. */
+  hub_feed_load: {
+    mode: "initial" | "append" | "refresh";
+    outcome: "success" | "error";
+    status: number | null;
+    duration_ms: number;
+    page_size: number;
+  };
   /** The /krew page mounted its game frame (krew.io running inside Yumina). */
   krew_embed_loaded: { signed_in: boolean; has_path: boolean };
   /** How the page answered the krew frame's identity request. */
