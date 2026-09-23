@@ -126,6 +126,7 @@ export const daveSnapshotSchema = z.object({
   terrain: z.enum(['day','night','pool','fog','roof']).optional(),
   conveyor: z.boolean().optional(),
   visibleEnemies: z.array(z.object({type:z.number().int().min(0).max(32),count:boundedInt}).strict()).max(33).optional(),
+  visibleThreats: z.array(z.object({row:z.number().int().min(0).max(5),type:z.number().int().min(0).max(32),column:z.number().int().min(-1).max(9)}).strict()).max(6).optional(),
   fogMasked: z.boolean().optional(),
   challengeState: z.enum(['none','active','completed','failed']).optional(),
   interactionFlags: z.number().int().min(0).max(7).optional(),
@@ -144,6 +145,15 @@ export const daveSnapshotSchema = z.object({
   recentEvents: z.array(z.enum(['wave_clear','mower_used','plant_lost','offer_completed'])).max(8),
 }).strict().refine(s => s.defeated === undefined || s.defeated === (s.phase === 'lost'), 'Inconsistent outcome')
   .superRefine((s,ctx) => {
+    if(s.visibleThreats!==undefined) {
+      const threats=s.visibleThreats,types=s.visibleEnemies;
+      if(s.mode!=='adventure'||!types||new Set(threats.map(t=>t.row)).size!==threats.length||
+        new Set(types.map(t=>t.type)).size!==types.length||threats.length!==s.rows.filter(r=>r.enemies>0).length||
+        types.reduce((n,t)=>n+t.count,0)!==s.rows.reduce((n,r)=>n+r.enemies,0)||
+        threats.some(t=>!s.rows.some(r=>r.row===t.row&&r.enemies>0)||
+          !types.some(v=>v.type===t.type&&v.count>=threats.filter(other=>other.type===t.type).length)))
+        ctx.addIssue({code:z.ZodIssueCode.custom,path:['visibleThreats'],message:'Nearest threats must match the current visible Adventure counts'});
+    }
     if(s.visibleBoss){
       const expected=sourceBossByLevel[s.level];
       if(s.mode!=='adventure'||s.phase!=='playing'||s.defeated||s.fogMasked||!expected||

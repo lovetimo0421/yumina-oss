@@ -341,6 +341,7 @@
     "unknownUser": "未知使用者",
     "me": "我",
     "now": "剛剛",
+    "yesterday": "昨天",
     "loadMore": "載入更多",
     "newMessages": "{{count}} 條新訊息",
     "scrollToNewest": "回到最新",

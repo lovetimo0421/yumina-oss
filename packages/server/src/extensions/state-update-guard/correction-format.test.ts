@@ -3,6 +3,40 @@ import assert from "node:assert/strict";
 import { isJsonModeUnsupported, normalizeCorrectionJson } from "./correction-format.js";
 
 const prefix = '{"narrative":"","status":"updated","stateChanges":[{"variableId":"relationships","operation":"merge","value":{"friend":{"note":"escaped \\\"quote\\\" and ]},\\n","affinity":4}}}]';
+for (const suffix of ["}", "]", "\n}]}", " \n} \n] } "]) {
+  test(`recovers trailing closers after one complete envelope: ${JSON.stringify(suffix)}`, () => {
+    const complete = prefix + '}';
+    assert.deepEqual(normalizeCorrectionJson(complete + suffix), { text: complete, repaired: true });
+  });
+}
+
+test("trailing recovery supports a complete review before stateChanges and thinking/fences", () => {
+  const complete = '{"narrative":"","status":"none","review":[],"stateChanges":[]}';
+  assert.deepEqual(normalizeCorrectionJson('<think>Plan.</think>\n```json\n' + complete + '\n}]}\n```'), { text: complete, repaired: true });
+});
+
+for (const raw of [
+  prefix + '}\n}]}]', // bounded to three extra closers
+  prefix + '}\n}]} extra text',
+  prefix + '}\n{}',
+  prefix + '}\n{"status":"none"}',
+  prefix + '}\n,"notes":[]}',
+  prefix + '}\nnull',
+  prefix + '}\n,}',
+  prefix.slice(0, -1) + '}\n}]}', // malformed nested boundary
+  prefix.replace('"affinity":4', '"affinity":') + '}\n}]}',
+  prefix.replace('"narrative":""', '"narrative":"","narrative":"rewrite"') + '}\n}]}',
+  prefix.replace('"status":"updated"', '"status":"updated","status":"none"') + '}\n}]}',
+  '{"narrative":"","stateChanges":[]}\n}]}',
+  '{"narrative":"","status":"other","stateChanges":[]}\n}]}',
+  '{"narrative":null,"status":"updated","stateChanges":[]}\n}]}',
+  '{"narrative":"","status":"updated","stateChanges":{}}\n}]}',
+]) {
+  test(`trailing recovery rejects ambiguous or incomplete data: ${raw.slice(-60)}`, () => {
+    assert.deepEqual(normalizeCorrectionJson(raw), { text: raw, repaired: false });
+  });
+}
+
 for (const closers of ["}", "]", "}]", "]}", " \n} \n] "]) {
   test(`recovers only excess closers at completed batch boundary: ${JSON.stringify(closers)}`, () => {
     const raw = prefix + closers + ',"review":[]}';

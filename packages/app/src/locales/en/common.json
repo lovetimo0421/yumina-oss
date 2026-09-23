@@ -352,6 +352,7 @@
     "unknownUser": "Unknown",
     "me": "Me",
     "now": "now",
+    "yesterday": "Yesterday",
     "loadMore": "Load more",
     "newMessages_one": "{{count}} new message",
     "newMessages": "{{count}} new messages",

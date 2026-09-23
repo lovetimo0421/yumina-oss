@@ -304,30 +304,47 @@ async function uploadToStorage(
 /**
  * Whether an image file is animated: any GIF, a WebP carrying an ANIM chunk, or
  * a PNG with an acTL chunk (APNG) ahead of its first IDAT. Reads the header
- * only. The canvas downscale below keeps one frame, so an animated cover must
- * skip it — a 1.2MB animated WebP cover used to be re-encoded to a still JPEG.
+ * only. null means inspection was inconclusive: preserve the original rather
+ * than risking flattening an animation through the canvas downscale.
  */
-export async function isAnimatedImageFile(file: Blob): Promise<boolean> {
+export async function isAnimatedImageFile(file: Blob): Promise<boolean | null> {
   if (file.type === "image/gif") return true;
   if (file.type !== "image/webp" && file.type !== "image/png" && file.type !== "image/apng") return false;
-  let bytes: Uint8Array;
   try {
-    bytes = new Uint8Array(await file.slice(0, 256 * 1024).arrayBuffer());
+    const bytes = new Uint8Array(await file.slice(0, 256 * 1024).arrayBuffer());
+    // Only ever decode a four-byte chunk name, never spread the full header
+    // into function arguments (large PNGs exceeded the JS argument limit).
+    const tag = (at: number) => String.fromCharCode(
+      bytes[at]!, bytes[at + 1]!, bytes[at + 2]!, bytes[at + 3]!,
+    );
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    if (file.type === "image/webp") {
+      if (bytes.length < 20 || tag(0) !== "RIFF" || tag(8) !== "WEBP") return null;
+      if (tag(12) === "VP8X") {
+        if (bytes.length < 30 || view.getUint32(16, true) !== 10) return null;
+        return (bytes[20]! & 0x02) !== 0;
+      }
+      // Simple lossy/lossless WebP is still; animation requires VP8X.
+      return tag(12) === "VP8 " || tag(12) === "VP8L" ? false : null;
+    }
+    const signature = [137, 80, 78, 71, 13, 10, 26, 10];
+    if (!signature.every((byte, index) => bytes[index] === byte)) return null;
+    // Walk chunk boundaries so text/metadata containing "acTL" or "IDAT"
+    // cannot masquerade as an animation or image-data chunk.
+    for (let offset = 8; offset + 8 <= bytes.length;) {
+      const length = view.getUint32(offset);
+      const end = offset + 12 + length; // length + type + payload + CRC
+      if (end > file.size) return null;
+      const type = tag(offset + 4);
+      if (type === "acTL") return length === 8 ? true : null;
+      if (type === "IDAT") return false;
+      if (type === "IEND" || end > bytes.length) return null;
+      offset = end;
+    }
+    return null; // Sniff limit reached before an animation/image-data chunk.
   } catch {
-    return false;
+    return null; // Optional inspection must never prevent the original upload.
   }
-  const ascii = (at: number, n: number) => String.fromCharCode(...bytes.subarray(at, at + n));
-  if (ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
-    // VP8X carries an animation flag (bit 1 of the flags byte); ANIM confirms it
-    if (ascii(12, 4) === "VP8X" && (bytes[20]! & 0x02) !== 0) return true;
-    return ascii(12, Math.min(bytes.length - 12, 256)).includes("ANIM");
-  }
-  if (bytes[0] === 0x89 && ascii(1, 3) === "PNG") {
-    const head = ascii(8, bytes.length - 8);
-    const actl = head.indexOf("acTL");
-    return actl >= 0 && (head.indexOf("IDAT") < 0 || actl < head.indexOf("IDAT"));
-  }
-  return false;
 }
 
 /**
@@ -405,11 +422,9 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
   onProgress,
 }: PresignedAssetUploadConfig): Promise<T> {
   const f = fetchImpl ?? fetch;
-  // An animated image is uploaded as-is (the downscale would keep one frame),
-  // and the prepare call says so, so a cover key can be marked for the
-  // still-first rendering in <CroppedImage>.
-  const animated = await isAnimatedImageFile(inputFile);
-  // Opt-in client-side downscale for card/cover/banner images (fails soft to original).
+  // Preserve animations and inconclusive inspections; only proven stills may
+  // pass through the canvas, which would otherwise keep just the first frame.
+  const animated = (await isAnimatedImageFile(inputFile)) !== false;
   const file = resizeImageMaxDimension && !animated
     ? await downscaleImageFile(inputFile, resizeImageMaxDimension, resizeImageQuality ?? 0.82)
     : inputFile;

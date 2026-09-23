@@ -1448,8 +1448,7 @@ function AccountSection({
         <div className="flex-1 space-y-3">
           <div className="text-xs font-semibold uppercase tracking-wider text-sub">{t("account.usernameLabel")}</div>
           <div className="flex items-center gap-3">
-            <div className="relative flex-1">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-sub">@</span>
+            <div className="flex-1">
               <input
                 type="text"
                 value={editUsername}
@@ -1457,7 +1456,7 @@ function AccountSection({
                 maxLength={30}
                 aria-invalid={!!usernameError}
                 aria-describedby={usernameError ? "settings-username-error" : undefined}
-                className="profile-overview-input-surface w-full rounded-lg border border-white/10 py-2 pl-7 pr-3 text-sm text-main outline-none focus:border-gold focus:ring-1 focus:ring-gold"
+                className="profile-overview-input-surface w-full rounded-lg border border-white/10 px-3 py-2 text-sm text-main outline-none focus:border-gold focus:ring-1 focus:ring-gold"
               />
             </div>
             <button
@@ -2876,9 +2875,10 @@ function AboutSection() {
           <ChevronRight className="h-4 w-4 text-sub/40" />
         </a>
 
-        <div className="profile-overview-glass profile-overview-glass--soft rounded-xl p-4">
+        <a href={DOCS_URLS.openSource} target="_blank" rel="noopener noreferrer"
+          className="profile-overview-glass profile-overview-glass--soft block rounded-xl p-4 transition-colors hover:border-white/15">
           <div className="font-semibold text-main">{t("about.licenses")}</div>
-        </div>
+        </a>
       </div>
     </div>
   );

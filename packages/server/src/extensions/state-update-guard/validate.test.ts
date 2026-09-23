@@ -178,6 +178,50 @@ for (const thrown of [false, true]) {
   });
 }
 
+test("production trailing closers preserve the writable update, frozen narration and raw audit", async () => {
+  const output = '{"narrative":"","status":"updated","stateChanges":[{"variableId":"energy-id","operation":"add","value":1}]}\n}]}';
+  const f = fixture("You finish one exercise.", [{ type: "text", content: output }, { type: "done", content: "", stopReason: "stop" }]);
+  const before = structuredClone(f.ctx.state);
+  const result = await guardTurnOutput(f.ctx);
+  assert.equal(result.audit?.outcome, "valid-updates");
+  assert.equal(result.audit?.repaired, true);
+  assert.equal(result.audit?.correctedBatch, output);
+  assert.deepEqual(result.parsed.effects, [{ variableId: "energy-id", operation: "add", value: 1 }]);
+  assert.equal(result.parsed.cleanText, "You finish one exercise.");
+  assert.deepEqual(f.ctx.state, before);
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.usages.length, 1);
+});
+
+test("trailing recovery composes with read-only exclusions", async () => {
+  const f = readonlyFixture([{ variableId: "energy-id", operation: "add", value: 1 }, { variableId: "game-day", operation: "add", value: 0 }]);
+  const output = f.output + '\n}]}';
+  f.ctx.provider.generateStream = async function* (params) { f.requests.push(params); yield { type: "text", content: output }; yield { type: "done", content: "", stopReason: "stop" }; };
+  const result = await guardTurnOutput(f.ctx);
+  assert.deepEqual(result.parsed.effects, [{ variableId: "energy-id", operation: "add", value: 1 }]);
+  assert.ok(result.audit?.diagnostics.includes("read_only_correction_ignored"));
+  assert.equal(result.audit?.correctedBatch, output);
+  assert.equal(f.ctx.state.variables["game-day"], 1);
+});
+
+test("trailing recovery does not bypass no-update review or unsafe-batch validation", async () => {
+  for (const [body, expected] of [
+    [{ narrative: "", status: "none", stateChanges: [] }, "missing_no_update_review"],
+    [{ narrative: "", status: "updated", stateChanges: [{ variableId: "energy-id", operation: "add", value: 1 }, { variableId: "missing", operation: "set", value: 1 }] }, "unknown_variable"],
+    [{ narrative: "", status: "updated", stateChanges: [{ variableId: "energy-id.__proto__.x", operation: "set", value: 1 }] }, "unsafe_path"],
+    [{ narrative: "", status: "updated", stateChanges: [{ variableId: "energy-id", operation: "add", value: "bad" }] }, "incompatible_value"],
+  ] as const) {
+    const output = JSON.stringify(body) + '\n}]}';
+    const f = fixture(undefined, [{ type: "text", content: output }, { type: "done", content: "", stopReason: "stop" }]);
+    const before = structuredClone(f.ctx.state);
+    await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+    assert.ok(f.ctx.audit.diagnostics.includes(expected));
+    assert.deepEqual(f.ctx.state, before);
+  }
+  const f = fixture(undefined, [{ type: "text", content: reviewedNone + '\n}]}', }, { type: "done", content: "", stopReason: "stop" }]);
+  assert.equal((await guardTurnOutput(f.ctx)).audit?.outcome, "explicit-none");
+});
+
 test("observed extra envelope closers are recovered without rewriting narrative or weakening batch validation", async () => {
   // Sanitized structural reproduction of the production failure, not user story content.
   const output = '{"narrative":"Unwanted rewrite.","status":"updated","stateChanges":[{"variableId":"energy-id","operation":"subtract","value":4}]}],"review":[]}';

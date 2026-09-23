@@ -6,6 +6,116 @@ import {
   isAnimatedImageFile,
   uploadAssetWithPresignedUrl,
 } from "./asset-upload";
+import { createUploadTestPng, PNG_SIGNATURE, pngChunk } from "./test-fixtures/upload-png";
+
+function pngFile(animated = false, metadata?: Buffer) {
+  return new File([new Uint8Array(createUploadTestPng(animated, metadata))], "upload-test.png", { type: "image/png" });
+}
+
+test("animation detection handles large static PNGs and APNGs without argument overflow", async () => {
+  const still = pngFile();
+  const animated = pngFile(true);
+  assert.ok(still.size > 256 * 1024);
+  assert.ok(animated.size > 1024 * 1024);
+  assert.equal(await isAnimatedImageFile(still), false);
+  assert.equal(await isAnimatedImageFile(animated), true);
+});
+
+test("PNG animation detection follows chunks, not metadata strings", async () => {
+  assert.equal(await isAnimatedImageFile(pngFile(false, Buffer.from("Comment\0acTL"))), false);
+  assert.equal(await isAnimatedImageFile(pngFile(true, Buffer.from("Comment\0IDAT"))), true);
+});
+
+test("inconclusive or unreadable PNG headers remain unknown", async () => {
+  assert.equal(await isAnimatedImageFile(pngFile(true, Buffer.alloc(300 * 1024))), null);
+  const truncated = new Blob([PNG_SIGNATURE, new Uint8Array(pngChunk("tEXt", Buffer.alloc(10)).subarray(0, 9))], { type: "image/png" });
+  assert.equal(await isAnimatedImageFile(truncated), null);
+  const unreadable = pngFile();
+  Object.defineProperty(unreadable, "slice", { value: () => { throw new Error("Cannot inspect"); } });
+  assert.equal(await isAnimatedImageFile(unreadable), null);
+});
+
+test("GIF, JPEG and WebP animation detection keeps existing behavior", async () => {
+  assert.equal(await isAnimatedImageFile(new Blob(["GIF89a"], { type: "image/gif" })), true);
+  assert.equal(await isAnimatedImageFile(new Blob(["jpeg"], { type: "image/jpeg" })), false);
+  const webp = Buffer.alloc(30);
+  webp.write("RIFF", 0);
+  webp.writeUInt32LE(22, 4);
+  webp.write("WEBPVP8X", 8);
+  webp.writeUInt32LE(10, 16);
+  for (const animated of [false, true]) {
+    webp[20] = animated ? 2 : 0;
+    assert.equal(await isAnimatedImageFile(new Blob([webp], { type: "image/webp" })), animated);
+  }
+});
+
+test("large, animated and unreadable PNGs complete the uploader with original bytes", async () => {
+  const unreadable = pngFile(true);
+  Object.defineProperty(unreadable, "slice", { value: () => { throw new Error("Cannot inspect"); } });
+  for (const file of [pngFile(), pngFile(true), unreadable]) {
+    const requests: { url: string; init?: RequestInit }[] = [];
+    const result = await uploadAssetWithPresignedUrl({
+      file,
+      resizeImageMaxDimension: 100,
+      prepareUrl: "https://test.invalid/prepare",
+      registerUrl: "https://test.invalid/register",
+      registerBody: ({ file: uploaded, key }) => ({ key, sizeBytes: uploaded.size }),
+      fetchImpl: async (url, init) => {
+        requests.push({ url: String(url), init });
+        if (String(url).endsWith("/prepare")) return Response.json({ data: { uploadUrl: "https://test.invalid/storage", key: "test" } });
+        if (String(url).endsWith("/storage")) return new Response(null, { status: 200 });
+        return Response.json({ data: { id: "asset" } }, { status: 201 });
+      },
+    });
+    assert.deepEqual(result, { id: "asset" });
+    assert.deepEqual(requests.map(r => r.init?.method), ["POST", "PUT", "POST"]);
+    assert.equal(requests[1]!.init?.body, file);
+    assert.equal(JSON.parse(String(requests[2]!.init?.body)).sizeBytes, file.size);
+    assert.equal(JSON.parse(String(requests[0]!.init?.body)).animated, file === unreadable || file.size > 1024 * 1024 ? true : undefined);
+  }
+});
+
+test("cover resizing runs only for proven still images", async () => {
+  const originals = ["document", "createImageBitmap"].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
+  let decodes = 0;
+  Object.defineProperty(globalThis, "document", { configurable: true, value: {
+    createElement: () => ({
+      getContext: () => ({ fillRect() {}, drawImage() {} }),
+      toBlob: (done: (blob: Blob) => void) => done(new Blob(["resized"], { type: "image/jpeg" })),
+    }),
+  } });
+  Object.defineProperty(globalThis, "createImageBitmap", { configurable: true, value: async () => {
+    decodes++;
+    return { width: 512, height: 512, close() {} };
+  } });
+  try {
+    const unknown = pngFile(true, Buffer.alloc(300 * 1024));
+    const still = pngFile();
+    for (const file of [still, pngFile(true), unknown]) {
+      let uploaded: unknown;
+      await uploadAssetWithPresignedUrl({
+        file, resizeImageMaxDimension: 100,
+        prepareUrl: "prepare", registerUrl: "register", registerBody: {},
+        fetchImpl: async (url, init) => {
+          if (url === "prepare") return Response.json({ data: { uploadUrl: "storage", key: "test" } });
+          if (url === "storage") { uploaded = init?.body; return new Response(null); }
+          return Response.json({ data: { id: "asset" } });
+        },
+      });
+      if (file === still) {
+        assert.ok(uploaded instanceof File);
+        assert.equal(uploaded.type, "image/jpeg");
+        assert.equal(uploaded.size, 7);
+      } else assert.equal(uploaded, file);
+    }
+    assert.equal(decodes, 1, "animated and unknown files must never enter the canvas");
+  } finally {
+    for (const [key, descriptor] of originals) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else Reflect.deleteProperty(globalThis, key);
+    }
+  }
+});
 
 test("uploadAssetWithPresignedUrl completes prepare, storage, and register stages", async () => {
   const prepareUrl = "https://yumina.test/api/user-assets/upload-url";
@@ -209,28 +319,27 @@ test("getUploadMetadata preserves extension-based MIME inference for dragged fil
 
 // The cover downscale re-encodes through a canvas, which keeps one frame, so an
 // animated cover has to be recognised before it gets there.
-function riffWebp(chunk: string, flags = 0, extra = ""): Blob {
-  const head = new Uint8Array(21);
+function riffWebp(chunk: string, flags = 0): Blob {
+  const head = new Uint8Array(30);
   head.set([..."RIFF"].map((ch) => ch.charCodeAt(0)), 0);
   head.set([..."WEBP"].map((ch) => ch.charCodeAt(0)), 8);
   head.set([...chunk].map((ch) => ch.charCodeAt(0)), 12);
+  const view = new DataView(head.buffer);
+  view.setUint32(4, head.length - 8, true);
+  view.setUint32(16, 10, true);
   head[20] = flags;
-  return new Blob([head, extra], { type: "image/webp" });
-}
-function png(chunks: string[]): Blob {
-  return new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunks.join("....")], { type: "image/png" });
+  return new Blob([head], { type: "image/webp" });
 }
 
 test("isAnimatedImageFile recognises animated WebP, APNG and GIF", async () => {
   assert.equal(await isAnimatedImageFile(riffWebp("VP8X", 0x02)), true);
-  assert.equal(await isAnimatedImageFile(riffWebp("VP8X", 0x10, "....ANIM....ANMF")), true);
-  assert.equal(await isAnimatedImageFile(png(["IHDR", "acTL", "IDAT"])), true);
+  assert.equal(await isAnimatedImageFile(pngFile(true)), true);
   assert.equal(await isAnimatedImageFile(new Blob(["GIF89a"], { type: "image/gif" })), true);
 });
 
 test("isAnimatedImageFile leaves still images to the downscale", async () => {
   assert.equal(await isAnimatedImageFile(riffWebp("VP8L")), false);
   assert.equal(await isAnimatedImageFile(riffWebp("VP8X", 0x10)), false);
-  assert.equal(await isAnimatedImageFile(png(["IHDR", "IDAT"])), false);
+  assert.equal(await isAnimatedImageFile(pngFile()), false);
   assert.equal(await isAnimatedImageFile(new Blob(["\xff\xd8\xff"], { type: "image/jpeg" })), false);
 });

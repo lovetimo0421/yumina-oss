@@ -407,6 +407,7 @@
     "unknownUser": "Desconocido",
     "me": "Yo",
     "now": "ahora",
+    "yesterday": "Ayer",
     "plays_one": "{{count}} partida",
     "plays": "{{count}} partidas",
     "players": "Jugadores",

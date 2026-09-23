@@ -59,8 +59,9 @@ export function isJsonModeUnsupported(error: unknown): boolean {
     && /not.support|unsupported|unrecognized|unknown.parameter|invalid.parameter|not.allowed|not.permitted/i.test(message);
 }
 
-/** Recover only the observed boundary typo: a COMPLETE stateChanges array
- * followed by one/two extra closing delimiters before a top-level review.
+/** Recover only observed boundary typos: a COMPLETE stateChanges array
+ * followed by one/two extra closing delimiters before a top-level review,
+ * or a COMPLETE envelope followed by at most three extra closing delimiters.
  * No values, operations, keys, commas or missing delimiters are invented.
  * Broken/truncated nested data and arbitrary trailing content stay rejected.
  * This is correction-only: legacy story parsers are deliberately untouched. */
@@ -93,11 +94,23 @@ export function normalizeCorrectionJson(raw: string): { text: string; repaired: 
       stack.push(ch === "{" ? "}" : "]");
     } else if (ch === "}" || ch === "]") {
       if (stack.pop() !== ch) return unchanged;
+      if (!stack.length) {
+        if (!/^(?:\s*[}\]]){1,3}\s*$/.test(text.slice(i + 1))) return unchanged;
+        const candidate = text.slice(0, i + 1);
+        try {
+          const envelope = JSON.parse(candidate);
+          if (typeof envelope.narrative !== "string" || !Array.isArray(envelope.stateChanges)) return unchanged;
+          if (envelope.status !== "updated" && envelope.status !== "none") return unchanged;
+          // Only punctuation is discarded. The caller still validates every
+          // retained operation and requires complete review coverage for none.
+          return { text: candidate, repaired: true };
+        } catch { return unchanged; }
+      }
       if (ch === "]" && stack.length === 1 && key === "stateChanges") {
-        if (keys.has("review")) return unchanged;
         const suffix = text.slice(i + 1);
         const extra = /^(\s*[}\]]\s*(?:[}\]]\s*)?)(?=,\s*"review"\s*:)/.exec(suffix);
-        if (!extra) return unchanged;
+        if (!extra) { previous = ch; continue; }
+        if (keys.has("review")) return unchanged;
         const candidate = text.slice(0, i + 1) + suffix.slice(extra[0].length);
         try {
           const envelope = JSON.parse(candidate);

@@ -52,10 +52,9 @@ const fieldInputClass =
   "w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground shadow-inner focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50 transition-all [&>option]:bg-popover";
 
 // Compact, directly-typeable number field for inline use (range/dice/cooldown).
-// The full NumberInput's ±buttons need ~120px and get clipped in narrow inline
-// slots, so those small fields use this plain input instead. Keeps a local draft
-// so the box can be cleared and retyped freely; commits valid numbers live and
-// snaps blank → min on blur.
+// These small fields keep their own local draft so the box can be cleared and
+// retyped freely without widening the surrounding inline slot. It commits
+// valid numbers live and snaps blank → min on blur.
 function NumField({
   value, onChange, min, className,
 }: { value: number; onChange: (n: number) => void; min?: number; className?: string }) {

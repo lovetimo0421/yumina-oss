@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ArrowRightLeft, ChevronDown } from "lucide-react";
+import { ArrowRightLeft } from "lucide-react";
 import { DEFAULT_MODEL_FALLBACK_POLICY, formatModelId, modelFallbackText, type ModelFallbackMode } from "@yumina/shared";
 import { useConfigStore } from "@/stores/config";
 import { useCreditStore } from "@/edition/slots.state";
@@ -28,11 +28,11 @@ export function ModelFallbackSettings() {
         const mode = e.target.value as ModelFallbackMode;
         if (mode === "auto" && !model) { setPendingMode(mode); setPickerOpen(true); return; }
         setConfig("modelFallback", { ...policy, mode });
-      }} className="profile-overview-input-surface mt-1.5 min-h-9 w-full rounded-lg border border-gold/20 px-3 text-sm text-main focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold">
+      }} className="profile-overview-input-surface mt-1.5 min-h-9 w-full appearance-none rounded-lg border border-gold/20 px-3 text-sm text-main focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold">
         <option value="ask">{t("ask")}</option><option value="auto">{t("auto")}</option><option value="stop">{t("stopMode")}</option>
       </select>
       <button type="button" onClick={() => setPickerOpen(true)} aria-haspopup="dialog" className="profile-overview-input-surface mt-2 flex min-h-10 w-full items-center justify-between gap-3 rounded-lg border border-gold/20 px-3 py-2 text-left text-main transition-colors hover:border-gold/50">
-        <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"><span className="text-xs text-sub">{t("backup")}</span><span className="break-words text-xs font-medium">{model ? formatModelId(model) : t("empty")}</span></span><ChevronDown className="h-4 w-4 shrink-0 text-sub" aria-hidden="true" />
+        <span className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"><span className="text-xs text-sub">{t("backup")}</span><span className="break-words text-xs font-medium">{model ? formatModelId(model) : t("empty")}</span></span>
       </button>
       <div className="mt-2 space-y-1 text-[11px] text-sub"><p>{t(privateMode ? "privateBilling" : "billing")}</p><p>{t("autoNote")}</p>{privateMode && <p>{t("keyNote")}</p>}</div>
       <ModelBrowser open={pickerOpen} onClose={() => { setPickerOpen(false); setPendingMode(null); }} selectionOnly selectedModel={model} onSelect={(id) => {

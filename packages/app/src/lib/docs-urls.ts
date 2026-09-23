@@ -26,4 +26,5 @@ export const DOCS_URLS = {
   get termsOfUse() { return url("/legal/terms-of-use"); },
   get privacyPolicy() { return url("/legal/privacy-policy"); },
   get communityGuidelines() { return url("/legal/community-guidelines"); },
+  openSource: "https://github.com/lovetimo0421/yumina-oss",
 };
