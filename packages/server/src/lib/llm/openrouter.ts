@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { LLMProvider, GenerateParams, StreamChunk, Model, ChatMessage, ToolCall } from "./types.js";
 import { LLM_CONNECTION_TIMEOUT_MS, LLM_REQUEST_TIMEOUT_MS, LLM_STREAM_INACTIVITY_TIMEOUT_MS } from "./constants.js";
 import { clampTemperatureForModel, clampTopKForModel, repetitionPenaltyForModel } from "./sampling-limits.js";
@@ -5,6 +6,32 @@ import { parseClaudeVersion } from "./anthropic-thinking.js";
 import { normalizeProviderCostUsd } from "../provider-cost.js";
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
+
+// A daily-cap rejection applies to the credential, not one player or provider
+// instance. Briefly reuse that observation across turns instead of making every
+// Free player wait for the same doomed request. This is only an optimization:
+// expiry/restarts probe again, and every request still owns its fallback policy.
+// Retain digests only, with a small bound even when many private keys are used.
+const freePoolCooldowns = new Map<string, number>();
+const FREE_POOL_COOLDOWN_MS = 60_000;
+const FREE_POOL_COOLDOWN_KEYS = 128;
+function freePoolKey(apiKey: string): string {
+  return createHash("sha256").update(apiKey).digest("hex");
+}
+function freePoolCoolingDown(apiKey: string): boolean {
+  const key = freePoolKey(apiKey), until = freePoolCooldowns.get(key);
+  if (until === undefined) return false;
+  if (until > Date.now()) return true;
+  freePoolCooldowns.delete(key);
+  return false;
+}
+function rememberFreePoolExhaustion(apiKey: string): void {
+  const now = Date.now(), key = freePoolKey(apiKey);
+  for (const [entry, until] of freePoolCooldowns) if (until <= now) freePoolCooldowns.delete(entry);
+  freePoolCooldowns.delete(key);
+  while (freePoolCooldowns.size >= FREE_POOL_COOLDOWN_KEYS) freePoolCooldowns.delete(freePoolCooldowns.keys().next().value!);
+  freePoolCooldowns.set(key, now + FREE_POOL_COOLDOWN_MS);
+}
 
 /** OpenRouter's built-in context-compression plugin. Guarantees the request
  *  fits the *routed endpoint's* real context window: if our own history trim
@@ -487,6 +514,15 @@ export class OpenRouterProvider implements LLMProvider {
    * reasons then trips a filter still retries.
    */
   async *generateStream(params: GenerateParams): AsyncIterable<StreamChunk> {
+    if (params.signal?.aborted) return;
+    const knownFallback = params.model === "openrouter/free" && freePoolCoolingDown(this.apiKey)
+      ? nextFallbackModel(params) : null;
+    if (knownFallback) {
+      for await (const chunk of this.generateStream({
+        ...params, model: knownFallback, fallbackModels: remainingFallbackModels(params, knownFallback),
+      })) yield { ...chunk, model: chunk.model ?? knownFallback };
+      return;
+    }
     // 2 retries (3 attempts): post-retry residual was still ~3.6k user-visible
     // "Generation stopped unexpectedly" errors per 14d (2026-07-06 triage),
     // almost all transient Gemini upstream failures that pass on a fresh
@@ -707,6 +743,7 @@ export class OpenRouterProvider implements LLMProvider {
       );
       const fallbackModel = shouldFallbackToAnotherModel(response.status, error, params.fallbackOnTransientErrors) ? nextFallbackModel(params) : null;
       if (fallbackModel) {
+        if (params.model === "openrouter/free" && isFreePoolExhaustedError(response.status, error)) rememberFreePoolExhaustion(this.apiKey);
         console.warn(
           `[OpenRouter] ${fallbackReasonLabel(response.status, error)} for ${params.model}; retrying with fallback ${fallbackModel}`,
         );
@@ -1052,6 +1089,7 @@ export class OpenRouterProvider implements LLMProvider {
       );
       const fallbackModel = shouldFallbackToAnotherModel(response.status, error, params.fallbackOnTransientErrors) ? nextFallbackModel(params) : null;
       if (fallbackModel) {
+        if (params.model === "openrouter/free" && isFreePoolExhaustedError(response.status, error)) rememberFreePoolExhaustion(this.apiKey);
         console.warn(
           `[OpenRouter] ${fallbackReasonLabel(response.status, error)} for ${params.model}; retrying with fallback ${fallbackModel} (non-stream)`,
         );

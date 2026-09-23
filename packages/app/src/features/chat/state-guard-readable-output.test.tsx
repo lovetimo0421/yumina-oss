@@ -81,6 +81,8 @@ test("variable display uses saved names with nested paths and abbreviates unknow
     assert.ok(diagnosticSummary(["missing_receipt", "count_mismatch", "invalid_correction", "malformed_operation", "provider_error"], language).every(Boolean));
   }
   assert.equal(diagnosticSummary(["malformed_operation", "unknown_variable"]).length, 1);
+  assert.deepEqual(diagnosticSummary(["read_only_correction_ignored"]), []);
+  assert.deepEqual(diagnosticSummary(["read_only_correction_ignored", "invalid_correction"]), diagnosticSummary(["invalid_correction"]));
   assert.deepEqual(diagnosticSummary(["incomplete_json", "incomplete_patch", "incompatible_value", "not_writable", "contradictory_none", "missing_state_changes", "missing_colon"]), ["Some update instructions could not be read safely."]);
 });
 

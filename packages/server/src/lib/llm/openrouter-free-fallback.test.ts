@@ -91,7 +91,7 @@ test("an exhausted free pool re-runs the turn on the paid fallback", async () =>
     () => reply("the story continues"),
   ]);
   try {
-    const chunks = await collect(new OpenRouterProvider("k").generateStream(freeParams()));
+    const chunks = await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream(freeParams()));
     const [first, second] = mock.models();
     assert.equal(first, FREE_ROUTER_MODEL);
     assert.equal(second, "qwen/qwen3-30b-a3b-instruct-2507", "should descend to the primary fallback");
@@ -119,7 +119,7 @@ test("a throttled primary keeps descending to the last rung", async () => {
     () => reply("still playing"),
   ]);
   try {
-    const chunks = await collect(new OpenRouterProvider("k").generateStream(freeParams()));
+    const chunks = await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream(freeParams()));
     assert.deepEqual(mock.models(), [
       FREE_ROUTER_MODEL,
       "qwen/qwen3-30b-a3b-instruct-2507",
@@ -150,7 +150,7 @@ test("a rung whose model id was retired upstream is stepped over, not fatal", as
     () => reply("the story continues"),
   ]);
   try {
-    const chunks = await collect(new OpenRouterProvider("k").generateStream(freeParams()));
+    const chunks = await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream(freeParams()));
     assert.deepEqual(mock.models(), [
       FREE_ROUTER_MODEL,
       "qwen/qwen3-30b-a3b-instruct-2507",
@@ -167,7 +167,7 @@ test("a rung whose model id was retired upstream is stepped over, not fatal", as
 test("once the chain is spent the real error surfaces", async () => {
   const mock = withMockedFetch([() => errorResponse(429, FREE_POOL_429), () => errorResponse(429, THROTTLE_429)]);
   try {
-    const chunks = await collect(new OpenRouterProvider("k").generateStream(freeParams()));
+    const chunks = await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream(freeParams()));
     const err = chunks.find((c) => c.type === "error");
     assert.ok(err, "the player must get a real error rather than silence");
     // Three calls: free router, primary, second rung — then nothing left.
@@ -182,7 +182,7 @@ test("a paid model is NOT swapped out when it is merely throttled", async () => 
   const mock = withMockedFetch([() => errorResponse(429, THROTTLE_429), () => reply("should never run")]);
   try {
     const chunks = await collect(
-      new OpenRouterProvider("k").generateStream({
+      new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream({
         model: "deepseek/deepseek-v3.2",
         messages: [{ role: "user" as const, content: "hi" }],
         fallbackModels: getOfficialProviderFallbackModels("deepseek/deepseek-v3.2", false),
@@ -200,7 +200,7 @@ test("a free turn with an image goes straight to the vision fallback", async () 
   const mock = withMockedFetch([() => errorResponse(429, FREE_POOL_429), () => reply("i see it")]);
   try {
     await collect(
-      new OpenRouterProvider("k").generateStream(
+      new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream(
         freeParams({
           fallbackModels: getOfficialProviderFallbackModels(FREE_ROUTER_MODEL, false, true),
         }),
@@ -226,7 +226,7 @@ test("a throttled vision rung descends to the other vision model, never to text"
   ]);
   try {
     const chunks = await collect(
-      new OpenRouterProvider("k").generateStream(
+      new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream(
         freeParams({
           fallbackModels: getOfficialProviderFallbackModels(FREE_ROUTER_MODEL, false, true),
         }),
@@ -248,7 +248,7 @@ test("OpenRouter sends explicit none reasoning effort instead of using the model
   const mock = withMockedFetch([() => reply("summary")]);
   try {
     await collect(
-      new OpenRouterProvider("k").generateStream({
+      new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream({
         model: "deepseek/deepseek-v4-flash",
         messages: [{ role: "user", content: "summarize" }],
         maxTokens: 1_200,
@@ -268,7 +268,7 @@ test("OpenRouter keeps ordinary chat reasoning effort and headroom unchanged", a
   const mock = withMockedFetch([() => reply("answer")]);
   try {
     await collect(
-      new OpenRouterProvider("k").generateStream({
+      new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream({
         model: "deepseek/deepseek-v4-flash",
         messages: [{ role: "user", content: "solve" }],
         maxTokens: 1_200,
@@ -287,7 +287,7 @@ test("OpenRouter also disables reasoning without headroom in non-streaming mode"
   const mock = withMockedFetch([() => jsonReply("summary")]);
   try {
     await collect(
-      new OpenRouterProvider("k").generateStream({
+      new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream({
         model: "deepseek/deepseek-v4-flash",
         messages: [{ role: "user", content: "summarize" }],
         maxTokens: 1_200,

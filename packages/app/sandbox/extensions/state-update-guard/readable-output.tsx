@@ -22,7 +22,9 @@ const checkCopy = {
 } as const;
 export function diagnosticSummary(codes: string[], language?: string): string[] {
   const text = readableLabels(language);
-  return [...new Set(codes.map((code) => text[code === "missing_receipt" ? 7 : /receipt|count_mismatch/.test(code) ? 8 : code === "invalid_correction" ? 10 : /malformed|invalid_|unknown_|unsafe_|type_|json|patch|value|writable|contradictory|state_changes|colon|no_update/.test(code) ? 9 : 11]))];
+  // Exclusions are successful repair metadata, visible in the raw technical
+  // audit. Do not describe them as a check that failed to finish.
+  return [...new Set(codes.filter((code) => code !== "read_only_correction_ignored").map((code) => text[code === "missing_receipt" ? 7 : /receipt|count_mismatch/.test(code) ? 8 : code === "invalid_correction" ? 10 : /malformed|invalid_|unknown_|unsafe_|type_|json|patch|value|writable|contradictory|state_changes|colon|no_update/.test(code) ? 9 : 11]))];
 }
 export function variableLabel(id: string, names?: Record<string, string>, language?: string): string {
   const root = id.split(/[.\[]/, 1)[0]!;

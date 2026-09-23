@@ -34,6 +34,117 @@ function fixture(raw = "The stranger waits.", chunks: StreamChunk[] = [{ type: "
 }
 const errorCode = (code: string) => (error: unknown) => error instanceof StateGuardError && error.code === code;
 
+function readonlyFixture(stateChanges: unknown[], review?: unknown) {
+  const output = JSON.stringify({ narrative: "", status: "updated", stateChanges, ...(review === undefined ? {} : { review }) });
+  const f = fixture("You catch your breath.", [{ type: "text", content: output }, { type: "done", content: "", stopReason: "stop" }]);
+  f.ctx.world.variables.push(
+    { id: "game-day", name: "Calendar", type: "number", defaultValue: 1, aiAccess: "read" },
+    { id: "calendar", name: "Calendar details", type: "json", defaultValue: { days: [1] }, aiAccess: "read" },
+  );
+  f.ctx.state = new GameStateManager(f.ctx.world).getSnapshot();
+  return { ...f, output };
+}
+
+for (const [variableId, value] of [["game-day", 0], ["game-day", 10], ["Calendar", 1], ["calendar.days[0]", 1], ["Calendar details.days.0", 1]] as const) {
+  test(`correction discards read-only ${variableId} add ${value} and keeps validated writable effects`, async () => {
+    const writable = { variableId: "energy-id", operation: "add", value: 2 };
+    const f = readonlyFixture([writable, { variableId, operation: "add", value }]);
+    const before = structuredClone(f.ctx.state);
+    const result = await guardTurnOutput(f.ctx);
+    assert.deepEqual(result.parsed.effects, [writable]);
+    assert.equal(result.audit?.parsedCount, 1);
+    assert.equal(result.audit?.declaredCount, 1);
+    assert.equal(result.audit?.repaired, true);
+    assert.ok(result.audit?.diagnostics.includes("read_only_correction_ignored"));
+    assert.equal(result.audit?.correctedBatch, f.output);
+    assert.equal(result.parsed.cleanText, f.ctx.raw);
+    assert.deepEqual(f.ctx.state, before);
+    assert.equal(f.requests.length, 1);
+    assert.equal(f.usages.length, 1);
+    const committed = new GameStateManager(f.ctx.world, structuredClone(before));
+    committed.applyEffects(result.parsed.effects);
+    assert.equal(committed.get("energy-id"), 102);
+    assert.equal(committed.get("game-day"), 1);
+    assert.deepEqual(committed.get("calendar"), { days: [1] });
+  });
+}
+
+test("read-only filtering composes with syntax recovery and preserves original audit bytes", async () => {
+  const writable = { variableId: "energy-id", operation: "add", value: 2 };
+  const f = readonlyFixture([writable, { variableId: "game-day", operation: "add", value: 0 }]);
+  const output = '<think>Planning.</think>\n```json\n' + f.output + '],"review":[]}\n```';
+  f.ctx.provider.generateStream = async function* () {
+    yield { type: "text", content: output };
+    yield { type: "done", content: "", stopReason: "stop" };
+  };
+  const result = await guardTurnOutput(f.ctx);
+  assert.deepEqual(result.parsed.effects, [writable]);
+  assert.equal(result.audit?.repaired, true);
+  assert.equal(result.audit?.correctedBatch, output);
+});
+
+test("read-only aliases never shadow writable IDs and duplicate aliases resolve last", async () => {
+  const writable = { variableId: "energy-id", operation: "add", value: 2 };
+  const f = readonlyFixture([writable, { variableId: "Calendar", operation: "add", value: 1 }, { variableId: "calendar.days[0]", operation: "add", value: 1 }]);
+  f.ctx.world.variables[2]!.name = "energy-id";
+  f.ctx.world.variables.push(
+    { id: "first-alias", name: "Calendar", type: "number", defaultValue: 0, aiAccess: "read" },
+    { id: "last-alias", name: "Calendar", type: "number", defaultValue: 0 },
+  );
+  f.ctx.state = new GameStateManager(f.ctx.world).getSnapshot();
+  assert.deepEqual((await guardTurnOutput(f.ctx)).parsed.effects, [writable, { variableId: "last-alias", operation: "add", value: 1 }]);
+  f.ctx.world.variables.at(-1)!.aiAccess = "read";
+  assert.deepEqual((await guardTurnOutput(f.ctx)).parsed.effects, [writable]);
+});
+
+for (const protection of [{ enabled: false }, { internal: true }, { activation: { mode: "conditions" as const, conditions: [{ variableId: "kills-id", operator: "gt" as const, value: 0 }], conditionLogic: "all" as const } }]) {
+  test(`inactive/hidden read-only targets stay rejected ${JSON.stringify(protection)}`, async () => {
+    const f = readonlyFixture([{ variableId: "game-day", operation: "add", value: 0 }, { variableId: "energy-id", operation: "add", value: 1 }]);
+    Object.assign(f.ctx.world.variables[2]!, protection);
+    await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+    assert.equal(f.ctx.state.variables["game-day"], 1);
+    assert.equal(f.ctx.state.variables["energy-id"], 100);
+  });
+}
+
+test("read-only-only correction cannot stand in for a missing writable-variable review", async () => {
+  const f = readonlyFixture([{ variableId: "game-day", operation: "add", value: 0 }]);
+  await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+  assert.ok(f.ctx.audit.diagnostics.includes("missing_no_update_review"));
+  assert.equal(f.ctx.state.variables["game-day"], 1);
+});
+
+test("read-only-only correction with a complete review becomes an explicit no-change batch", async () => {
+  const f = readonlyFixture([{ variableId: "game-day", operation: "add", value: 1 }], JSON.parse(reviewedNone).review);
+  const result = await guardTurnOutput(f.ctx);
+  assert.equal(result.audit?.outcome, "explicit-none");
+  assert.deepEqual(result.parsed.effects, []);
+  assert.equal(result.audit?.declaredCount, 0);
+  assert.equal(result.audit?.correctedBatch, f.output);
+});
+
+for (const bad of [
+  { variableId: "missing", operation: "set", value: 1 },
+  { variableId: "energy-id", operation: "add", value: "two" },
+  { variableId: "calendar.__proto__.polluted", operation: "set", value: true },
+  { variableId: "game-day", operation: "unknown", value: 1 },
+]) {
+  test(`read-only filtering does not hide invalid command ${bad.variableId}/${bad.operation}`, async () => {
+    const f = readonlyFixture([{ variableId: "game-day", operation: "add", value: 0 }, bad]);
+    await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+    assert.equal(f.ctx.state.variables["game-day"], 1);
+  });
+}
+
+for (const protection of [{ aiAccess: "none" as const }, { enabled: false }, { internal: true }]) {
+  test(`read-only filtering does not bypass other access restrictions ${JSON.stringify(protection)}`, async () => {
+    const f = readonlyFixture([{ variableId: "game-day", operation: "add", value: 0 }, { variableId: "energy-id", operation: "add", value: 1 }]);
+    Object.assign(f.ctx.world.variables[1]!, protection);
+    await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+    assert.equal(f.ctx.state.variables["energy-id"], 100);
+  });
+}
+
 test("correction requests native JSON mode without changing story output", async () => {
   const f = fixture();
   const result = await guardTurnOutput(f.ctx);
@@ -133,7 +244,7 @@ for (const mode of ["cancelled", "disabled"] as const) {
 for (const [effect, code] of [
   [{ variableId: "unknown", operation: "set", value: 1 }, "unknown_variable"],
   [{ variableId: "energy-id", operation: "set", value: "one" }, "incompatible_value"],
-  [{ variableId: "read-only", operation: "set", value: 1 }, "not_writable"],
+  [{ variableId: "hidden", operation: "set", value: 1 }, "not_writable"],
   [{ variableId: "energy-id.__proto__.x", operation: "set", value: 1 }, "unsafe_path"],
 ] as const) {
   test(`syntax recovery still rejects ${code} without partial state changes`, async () => {
@@ -141,7 +252,7 @@ for (const [effect, code] of [
       { variableId: "kills-id", operation: "add", value: 1 }, effect,
     ] }) + '],"review":[]}';
     const f = fixture(undefined, [{ type: "text", content: output }, { type: "done", content: "", stopReason: "stop" }]);
-    f.ctx.world.variables.push({ id: "read-only", name: "Read only", type: "number", defaultValue: 0, aiAccess: "read" });
+    f.ctx.world.variables.push({ id: "hidden", name: "Hidden", type: "number", defaultValue: 0, aiAccess: "none" });
     const before = structuredClone(f.ctx.state);
     await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
     assert.ok(f.ctx.audit.diagnostics.includes(code));

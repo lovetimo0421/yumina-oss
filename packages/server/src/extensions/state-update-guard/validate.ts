@@ -1,6 +1,6 @@
 import { parseGuardedResponse, estimateTokens, stripStateReceipts, isAiReadable, isAiWritable, ThinkingTagFilter, type GuardedParseResult } from "@yumina/engine";
 import type { TurnOutputContext, ValidatedTurnOutput } from "../../lib/extension-hooks.js";
-import { isJsonModeUnsupported, normalizeCorrectionJson } from "./correction-format.js";
+import { isJsonModeUnsupported, normalizeCorrectionJson, omitReadOnlyCorrectionWrites } from "./correction-format.js";
 
 export const STATE_GUARD_INSTRUCTIONS = `Platform State Update Guard: keep the card's existing state commands and narrative format. Prose alone does not update variables. After all text/directive/JSONPatch output, on its own final line emit exactly one receipt:
 <yumina-state version="1" status="updated" count="N" />
@@ -192,14 +192,25 @@ export async function guardTurnOutput(ctx: TurnOutputContext): Promise<Validated
     }
     if (!done || truncated(finalReason) || refused(finalReason)) fail("incomplete_correction");
     const normalized = normalizeCorrectionJson(output);
-    const corrected = check(normalized.text);
+    let correctionText = normalized.text;
+    let corrected = check(correctionText);
+    let omittedReadOnly = false;
+    if (corrected.outcome === "invalid" && corrected.diagnostics.length && corrected.diagnostics.every((d) => d.code === "not_writable")) {
+      const filtered = omitReadOnlyCorrectionWrites(correctionText, ctx.world, ctx.state);
+      if (filtered.omitted) {
+        correctionText = filtered.text;
+        omittedReadOnly = true;
+        audit.diagnostics.push("read_only_correction_ignored");
+        corrected = check(correctionText);
+      }
+    }
     if (corrected.outcome === "invalid") { audit.diagnostics.push(...corrected.diagnostics.map((d) => d.code)); fail("invalid_correction"); }
-    if (corrected.outcome === "explicit-none" && !hasCompleteNoUpdateReview(normalized.text, writableVariableIds)) {
+    if (corrected.outcome === "explicit-none" && !hasCompleteNoUpdateReview(correctionText, writableVariableIds)) {
       audit.diagnostics.push("missing_no_update_review"); fail("invalid_correction");
     }
     // Only the complete replacement command batch changes; frozen narration and
     // original audio remain unchanged, even if the model ignored the instruction.
-    candidate = { ...corrected, repaired: corrected.repaired || normalized.repaired, cleanText: candidate.cleanText, audioEffects: candidate.audioEffects, speaker: candidate.speaker };
+    candidate = { ...corrected, repaired: corrected.repaired || normalized.repaired || omittedReadOnly, cleanText: candidate.cleanText, audioEffects: candidate.audioEffects, speaker: candidate.speaker };
     audit.correctedBatch = output;
   }
   if (ctx.signal.aborted) fail("cancelled");

@@ -1,4 +1,31 @@
-import { ThinkingTagFilter } from "@yumina/engine";
+import { ThinkingTagFilter, isAiReadable, type GameState, type WorldDefinition } from "@yumina/engine";
+
+/** Correction-only exclusion of author-designated read-only variables. Call
+ * only after strict parsing reports exclusively access errors, then revalidate
+ * the complete result. Hidden/inactive variables and unknown IDs stay errors. */
+export function omitReadOnlyCorrectionWrites(raw: string, world: WorldDefinition, state: GameState): { text: string; omitted: number } {
+  const unchanged = { text: raw, omitted: 0 };
+  try {
+    const text = ThinkingTagFilter.strip(raw).trim().replace(/^```(?:json)?\s*\n?/i, "").replace(/\n?```$/, "");
+    const envelope = JSON.parse(text);
+    if (envelope?.status !== "updated" || !Array.isArray(envelope.stateChanges)) return unchanged;
+    const kept = envelope.stateChanges.filter((effect: { variableId?: unknown } | null) => {
+      if (typeof effect?.variableId !== "string") return true;
+      const rootId = effect.variableId.replace(/\[(\d+)\]/g, ".$1").split(".")[0];
+      // Match the engine's ID-first, last-name-alias resolution exactly.
+      const variable = world.variables.find((v) => v.id === rootId)
+        ?? [...world.variables].reverse().find((v) => v.name === rootId);
+      return !variable || variable.aiAccess !== "read" || !isAiReadable(variable, state);
+    });
+    const omitted = envelope.stateChanges.length - kept.length;
+    if (!omitted) return unchanged;
+    envelope.stateChanges = kept;
+    // This does not manufacture a successful no-op: the caller still requires
+    // the model's complete per-writable-variable review before accepting none.
+    if (!kept.length) envelope.status = "none";
+    return { text: JSON.stringify(envelope), omitted };
+  } catch { return unchanged; }
+}
 
 function containsOnlyReview(suffix: string): boolean {
   const start = /^,\s*"review"\s*:\s*\[/.exec(suffix);
