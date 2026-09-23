@@ -1,4 +1,5 @@
 import type { ActivePersonaLike } from "./persona-metadata.js";
+import { personaEntriesSchema } from "@yumina/shared";
 
 /** Stored outside game state so restoring a turn cannot change the player's identity. */
 export interface SessionPersona {
@@ -7,8 +8,10 @@ export interface SessionPersona {
 
 export function captureSessionPersona(persona: (ActivePersonaLike & { id?: string }) | null): SessionPersona {
   if (!persona) return { persona: null };
-  const { id, name, avatarUrl, appearance, personality, backstory } = persona;
-  return { persona: { id, name, avatarUrl, appearance, personality, backstory } };
+  const { id, name, avatarUrl, appearance, personality, backstory, entries } = persona;
+  return { persona: { id, name, avatarUrl, appearance, personality, backstory,
+    ...(entries ? { entries: entries.map(entry => ({ title: entry.title, content: entry.content })) } : {}),
+  } };
 }
 
 /** Legacy sessions keep their saved identity, including an explicit absence.
@@ -23,5 +26,6 @@ export function legacySessionPersona(state: Record<string, unknown>): SessionPer
     appearance: text("personaAppearance"),
     personality: text("personaPersonality"),
     backstory: text("personaBackstory"),
+    ...(m.personaEntries ? { entries: personaEntriesSchema.safeParse(m.personaEntries).data ?? [] } : {}),
   });
 }

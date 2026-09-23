@@ -287,6 +287,14 @@ const personaHandler: MacroHandler = {
     if (appearance) parts.push(`Appearance: ${appearance}`);
     if (personality) parts.push(`Personality: ${personality}`);
     if (backstory) parts.push(`Backstory: ${backstory}`);
+    const entries = ctx.state.metadata?.personaEntries;
+    if (Array.isArray(entries)) {
+      for (const entry of entries) {
+        if (entry && typeof entry.title === "string" && typeof entry.content === "string") {
+          parts.push(`${entry.title}: ${entry.content}`);
+        }
+      }
+    }
     return parts.join("\n");
   },
 };

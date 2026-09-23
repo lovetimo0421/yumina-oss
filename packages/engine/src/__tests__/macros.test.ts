@@ -181,6 +181,15 @@ describe("expandMacros", () => {
   // ── Persona macros ──
 
   describe("persona macros", () => {
+    it("includes custom entries only while the persona is active", () => {
+      const world = bareWorld();
+      const state = stateWithMetadata({ personaActive: true, personaName: "Alex",
+        personaEntries: [{ title: "Weapon", content: "A steel sword" }] });
+      expect(expandMacros("{{persona}}", world, state)).toContain("Weapon: A steel sword");
+      state.metadata.personaActive = false;
+      expect(expandMacros("{{persona}}", world, state)).toBe("");
+    });
+
     it("renders active persona fields", () => {
       const world = bareWorld();
       const state = stateWithMetadata({

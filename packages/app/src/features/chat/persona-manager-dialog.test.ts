@@ -10,6 +10,7 @@ import { create } from "zustand";
 import type { SessionData } from "@/stores/chat";
 import type { Persona } from "@/stores/personas";
 import { createChatPersonaController } from "@/lib/refresh-chat-persona";
+import { readPersonaProfile } from "@/lib/persona-profile";
 
 // Exercise the actual manager's hooks and wiring while replacing only visual shells
 // and external stores. This keeps the test offline and does not open a browser.
@@ -49,7 +50,7 @@ test("manager follows global changes until a session selection locks it, queues 
     }
     const resolved = lockedPersona ?? selected;
     return Response.json({ data: { ...session, personaLocked: lockedPersona !== null, sessionPersona: { persona: resolved },
-      state: { variables: { hp: 1 }, metadata: { personaName: resolved.name, personaBackstory: resolved.backstory } } } });
+      state: { variables: { hp: 1 }, metadata: { personaName: resolved.name, personaBackstory: resolved.backstory, personaEntries: resolved.entries ?? [] } } } });
   };
   const t = (key: string, values?: { name: string }) => values?.name ?? key;
   const shell = ({ children }: { children: ReactNode }) => createElement("div", null, children);
@@ -101,6 +102,14 @@ test("manager follows global changes until a session selection locks it, queues 
     await act(async () => { chat.setState({ isStreaming: false }); });
     assert.equal(calls.length, 3);
     assert.equal((chat.getState().session.state.metadata as Record<string, unknown>).personaBackstory, "Edited");
+    const entries = [{ title: "Weapons", content: "Steel sword" }];
+    await act(async () => {
+      selected = { ...selected, entries };
+      personas.setState({ personas: [{ ...a, isActive: false }, selected] });
+    });
+    assert.equal(calls.length, 4, "entry-only edits refresh the saved identity even with the manager closed");
+    assert.deepEqual(readPersonaProfile("chat", chat.getState().session)?.entries, entries, "explicit sandbox re-import sees committed entry edits");
+    assert.deepEqual((chat.getState().session.state.metadata as Record<string, unknown>).personaEntries, entries);
     await act(async () => render(true));
     await act(async () => { dom.window.document.querySelector("[data-persona]")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })); });
     assert.equal(calls.at(-1)?.url, "/api/sessions/chat/persona-lock");
@@ -108,6 +117,7 @@ test("manager follows global changes until a session selection locks it, queues 
     await act(async () => finishSave());
     assert.equal(chat.getState().session.sessionPersona?.persona?.id, "A");
     assert.equal(chat.getState().session.personaLocked, true, "selecting in chat locks this session");
+    assert.deepEqual((chat.getState().session.state.metadata as Record<string, unknown>).personaEntries, [], "switching to a persona with no entries clears previous entries");
     assert.equal(fetches, 0, "a session selection does not change or refetch the profile default");
     assert.equal(selected.id, "B", "saving the session leaves the server account default unchanged");
     assert.equal(personas.getState().personas.find((p) => p.isActive)?.id, "B");
@@ -135,6 +145,13 @@ test("manager follows global changes until a session selection locks it, queues 
     assert.equal(chat.getState().session.sessionPersona?.persona?.id, "A");
     assert.equal((chat.getState().session.state.metadata as Record<string, unknown>).personaBackstory, "Locked public edit");
     assert.equal(personas.getState().personas.find((p) => p.isActive)?.id, "B");
+    const beforeEntryEdit = calls.length;
+    await act(async () => {
+      lockedPersona = { ...lockedPersona!, entries };
+      personas.setState({ personas: [{ ...lockedPersona, isActive: false }, { ...b, isActive: true }] });
+    });
+    assert.equal(calls.length, beforeEntryEdit + 1, "locked personas also refresh entry-only edits");
+    assert.deepEqual(readPersonaProfile("chat", chat.getState().session)?.entries, entries);
     const beforeUnmount = calls.length;
     await act(async () => root.unmount());
     await act(async () => {

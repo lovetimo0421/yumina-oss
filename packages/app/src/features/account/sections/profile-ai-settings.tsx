@@ -151,6 +151,9 @@ export function ProfileAiSettings() {
     }
   }, [pendingProvider, switching, syncSelectedModelForProvider, tChat]);
 
+  // Keep subscriptions stable while the wallet moves into/out of loading.
+  const currentModelStats = useModelsStore((st) => st.models.find((m) => m.id === selectedModel)?.costStats);
+
   if (plan === null && creditLoading) {
     return (
       <section>
@@ -165,7 +168,6 @@ export function ProfileAiSettings() {
 
   const currentModel = PLAY_MODELS.find((m) => m.id === selectedModel);
   const currentDot = currentModel ? TIER_DOT[currentModel.tier] : null;
-  const currentModelStats = useModelsStore((st) => st.models.find((m) => m.id === selectedModel)?.costStats);
   const currentModelAvgCost = currentModelStats
     ? t("aiProvider.avgCostPerChatRange", {
         typical: formatCostEstimate(estimateReplyCost(currentModelStats, null).typical),

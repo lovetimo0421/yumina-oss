@@ -4,6 +4,14 @@ import { readPersonaProfile } from "./persona-profile";
 
 const persona = { id: "B", name: "Robin", appearance: "red coat", personality: "curious", backstory: "teacher", note: "PRIVATE", userId: "owner", avatarUrl: "private-avatar" };
 const legacyState = { metadata: { personaActive: true, personaName: "Legacy A", personaAppearance: "blue coat", personaPersonality: "quiet", personaBackstory: "farmer" } };
+
+test("sandbox imports copy custom entries and discard non-roleplay entry fields", () => {
+  const entries = [{ title: "Weapon", content: "Sword", note: "PRIVATE" }];
+  const profile = readPersonaProfile("session", { id: "session", sessionPersona: { persona: { ...persona, entries } } });
+  entries[0]!.content = "Changed";
+  assert.deepEqual(profile?.entries, [{ title: "Weapon", content: "Sword" }]);
+  assert.ok(!JSON.stringify(profile).includes("PRIVATE"));
+});
 test("import follows the manager's saved session selection, excluding private fields", () => {
   const result = readPersonaProfile("session", { id: "session", sessionPersona: { persona }, state: legacyState, globalPersona: { name: "Global A" } });
   assert.deepEqual(result, { name: "Robin", appearance: "red coat", personality: "curious", backstory: "teacher" });

@@ -818,7 +818,16 @@
       "backstory": "Trasfondo",
       "backstoryPlaceholder": "El trasfondo y la historia de tu personaje...",
       "save": "Guardar persona",
-      "saving": "Guardando..."
+      "saving": "Guardando...",
+      "entriesTitle": "Detalles personalizados",
+      "entriesHint": "Estos detalles se envían a la IA junto con tu personaje.",
+      "entryTitle": "Título",
+      "entryTitlePlaceholder": "Ej.: habilidades, armas",
+      "entryContent": "Contenido",
+      "entryContentPlaceholder": "Describe los detalles y las reglas",
+      "addEntry": "Añadir entrada",
+      "removeEntry": "Eliminar entrada: {{name}}",
+      "entriesInvalid": "Añade un título y contenido a cada entrada. El total no debe superar {{max}} caracteres."
     }
   },
   "historyPage": {

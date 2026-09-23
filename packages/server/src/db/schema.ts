@@ -2187,6 +2187,7 @@ export const userPersonas = pgTable(
     appearance: text("appearance"),
     personality: text("personality"),
     backstory: text("backstory"),
+    entries: jsonb("entries").$type<import("@yumina/shared").PersonaEntry[]>().notNull().default([]),
     // Private, user-only label to tell same-named personas apart.
     // NEVER injected into prompts — keep out of buildPersonaSystemMessage
     // (messages.ts) and applyPersonaMetadata (persona-metadata.ts).

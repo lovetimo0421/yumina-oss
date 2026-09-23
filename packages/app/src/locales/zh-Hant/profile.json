@@ -822,7 +822,16 @@
       "backstory": "背景故事",
       "backstoryPlaceholder": "你人設的背景和經歷...",
       "save": "儲存人設",
-      "saving": "儲存中..."
+      "saving": "儲存中...",
+      "entriesTitle": "自訂設定",
+      "entriesHint": "這些設定會隨人設一起提供給 AI。",
+      "entryTitle": "標題",
+      "entryTitlePlaceholder": "例如：能力、武器",
+      "entryContent": "內容",
+      "entryContentPlaceholder": "描述具體設定和規則",
+      "addEntry": "新增條目",
+      "removeEntry": "刪除條目：{{name}}",
+      "entriesInvalid": "請填寫每個條目的標題和內容，所有條目合計不超過 {{max}} 字元。"
     }
   },
   "historyPage": {

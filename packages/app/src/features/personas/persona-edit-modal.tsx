@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Camera, Save, Loader2, User } from "lucide-react";
+import { Camera, Save, Loader2, User, Plus, Trash2 } from "lucide-react";
+import { personaEntriesSchema, MAX_PERSONA_ENTRIES, MAX_PERSONA_ENTRY_TITLE, MAX_PERSONA_ENTRY_CONTENT, MAX_PERSONA_ENTRIES_TOTAL, type PersonaEntry } from "@yumina/shared";
 import { FieldError } from "@/components/ui/field-error";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,7 @@ export function PersonaEditModal({ isOpen, onClose, persona }: PersonaEditModalP
   const [personality, setPersonality] = useState("");
   const [backstory, setBackstory] = useState("");
   const [note, setNote] = useState("");
+  const [entries, setEntries] = useState<(PersonaEntry & { key: string })[]>([]);
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
@@ -42,6 +44,7 @@ export function PersonaEditModal({ isOpen, onClose, persona }: PersonaEditModalP
       setPersonality(persona?.personality ?? "");
       setBackstory(persona?.backstory ?? "");
       setNote(persona?.note ?? "");
+      setEntries((persona?.entries ?? []).map(entry => ({ ...entry, key: crypto.randomUUID() })));
       setIsSaving(false);
       setUploadingAvatar(false);
       setAvatarError(null);
@@ -68,6 +71,15 @@ export function PersonaEditModal({ isOpen, onClose, persona }: PersonaEditModalP
     const trimmedName = name.trim();
     if (!trimmedName) return;
 
+    const parsedEntries = personaEntriesSchema.safeParse(
+      entries.filter(entry => entry.title.trim() || entry.content.trim())
+        .map(({ title, content }) => ({ title, content })),
+    );
+    if (!parsedEntries.success) {
+      setFormError(t("persona.modal.entriesInvalid", { max: MAX_PERSONA_ENTRIES_TOTAL }));
+      return;
+    }
+
     setIsSaving(true);
     setFormError(null);
     try {
@@ -78,6 +90,7 @@ export function PersonaEditModal({ isOpen, onClose, persona }: PersonaEditModalP
         personality: personality.trim() || null,
         backstory: backstory.trim() || null,
         note: note.trim() || null,
+        entries: parsedEntries.data,
       };
 
       const result = persona
@@ -300,6 +313,62 @@ export function PersonaEditModal({ isOpen, onClose, persona }: PersonaEditModalP
               </div>
             </section>
 
+            <section aria-label={t("persona.modal.entriesTitle")}>
+              {entries.length > 0 && (
+                <div className="mb-4 space-y-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-main">{t("persona.modal.entriesTitle")}</h3>
+                    <p className="mt-1 text-xs text-sub">{t("persona.modal.entriesHint")}</p>
+                  </div>
+                  {entries.map((entry, index) => (
+                    <div key={entry.key} className="space-y-3 rounded-2xl border border-white/10 bg-[#2A272B]/50 p-4">
+                      <div className="flex items-end gap-3">
+                        <label className="min-w-0 flex-1 space-y-2">
+                          <span className="text-xs font-semibold text-sub">{t("persona.modal.entryTitle")}</span>
+                          <Input
+                            value={entry.title}
+                            maxLength={MAX_PERSONA_ENTRY_TITLE}
+                            onChange={event => setEntries(current => current.map(item => item.key === entry.key ? { ...item, title: event.target.value } : item))}
+                            placeholder={t("persona.modal.entryTitlePlaceholder")}
+                            className="h-11 rounded-xl border-white/10 bg-white/[0.05] text-main focus-visible:border-gold/50 focus-visible:ring-gold/50"
+                          />
+                        </label>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          aria-label={t("persona.modal.removeEntry", { name: entry.title || index + 1 })}
+                          onClick={() => setEntries(current => current.filter(item => item.key !== entry.key))}
+                          className="h-11 rounded-xl px-3 text-sub hover:bg-white/5 hover:text-main"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <label className="block space-y-2">
+                        <span className="text-xs font-semibold text-sub">{t("persona.modal.entryContent")}</span>
+                        <textarea
+                          value={entry.content}
+                          maxLength={MAX_PERSONA_ENTRY_CONTENT}
+                          onChange={event => setEntries(current => current.map(item => item.key === entry.key ? { ...item, content: event.target.value } : item))}
+                          placeholder={t("persona.modal.entryContentPlaceholder")}
+                          className="min-h-[120px] w-full resize-y rounded-xl border border-white/10 bg-white/[0.05] px-4 py-3 text-sm leading-relaxed text-main placeholder:text-sub/50 focus-visible:border-gold/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gold/50"
+                        />
+                      </label>
+                      <p className="text-right text-xs text-sub/60">{entry.content.length}/{MAX_PERSONA_ENTRY_CONTENT}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={entries.length >= MAX_PERSONA_ENTRIES}
+                onClick={() => setEntries(current => [...current, { key: crypto.randomUUID(), title: "", content: "" }])}
+                className="h-11 w-full rounded-xl border border-dashed border-white/15 text-gold hover:border-gold/40 hover:bg-gold/5"
+              >
+                <Plus className="mr-2 h-4 w-4" />
+                {t("persona.modal.addEntry")}
+              </Button>
+            </section>
           </div>
         </div>
       </DialogContent>

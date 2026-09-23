@@ -16,7 +16,7 @@ before(async () => {
     is_banned boolean, tier text, skip_review boolean)`);
   await db.execute(sql`CREATE TABLE worlds (id text PRIMARY KEY)`);
   await db.execute(sql`CREATE TABLE user_personas (id text PRIMARY KEY, user_id text, name text,
-    avatar_url text, appearance text, personality text, backstory text, note text, is_active boolean,
+    avatar_url text, appearance text, personality text, backstory text, entries jsonb NOT NULL DEFAULT '[]'::jsonb, note text, is_active boolean,
     created_at timestamp, updated_at timestamp)`);
   await db.execute(sql`CREATE TABLE user_world_personas (user_id text REFERENCES "user"(id) ON DELETE CASCADE,
     world_id text REFERENCES worlds(id) ON DELETE CASCADE,

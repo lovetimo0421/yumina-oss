@@ -18,13 +18,13 @@ async function session(id: string) {
 }
 before(async () => {
   await db.execute(sql`CREATE TABLE play_sessions (id text PRIMARY KEY, user_id text, state jsonb, session_persona jsonb, persona_locked boolean NOT NULL DEFAULT false, updated_at timestamp)`);
-  await db.execute(sql`CREATE TABLE user_personas (id text PRIMARY KEY, user_id text, name text, avatar_url text, appearance text, personality text, backstory text, note text, is_active boolean, created_at timestamp, updated_at timestamp)`);
+  await db.execute(sql`CREATE TABLE user_personas (id text PRIMARY KEY, user_id text, name text, avatar_url text, appearance text, personality text, backstory text, entries jsonb NOT NULL DEFAULT '[]'::jsonb, note text, is_active boolean, created_at timestamp, updated_at timestamp)`);
   await db.execute(sql`CREATE TABLE user_world_personas (user_id text, world_id text, persona_id text, created_at timestamp, updated_at timestamp)`);
 });
 beforeEach(async () => {
   await db.execute(sql`TRUNCATE play_sessions, user_personas, user_world_personas`);
   for (const p of [A, B]) {
-    await db.execute(sql`INSERT INTO user_personas VALUES (${p.id}, 'tester', ${p.name}, '', ${p.appearance}, ${p.personality}, ${p.backstory}, 'PRIVATE NOTE', ${p.id === 'A'}, now(), now())`);
+    await db.execute(sql`INSERT INTO user_personas (id,user_id,name,avatar_url,appearance,personality,backstory,note,is_active,created_at,updated_at) VALUES (${p.id}, 'tester', ${p.name}, '', ${p.appearance}, ${p.personality}, ${p.backstory}, 'PRIVATE NOTE', ${p.id === 'A'}, now(), now())`);
     await db.execute(sql`INSERT INTO play_sessions VALUES (${p.id}, 'tester', '{"variables":{"hp":9},"metadata":{"personaName":"Old"}}', ${JSON.stringify(captureSessionPersona(p))}::jsonb, false, now())`);
   }
   await db.execute(sql`INSERT INTO user_world_personas VALUES ('tester','world','B',now(),now())`);

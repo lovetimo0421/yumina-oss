@@ -829,7 +829,16 @@
       "backstory": "Backstory",
       "backstoryPlaceholder": "Your character's background and history...",
       "save": "Save Persona",
-      "saving": "Saving..."
+      "saving": "Saving...",
+      "entriesTitle": "Custom details",
+      "entriesHint": "These details are included with your persona for the AI.",
+      "entryTitle": "Title",
+      "entryTitlePlaceholder": "e.g. Abilities, weapons",
+      "entryContent": "Content",
+      "entryContentPlaceholder": "Describe the details and rules",
+      "addEntry": "Add entry",
+      "removeEntry": "Remove entry: {{name}}",
+      "entriesInvalid": "Give each entry a title and content. Keep all entries within {{max}} characters."
     }
   },
   "historyPage": {

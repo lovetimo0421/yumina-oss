@@ -18,3 +18,12 @@ test("legacy snapshot decoding never guesses IDs from ambiguous names", () => {
   assert.equal(result.persona?.name, "Same name");
   assert.equal(result.persona?.id, undefined);
 });
+
+test("custom entries survive snapshots and legacy recovery without aliasing or private fields", () => {
+  const source = { name: "Alex", entries: [{ title: "Weapon", content: "Sword", note: "PRIVATE" }] };
+  const captured = captureSessionPersona(source);
+  source.entries[0]!.content = "Changed";
+  assert.deepEqual(captured.persona?.entries, [{ title: "Weapon", content: "Sword" }]);
+  const recovered = legacySessionPersona({ metadata: { personaActive: true, personaName: "Alex", personaEntries: source.entries } });
+  assert.deepEqual(recovered.persona?.entries, [{ title: "Weapon", content: "Changed" }]);
+});

@@ -216,6 +216,7 @@ storage.remove(key: string): Promise<void>;
 ```typescript
 toggleImmersive(): void;
 openPersonaManager(): void;
+getPersonaProfile(): Promise<{ name: string; appearance: string; personality: string; backstory: string; entries?: Array<{ title: string; content: string }> } | null>;
 openSupport(): Promise<{ opened: boolean; reason?: "self" | "signed-out" | "unavailable" }>;
 fetchAsset(ref: string): Promise<{ ok: boolean; bytes?: ArrayBuffer; contentType?: string; error?: string }>;
 switchGreeting(index: number): void;
@@ -224,6 +225,8 @@ showToast(message: string, type?: "success" | "error" | "info"): void;
 resolveAssetUrl(ref: string): string;
 renderMarkdown(text: string): string;
 ```
+
+`getPersonaProfile()` explicitly imports a copy of the current session's selected persona, including custom entries and excluding private notes. It returns `null` for No persona and rejects on failure. Call it when the player chooses to import, let them review the result and save their copy per run. An already imported copy changes only when the card imports again; older hosts may omit `entries` or the method itself. These persona entries are separate from the world's lorebook `api.entries`.
 
 ### Model Selection
 

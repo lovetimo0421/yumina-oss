@@ -810,7 +810,16 @@
       "backstory": "バックストーリー",
       "backstoryPlaceholder": "キャラクターの背景と経歴...",
       "save": "ペルソナを保存",
-      "saving": "保存中..."
+      "saving": "保存中...",
+      "entriesTitle": "追加設定",
+      "entriesHint": "これらの設定も人設と一緒に AI に送信されます。",
+      "entryTitle": "タイトル",
+      "entryTitlePlaceholder": "例：能力、武器",
+      "entryContent": "内容",
+      "entryContentPlaceholder": "設定やルールを入力",
+      "addEntry": "項目を追加",
+      "removeEntry": "項目を削除：{{name}}",
+      "entriesInvalid": "各項目にタイトルと内容を入力し、合計 {{max}} 文字以内にしてください。"
     }
   },
   "historyPage": {

@@ -178,7 +178,7 @@ export interface SandboxedYuminaAPI {
   /** Read the current session's selected Persona when the player chooses to
    * import it. Null means none selected; failures reject. Private notes are
    * excluded. Copy the result into the run's save to keep identity stable. */
-  getPersonaProfile: () => Promise<{ name: string; appearance: string; personality: string; backstory: string } | null>;
+  getPersonaProfile: () => Promise<{ name: string; appearance: string; personality: string; backstory: string; entries?: { title: string; content: string }[] } | null>;
   /** Publish the current session as a shared playthrough (opens the share
    *  dialog as a parent-app overlay). Fire-and-forget. */
   sharePlaythrough: () => void;

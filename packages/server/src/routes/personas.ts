@@ -8,6 +8,7 @@ import { userPersonas, userWorldPersonas } from "../db/schema.js";
 import { MAX_PERSONA_NAME, MAX_PERSONA_APPEARANCE, MAX_PERSONA_PERSONALITY, MAX_PERSONA_BACKSTORY, MAX_PERSONA_NOTE } from "@yumina/shared";
 
 import { setAccountPersona } from "../lib/resolve-persona.js";
+import { personaEntriesSchema } from "@yumina/shared";
 
 export const personaRoutes = new Hono<AppEnv>();
 
@@ -68,6 +69,7 @@ personaRoutes.post("/", authMiddleware, rateLimitMiddleware("content-creation"),
     personality?: string;
     backstory?: string;
     note?: string;
+    entries?: unknown;
   }>();
 
   if (!body.name?.trim()) {
@@ -89,6 +91,9 @@ personaRoutes.post("/", authMiddleware, rateLimitMiddleware("content-creation"),
     return c.json({ error: `Note must be ${MAX_PERSONA_NOTE} characters or fewer` }, 400);
   }
 
+  const entries = personaEntriesSchema.safeParse(body.entries ?? []);
+  if (!entries.success) return c.json({ error: "Invalid persona entries" }, 400);
+
   // Check if user has any personas — if not, make this one active
   const existing = await db
     .select({ id: userPersonas.id })
@@ -107,6 +112,7 @@ personaRoutes.post("/", authMiddleware, rateLimitMiddleware("content-creation"),
       personality: body.personality ?? null,
       backstory: body.backstory ?? null,
       note: body.note ?? null,
+      entries: entries.data,
       isActive: isFirst,
     })
     .returning();
@@ -125,6 +131,7 @@ personaRoutes.patch("/:id", authMiddleware, async (c) => {
     personality?: string | null;
     backstory?: string | null;
     note?: string | null;
+    entries?: unknown;
   }>();
 
   if (body.name !== undefined && !body.name.trim()) {
@@ -147,6 +154,11 @@ personaRoutes.patch("/:id", authMiddleware, async (c) => {
   }
 
   const updates: Record<string, unknown> = { updatedAt: new Date() };
+  if (body.entries !== undefined) {
+    const entries = personaEntriesSchema.safeParse(body.entries);
+    if (!entries.success) return c.json({ error: "Invalid persona entries" }, 400);
+    updates.entries = entries.data;
+  }
   if (body.name !== undefined) updates.name = body.name.trim();
   if (body.avatarUrl !== undefined) updates.avatarUrl = body.avatarUrl;
   if (body.appearance !== undefined) updates.appearance = body.appearance;

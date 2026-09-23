@@ -1001,6 +1001,7 @@ const COLUMN_ALTERS = [
   // Postgres gets this via explicit SQL (drizzle/0047_persona_note.sql) before
   // this code deploys; this entry keeps PGlite/fresh local DBs in sync.
   `ALTER TABLE user_personas ADD COLUMN IF NOT EXISTS note TEXT`,
+  `ALTER TABLE user_personas ADD COLUMN IF NOT EXISTS entries JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_persona JSONB`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS persona_locked BOOLEAN NOT NULL DEFAULT false`,
 ];

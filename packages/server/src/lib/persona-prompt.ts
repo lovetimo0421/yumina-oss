@@ -1,8 +1,11 @@
+import { formatPersonaEntries, type PersonaEntry } from "@yumina/shared";
+
 export interface PromptPersona {
   name: string;
   appearance?: string | null;
   personality?: string | null;
   backstory?: string | null;
+  entries?: PersonaEntry[];
 }
 
 export interface PersonaPromptMessage {
@@ -25,6 +28,8 @@ export function buildPersonaSystemMessage(persona: PromptPersona | null): string
   if (persona.appearance) parts.push(`Appearance: ${persona.appearance}`);
   if (persona.personality) parts.push(`Personality: ${persona.personality}`);
   if (persona.backstory) parts.push(`Backstory: ${persona.backstory}`);
+  const entries = formatPersonaEntries(persona.entries);
+  if (entries) parts.push(entries);
   return parts.join("\n");
 }
 

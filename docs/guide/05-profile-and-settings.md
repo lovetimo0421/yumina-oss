@@ -20,6 +20,10 @@ On your profile page, find the persona carousel. Click **Create** to open the ed
 - **Personality** (optional, up to 1,000 characters) — How you act. The AI weaves this into your dialogue and behavior. "Calm and measured, rarely raises voice. Dry humor. Fiercely loyal but slow to trust."
 - **Backstory** (optional, up to 2,000 characters) — Your history. The AI draws from this for narrative connections. "Former military medic who left the service after a friendly-fire incident. Now drifts between cities, taking odd jobs."
 
+At the bottom of the editor, **Add entry** adds a title and content for details such as abilities, weapons or rules. Edit or remove entries there, then save. Saved entries join the selected persona's AI context; private notes remain private. Blank rows are ignored, but a partly completed row needs both fields before saving.
+
+You can save up to 20 entries, with 100 characters per title, 5,000 per content field and 20,000 across all titles and content.
+
 You can create multiple personas and switch between them. Only one can be **active** at a time — the one with the gold ring in the carousel.
 
 ### How personas affect gameplay

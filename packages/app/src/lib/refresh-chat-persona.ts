@@ -1,6 +1,6 @@
 import type { SessionData } from "@/stores/chat";
 
-const identityKeys = ["personaActive", "personaName", "personaImage", "personaAppearance", "personaPersonality", "personaBackstory"] as const;
+const identityKeys = ["personaActive", "personaName", "personaImage", "personaAppearance", "personaPersonality", "personaBackstory", "personaEntries"] as const;
 
 /** Refresh only identity, preserving loaded history, gameplay, and audio. */
 export async function refreshChatPersona(options: {

@@ -1,3 +1,5 @@
+import { personaEntriesSchema, type PersonaEntry } from "@yumina/shared";
+
 /** Only role-play fields may cross into a world's sandbox. Private notes and
  * account identity stay in the host app. */
 export interface PersonaProfile {
@@ -5,6 +7,7 @@ export interface PersonaProfile {
   appearance: string;
   personality: string;
   backstory: string;
+  entries?: PersonaEntry[];
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -31,8 +34,10 @@ export function readPersonaProfile(sessionId: string, session: unknown): Persona
     const metadata = record(record(current.state)?.metadata);
     if (metadata?.personaActive !== true || typeof metadata.personaName !== "string") return null;
     persona = { name: metadata.personaName, appearance: metadata.personaAppearance,
-      personality: metadata.personaPersonality, backstory: metadata.personaBackstory };
+      personality: metadata.personaPersonality, backstory: metadata.personaBackstory, entries: metadata.personaEntries };
   }
   const field = (key: string) => typeof persona[key] === "string" ? persona[key] as string : "";
-  return { name: field("name"), appearance: field("appearance"), personality: field("personality"), backstory: field("backstory") };
+  return { name: field("name"), appearance: field("appearance"), personality: field("personality"), backstory: field("backstory"),
+    ...(persona.entries !== undefined ? { entries: personaEntriesSchema.safeParse(persona.entries).data ?? [] } : {}),
+  };
 }

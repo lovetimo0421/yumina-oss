@@ -822,7 +822,16 @@
       "backstory": "背景故事",
       "backstoryPlaceholder": "你人设的背景和经历...",
       "save": "保存人设",
-      "saving": "保存中..."
+      "saving": "保存中...",
+      "entriesTitle": "自定义设定",
+      "entriesHint": "这些设定会随人设一起提供给 AI。",
+      "entryTitle": "标题",
+      "entryTitlePlaceholder": "例如：能力、武器",
+      "entryContent": "内容",
+      "entryContentPlaceholder": "描述具体设定和规则",
+      "addEntry": "添加条目",
+      "removeEntry": "删除条目：{{name}}",
+      "entriesInvalid": "请填写每个条目的标题和内容，所有条目合计不超过 {{max}} 字符。"
     }
   },
   "historyPage": {

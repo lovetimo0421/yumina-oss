@@ -57,6 +57,7 @@ describe("applyPersonaMetadata", () => {
       personaAppearance: "",
       personaPersonality: "",
       personaBackstory: "",
+      personaEntries: [],
     });
   });
 });

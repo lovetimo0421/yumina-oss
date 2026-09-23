@@ -53,3 +53,19 @@ test("failed refresh preserves identity and lets the dialog show an error", asyn
   }), /Persona refresh failed/);
   assert.equal(state.session.sessionPersona?.persona?.name, "Old");
 });
+
+test("identity refresh replaces custom entries and clears them when the persona is disabled", async () => {
+  const { state, data } = fixture();
+  const oldEntries = [{ title: "Weapons", content: "Old sword" }];
+  const newEntries = [{ title: "Abilities", content: "Fire" }];
+  (state.session.state.metadata as Record<string, unknown>).personaEntries = oldEntries;
+  for (const [personaActive, personaEntries] of [[true, newEntries], [false, []]] as const) {
+    const received = { ...data, state: { ...data.state, metadata: { ...data.state.metadata, personaActive, personaEntries } } };
+    await refreshChatPersona({ sessionId: "chat", signal: new AbortController().signal, apiBase: "",
+      getState: () => state, apply: session => { state.session = session; }, request: async () => Response.json({ data: received }),
+    });
+    assert.deepEqual((state.session.state.metadata as Record<string, unknown>).personaEntries, personaEntries);
+    assert.deepEqual(state.session.state.variables, { hp: 9 });
+    assert.equal((state.session.state.metadata as Record<string, unknown>).activeAudio, "song");
+  }
+});

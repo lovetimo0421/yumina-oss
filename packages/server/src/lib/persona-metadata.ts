@@ -20,6 +20,7 @@
  *  vs message send vs regenerate. */
 
 import type { GameStateManager } from "@yumina/engine";
+import type { PersonaEntry } from "@yumina/shared";
 
 export interface ActivePersonaLike {
   name: string;
@@ -27,6 +28,7 @@ export interface ActivePersonaLike {
   appearance?: string | null;
   personality?: string | null;
   backstory?: string | null;
+  entries?: PersonaEntry[];
 }
 
 export interface AccountLike {
@@ -54,6 +56,7 @@ export function applyPersonaMetadata(
     stateManager.setMetadata("personaAppearance", persona.appearance ?? "");
     stateManager.setMetadata("personaPersonality", persona.personality ?? "");
     stateManager.setMetadata("personaBackstory", persona.backstory ?? "");
+    stateManager.setMetadata("personaEntries", persona.entries ?? []);
     return;
   }
 
@@ -74,6 +77,7 @@ export function applyPersonaMetadata(
   stateManager.setMetadata("personaAppearance", "");
   stateManager.setMetadata("personaPersonality", "");
   stateManager.setMetadata("personaBackstory", "");
+  stateManager.setMetadata("personaEntries", []);
 }
 
 /** Overlay only identity fields, leaving all gameplay state intact. */

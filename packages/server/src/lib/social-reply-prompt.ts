@@ -1,5 +1,5 @@
 import type { SocialJob } from "@yumina/engine";
-import { MAX_PERSONA_NAME, MAX_PERSONA_APPEARANCE, MAX_PERSONA_PERSONALITY, MAX_PERSONA_BACKSTORY } from "@yumina/shared";
+import { MAX_PERSONA_NAME, MAX_PERSONA_APPEARANCE, MAX_PERSONA_PERSONALITY, MAX_PERSONA_BACKSTORY, MAX_PERSONA_ENTRY_CONTENT } from "@yumina/shared";
 import { buildPersonaSystemMessage, type PromptPersona } from "./persona-prompt.js";
 
 interface SocialLore { id: string; name: string; lore: string }
@@ -22,8 +22,10 @@ export interface SocialGuidanceEntry {
 const CAST_BUDGET = 19_000;
 const GUIDANCE_MAX_CHARS = 5_000;
 const LORE_MAX_CHARS = 6_000;
+const PERSONA_MAX_CHARS = 13_000;
 
-const clip = (text: string, max: number) => Array.from(text).slice(0, max).join("");
+// Match the completion endpoint's UTF-16 length budget without splitting emoji.
+const clip = (text: string, max: number) => text.slice(0, max).replace(/[\uD800-\uDBFF]$/, "");
 
 /** The creator's own always-on instructions (task, style, world notes) that are
  *  NOT a member's character sheet. Before this the social route only forwarded
@@ -75,12 +77,16 @@ export function buildSocialReplyPrompt(job: SocialJob, lore: SocialLore[], perso
     // Players paste chat-pipeline scenario text into the persona; resolve its
     // {{user}} macro here since nothing else on this path interpolates it.
     const named = (text: string | null | undefined, max: number) => text?.slice(0, max).replace(/\{\{user\}\}/gi, persona!.name.trim() || "the player");
-    const personaText = buildPersonaSystemMessage(persona && {
+    const personaText = clip(buildPersonaSystemMessage(persona && {
         name: persona.name.slice(0, MAX_PERSONA_NAME),
         appearance: named(persona.appearance, MAX_PERSONA_APPEARANCE),
         personality: named(persona.personality, MAX_PERSONA_PERSONALITY),
         backstory: named(persona.backstory, MAX_PERSONA_BACKSTORY),
-    }) ?? "";
+        entries: persona.entries?.map(entry => ({
+            title: entry.title,
+            content: named(entry.content, MAX_PERSONA_ENTRY_CONTENT) ?? "",
+        })),
+    }) ?? "", PERSONA_MAX_CHARS);
     // Cards written for the chat pipeline reference the <game-state> block for
     // the cast (e.g. "登场成员以 selected-members 为准"). Point it at THIS reply's
     // allowed speakers, never the whole session cast: listing all thirteen here
@@ -88,7 +94,7 @@ export function buildSocialReplyPrompt(job: SocialJob, lore: SocialLore[], perso
     // outside the batch (live A/B, 2026-09-10), which the engine then rejects.
     const cast = selectedMembers?.length ? `\n<game-state>\nselected-members: ${JSON.stringify(job.members)}\n</game-state>` : "";
     const guidanceText = guidance ? clip(guidance, GUIDANCE_MAX_CHARS) + cast : "";
-    const perMemberBudget = Math.floor((CAST_BUDGET - personaText.length - guidanceText.length) / Math.max(1, lore.length));
+    const perMemberBudget = Math.max(0, Math.floor((CAST_BUDGET - personaText.length - guidanceText.length) / Math.max(1, lore.length)));
     const sheet = (member: SocialLore, text: string) => `## ${member.name} (authorId: ${member.id})\n${text}`;
     const characters = lore.map(member => {
         const chars = Array.from(member.lore).slice(0, LORE_MAX_CHARS);

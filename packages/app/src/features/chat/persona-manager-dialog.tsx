@@ -32,7 +32,7 @@ export function PersonaManagerDialog({ open, onClose, sessionId }: PersonaManage
   const fetchPersonas = usePersonasStore((s) => s.fetchPersonas);
   // Only committed selection/public-field changes refresh identity.
   const sourceVersion = source ? JSON.stringify([
-    source.id, source.name, source.avatarUrl, source.appearance, source.personality, source.backstory,
+    source.id, source.name, source.avatarUrl, source.appearance, source.personality, source.backstory, source.entries,
   ]) : null;
   const controller = useRef<ReturnType<typeof createChatPersonaController> | null>(null);
   useEffect(() => {

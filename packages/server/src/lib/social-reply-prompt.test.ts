@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildSocialReplyPrompt, renderSocialContext, selectSocialGuidance } from "./social-reply-prompt.js";
 import { applySocialAction, initialSocialState, socialJobContext, type SocialJob } from "@yumina/engine";
-import { MAX_PERSONA_NAME, MAX_PERSONA_APPEARANCE, MAX_PERSONA_PERSONALITY, MAX_PERSONA_BACKSTORY } from "@yumina/shared";
+import { MAX_PERSONA_NAME, MAX_PERSONA_APPEARANCE, MAX_PERSONA_PERSONALITY, MAX_PERSONA_BACKSTORY, personaEntriesSchema } from "@yumina/shared";
 
 const sheets = (prompt: string) => prompt.split("\nCharacters:\n")[1]!.split("\n\nSession scenario / player:\n")[0]!.split("\n\n## ").map((s, i) => i === 0 ? s.replace(/^## /, "") : s);
 
@@ -71,6 +71,31 @@ test("creator notes come from the card's always-on non-character entries, dedupl
     assert.ok(!withCast.includes("coups"), "members outside the batch are never offered as speakers");
     assert.ok(withCast.trimEnd().endsWith("a reply with an unlisted authorId is discarded whole."), "the allowed list is restated last, after the scenario");
     assert.ok(!buildSocialReplyPrompt({ id: "p", targetId: "p", kind: "post", members: ["josh"], status: "running" }, [], null).includes("Creator notes:"));
+});
+
+test("custom persona entries reach social replies without overflowing the request budget", () => {
+    const job: SocialJob = { id: "p", targetId: "p", kind: "post", members: ["a"], status: "running" };
+    const entry = { title: "Weapons", content: "{{user}} uses a steel sword." };
+    assert.ok(buildSocialReplyPrompt(job, [], { name: "Alex", entries: [entry] }).includes("Weapons: Alex uses a steel sword."));
+    const full = buildSocialReplyPrompt(job, [{ id: "a", name: "A", lore: "L".repeat(6000) }], {
+        name: "Alex", backstory: "B".repeat(5000), entries: Array(4).fill({ title: "Ability", content: "X".repeat(4990) }),
+    }, "G".repeat(5000));
+    assert.ok(full.length + 25000 < 50000);
+});
+
+test("emoji-heavy custom entries obey the endpoint's UTF-16 request budget", () => {
+    const members = Array.from({ length: 6 }, (_, i) => `member-${i}`);
+    const job: SocialJob = { id: "p", targetId: "p", kind: "post", members, status: "running" };
+    const entries = personaEntriesSchema.parse(Array(4).fill({ title: "A", content: "😀".repeat(2499) }));
+    const persona = { name: "Alex", appearance: "A".repeat(MAX_PERSONA_APPEARANCE),
+        personality: "P".repeat(MAX_PERSONA_PERSONALITY), backstory: "B".repeat(MAX_PERSONA_BACKSTORY), entries };
+    for (const guidance of ["G".repeat(5000), "😀".repeat(5000)]) {
+        const prompt = buildSocialReplyPrompt(job, members.map(id => ({ id, name: id, lore: "😀".repeat(6000) })), persona, guidance, members);
+        assert.ok(prompt.length + 25000 < 50000, `request is ${prompt.length + 25000} UTF-16 characters`);
+        assert.ok(prompt.includes("A: 😀"), "custom entries remain included");
+        assert.doesNotMatch(prompt, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/, "clipping never leaves a split surrogate pair");
+        assert.equal(sheets(prompt).length, members.length);
+    }
 });
 
 test("the full allowed persona and creator notes survive six long character profiles under the 50k request limit", () => {

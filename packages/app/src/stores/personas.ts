@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { PersonaEntry } from "@yumina/shared";
 
 const apiBase = import.meta.env?.VITE_API_URL || "";
 let personaRevision = 0;
@@ -12,6 +13,7 @@ export interface Persona {
   appearance: string | null;
   personality: string | null;
   backstory: string | null;
+  entries?: PersonaEntry[];
   /** Private, user-only label — never sent to the AI. */
   note: string | null;
   isActive: boolean;
@@ -25,6 +27,7 @@ interface PersonaInput {
   appearance?: string | null;
   personality?: string | null;
   backstory?: string | null;
+  entries?: PersonaEntry[];
   note?: string | null;
 }
 
