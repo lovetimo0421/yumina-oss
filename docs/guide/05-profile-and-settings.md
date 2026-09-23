@@ -39,7 +39,7 @@ Backstory: (your backstory text)
 
 This means the same world feels different depending on which persona you bring. A horror world plays differently when you're a scared teenager vs. a hardened detective. A romance world shifts tone when you're a shy introvert vs. a confident extrovert.
 
-Switching personas in your profile or the world's session picker changes the account-wide selection. New chats and existing sessions without a persona lock follow it from the next request. Selecting a persona inside a chat automatically enables **Lock persona for this session** and changes only that save, including an explicit **No persona** selection. Turn the lock off to follow the current account persona again. Editing the selected persona updates later prompts in either mode. A response already generating keeps the identity it started with. Old messages and memories are not rewritten, and private notes are never sent to the AI.
+Switching personas in your profile or the world's session picker changes the account-wide selection. New chats and existing sessions without a persona lock follow it from the next request. Selecting a persona inside a chat automatically switches to **Persona locked** and changes only that save, including an explicit **No persona** selection. Turn the lock off to return to **Following global persona**. Editing the selected persona updates later prompts in either mode. A response already generating keeps the identity it started with. Old messages and memories are not rewritten, and private notes are never sent to the AI.
 
 ### No persona? That's fine too
 

@@ -287,6 +287,9 @@ export const sourceStorySchema=z.object({
  guideRole:z.union([z.literal(0),z.literal(1)]).optional(),
  walletHalfUnits:z.number().int().min(0).max(2_000_000).optional(),
  examReveal:z.object({sceneId:z.union([z.literal(23023),z.literal(23024)]),marks:source23ExamMarksSchema}).strict().optional(),
+ // The saved native board supplies this only after all marks were revealed.
+ // It carries no current dialogue, answer choices or action authority.
+ examRecord:z.object({marks:source23ExamMarksSchema}).strict().optional(),
  shoppingBill:source24ShoppingBillSchema.optional(),
  events:z.array(z.object({level:z.number().int().min(1).max(50),
  eventId:z.number().int().min(-1_000_000).max(1_000_000),
@@ -299,6 +302,8 @@ export const sourceStorySchema=z.object({
    .refine(a=>new Set(a.map(v=>v.eventId)).size===a.length,'Duplicate authored action'),
  }).strict().optional(),
 }).strict().superRefine((s,ctx)=>{
+ if(s.examRecord!==undefined&&(s.sourceLevel!==40161||(s.examReveal&&s.examRecord.marks.some((mark,i)=>mark!==s.examReveal!.marks[i]))))
+  ctx.addIssue({code:z.ZodIssueCode.custom,path:['examRecord'],message:'Saved marks belong to source23 and must agree with the visible paper'});
  if(s.shoppingBill!==undefined&&(s.sourceLevel!==40162||s.shoppingBill.total!==Math.floor(
   s.shoppingBill.purchases.reduce((sum,p,i)=>sum+(p?(i+1)*50:0),0)*[0,8,10,12,15][s.difficulty]!/10)))
   ctx.addIssue({code:z.ZodIssueCode.custom,path:['shoppingBill'],message:'Bill must match this source24 purchase ledger and difficulty'});

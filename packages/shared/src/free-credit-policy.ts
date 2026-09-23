@@ -55,11 +55,20 @@ export interface WalletBreakdown {
 }
 export interface WalletSpendAllocation { bucket: 'monthly' | 'bonus' | 'saved'; lotId: string | null; amount: number; expiresAt: string | null; origin: string }
 /** Pure allocation; no mutation, no conversion of expired promotions into Saved. */
+/**
+ * Wallet columns are Postgres `real` (float4): above 65,536 adjacent values sit
+ * 0.0078 apart, and their shortest text forms (…0.68 / …0.69) read back 0.01+
+ * apart. A flat 0.01 tolerance therefore rejects a one-ulp drift as corruption.
+ */
+export function walletTolerance(...values: number[]): number {
+  return Math.max(0.01, ...values.map(v => Math.abs(v) * 1e-6));
+}
 export function allocateWalletSpend(input: { amount: number; total: number; addon: number; monthlyEnd: string; groups: WalletBonusGroup[]; now: Date }): WalletSpendAllocation[] {
-  const { amount, total, addon, groups, now } = input;
-  if (![amount,total,addon].every(Number.isFinite) || amount <= 0 || addon < 0 || total < addon - 0.01) throw new Error('INVALID_WALLET_AMOUNT');
+  const { amount, total, groups, now } = input;
+  if (![amount,total,input.addon].every(Number.isFinite) || amount <= 0 || input.addon < 0 || total < input.addon - walletTolerance(total, input.addon)) throw new Error('INVALID_WALLET_AMOUNT');
+  const addon = Math.min(input.addon, total);
   const bonus = groups.reduce((sum,g)=>sum+g.amount,0);
-  if (bonus > addon + 0.01 || groups.some(g=>g.amount<0 || !Number.isFinite(g.amount) || !Number.isFinite(Date.parse(g.expiresAt)))) throw new Error('BONUS_BALANCE_MISMATCH');
+  if (bonus > addon + walletTolerance(bonus, addon) || groups.some(g=>g.amount<0 || !Number.isFinite(g.amount) || !Number.isFinite(Date.parse(g.expiresAt)))) throw new Error('BONUS_BALANCE_MISMATCH');
   const candidates: WalletSpendAllocation[] = [
     { bucket:'monthly' as const,lotId:null,amount:Math.max(0,total-addon),expiresAt:input.monthlyEnd,origin:'monthly' },
     ...groups.filter(g=>Date.parse(g.expiresAt)>now.getTime()).map(g=>({bucket:'bonus' as const,lotId:g.id,amount:g.amount,expiresAt:g.expiresAt,origin:g.origin})),

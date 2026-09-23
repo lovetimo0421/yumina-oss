@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { allocateWalletSpend, bonusRewardGroup, reducedFreeCycle, reducedFreeRewards, type FreeCreditRollout, type WalletBonusGroup, type WalletBreakdown, type WalletSpendAllocation } from '@yumina/shared';
+import { allocateWalletSpend, walletTolerance, bonusRewardGroup, reducedFreeCycle, reducedFreeRewards, type FreeCreditRollout, type WalletBonusGroup, type WalletBreakdown, type WalletSpendAllocation } from '@yumina/shared';
 import { db } from '../db/index.js';
 import { insertHashedTransaction, type LedgerDatabase } from './transaction-hash.js';
 import { PLANS, type PlanId } from './plan-config.js';
@@ -61,7 +61,7 @@ export async function expireWalletBonus(userId:string,database:LedgerDatabase=db
     const wallet=r.rows[0];if(!wallet)return;
     const expired=await tx.execute(sql`SELECT id,remaining FROM wallet_bonus_lots WHERE wallet_id=${wallet.id} AND remaining>0 AND expires_at<=${now}`) as Rows<{id:string;remaining:string}>;
     const amount=expired.rows.reduce((s,r)=>s+Number(r.remaining),0);if(amount===0)return;
-    if(amount>Number(wallet.addon_balance)+.01||amount>Number(wallet.balance)+.01)throw new Error('BONUS_BALANCE_MISMATCH');
+    if(amount>Number(wallet.addon_balance)+walletTolerance(amount,Number(wallet.addon_balance))||amount>Number(wallet.balance)+walletTolerance(amount,Number(wallet.balance)))throw new Error('BONUS_BALANCE_MISMATCH');
     const updated=await tx.execute(sql`UPDATE credit_wallets SET balance=GREATEST(0,balance-${amount}),addon_balance=GREATEST(0,addon_balance-${amount}),updated_at=${now} WHERE id=${wallet.id} RETURNING balance`) as Rows<{balance:number}>;
     await tx.execute(sql`UPDATE wallet_bonus_lots SET remaining=0 WHERE wallet_id=${wallet.id} AND remaining>0 AND expires_at<=${now}`);
     await insertHashedTransaction({walletId:wallet.id,amount:-amount,type:'bonus_expiry',balanceAfter:Number(updated.rows[0]!.balance),description:'Unused Bonus expired at its disclosed date'},tx);
@@ -95,7 +95,7 @@ export async function walletBreakdown(wallet:{id:string;userId:string;balance:nu
     const row=fresh.rows[0];if(!row)throw new Error('WALLET_MISSING');
     const current={...wallet,balance:Number(row.balance),addonBalance:Number(row.addon_balance),monthlyCredits:Number(row.monthly_credits),periodStart:utcDate(row.period_start),periodEnd:utcDate(row.period_end)};
     const groups=await bonusGroups(tx,wallet.id),bonus=groups.reduce((s,g)=>s+g.amount,0),rollout=freeCreditRollout();
-    if(bonus>current.addonBalance+.01)throw new Error('BONUS_BALANCE_MISMATCH');
+    if(bonus>current.addonBalance+walletTolerance(bonus,current.addonBalance))throw new Error('BONUS_BALANCE_MISMATCH');
     const reduced=await useBonusRewards(wallet.userId,wallet.plan,current.periodStart,new Date(),tx);
     const reducedCycle=(await currentCycleTerms(wallet.id,current.periodStart,wallet.plan,tx)).reduced;
     const planVersion=wallet.planVersion??1;

@@ -778,10 +778,10 @@
     "emptyDesc": "人设设定会让 AI 知道你在故事中扮演的是谁",
     "session": {
       "current": "当前人设：{{name}}",
-      "following": "跟随当前人设",
-      "followingHint": "跟随个人资料中的全局人设。在这里选择人设，只影响当前存档。",
-      "locked": "为这个会话锁定人设",
-      "lockedHint": "账号当前人设变化时，这个会话仍会保留这里选择的人设。",
+      "following": "跟随全局人设",
+      "followingHint": "当前存档随全局人设变化。在下方选择人设，会自动锁定当前存档。",
+      "locked": "已锁定人设",
+      "lockedHint": "当前存档使用这里选择的人设，不随全局人设变化。",
       "saveError": "人设保存失败，请重试。"
     },
     "binding": {

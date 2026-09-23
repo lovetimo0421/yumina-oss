@@ -152,7 +152,7 @@ A reusable character profile *you* play as — name, avatar, appearance, persona
 
 ### Q: I changed my active Persona. Will it apply to my ongoing chats?
 
-Yes, for sessions without a persona lock. Profile settings and the world's session picker change the account-wide selection, and unlocked sessions use it for their next request. A session with **Lock persona for this session** enabled keeps its own choice until you unlock it. A response already generating keeps its starting identity.
+Yes, for sessions without a persona lock. Profile settings and the world's session picker change the account-wide selection, and unlocked sessions use it for their next request. A session showing **Persona locked** keeps its own choice until you unlock it. A response already generating keeps its starting identity.
 
 You can keep playing the same chat. Existing messages, memories, game progress, and audio are preserved. Choosing **No persona** uses your account display name in new and unlocked sessions.
 

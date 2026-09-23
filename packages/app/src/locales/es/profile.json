@@ -774,10 +774,10 @@
     "emptyDesc": "Tu persona le dice a la IA quién eres en la historia",
     "session": {
       "current": "Persona actual: {{name}}",
-      "following": "Seguir la persona actual",
-      "followingHint": "Sigue la persona de tu perfil. Elegir una aquí solo cambia esta partida.",
-      "locked": "Bloquear la persona en esta sesión",
-      "lockedHint": "Esta sesión conserva esta persona cuando cambia la selección de tu cuenta.",
+      "following": "Siguiendo la persona global",
+      "followingHint": "Esta partida sigue tu persona global. Al elegir una persona abajo, queda fijada automáticamente para esta partida.",
+      "locked": "Persona fijada",
+      "lockedHint": "Esta partida conserva la persona seleccionada aunque cambies tu persona global.",
       "saveError": "No se pudo guardar la persona. Inténtalo de nuevo."
     },
     "binding": {

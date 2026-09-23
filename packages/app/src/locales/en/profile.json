@@ -785,10 +785,10 @@
     "emptyDesc": "Your persona tells the AI who you are in the story",
     "session": {
       "current": "Current persona: {{name}}",
-      "following": "Follow current persona",
-      "followingHint": "This session follows the persona selected in your profile. Choosing one here applies only to this save.",
-      "locked": "Lock persona for this session",
-      "lockedHint": "This session keeps this persona when your account selection changes.",
+      "following": "Following global persona",
+      "followingHint": "This save follows your global persona. Choosing a persona below automatically locks it to this save.",
+      "locked": "Persona locked",
+      "lockedHint": "This save keeps the selected persona when your global persona changes.",
       "saveError": "Could not save the session persona. Please try again."
     },
     "binding": {

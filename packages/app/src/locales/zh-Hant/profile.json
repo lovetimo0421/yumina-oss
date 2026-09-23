@@ -778,10 +778,10 @@
     "emptyDesc": "人設設定會讓 AI 知道你在故事中扮演的是誰",
     "session": {
       "current": "目前人設：{{name}}",
-      "following": "跟隨目前人設",
-      "followingHint": "跟隨個人資料中的全局人設。在這裡選擇人設，只影響目前存檔。",
-      "locked": "為這個會話鎖定人設",
-      "lockedHint": "帳號目前人設變更時，這個會話仍會保留這裡選擇的人設。",
+      "following": "跟隨全域人設",
+      "followingHint": "目前存檔隨全域人設變更。在下方選擇人設，會自動鎖定目前存檔。",
+      "locked": "已鎖定人設",
+      "lockedHint": "目前存檔使用這裡選擇的人設，不隨全域人設變更。",
       "saveError": "人設儲存失敗，請重試。"
     },
     "binding": {
