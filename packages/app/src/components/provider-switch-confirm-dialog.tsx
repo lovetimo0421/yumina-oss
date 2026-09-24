@@ -1,4 +1,4 @@
-import { Globe, Key } from "lucide-react";
+import { Cpu, Globe, Key } from "lucide-react";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 
@@ -18,11 +18,15 @@ export interface ProviderSwitchCopy {
 }
 
 interface ProviderSwitchControlProps {
-  provider: ProviderChoice;
+  /** "local" is the model picker's "This computer" view, not a saved provider. */
+  provider: ProviderChoice | "local";
   disabled?: boolean;
   onRequest: (provider: ProviderChoice) => void;
   officialLabel: string;
   privateLabel: string;
+  /** When set, a third segment for the player's own machine. */
+  localLabel?: string;
+  onRequestLocal?: () => void;
   className?: string;
 }
 
@@ -32,14 +36,18 @@ export function ProviderSwitchControl({
   onRequest,
   officialLabel,
   privateLabel,
+  localLabel,
+  onRequestLocal,
   className,
 }: ProviderSwitchControlProps) {
-  const itemClass = (value: ProviderChoice) => cn(
+  const itemClass = (value: ProviderChoice | "local") => cn(
     "flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[11px] font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-action-primary/50",
     provider === value
       ? value === "official"
         ? "bg-primary/[0.15] text-white"
-        : "bg-slate-300/[0.12] text-white"
+        : value === "local"
+          ? "bg-emerald-500/[0.15] text-white"
+          : "bg-slate-300/[0.12] text-white"
       : "text-white/35 hover:bg-white/[0.04] hover:text-white/60",
   );
 
@@ -66,6 +74,18 @@ export function ProviderSwitchControl({
           <Key className="h-3.5 w-3.5" aria-hidden="true" />
           <span>{privateLabel}</span>
         </button>
+        {localLabel && onRequestLocal && (
+          <button
+            type="button"
+            disabled={disabled}
+            aria-pressed={provider === "local"}
+            onClick={onRequestLocal}
+            className={itemClass("local")}
+          >
+            <Cpu className="h-3.5 w-3.5" aria-hidden="true" />
+            <span>{localLabel}</span>
+          </button>
+        )}
       </div>
     </div>
   );

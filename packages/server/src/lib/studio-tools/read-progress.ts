@@ -146,14 +146,15 @@ export function readSpiralStopMessage(id: string): string {
   return `Stopped: "${id}" was requested three times with identical arguments — the same call can only return the same answer. If you're chasing a syntax error or a blank render, call validate_world — it returns the exact file + line + a code window around the break. Otherwise use grep_world with a different query, or read_entities with an offset_lines range you haven't read yet, then edit_custom_ui to modify.`;
 }
 
-/** Injected as a user turn on the second identical request — a course
- *  correction while the model can still recover. */
+/** Attached to the read's tool result on the second identical request — a
+ *  course correction while the model can still recover. */
 export function readRepeatNudge(id: string): string {
-  return `[System: You just re-issued an identical request for "${id}" — it returns exactly what you already have. Do not repeat it. If you're chasing a syntax error or a blank/broken render, call validate_world: it returns the exact file + line + a code window around the break, so you can fix it without re-reading. To see a part you haven't read, call read_entities({ ids: ["${id}"], offset_lines, limit_lines }) with a NEW range, or grep_world({ query: "...", id: "${id}" }) with a NEW query. If you already have what you need, proceed to edit_custom_ui.]`;
+  return `You just re-issued an identical request for "${id}" — it returns exactly what you already have. Do not repeat it. If you're chasing a syntax error or a blank/broken render, call validate_world: it returns the exact file + line + a code window around the break, so you can fix it without re-reading. To see a part you haven't read, call read_entities({ ids: ["${id}"], offset_lines, limit_lines }) with a NEW range, or grep_world({ query: "...", id: "${id}" }) with a NEW query. If you already have what you need, proceed to edit_custom_ui.`;
 }
 
-/** Injected once when a file has been paged through many times without an edit.
+/** Attached to the read's tool result once a file has been paged through many
+ *  times without an edit.
  *  Distinct slices are progress, so this only prods — it never ends the run. */
 export function readWanderNudge(id: string, turns: number): string {
-  return `[System: You've pulled ${turns} separate slices of "${id}" without editing it. That's enough context — make the change with edit_custom_ui now, or call validate_world if you're still hunting a syntax error. Only read again if you need a range you genuinely haven't seen.]`;
+  return `You've pulled ${turns} separate slices of "${id}" without editing it. That's enough context — make the change with edit_custom_ui now, or call validate_world if you're still hunting a syntax error. Only read again if you need a range you genuinely haven't seen.`;
 }

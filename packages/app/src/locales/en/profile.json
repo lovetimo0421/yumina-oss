@@ -1173,5 +1173,210 @@
       "note": "Mushie rewards are Saved and never expire. Membership rewards start right away, or wait until your current membership ends.",
       "transition": "From {{date}}, only invited players who play and come back count toward these rewards. Everything earned before is kept."
     }
+  },
+  "localModel": {
+    "title": "Run it on your own computer",
+    "subtitle": "Play for free using a model on this machine. Nothing is sent to our servers to generate — your computer does the work.",
+    "statusRunning": "Generating on this device",
+    "statusConnected": "Ready — this device is standing by",
+    "statusConnecting": "Reconnecting…",
+    "statusError": "Something went wrong",
+    "noneTitle": "No local model found",
+    "noneBody": "Install Ollama (or LM Studio, Jan, llama.cpp), pull a model, then check again. A 27B model at 4-bit needs about 24GB of VRAM; smaller models work on less.",
+    "downloadOllama": "Download Ollama",
+    "blockedTitle": "{{runtime}} doesn't allow Yumina yet",
+    "readyTitle": "Found {{runtime}} with {{count}} model(s)",
+    "readyBody": "Turn this on and your models appear in the model picker. Your browser may ask for permission to reach your local network — allow it.",
+    "check": "Check this computer",
+    "recheck": "Check again",
+    "enable": "Turn on",
+    "disable": "Turn off",
+    "copied": "Copied",
+    "copyFailed": "Couldn't copy — select the text instead",
+    "caveats": "Keep Yumina open while you play — this page is what carries each turn to your model. Local models are weaker at keeping card variables in sync, so cards that lean on stats may drift.",
+    "pickerTitle": "This computer",
+    "pickerOffline": "Can't reach your models",
+    "pickerOfflineHint": "Start your runtime, then reconnect.",
+    "reconnect": "Reconnect",
+    "freeTag": "Free",
+    "detectingHint": "If your browser asks whether this site may access devices on your local network, choose Allow.",
+    "deniedTitle": "Your browser is blocking this site from your computer",
+    "deniedBody": "Click the icon at the left of the address bar, set Local network access to Allow, then check again.",
+    "guide": {
+      "title": "First time? Set it up in 4 steps",
+      "duration": "About 10–20 minutes, mostly downloading",
+      "youAreHere": "You're stuck here",
+      "needTitle": "What you need",
+      "needGpu": "A computer with a dedicated graphics card, ideally 8 GB of VRAM or more (NVIDIA or AMD), or a Mac with an M1 or newer chip and at least 16 GB of memory.",
+      "needBrowser": "Chrome or Edge on that computer. Other browsers may not be able to reach it.",
+      "needDisk": "About 5–19 GB to download (8 GB for most people); keep 10–20 GB of disk free.",
+      "checkVram": "Not sure how much VRAM you have? Windows: press Ctrl+Shift+Esc to open Task Manager → Performance → GPU and look at \"Dedicated GPU memory\". Mac: Apple menu → About This Mac, and look at \"Memory\".",
+      "step1Title": "Download and install Ollama",
+      "step1Body": "Ollama is free, open-source software that runs models on your computer. Download the installer and install it with the default options.",
+      "step1After": "Once installed it runs in the background: look for a llama icon in the system tray (Windows, bottom right) or the menu bar (Mac, top).",
+      "step2Title": "Download a model",
+      "step2TerminalWindows": "Press the Windows key, search for \"PowerShell\" and open it. Copy the line below that matches your VRAM, paste it in and press Enter.",
+      "step2TerminalMac": "Press Command+Space, search for \"Terminal\" and open it. Copy the line below that matches your memory, paste it in and press Enter.",
+      "step2TerminalLinux": "Open a terminal, paste the line below that matches your VRAM and press Enter.",
+      "tier": {
+        "large": {
+          "vram": "24 GB VRAM or more (Mac: 32 GB memory or more)",
+          "note": "Best writing"
+        },
+        "medium": {
+          "vram": "8–16 GB VRAM (Mac: 16 GB memory)",
+          "note": "Recommended for most people"
+        },
+        "small": {
+          "vram": "6 GB VRAM",
+          "note": "Works, but replies are short and it forgets stats"
+        }
+      },
+      "step2After": "When you see \"success\", it's done. You only download a model once.",
+      "step3Title": "Let Yumina talk to Ollama",
+      "step3Why": "By default Ollama refuses requests from websites, so you have to tell it Yumina is allowed.",
+      "os": {
+        "windows": "Windows",
+        "mac": "Mac",
+        "linux": "Linux"
+      },
+      "step3Windows": "In the same PowerShell window, copy and run this line:",
+      "step3RestartWindows": "Then right-click the llama icon in the system tray → Quit Ollama, and open Ollama again from the Start menu. The setting only takes effect after a restart.",
+      "step3Mac": "In the same Terminal window, copy and run this line:",
+      "step3RestartMac": "Then click the llama icon in the menu bar → Quit Ollama, and open it again from Applications. Note: on a Mac this setting is lost when you restart the computer, so run the line again after a reboot.",
+      "step3Linux": "On Linux, Ollama runs as a system service. The first line opens an editor: paste in the second block and save, then run the third line to restart the service.",
+      "step4Title": "Come back here and turn it on",
+      "step4Body": "Click \"Check this computer\" above. When your browser asks whether this site may access devices on your local network, choose Allow. Once your models are found, click \"Turn on\".",
+      "step4Play": "To play: in any world, click the model name under the message box and pick your model from \"This computer\" at the top of the list.",
+      "faqTitle": "Questions",
+      "faq": {
+        "cost": {
+          "q": "Does it cost anything?",
+          "a": "No Mushies and no API key. It uses your own computer's power and electricity."
+        },
+        "tab": {
+          "q": "Anything to watch out for while playing?",
+          "a": "Keep this Yumina tab open on your computer. Every turn goes through it to reach your model, so replies stop if you close it. Opening Yumina again reconnects automatically."
+        },
+        "phone": {
+          "q": "Can I play on my phone?",
+          "a": "Yes. With Yumina open on your computer and this feature on, pick your local model there, then play on your phone with the same account. Replies are still generated on your computer."
+        },
+        "privacy": {
+          "q": "Where does my chat go?",
+          "a": "Yumina assembles the world and your chat history and hands it, through your browser, to the model on your computer. The reply is saved in your Yumina chat history like any other."
+        },
+        "quality": {
+          "q": "How good is it compared to the official models?",
+          "a": "Weaker, especially on worlds that track stats and variables. It's fine for plain chat and story worlds. More VRAM means a bigger model and better writing."
+        },
+        "locked": {
+          "q": "Why can't I use it on some worlds?",
+          "a": "Some creators set their worlds to official models only. Those worlds can't be played on a local model."
+        },
+        "other": {
+          "q": "I don't use Ollama.",
+          "a": "LM Studio, Jan and llama.cpp work too: start their local server on its default port, allow this site to access it, and click \"Check this computer\". It will be found automatically."
+        }
+      }
+    },
+    "installer": {
+      "title": "Don't want to do it by hand? One-command install",
+      "subtitle": "Copy one line and the rest is automatic",
+      "intro": "Paste one command into your computer's built-in command window. It does steps 1–3 of the guide above and picks a model for your graphics card. It takes about 10–30 minutes, mostly downloading.",
+      "linux": "There's no one-command install for Linux yet. Please follow the guide above.",
+      "doesTitle": "This command does four things",
+      "does1Windows": "Installs Ollama: free, open-source software by Ollama Inc., downloaded from ollama.com (about 1.5 GB). Skipped if already installed.",
+      "does1Mac": "Installs Ollama: free, open-source software by Ollama Inc., downloaded from ollama.com (about 200 MB), after checking its official signature. Skipped if already installed.",
+      "does2": "Allows Yumina to connect to Ollama.",
+      "does3": "Restarts Ollama so the setting takes effect.",
+      "does4": "Downloads one Qwen model (by Alibaba, open source, 3.4–17 GB) sized for your graphics card (on a Mac, your memory).",
+      "promiseWindows": "Nothing on your computer is sent to Yumina, and no admin rights are needed. It lists these steps first and only starts when you press Enter.",
+      "promiseMac": "Nothing on your computer is sent to Yumina, and it never asks for your password. It lists these steps first and only starts when you press Enter.",
+      "undoWindows": "To undo: uninstall Ollama in Settings > Apps.",
+      "undoMac": "To undo: drag Ollama from Applications to the Trash.",
+      "openWindowsTitle": "Open PowerShell",
+      "openWindows": "Press the Windows key, type PowerShell and press Enter. A blue or black window opens.",
+      "openMacTitle": "Open Terminal",
+      "openMac": "Press Command and Space together, type Terminal and press Enter. A white or black window opens.",
+      "pasteTitle": "Copy the command, paste it in, press Enter",
+      "copy": "Copy command",
+      "viewScript": "See what this command runs first",
+      "pasteWindows": "Click \"Copy command\", go back to that window, right-click once to paste, then press Enter.",
+      "pasteMac": "Click \"Copy command\", go back to that window, press Command+V to paste, then press Enter.",
+      "waitTitle": "Press Enter to start, then wait for \"All done\"",
+      "wait": "The window lists what it will do first; press Enter to start. It then shows download progress. Wait until it says \"All done\", and don't close the window before that.",
+      "backTitle": "Come back here",
+      "back": "This page notices on its own when it's installed. When your browser asks about your local network, choose Allow, then click \"Turn on\" above.",
+      "watching": "Waiting for the install… this page will notice when it's done",
+      "found": "Found the model on your computer! Click \"Turn on\" to use it",
+      "scamWarning": "Stay safe: Yumina only ever asks you to run a command here on this settings page, and the address in the command is always the site in your address bar. Any pop-up, \"verify you're human\" page, DM or support agent asking you to paste a command into PowerShell or Terminal is a scam. Don't do it.",
+      "faq": {
+        "antivirus": {
+          "q": "My antivirus blocked it?",
+          "a": "Some antivirus software blocks commands that download and run something from the internet. That's it doing its job. Check the script with \"See what this command runs first\" before allowing it, or install by hand with the guide above."
+        },
+        "slow": {
+          "q": "The download is very slow?",
+          "a": "Ollama and the models download from servers overseas, which can be slow in some regions. You can leave it running; if the model download is interrupted, running the command again picks up where it stopped."
+        },
+        "failed": {
+          "q": "It says \"Setup did not finish\"?",
+          "a": "The window says which step went wrong. Run the command once more; if it still fails, follow the guide above."
+        }
+      },
+      "sizeTitle": "How much it downloads",
+      "sizeOllamaWindows": "Ollama, about 1.5 GB (skipped if already installed)",
+      "sizeOllamaMac": "Ollama, about 0.2 GB (skipped if already installed)",
+      "sizeModels": "One model picked for your graphics card: 4b 3.4 GB · 9b 6.6 GB (most people) · 27b 17 GB",
+      "sizeTotalWindows": "Total: about 8 GB for most people, 5 GB at least, 19 GB at most. Takes about 9–20 GB of disk once installed.",
+      "sizeTotalMac": "Total: about 7 GB for most people, 4 GB at least, 17 GB at most.",
+      "sizeTime": "At 50 Mbps, 8 GB takes about 20 minutes."
+    },
+    "unreachable": "Can't reach {{runtime}} on your computer. It may have been closed. Open {{runtime}} again, then retry.",
+    "picker": {
+      "sourceLabel": "This computer",
+      "freeChip": "Free",
+      "intro": "Generate replies on your own computer's graphics card, with no Mushies. Set it up once and it's there whenever you open Yumina.",
+      "pillConnected": "Connected · {{runtime}}",
+      "pillOffline": "Can't reach",
+      "pillConnecting": "Connecting",
+      "pillNotConnected": "Not connected",
+      "guideButton": "Setup guide",
+      "stepLabel": "Step {{n}}",
+      "step1": "Install Ollama",
+      "step1Hint": "Free app that runs models on your computer",
+      "step2": "Download a model",
+      "step2Hint": "Pick one for your VRAM, 3–17 GB",
+      "step3": "Connect Yumina",
+      "step3Hint": "Click Check, then Allow when asked",
+      "modelsCount": "{{count}} models on your computer",
+      "tag": {
+        "best": "Best writing",
+        "recommended": "Recommended",
+        "light": "Light"
+      },
+      "desc": {
+        "best": "Needs 24 GB of VRAM, writes the most detail",
+        "recommended": "Runs on 8 GB of VRAM; what most people pick",
+        "light": "Runs on 6 GB of VRAM; shorter replies",
+        "other": "Runs on your computer"
+      },
+      "noModels": "Ollama has no models yet. Download one with step 2 of the setup guide, then click \"Check again\".",
+      "reqGpu": "Graphics card · 8 GB+ VRAM",
+      "reqMac": "or an Apple silicon Mac · 16 GB+",
+      "reqBrowser": "Chrome or Edge",
+      "reqDisk": "About 8 GB to download",
+      "phoneBody": "{{model}} runs on your computer. Keep Yumina open there so replies can reach you here. To switch back, change the source at the top right.",
+      "footer": "Generated on your own computer",
+      "footerFree": "No Mushies",
+      "pillOnComputer": "Running on your computer"
+    },
+    "blockedFixWindows": "Copy the line below, paste it into PowerShell and press Enter (press the Windows key and type PowerShell to open it). It sets things up and restarts Ollama in a few seconds, and this page connects by itself.",
+    "blockedFixMac": "Copy the line below, paste it into Terminal and press Enter (press Command and Space, then type Terminal). It sets things up and restarts Ollama in a few seconds, and this page connects by itself.",
+    "blockedWatching": "Waiting for Ollama to let Yumina in; this connects by itself…",
+    "blockedNoReboot": "Only the Ollama app restarts, not your computer. Nothing is downloaded or installed.",
+    "blockedLinux": "Set OLLAMA_ORIGINS as in step 3 of the setup guide, then restart the Ollama service.",
+    "connectedToast": "Connected to {{runtime}} on your computer. Pick a model."
   }
 }

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronRight, Shuffle, Sparkles } from "lucide-react";
 import { ApiKeysSettings } from "@/features/settings/api-keys";
+import { LocalModelPanel } from "@/features/local-model/local-model-panel";
+import { isLocalModelId } from "@/features/local-model/enabled-flag";
 import { useConfigStore } from "@/stores/config";
 import { useCreditStore } from "@/edition/slots.state";
 import { useModelsStore } from "@/stores/models";
@@ -18,13 +20,16 @@ export function AiProviderTab() {
 
   const currentModel = PLAY_MODELS.find((m) => m.id === selectedModel);
   const isMixActive = mixMode && modelPool.length >= 2;
-  const providerLabel = provider === "private"
-    ? tc("modelBrowser.sourcePrivate", { ns: "chat" })
-    : tc("modelBrowser.sourceOfficial", { ns: "chat" });
+  const isLocal = isLocalModelId(selectedModel);
+  const providerLabel = isLocal
+    ? tc("localModel.picker.sourceLabel", { ns: "profile" })
+    : provider === "private"
+      ? tc("modelBrowser.sourcePrivate", { ns: "chat" })
+      : tc("modelBrowser.sourceOfficial", { ns: "chat" });
 
   const subtitle = isMixActive
     ? `${tc("modelMix.title", { ns: "chat" })} · ${modelPool.length}`
-    : `${providerLabel} · ${currentModel?.name ?? formatModelId(selectedModel)}`;
+    : `${providerLabel} · ${isLocal ? selectedModel.slice("local/".length) : currentModel?.name ?? formatModelId(selectedModel)}`;
 
   return (
     <div className="max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-500 space-y-6">
@@ -49,6 +54,10 @@ export function AiProviderTab() {
           <ChevronRight className="h-4 w-4 text-sub/30 transition-colors group-hover:text-sub/50" />
         </button>
       </div>
+
+      {/* Run on the player's own hardware — free, and the only tier that
+          costs us nothing per turn. Sits above BYOK because it needs no key. */}
+      <LocalModelPanel />
 
       {/* API Keys (BYOK) — always visible */}
       <ApiKeysSettings />

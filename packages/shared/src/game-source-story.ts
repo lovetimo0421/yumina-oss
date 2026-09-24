@@ -284,7 +284,7 @@ export const sourceStorySchema=z.object({
  sunflower:sunflower.optional(),
  cards:z.array(currentCard).max(12)
   .refine(cards=>new Set(cards.map(c=>c.packetIndex)).size===cards.length,'Duplicate packet identity').optional(),
- guideRole:z.union([z.literal(0),z.literal(1)]).optional(),
+ guideRole:z.union([z.literal(0),z.literal(1),z.literal(3)]).optional(),
  walletHalfUnits:z.number().int().min(0).max(2_000_000).optional(),
  examReveal:z.object({sceneId:z.union([z.literal(23023),z.literal(23024)]),marks:source23ExamMarksSchema}).strict().optional(),
  // The saved native board supplies this only after all marks were revealed.
@@ -329,8 +329,8 @@ export const sourceStorySchema=z.object({
  if(((source210||source28)&&s.cards!==undefined)||((source210||source28||source29)&&(s.dave!==undefined||s.walletHalfUnits!==undefined)))ctx.addIssue({code:z.ZodIssueCode.custom,message:'Native projections for this chapter are not integrated'});
  if(source110&&s.cards!==undefined)
   ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards'],message:'Source1-10 conveyor templates have no selected-packet projection'});
- if(s.guideRole!==undefined&&!source22)
-  ctx.addIssue({code:z.ZodIssueCode.custom,path:['guideRole'],message:'Guide role requires the current source2-2 observation'});
+ if(s.guideRole!==undefined&&!(source27||((source22||source26)&&s.guideRole!==3)))
+  ctx.addIssue({code:z.ZodIssueCode.custom,path:['guideRole'],message:'Guide role requires a current source2-2, source2-6 or source2-7 observation; crimson belongs to source2-7 only'});
  s.cards?.forEach((card,index)=>{
   // olv scales remaining time separately from current duration. Prior changes
   // can leave a signed duration or remaining time greater than that duration.

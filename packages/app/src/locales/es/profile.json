@@ -1162,5 +1162,112 @@
       "note": "Las recompensas en Mushies se guardan y nunca caducan. Las membresías empiezan de inmediato o esperan a que termine tu membresía actual.",
       "transition": "Desde el {{date}}, solo cuentan los jugadores invitados que juegan y vuelven. Todo lo ganado antes se conserva."
     }
+  },
+  "localModel": {
+    "title": "Úsalo en tu propio ordenador",
+    "subtitle": "Juega gratis con un modelo que corre en este equipo. Es tu ordenador el que genera; nuestros servidores no generan nada.",
+    "statusRunning": "Generando en este equipo",
+    "statusConnected": "Listo: este equipo está a la espera",
+    "statusConnecting": "Reconectando…",
+    "statusError": "Algo salió mal",
+    "noneTitle": "No se encontró ningún modelo local",
+    "noneBody": "Instala Ollama (o LM Studio, Jan, llama.cpp), descarga un modelo y vuelve a comprobar. Abajo tienes los pasos completos.",
+    "downloadOllama": "Descargar Ollama",
+    "blockedTitle": "{{runtime}} está en marcha, pero no acepta peticiones de esta página",
+    "readyTitle": "Se encontró {{runtime}} con {{count}} modelo(s)",
+    "readyBody": "Actívalo y tus modelos aparecerán en el selector de modelos. Puede que el navegador pida permiso para acceder a tu red local: permítelo.",
+    "check": "Comprobar este equipo",
+    "recheck": "Volver a comprobar",
+    "enable": "Activar",
+    "disable": "Desactivar",
+    "copied": "Copiado",
+    "copyFailed": "No se pudo copiar; selecciona el texto",
+    "caveats": "Mantén abierta esta pestaña de Yumina mientras juegas: es la que lleva cada turno a tu modelo. Los modelos locales llevan peor las variables de los mundos, así que los que dependen mucho de estadísticas pueden desviarse.",
+    "detectingHint": "Si el navegador pregunta si este sitio puede acceder a dispositivos de tu red local, elige Permitir.",
+    "deniedTitle": "Tu navegador está bloqueando el acceso de este sitio a tu ordenador",
+    "deniedBody": "Haz clic en el icono a la izquierda de la barra de direcciones, cambia «Acceso a la red local» a Permitir y vuelve a comprobar.",
+    "freeTag": "Gratis",
+    "pickerOffline": "No se puede conectar con tus modelos",
+    "pickerOfflineHint": "Inicia Ollama (u otro) y vuelve a conectar.",
+    "pickerTitle": "Este equipo",
+    "reconnect": "Reconectar",
+    "guide": {
+      "title": "¿Primera vez? Configúralo en 4 pasos",
+      "duration": "Unos 10–20 minutos, casi todo es descarga",
+      "youAreHere": "Te quedaste aquí",
+      "needTitle": "Qué necesitas",
+      "needGpu": "Un ordenador con tarjeta gráfica dedicada, idealmente con 8 GB de VRAM o más (NVIDIA o AMD), o un Mac con chip M1 o posterior y al menos 16 GB de memoria.",
+      "needBrowser": "Chrome o Edge en ese ordenador. Otros navegadores quizá no puedan conectarse a él.",
+      "needDisk": "Entre 4 y 18 GB libres en disco, según el modelo que elijas.",
+      "checkVram": "¿No sabes cuánta VRAM tienes? Windows: pulsa Ctrl+Mayús+Esc para abrir el Administrador de tareas → Rendimiento → GPU y mira «Memoria dedicada de GPU». Mac: menú Apple → Acerca de este Mac, y mira «Memoria».",
+      "step1Title": "Descarga e instala Ollama",
+      "step1Body": "Ollama es un programa gratuito y de código abierto que ejecuta modelos en tu ordenador. Descarga el instalador e instálalo con las opciones por defecto.",
+      "step1After": "Una vez instalado, funciona en segundo plano: verás el icono de una llama en la bandeja del sistema (Windows, abajo a la derecha) o en la barra de menús (Mac, arriba).",
+      "step2Title": "Descarga un modelo",
+      "step2TerminalWindows": "Pulsa la tecla Windows, busca «PowerShell» y ábrelo. Copia la línea de abajo que corresponda a tu VRAM, pégala y pulsa Intro.",
+      "step2TerminalMac": "Pulsa Comando+Espacio, busca «Terminal» y ábrelo. Copia la línea de abajo que corresponda a tu memoria, pégala y pulsa Intro.",
+      "step2TerminalLinux": "Abre una terminal, pega la línea de abajo que corresponda a tu VRAM y pulsa Intro.",
+      "tier": {
+        "large": {
+          "vram": "24 GB de VRAM o más (Mac: 32 GB de memoria o más)",
+          "note": "La mejor escritura"
+        },
+        "medium": {
+          "vram": "8–16 GB de VRAM (Mac: 16 GB de memoria)",
+          "note": "Recomendado para la mayoría"
+        },
+        "small": {
+          "vram": "6 GB de VRAM",
+          "note": "Funciona, pero responde corto y olvida estadísticas"
+        }
+      },
+      "step2After": "Cuando veas «success», ya está. Cada modelo se descarga una sola vez.",
+      "step3Title": "Deja que Yumina se conecte a Ollama",
+      "step3Why": "Por defecto Ollama rechaza las peticiones de sitios web, así que tienes que decirle que Yumina está permitido.",
+      "os": {
+        "windows": "Windows",
+        "mac": "Mac",
+        "linux": "Linux"
+      },
+      "step3Windows": "En la misma ventana de PowerShell, copia y ejecuta esta línea:",
+      "step3RestartWindows": "Después haz clic derecho en el icono de la llama en la bandeja del sistema → Quit Ollama, y vuelve a abrir Ollama desde el menú Inicio. El ajuste solo se aplica tras reiniciarlo.",
+      "step3Mac": "En la misma ventana de Terminal, copia y ejecuta esta línea:",
+      "step3RestartMac": "Después haz clic en el icono de la llama en la barra de menús → Quit Ollama, y vuelve a abrirlo desde Aplicaciones. Ojo: en Mac este ajuste se pierde al reiniciar el ordenador, así que vuelve a ejecutar la línea después de reiniciar.",
+      "step3Linux": "En Linux, Ollama funciona como servicio del sistema. La primera línea abre un editor: pega el segundo bloque y guarda; luego ejecuta la tercera línea para reiniciar el servicio.",
+      "step4Title": "Vuelve aquí y actívalo",
+      "step4Body": "Haz clic en «Comprobar este equipo» arriba. Cuando el navegador pregunte si este sitio puede acceder a dispositivos de tu red local, elige Permitir. Cuando aparezcan tus modelos, haz clic en «Activar».",
+      "step4Play": "Para jugar: en cualquier mundo, haz clic en el nombre del modelo bajo el cuadro de mensaje y elige tu modelo en «Este equipo», arriba de la lista.",
+      "faqTitle": "Preguntas",
+      "faq": {
+        "cost": {
+          "q": "¿Cuesta algo?",
+          "a": "No gasta Mushies ni necesita clave de API. Usa la potencia y la electricidad de tu propio ordenador."
+        },
+        "tab": {
+          "q": "¿Algo a tener en cuenta mientras juego?",
+          "a": "Deja abierta esta pestaña de Yumina en tu ordenador. Cada turno pasa por ella para llegar a tu modelo, así que si la cierras no habrá respuestas. Al volver a abrir Yumina se reconecta sola."
+        },
+        "phone": {
+          "q": "¿Puedo jugar desde el móvil?",
+          "a": "Sí. Con Yumina abierto en el ordenador y esta función activada, elige ahí tu modelo local y luego juega en el móvil con la misma cuenta. Las respuestas se siguen generando en tu ordenador."
+        },
+        "privacy": {
+          "q": "¿Adónde va mi chat?",
+          "a": "Yumina prepara el mundo y tu historial y se los pasa, a través de tu navegador, al modelo de tu ordenador. La respuesta se guarda en tu historial de Yumina como cualquier otra."
+        },
+        "quality": {
+          "q": "¿Qué tal comparado con los modelos oficiales?",
+          "a": "Algo peor, sobre todo en mundos que llevan estadísticas y variables. Para charlar o historias sin números va bien. Más VRAM permite un modelo más grande y mejor escritura."
+        },
+        "locked": {
+          "q": "¿Por qué no puedo usarlo en algunos mundos?",
+          "a": "Algunos creadores limitan sus mundos a modelos oficiales. Esos mundos no se pueden jugar con un modelo local."
+        },
+        "other": {
+          "q": "No uso Ollama.",
+          "a": "LM Studio, Jan y llama.cpp también funcionan: inicia su servidor local en el puerto por defecto, permite que este sitio acceda y haz clic en «Comprobar este equipo». Se detectará solo."
+        }
+      }
+    }
   }
 }

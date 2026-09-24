@@ -1,7 +1,8 @@
 import { ImageCapabilityBadge } from "../../src/components/image-capability-badge";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { X, Search, Star, Clock, Lock, Unlock, Sparkles, ChevronRight, Layers, Shuffle, Plus, Minus, ArrowLeft } from "lucide-react";
+import { X, Search, Star, Clock, Lock, Unlock, Sparkles, ChevronRight, Layers, Shuffle, Plus, Minus, ArrowLeft, Cpu, Loader2 } from "lucide-react";
 import { useModelControls as useYumina } from "./model-controls-context";
+import type { LocalBridgeChannelData } from "../protocol";
 import { SandboxPlatformOverlay } from "../platform-overlay-portal";
 import { initializeSandboxPlatformOverlay } from "../platform-overlay-root";
 import { PLAY_MODELS, PLAN_HIERARCHY as SHARED_PLAN_HIERARCHY, MAX_PINNED_MODELS, formatAvgCost } from "@yumina/shared";
@@ -85,6 +86,14 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     deepSeekPricingTrigger: "View DeepSeek pricing notice",
     deepSeekPricingTitle: "DeepSeek pricing",
     deepSeekPricingBody: "Yumina now uses DeepSeek's latest pricing rates. These models are automatically settled using the new rates.",
+    thisComputer: "This computer",
+    localReady: "Ready",
+    localRunning: "Generating here",
+    localConnecting: "Reconnecting…",
+    localOffline: "Can't reach your models",
+    localOfflineHint: "Open Ollama (or whichever model app you use), then reconnect.",
+    localReconnect: "Reconnect",
+    localFree: "Free",
   },
   zh: {
     chooseModel: "选择模型",
@@ -118,6 +127,14 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     deepSeekPricingTrigger: "查看 DeepSeek 收费说明",
     deepSeekPricingTitle: "DeepSeek 收费说明",
     deepSeekPricingBody: "Yumina 已同步采用 DeepSeek 最新的收费费率，相关模型会自动按照新费率结算。",
+    thisComputer: "这台电脑",
+    localReady: "待命中",
+    localRunning: "正在这里生成",
+    localConnecting: "正在重连…",
+    localOffline: "连不上你的模型",
+    localOfflineHint: "打开 Ollama（或你用的模型程序），再点重连。",
+    localReconnect: "重连",
+    localFree: "免费",
   },
   ja: {
     chooseModel: "モデルを選択",
@@ -158,6 +175,14 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     deepSeekPricingTrigger: "DeepSeek の料金について",
     deepSeekPricingTitle: "DeepSeek 料金について",
     deepSeekPricingBody: "Yumina は DeepSeek の最新料金体系を採用しています。対象モデルは新しい料金で自動的に精算されます。",
+    thisComputer: "このパソコン",
+    localReady: "待機中",
+    localRunning: "ここで生成中",
+    localConnecting: "再接続中…",
+    localOffline: "モデルに接続できません",
+    localOfflineHint: "ランタイムを起動してから再接続してください。",
+    localReconnect: "再接続",
+    localFree: "無料",
   },
   es: {
     chooseModel: "Elegir modelo",
@@ -198,6 +223,14 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     deepSeekPricingTrigger: "Ver aviso de precios de DeepSeek",
     deepSeekPricingTitle: "Precios de DeepSeek",
     deepSeekPricingBody: "Yumina ya utiliza las tarifas más recientes de DeepSeek. Estos modelos se liquidan automáticamente con las nuevas tarifas.",
+    thisComputer: "Este equipo",
+    localReady: "Listo",
+    localRunning: "Generando aquí",
+    localConnecting: "Reconectando…",
+    localOffline: "No se puede acceder a tus modelos",
+    localOfflineHint: "Inicia tu runtime y vuelve a conectar.",
+    localReconnect: "Reconectar",
+    localFree: "Gratis",
   },
 } as const;
 
@@ -767,6 +800,158 @@ function InlineModelPickerModal({
 
 type T = ReturnType<typeof makeT>;
 
+/** Model ids the local bridge publishes. The server routes these back through
+ *  the player's own browser, so they are valid under either provider mode. */
+export function isLocalModelId(modelId: string): boolean {
+  return modelId.startsWith("local/");
+}
+
+/** `local/qwen3:8b` → `qwen3:8b` — the tag the player typed at `ollama run`.
+ *  Deliberately not run through formatModelId: prettifying it into "Qwen3:8b"
+ *  breaks the match with what their own runtime calls it. */
+export function localModelLabel(modelId: string): string {
+  return isLocalModelId(modelId) ? modelId.slice("local/".length) : modelId;
+}
+
+/**
+ * The player's own machine, offered next to the hosted tiers.
+ *
+ * Only rendered for a browser that turned the bridge on — `localBridge` is null
+ * for everyone else, and a standing "run it on your GPU" row in front of a
+ * player who hasn't got one is noise. Discovery lives in AI settings.
+ *
+ * The offline branch earns its place as much as the list does: an armed browser
+ * whose runtime went away is exactly when turns fail, and until now the only
+ * symptom was a reply that never arrived.
+ */
+function LocalModelSection({
+  t,
+  selectedModel,
+  onSelectModel,
+  onClose,
+}: {
+  t: T;
+  selectedModel: string;
+  onSelectModel: (modelId: string) => void;
+  onClose: () => void;
+}) {
+  const { localBridge, reconnectLocalBridge } = useYumina();
+  const [reconnecting, setReconnecting] = useState(false);
+
+  if (!localBridge) return null;
+
+  const live = localBridge.status === "connected" || localBridge.status === "running";
+  const models = live ? localBridge.models : [];
+  const dotClass =
+    localBridge.status === "error"
+      ? "bg-red-400"
+      : localBridge.status === "connecting" || reconnecting
+        ? "bg-amber-400 animate-pulse"
+        : live
+          ? "bg-emerald-400"
+          : "bg-white/25";
+  const statusLabel =
+    localBridge.status === "running"
+      ? t("localRunning")
+      : localBridge.status === "connected"
+        ? t("localReady")
+        : localBridge.status === "connecting" || reconnecting
+          ? t("localConnecting")
+          : t("localOffline");
+  // Plain "ready" is what the green dot already says; spelling it out on a
+  // 440px-wide header just crowds the runtime name. Show the label only for the
+  // states worth reading.
+  const headerStatus = localBridge.status === "connected" && !reconnecting ? null : statusLabel;
+
+  const handleReconnect = async () => {
+    setReconnecting(true);
+    try {
+      await reconnectLocalBridge?.();
+    } finally {
+      setReconnecting(false);
+    }
+  };
+
+  return (
+    <div className="border-b border-white/[0.06] px-4 py-3">
+      <div className="mb-2 flex items-center gap-2 px-1">
+        <span className={`h-2 w-2 shrink-0 rounded-full ${dotClass}`} />
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-white/50">
+          {t("thisComputer")}
+        </span>
+        {localBridge.runtimeLabel && (
+          <span className="truncate text-[11px] text-white/25">· {localBridge.runtimeLabel}</span>
+        )}
+        {headerStatus && (
+          <span className="truncate text-[11px] text-white/35">· {headerStatus}</span>
+        )}
+        <span className="ml-auto shrink-0 text-[10px] font-medium text-emerald-400/60">
+          {t("localFree")}
+        </span>
+      </div>
+
+      {models.length > 0 ? (
+        // Capped and self-scrolling: this section sits above the tier tabs in
+        // the modal's non-scrolling header, so an enthusiast with eight models
+        // pulled would otherwise push every hosted model off the bottom.
+        <div
+          className="max-h-[156px] space-y-1.5 overflow-y-auto pr-0.5"
+          // The selected model can sit below the fold of this capped list.
+          ref={(el) => el?.querySelector<HTMLElement>("[data-selected]")?.scrollIntoView({ block: "nearest" })}
+        >
+          {models.map((m) => {
+            const isSelected = selectedModel === m.id;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                data-selected={isSelected || undefined}
+                onClick={() => {
+                  onSelectModel(m.id);
+                  onClose();
+                }}
+                className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 ${
+                  isSelected
+                    ? "border-emerald-500/30 bg-emerald-500/10 shadow-md shadow-emerald-500/10"
+                    : "border-white/[0.06] bg-white/[0.02] hover:border-white/10 hover:bg-white/[0.04]"
+                }`}
+              >
+                <Cpu
+                  className={`h-3.5 w-3.5 shrink-0 ${isSelected ? "text-emerald-300" : "text-white/30"}`}
+                />
+                <span
+                  className={`min-w-0 flex-1 truncate font-mono text-[13px] ${isSelected ? "text-white" : "text-white/80"}`}
+                >
+                  {localModelLabel(m.id)}
+                </span>
+                {isSelected && (
+                  <div className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-400 shadow-lg shadow-emerald-500/40" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+          <div className="text-[12px] text-white/70">{statusLabel}</div>
+          <div className="mt-0.5 text-[11px] leading-relaxed text-white/35">
+            {t("localOfflineHint")}
+          </div>
+          <button
+            type="button"
+            onClick={() => void handleReconnect()}
+            disabled={reconnecting}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-[11px] font-medium text-white/70 transition-colors hover:border-white/20 hover:text-white disabled:opacity-50"
+          >
+            {reconnecting && <Loader2 className="h-3 w-3 animate-spin" />}
+            {t("localReconnect")}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OfficialPicker({
   onClose,
   t,
@@ -850,6 +1035,15 @@ function OfficialPicker({
         <p className="flex-1 text-[11px] leading-snug text-white/45">{t("usageNote")}</p>
         {onMixMode && <SandboxMixPill onClick={onMixMode} t={t} />}
       </div>
+
+      {/* Above the tiers, not inside them: local models aren't priced, so they
+          don't belong under a cost-ordered tab. */}
+      <LocalModelSection
+        t={t}
+        selectedModel={selectedModel}
+        onSelectModel={onSelectModel}
+        onClose={onClose}
+      />
 
       {/* Tabs */}
       <div className="flex gap-1 px-5 pt-3 pb-2">
@@ -1006,10 +1200,13 @@ function ByokPicker({
   subtitle?: string;
   independentProvider?: boolean;
 }) {
-  const { getModels, pinModel, unpinModel, mixMode, modelPool, language } = useYumina();
+  const { getModels, pinModel, unpinModel, mixMode, modelPool, language, localBridge } = useYumina();
   const isMixActive = Boolean(onMixMode && mixMode && modelPool && modelPool.length >= 2);
   const [query, setQuery] = useState("");
-  const [models, setModels] = useState<ByokModel[]>([]);
+  const [allModels, setModels] = useState<ByokModel[]>([]);
+  // Computer models have their own live connection and reconnect controls.
+  // Do not also list them as models supplied by the selected API key.
+  const models = useMemo(() => localBridge ? allModels.filter(m => !isLocalModelId(m.id)) : allModels, [allModels, !!localBridge]);
   const [pinnedIds, setPinnedIds] = useState<string[]>([]);
   const [recentIds, setRecentIds] = useState<string[]>([]);
   const [pinLimitHit, setPinLimitHit] = useState(false);
@@ -1186,6 +1383,8 @@ function ByokPicker({
         <p className="flex-1 text-[11px] leading-snug text-white/45">{t("usageNote")}</p>
         {onMixMode && <SandboxMixPill onClick={onMixMode} t={t} />}
       </div>
+
+      <LocalModelSection t={t} selectedModel={selectedModel} onSelectModel={onSelectModel} onClose={onClose} />
 
       {/* Search */}
       <div className="px-4 pt-3 pb-1">
@@ -1509,8 +1708,10 @@ export function getComposerModelSummary(opts: {
   mixMode: boolean;
   modelPool: Array<{ modelId: string; weight: number; locked?: boolean }>;
   language: string;
+  /** Courier health, when the selected model is a local one. */
+  localBridgeStatus?: LocalBridgeChannelData["status"] | null;
 }): ComposerModelSummary {
-  const { selectedModel, preferredProvider, mixMode, modelPool, language } = opts;
+  const { selectedModel, preferredProvider, mixMode, modelPool, language, localBridgeStatus } = opts;
   const isMix = Boolean(mixMode && modelPool && modelPool.length >= 2);
   if (isMix) {
     return {
@@ -1519,6 +1720,17 @@ export function getComposerModelSummary(opts: {
       dotClass: null,
       poolPcts: poolPercentages(modelPool),
       poolCount: modelPool.length,
+    };
+  }
+  // A local model is valid under either provider mode — the server routes it by
+  // id prefix, not by the account's preference — so this branch comes first.
+  if (isLocalModelId(selectedModel)) {
+    return {
+      isMix: false,
+      label: localModelLabel(selectedModel),
+      dotClass: localBridgeDotClass(localBridgeStatus),
+      poolPcts: [],
+      poolCount: 0,
     };
   }
   if (preferredProvider === "official") {
@@ -1534,6 +1746,15 @@ export function getComposerModelSummary(opts: {
   return { isMix: false, label: formatModelId(selectedModel), dotClass: null, poolPcts: [], poolCount: 0 };
 }
 
+/** Composer dot for a local model: green while the courier can serve a turn,
+ *  red once it can't. Absent status reads as down — the honest default when the
+ *  selected model lives on a machine we've lost contact with. */
+function localBridgeDotClass(status: LocalBridgeChannelData["status"] | null | undefined): string {
+  if (status === "connected" || status === "running") return "bg-emerald-400";
+  if (status === "connecting") return "bg-amber-400";
+  return "bg-red-400";
+}
+
 /** Current remaining mushie balance shown on the composer pills. Prefers the
  * live wallet balance pushed from the host (identical on every card and
  * device), falling back to the most recent message that carries a
@@ -1542,7 +1763,7 @@ export function getComposerModelSummary(opts: {
  * BYOK/private, where the user pays their own provider and any value would be
  * a stale carry-over from an earlier official-API message. */
 export function useMushieBalance(): number | null {
-  const { messages, balance: liveBalance, preferredProvider } = useYumina();
+  const { messages, balance: liveBalance, preferredProvider, selectedModel } = useYumina();
   const messageBalance = useMemo<number | null>(() => {
     if (!messages?.length) return null;
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -1565,6 +1786,9 @@ export function useMushieBalance(): number | null {
     }
     return null;
   }, [messages]);
+  // A local turn spends nothing, so showing a wallet next to it would be a
+  // straight lie about what the next reply costs — same reason BYOK hides it.
+  if (isLocalModelId(selectedModel)) return null;
   // `??` keeps a real 0 balance.
   return preferredProvider !== "official" ? null : (liveBalance ?? messageBalance);
 }
@@ -1595,26 +1819,33 @@ export function BalanceTag({
 }
 
 export function ModelTrigger({ onClick, model, className, provider, showBalance = true }: { onClick: () => void; model?: string; className?: string; provider?: "official" | "private"; showBalance?: boolean }) {
-  const { selectedModel, preferredProvider: storyProvider, mixMode, modelPool, language } = useYumina();
+  const { selectedModel, preferredProvider: storyProvider, mixMode, modelPool, language, localBridge } = useYumina();
   const preferredProvider = provider ?? storyProvider;
   const currentModel = model || selectedModel;
   const lang: Lang = pickLang(language);
   const s = STRINGS[lang];
+  const isLocal = isLocalModelId(currentModel);
 
   const displayName = useMemo(() => {
+    if (isLocal) return localModelLabel(currentModel);
     if (preferredProvider === "official") {
       const found = OFFICIAL_MODELS.find((m) => m.id === currentModel);
       return found?.name ?? formatModelId(currentModel);
     }
     return formatModelId(currentModel);
-  }, [currentModel, preferredProvider]);
+  }, [currentModel, preferredProvider, isLocal]);
+
+  // The pill is the only always-visible model surface in play, so it carries
+  // the courier's health: red here is the difference between "the model is
+  // thinking" and "nothing will ever come back".
+  const localDot = isLocal ? localBridgeDotClass(localBridge?.status) : null;
 
   const tierInfo = useMemo(() => {
-    if (preferredProvider !== "official") return null;
+    if (isLocal || preferredProvider !== "official") return null;
     const found = OFFICIAL_MODELS.find((m) => m.id === currentModel);
     if (!found) return null;
     return TIER_META[found.tier];
-  }, [currentModel, preferredProvider]);
+  }, [currentModel, preferredProvider, isLocal]);
 
   const isMix = !model && mixMode && modelPool && modelPool.length >= 2;
 
@@ -1665,13 +1896,16 @@ export function ModelTrigger({ onClick, model, className, provider, showBalance 
         className ?? "mx-auto",
       ].join(" ")}
     >
-      {tierInfo && (
+      {localDot ? (
+        <div className={`h-1.5 w-1.5 rounded-full ${localDot} opacity-90`} />
+      ) : tierInfo ? (
         <div className={`h-1.5 w-1.5 rounded-full ${tierInfo.dot} opacity-90`} />
-      )}
+      ) : null}
       <span className="truncate text-[11px] font-medium text-white/75 transition-colors group-hover:text-white">
         {displayName}
       </span>
-      {showBalance && balance != null && <BalanceTag balance={balance} language={language} />}
+      {/* A local turn spends nothing — a wallet beside it misstates the next reply's cost. */}
+      {showBalance && !isLocal && balance != null && <BalanceTag balance={balance} language={language} />}
       <ChevronRight className="h-3 w-3 text-white/45 group-hover:text-white/70 transition-colors" />
     </button>
   );

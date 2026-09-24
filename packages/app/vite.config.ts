@@ -86,6 +86,12 @@ export default defineConfig({
         target: "http://localhost:3000",
         changeOrigin: true,
       },
+      // One-command local-model installers. changeOrigin stays off so the
+      // script is rendered for the page's own origin (127.0.0.1:5173 etc.).
+      "/local": {
+        target: "http://localhost:3000",
+        changeOrigin: false,
+      },
       // Local-disk asset uploads (PUT /storage/upload?token=...) when no S3
       // bucket is configured. Keeps dev same-origin; harmless in prod.
       "/storage": {

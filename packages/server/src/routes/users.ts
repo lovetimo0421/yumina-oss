@@ -4,6 +4,7 @@ import { db, readDb, readOwn, flagWrite } from "../db/index.js";
 import { posthog } from "../lib/posthog.js";
 import { user, worlds, bundles, follows, favorites, userLibrary, worldClickHistory, platformAchievements, profilePosts } from "../db/schema.js";
 import { authMiddleware, optionalAuthMiddleware } from "../middleware/auth.js";
+import { optionalAccountBinding } from "../middleware/account-binding.js";
 import { invalidateSessionUser } from "../lib/session-user-cache.js";
 import { rateLimitMiddleware } from "../middleware/rate-limit.js";
 import { updateProfileSchema, getAgeFromBirthYear, aiConfigSchema, MAX_PROFILE_POST_LENGTH, PROFILE_POSTS_PAGE_SIZE, normalizeProfileWorldSort } from "@yumina/shared";
@@ -880,7 +881,7 @@ users.get("/me/ai-config", authMiddleware, async (c) => {
 });
 
 // PUT /api/users/me/ai-config — partial merge into preferences.aiConfig
-users.put("/me/ai-config", authMiddleware, rateLimitMiddleware("profile-updates"), async (c) => {
+users.put("/me/ai-config", authMiddleware, optionalAccountBinding, rateLimitMiddleware("profile-updates"), async (c) => {
   const currentUser = c.get("user");
   const body = await c.req.json().catch(() => null);
   const parsed = aiConfigSchema.safeParse(body);

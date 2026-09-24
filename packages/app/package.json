@@ -33,7 +33,7 @@
     "@stripe/stripe-js": "^9.5.0",
     "@tanstack/react-query": "^5.102.8",
     "@tanstack/react-router": "^1",
-    "@tanstack/react-virtual": "^3.13.23",
+    "@tanstack/react-virtual": "^3.14.13",
     "@yumina/engine": "workspace:*",
     "@yumina/server": "workspace:*",
     "@yumina/shared": "workspace:*",

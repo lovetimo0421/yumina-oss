@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
-import { X, Search, Loader2, Clock, Star, Lock, Unlock, Key, Sparkles, Layers, Shuffle, Plus, ArrowLeft, ChevronDown, Info, Check, Globe } from "lucide-react";
+import { X, Search, Loader2, Clock, Star, Lock, Unlock, Key, Sparkles, Layers, Shuffle, Plus, ArrowLeft, ChevronDown, Info, Check, Globe, Cpu } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTransientFlag } from "@/hooks/use-transient-flag";
 import {
@@ -21,6 +21,8 @@ import {
   type DeepSeekPricingCopy,
 } from "./deepseek-pricing-info";
 import { useUserProfileStore } from "@/stores/user-profile";
+import { LocalModelPickerView, isLikelyPhone } from "@/features/local-model/local-model-picker-view";
+import { isLocalModelId } from "@/features/local-model/enabled-flag";
 import {
   PLAY_MODELS, STUDIO_MODELS, STUDIO_MODEL_IDS, STUDIO_RECOMMENDED_MODEL, MODEL_POPULARITY_SEED, type ModelPopularitySnapshot,
   PLAN_HIERARCHY, MAX_PINNED_MODELS, formatAvgCost, formatModelId, type CostTier, type StudioModel,
@@ -50,6 +52,8 @@ interface ModelBrowserProps {
   privateOnly?: boolean;
   /** Select a secondary model without changing the active provider or mix mode. */
   selectionOnly?: boolean;
+  /** Let the game picker use this computer without changing the API-source preference. */
+  allowLocalSelection?: boolean;
   onMixMode?: () => void;
   /**
    * Tokens the model will read for the next reply in the open chat (the last
@@ -106,6 +110,7 @@ export function ModelBrowser({
   studioMode,
   privateOnly: privateOnlyProp = false,
   selectionOnly = false,
+  allowLocalSelection = false,
 }: ModelBrowserProps) {
   const { models, recentlyUsed, loading, fetchModels } = useModelsStore();
   // Stars live only in the BYOK picker, so it reads the BYOK-scoped list. The
@@ -127,6 +132,10 @@ export function ModelBrowser({
   const [switching, setSwitching] = useState(false);
   const [switchError, setSwitchError] = useState<string | null>(null);
   const [showMix, setShowMix] = useState(false);
+  // "This computer" is a view, not a provider: local models route by their id
+  // prefix under either provider, so choosing it never touches the saved
+  // official/private preference. Opens on it when a local model is selected.
+  const [localView, setLocalView] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
 
   // The composer lives in an iframe. Move keyboard events into this document
@@ -164,7 +173,11 @@ export function ModelBrowser({
       setSwitchError(null);
       setSwitching(false);
       setShowMix(false);
+    } else {
+      setLocalView(isLocalModelId(selectedModel));
     }
+    // Only on open: picking a model while open shouldn't yank the view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   useEffect(() => {
@@ -221,6 +234,10 @@ export function ModelBrowser({
   }, [confirmProvider, switching, userPlan, activeKeyId, setConfig, t]);
 
   const handleSelect = (modelId: string) => {
+    // Picking one model means "use this one": leave mix mode, or the pool keeps
+    // answering and the pill keeps saying "Mix" whichever source it came from.
+    // (selectionOnly / privateOnly pickers choose for something else and leave the story's mix alone.)
+    if (!selectionOnly && !privateOnly && useConfigStore.getState().mixMode) useConfigStore.getState().setConfig("mixMode", false);
     onSelect(modelId);
     useModelsStore.getState().addToRecent(modelId);
     onClose();
@@ -242,30 +259,43 @@ export function ModelBrowser({
     cancelLabel: t("modelBrowser.cancel"),
   };
 
+
+  // Phones can't run a model; they only see this source when the account is
+  // already on a model its computer runs.
+  const sourceLocked = selectionOnly || privateOnly;
+  const offerLocal = (!sourceLocked || allowLocalSelection) && !studioMode && (!isLikelyPhone() || isLocalModelId(selectedModel));
+  const showLocal = offerLocal && localView && !showMix;
+  const chooseSource = (value: "official" | "private" | "local") => {
+    if (value === "local") { setLocalView(true); return; }
+    setLocalView(false);
+    if (!sourceLocked && value !== provider) requestProvider(value);
+  };
   const providerSwitch = (selectionOnly || privateOnly) ? null : (
     <ProviderSwitchControl
       provider={provider}
       disabled={switching}
-      onRequest={requestProvider}
+      onRequest={chooseSource}
       officialLabel={t("modelBrowser.sourceOfficial")}
       privateLabel={t("modelBrowser.sourcePrivate")}
+      localLabel={offerLocal && !studioMode ? t("localModel.picker.sourceLabel", { ns: "profile" }) : undefined}
+      onRequestLocal={() => chooseSource("local")}
     />
   );
-
-  const compactProviderSwitch = (selectionOnly || privateOnly) ? null : (
+  const compactProviderSwitch = sourceLocked && !offerLocal ? null : (
     <ModelPickerDropdown
       label={t("modelBrowser.sourceLabel")}
-      value={provider}
+      value={showLocal ? "local" : provider}
       disabled={switching}
-      onValueChange={requestProvider}
+      onValueChange={chooseSource}
       className="ml-auto h-8 max-w-[145px] shrink-0 gap-1.5 rounded-[9px] px-2 text-[11px] max-[390px]:max-w-[115px]"
       options={[
-        { value: "official", label: t("modelBrowser.sourceOfficial"), icon: <Globe aria-hidden="true" className="h-3.5 w-3.5 shrink-0 max-[390px]:hidden" /> },
-        { value: "private", label: t("modelBrowser.sourcePrivate"), icon: <Key aria-hidden="true" className="h-3.5 w-3.5 shrink-0 max-[390px]:hidden" /> },
+        ...(!sourceLocked || provider === "official" ? [{ value: "official" as const, label: t("modelBrowser.sourceOfficial"), icon: <Globe aria-hidden="true" className="h-3.5 w-3.5 shrink-0 max-[390px]:hidden" /> }] : []),
+        ...(!sourceLocked || provider === "private" ? [{ value: "private" as const, label: t("modelBrowser.sourcePrivate"), icon: <Key aria-hidden="true" className="h-3.5 w-3.5 shrink-0 max-[390px]:hidden" /> }] : []),
+        ...(offerLocal ? [{ value: "local" as const, label: t("localModel.picker.sourceLabel", { ns: "profile" }), icon: <Cpu aria-hidden="true" className="h-3.5 w-3.5 shrink-0 max-[390px]:hidden" /> }] : []),
       ]}
     />
   );
-  const expandedOfficial = isOfficialMode && !studioMode && !privateOnly && !showMix;
+  const expandedOfficial = isOfficialMode && !studioMode && !privateOnly && !showMix && !showLocal;
 
   return createPortal(
     <>
@@ -281,9 +311,19 @@ export function ModelBrowser({
         aria-label={t("modelBrowser.title")}
         className={cn("relative z-10 flex flex-col overflow-hidden border border-white/[0.08] shadow-2xl shadow-black/40 outline-none animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200", expandedOfficial
           ? "h-[min(800px,calc(100dvh-2rem))] w-[min(540px,calc(100vw-1rem))] rounded-[22px] bg-[#1b1a1e]"
-          : "w-[min(440px,calc(100vw-2rem))] max-h-[min(600px,calc(100dvh-4rem))] rounded-2xl bg-[#1a1b1e]")}
+          : showLocal
+            // Same width and corners as the official sheet, so switching source doesn't jump.
+            ? "max-h-[min(800px,calc(100dvh-2rem))] w-[min(540px,calc(100vw-1rem))] rounded-[22px] bg-[#1b1a1e]"
+            : "w-[min(440px,calc(100vw-2rem))] max-h-[min(600px,calc(100dvh-4rem))] rounded-2xl bg-[#1a1b1e]")}
       >
-        {showMix && !privateOnly && !selectionOnly ? (
+        {showLocal ? (
+          <LocalModelPickerView
+            selectedModel={selectedModel}
+            onSelect={handleSelect}
+            onClose={onClose}
+            providerSwitch={compactProviderSwitch}
+          />
+        ) : showMix && !privateOnly && !selectionOnly ? (
           <MixConfigView
             availableModels={activeModels}
             onBack={() => setShowMix(false)}
@@ -327,7 +367,7 @@ export function ModelBrowser({
             onPin={(id) => pinModel(id, "private")}
             onUnpin={(id) => unpinModel(id, "private")}
             onGoToSettings={() => { onClose(); navigate({ to: "/app/settings", hash: "ai-config" }); }}
-            providerSwitch={providerSwitch}
+            providerSwitch={allowLocalSelection ? compactProviderSwitch : providerSwitch}
             usageNote={usageNote}
             onMixMode={(selectionOnly || privateOnly) ? undefined : () => {
               const store = useConfigStore.getState();

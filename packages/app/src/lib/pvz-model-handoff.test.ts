@@ -1,10 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createPvzModelSelection, isPvzModelAcknowledgement, readPvzModelHandoff, isPvzModelConfigReady } from "./pvz-model-handoff";
+import { createPvzModelSelection, isPvzModelAcknowledgement, readPvzModelHandoff, isPvzModelConfigReady, savePvzModelSelection } from "./pvz-model-handoff";
 import { parseSafeAuthReturnTo } from "./auth-return";
 
 const channel = "e19d4e64-8c9a-4a83-9195-ef76623161d4";
 const query = `?channel=${channel}&account=user-123&selected=custom%2Fmodel&lang=zh`;
+test('model selection persists only the model under its original account before handoff',async()=>{
+ let writes=0;
+ const request:typeof fetch=async(url,init)=>{
+  writes++;assert.equal(url,'/api/users/me/ai-config');assert.equal(init?.method,'PUT');assert.equal(init?.credentials,'include');
+  assert.equal(new Headers(init?.headers).get('X-Yumina-Account-Id'),'alice');
+  assert.deepEqual(JSON.parse(String(init?.body)),{selectedModel:'local/qwen-test'});
+  return Response.json({data:{selectedModel:'local/qwen-test'}});
+ };
+ await savePvzModelSelection('alice','local/qwen-test',request);assert.equal(writes,1);
+ await assert.rejects(savePvzModelSelection('alice','',request),/invalid_selection/);assert.equal(writes,1);
+ for(const status of [401,409])await assert.rejects(savePvzModelSelection('alice','local/qwen-test',async()=>new Response('',{status})),/account_changed/);
+ await assert.rejects(savePvzModelSelection('alice','local/qwen-test',async()=>Response.json({data:{selectedModel:'openai/test'}})),/selection_not_saved/);
+ await assert.rejects(savePvzModelSelection('alice','local/qwen-test',async()=>new Response('',{status:503})),/selection_not_saved/);
+});
 
 test('both official and private accounts can use the fallback picker without setting up another key',()=>{
   assert.equal(isPvzModelConfigReady({enabled:true,ready:true,privateReady:false}),true);

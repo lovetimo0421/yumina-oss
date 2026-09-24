@@ -46,6 +46,9 @@ import { authRoutes } from "./routes/auth.js";
 import { users } from "./routes/users.js";
 import { worldRoutes } from "./routes/worlds.js";
 import { apiKeyRoutes } from "./routes/api-keys.js";
+import localBridgeRoutes from "./routes/local-bridge.js";
+import { localSetupRoutes } from "./routes/local-setup.js";
+import { initLocalBridge } from "./lib/local-bridge/registry.js";
 import { sessionRoutes } from "./routes/sessions.js";
 import { sessionMemoryRoutes } from "./routes/session-memory.js";
 import { stateGuardRoutes } from "./routes/state-update-guard.js";
@@ -236,6 +239,7 @@ app.route("/api/local-auth", localAuthRoutes);
 app.route("/api/users", users);
 app.route("/api/worlds", worldRoutes);
 app.route("/api/keys", apiKeyRoutes);
+app.route("/api/local-bridge", localBridgeRoutes);
 app.route("/api/sessions", sessionRoutes);
 app.route("/api/sessions", sessionMemoryRoutes);
 app.route("/api/sessions", stateGuardRoutes);
@@ -282,6 +286,10 @@ app.route("/cdn", cdnRoutes);
 // /api so the 5 MB API body cap and the auth middleware do not apply; the URL
 // itself carries a signed, expiring token (see routes/storage.ts).
 app.route("/storage", storageRoutes);
+
+// One-command installers for running models on the player's own GPU
+// (irm .../local/setup.ps1 | iex). Plain-text scripts, public, no auth.
+app.route("/local", localSetupRoutes);
 
 // Sitemap, first-party game pages and other hosted-only root surfaces.
 edition.mountRootRoutes(app);
@@ -637,6 +645,12 @@ async function start() {
 
   // Connect Redis (no-op if REDIS_URL not set)
   await connectRedis();
+
+  // Local-bridge cross-instance fan-out. Must follow connectRedis(): it
+  // subscribes on the shared subscriber connection. No-op without Redis, where
+  // a single instance holds both ends of every bridge anyway.
+  initLocalBridge();
+
   // Interval jobs, cache prewarms and leader-elected sweeps belong to the
   // edition (hosted: recommendations, payouts, rollups, image generation, ...;
   // local: nothing).

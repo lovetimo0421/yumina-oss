@@ -128,6 +128,8 @@ export const daveSnapshotSchema = z.object({
   visibleEnemies: z.array(z.object({type:z.number().int().min(0).max(32),count:boundedInt}).strict()).max(33).optional(),
   visibleThreats: z.array(z.object({row:z.number().int().min(0).max(5),type:z.number().int().min(0).max(32),column:z.number().int().min(-1).max(9)}).strict()).max(6).optional(),
   fogMasked: z.boolean().optional(),
+  stormVisibility: z.enum(['obscured','glimpse']).optional(),
+  fogClearCells: z.array(z.object({row:z.number().int().min(0).max(5),column:z.number().int().min(0).max(8)}).strict()).max(54).optional(),
   challengeState: z.enum(['none','active','completed','failed']).optional(),
   interactionFlags: z.number().int().min(0).max(7).optional(),
   phase: z.enum(['playing','lost']).optional(),
@@ -145,6 +147,13 @@ export const daveSnapshotSchema = z.object({
   recentEvents: z.array(z.enum(['wave_clear','mower_used','plant_lost','offer_completed'])).max(8),
 }).strict().refine(s => s.defeated === undefined || s.defeated === (s.phase === 'lost'), 'Inconsistent outcome')
   .superRefine((s,ctx) => {
+    if(s.stormVisibility!==undefined&&(s.mode!=='adventure'||s.level!==40||s.terrain!=='fog'||s.fogMasked!==false||
+      s.stormVisibility==='obscured'&&(s.rows.some(r=>r.enemies!==0)||(s.visibleEnemies?.length??0)>0||(s.visibleThreats?.length??0)>0)))
+      ctx.addIssue({code:z.ZodIssueCode.custom,path:['stormVisibility'],message:'Storm observations must match the visible Adventure 4-10 lawn'});
+    if(s.fogClearCells!==undefined&&(s.mode!=='adventure'||s.terrain!=='fog'||s.fogMasked!==true||
+      new Set(s.fogClearCells.map(c=>`${c.row}:${c.column}`)).size!==s.fogClearCells.length||
+      s.fogClearCells.some(c=>!s.rows.some(r=>r.row===c.row))))
+      ctx.addIssue({code:z.ZodIssueCode.custom,path:['fogClearCells'],message:'Fog cells must belong to the current observed fog lawn'});
     if(s.visibleThreats!==undefined) {
       const threats=s.visibleThreats,types=s.visibleEnemies;
       if(s.mode!=='adventure'||!types||new Set(threats.map(t=>t.row)).size!==threats.length||
@@ -228,7 +237,7 @@ export const daveRequestSchema = z.object({
   accountId:z.string().min(1).max(128),
   campaignId:z.union([z.literal('legacy'),z.string().uuid()]).optional(),
   adventureName:z.string().trim().min(1).max(96).optional(),
-  provider:z.enum(['official','private']).optional(),
+  provider:z.enum(['official','private','local']).optional(),
   activeProfileId:z.string().min(1).max(128).optional(),
   requestId:z.string().uuid(), model:z.string().trim().min(1).max(256), locale:z.enum(['en','zh','es']),
   trigger:z.enum(['player','wave_clear','lawn_danger','arrival','idle','interaction','encounter','source_auto']), snapshot:daveSnapshotSchema,

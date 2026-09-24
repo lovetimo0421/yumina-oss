@@ -49,6 +49,20 @@ export function createPvzModelSelection(
   return { type: "pvz-dave-model", channel: handoff.channel, accountId: currentAccountId, model };
 }
 
+/** Persist before the game refreshes its provider identity. Only the model is
+ * merged; generation settings and the selected private profile stay intact. */
+export async function savePvzModelSelection(accountId:string,model:string,request:typeof fetch=fetch):Promise<void> {
+ if(!boundedIdentifier(accountId)||!boundedIdentifier(model))throw new Error('invalid_selection');
+ const response=await request(`${import.meta.env?.VITE_API_URL||''}/api/users/me/ai-config`,{
+  method:'PUT',credentials:'include',headers:{'Content-Type':'application/json','X-Yumina-Account-Id':accountId},
+  body:JSON.stringify({selectedModel:model}),signal:AbortSignal.timeout(10000),
+ });
+ if(response.status===401||response.status===409)throw new Error('account_changed');
+ if(!response.ok)throw new Error('selection_not_saved');
+ const saved=await response.json();
+ if(saved?.data?.selectedModel!==model)throw new Error('selection_not_saved');
+}
+
 export function isPvzModelAcknowledgement(value: unknown, selection: PvzModelSelection): boolean {
   if (typeof value !== "object" || value === null) return false;
   const ack = value as Record<string, unknown>;

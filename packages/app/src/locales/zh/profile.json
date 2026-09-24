@@ -1160,5 +1160,210 @@
       "note": "蘑菇币奖励存入储存，永不过期。会员奖励立即生效；若已有会员，则在当前会员结束后开始。",
       "transition": "自 {{date}} 起，只有游玩并回来的受邀玩家才计入这些奖励。此前获得的奖励全部保留。"
     }
+  },
+  "localModel": {
+    "title": "用你自己的电脑跑",
+    "subtitle": "让这台机器上的模型来生成，免费玩。内容不经过我们的服务器生成，算力是你自己的。",
+    "statusRunning": "正在这台机器上生成",
+    "statusConnected": "已就绪，这台机器随时待命",
+    "statusConnecting": "正在重连…",
+    "statusError": "出问题了",
+    "noneTitle": "没找到本地模型",
+    "noneBody": "先装一个 Ollama（LM Studio、Jan、llama.cpp 也行），拉一个模型下来，再点重新检测。27B 的 4bit 量化大约要 24GB 显存，显存小就换小一点的模型。",
+    "downloadOllama": "下载 Ollama",
+    "blockedTitle": "{{runtime}} 还没允许 Yumina 连接",
+    "readyTitle": "找到 {{runtime}}，有 {{count}} 个模型",
+    "readyBody": "打开之后，你的模型会出现在模型选择器里。浏览器可能会问要不要允许访问本地网络，点允许。",
+    "check": "检测这台电脑",
+    "recheck": "重新检测",
+    "enable": "打开",
+    "disable": "关掉",
+    "copied": "已复制",
+    "copyFailed": "复制不了，手动选中吧",
+    "caveats": "玩的时候别关 Yumina 这个页面——每一轮都靠它送到你的模型那边。另外本地模型在维护卡里的变量上比较弱，重度依赖数值的卡可能会跑偏。",
+    "pickerTitle": "这台电脑",
+    "pickerOffline": "连不上你的模型",
+    "pickerOfflineHint": "打开 Ollama（或你用的模型程序），再点重连。",
+    "reconnect": "重连",
+    "freeTag": "免费",
+    "detectingHint": "如果浏览器弹窗问是否允许这个网站访问本地网络上的设备，点「允许」。",
+    "deniedTitle": "浏览器拦住了这个网站访问你的电脑",
+    "deniedBody": "点地址栏最左边的图标，把「本地网络访问」改成允许，再点重新检测。",
+    "guide": {
+      "title": "第一次用？跟着 4 步来",
+      "duration": "约 10–20 分钟，大部分时间在下载",
+      "youAreHere": "你卡在这一步",
+      "needTitle": "你需要",
+      "needGpu": "一台带独立显卡的电脑（NVIDIA 或 AMD 都行），显存（显卡自带的内存）最好有 8 GB 以上；或者用 M 系列芯片、内存 16 GB 以上的 Mac。",
+      "needBrowser": "用电脑上的 Chrome 或 Edge 浏览器打开 Yumina，别的浏览器可能连不上。",
+      "needDisk": "要下载约 5–19 GB（大多数人约 8 GB），硬盘留出 10–20 GB。",
+      "checkVram": "不知道显存多大？Windows：同时按 Ctrl、Shift、Esc 打开任务管理器，点「性能」→「GPU」，看「专用 GPU 内存」。Mac：点屏幕左上角的苹果图标 →「关于本机」，看「内存」。",
+      "step1Title": "下载安装 Ollama",
+      "step1Body": "Ollama 是一个免费软件，专门在你自己的电脑上运行 AI 模型。点下面的按钮下载安装包，双击打开，一直点下一步装好。",
+      "step1After": "装好后它会自己在后台运行，不会弹窗口。Windows 屏幕右下角、Mac 屏幕顶部会多一个小羊驼图标，说明它在运行。",
+      "step2Title": "下载一个模型",
+      "step2TerminalWindows": "按键盘左下角的 Win 键，输入 PowerShell，按回车，会弹出一个蓝色或黑色的窗口。在下面找到符合你显存的那一行，点一下复制，回到那个窗口点鼠标右键粘贴，按回车。",
+      "step2TerminalMac": "同时按 Command 和空格，输入「终端」，按回车，会弹出一个窗口。在下面找到符合你内存的那一行，点一下复制，回到那个窗口按 Command+V 粘贴，按回车。",
+      "step2TerminalLinux": "打开终端，把下面符合你显存的那一行复制进去，按回车。",
+      "tier": {
+        "large": {
+          "vram": "显存 24 GB 以上（Mac：内存 32 GB 以上）",
+          "note": "文笔最好"
+        },
+        "medium": {
+          "vram": "显存 8–16 GB（Mac：内存 16 GB）",
+          "note": "推荐，大多数人选这个"
+        },
+        "small": {
+          "vram": "显存 6 GB",
+          "note": "能跑，但回复偏短，数值容易记错"
+        }
+      },
+      "step2After": "会显示下载进度，最后出现 success 就是下好了。模型只用下载一次。",
+      "step3Title": "允许 Yumina 连接 Ollama",
+      "step3Why": "为了安全，Ollama 默认不让网页连它，这一步是告诉它：Yumina 可以连。嫌麻烦的话，下面的「一键安装」会自动做好这一步。",
+      "os": {
+        "windows": "Windows",
+        "mac": "Mac",
+        "linux": "Linux"
+      },
+      "step3Windows": "在刚才那个 PowerShell 窗口里，复制下面这行粘贴进去，按回车：",
+      "step3RestartWindows": "然后在屏幕右下角找到小羊驼图标（可能要先点「^」展开），右键 → Quit Ollama 退出，再从开始菜单重新打开 Ollama。只重开 Ollama，不用重启电脑。",
+      "step3Mac": "在刚才那个终端窗口里，复制下面这行粘贴进去，按回车：",
+      "step3RestartMac": "然后点屏幕顶部的小羊驼图标 → Quit Ollama 退出，再从「应用程序」里重新打开 Ollama，不用重启电脑。注意：用这种手动方法，Mac 重启电脑后要再做一遍（用一键安装就不用）。",
+      "step3Linux": "Linux 上 Ollama 是系统服务。运行第一行会打开编辑器，把第二段粘进去保存，再运行第三行重启服务。",
+      "step4Title": "回到这里，打开",
+      "step4Body": "点上面的「检测这台电脑」。浏览器弹窗问能不能访问本地网络上的设备时，点「允许」。找到模型后点「打开」。",
+      "step4Play": "开始玩：在任意一张卡里点输入框下方的模型名，在列表最上面「这台电脑」里选你的模型。",
+      "faqTitle": "常见问题",
+      "faq": {
+        "cost": {
+          "q": "要花钱吗？",
+          "a": "不扣蘑菇，也不需要 API 密钥。用的是你自己电脑的算力和电。"
+        },
+        "tab": {
+          "q": "玩的时候要注意什么？",
+          "a": "电脑上这个 Yumina 标签页要一直开着，每一轮都靠它送到你的模型。关掉的话回复出不来；重新打开 Yumina 会自动连回去。"
+        },
+        "phone": {
+          "q": "能用手机玩吗？",
+          "a": "可以。电脑开着 Yumina 并打开了这个功能，在电脑上选好本地模型，再用同一个账号在手机上玩，生成还是在你的电脑上跑。"
+        },
+        "privacy": {
+          "q": "我的聊天内容会去哪里？",
+          "a": "卡的设定和聊天记录由 Yumina 整理好，经过你的浏览器交给你电脑上的模型生成。生成的回复和平时一样，保存在你的 Yumina 聊天记录里。"
+        },
+        "quality": {
+          "q": "效果和官方模型比怎么样？",
+          "a": "会弱一些，尤其是要记数值、变量的卡。纯聊天和剧情卡够用。显存越大，能跑的模型越大，效果越好。"
+        },
+        "locked": {
+          "q": "为什么有的卡用不了？",
+          "a": "有些卡的作者设置了只能用官方模型，这类卡没法用本地模型玩。"
+        },
+        "other": {
+          "q": "我用的不是 Ollama？",
+          "a": "LM Studio、Jan、llama.cpp 也可以：开启它们的本地服务（默认端口），允许这个网站访问，然后点「检测这台电脑」，会自动找到。"
+        }
+      }
+    },
+    "installer": {
+      "title": "不想自己一步步弄？一键安装",
+      "subtitle": "复制一行命令，剩下的自动完成",
+      "intro": "把一行命令粘贴到电脑自带的命令窗口里运行，它会自动做完上面教程的 1–3 步，并按你的显卡挑好模型。全程大约 10–30 分钟，主要是下载时间。",
+      "linux": "Linux 暂时没有一键安装，请按上面的教程操作。",
+      "doesTitle": "这行命令会做 4 件事",
+      "does1Windows": "安装 Ollama：免费开源软件，Ollama 公司出品，从 ollama.com 官方下载（约 1.5 GB）。已经装过就跳过。",
+      "does1Mac": "安装 Ollama：免费开源软件，Ollama 公司出品，从 ollama.com 官方下载（约 200 MB），并检查安装包的官方签名。已经装过就跳过。",
+      "does2": "允许 Yumina 连接 Ollama。",
+      "does3": "重启 Ollama，让设置生效。",
+      "does4": "按你的显卡（Mac 按内存）下载一个通义千问模型（阿里巴巴出品，开源，3.4–17 GB）。",
+      "promiseWindows": "不会上传你电脑上的任何东西给 Yumina，也不需要管理员权限。开始前会先列出这些步骤，你按回车才会开始。",
+      "promiseMac": "不会上传你电脑上的任何东西给 Yumina，也不会要你的开机密码。开始前会先列出这些步骤，你按回车才会开始。",
+      "undoWindows": "不想要了：在「设置 → 应用」里卸载 Ollama 就行。",
+      "undoMac": "不想要了：把「应用程序」里的 Ollama 拖进废纸篓就行。",
+      "openWindowsTitle": "打开 PowerShell",
+      "openWindows": "按键盘左下角的 Win 键（Windows 图标），输入 PowerShell，按回车。会弹出一个蓝色或黑色的窗口。",
+      "openMacTitle": "打开「终端」",
+      "openMac": "同时按 Command 和空格，输入「终端」，按回车。会弹出一个白色或黑色的窗口。",
+      "pasteTitle": "复制命令，粘贴进去，按回车",
+      "copy": "复制命令",
+      "viewScript": "先看看这行命令会运行什么",
+      "pasteWindows": "点「复制命令」，回到刚才的窗口，点一下鼠标右键就能粘贴，然后按回车。",
+      "pasteMac": "点「复制命令」，回到刚才的窗口，按 Command+V 粘贴，然后按回车。",
+      "waitTitle": "按回车开始，等它显示「全部完成」",
+      "wait": "窗口里会先列出要做的事，按回车开始。之后会显示下载进度，等最后出现「全部完成」就好。中途别关这个窗口。",
+      "backTitle": "回到这里",
+      "back": "这个页面会自动发现装好了。浏览器问能不能访问本地网络时，点「允许」，然后点上面的「打开」。",
+      "watching": "正在等你装好…装好后这里会自动发现",
+      "found": "找到你电脑上的模型了！点「打开」就能用",
+      "scamWarning": "防骗提醒：Yumina 只会在这个设置页里让你运行命令，而且命令里的网址一定是你现在浏览器地址栏里的这个网站。任何弹窗、「人机验证」、私信或客服让你往 PowerShell 或终端里粘贴命令，都是诈骗，不要照做。",
+      "faq": {
+        "antivirus": {
+          "q": "杀毒软件拦住了？",
+          "a": "有些杀毒软件会拦「从网上下载并运行」这类命令，这是它的正常防护。你可以先点「先看看这行命令会运行什么」确认内容再放行，或者按上面的教程手动装。"
+        },
+        "slow": {
+          "q": "下载特别慢？",
+          "a": "Ollama 和模型都从海外服务器下载，在中国大陆可能很慢。可以挂着让它慢慢下；模型下到一半断了，重新运行这行命令会接着下。"
+        },
+        "failed": {
+          "q": "最后显示「安装没有完成」？",
+          "a": "窗口里会写出是哪一步出了问题。先重新运行一次命令试试；还不行就按上面的教程手动操作。"
+        }
+      },
+      "sizeTitle": "一共要下载多少",
+      "sizeOllamaWindows": "Ollama 约 1.5 GB（已经装过就不用下）",
+      "sizeOllamaMac": "Ollama 约 0.2 GB（已经装过就不用下）",
+      "sizeModels": "模型按显卡自动选一个：4b 3.4 GB · 9b 6.6 GB（大多数人）· 27b 17 GB",
+      "sizeTotalWindows": "合计：大多数人约 8 GB，最少约 5 GB，最多约 19 GB。装好后大约占 9–20 GB 硬盘。",
+      "sizeTotalMac": "合计：大多数人约 7 GB，最少约 4 GB，最多约 17 GB。",
+      "sizeTime": "按 50 Mbps 的网速，8 GB 大约要 20 分钟；在中国大陆可能慢很多。"
+    },
+    "unreachable": "连不上你电脑上的 {{runtime}}，它可能被关掉了。重新打开 {{runtime}} 后点「重试」。",
+    "picker": {
+      "sourceLabel": "本机显卡",
+      "freeChip": "免费",
+      "intro": "用你自己电脑的显卡生成回复，不扣蘑菇。模型装在你的电脑上，一次设置好，以后打开就能用。",
+      "pillConnected": "已连接 · {{runtime}}",
+      "pillOffline": "连不上",
+      "pillConnecting": "连接中",
+      "pillNotConnected": "未连接",
+      "guideButton": "查看安装教程",
+      "stepLabel": "第 {{n}} 步",
+      "step1": "装 Ollama",
+      "step1Hint": "免费软件，负责在电脑上跑模型",
+      "step2": "下载模型",
+      "step2Hint": "按显存挑一个，3–17 GB",
+      "step3": "连接 Yumina",
+      "step3Hint": "点检测，浏览器问时点允许",
+      "modelsCount": "你电脑上有 {{count}} 个模型",
+      "tag": {
+        "best": "文笔最好",
+        "recommended": "推荐",
+        "light": "轻量"
+      },
+      "desc": {
+        "best": "要 24 GB 显存，写得最细",
+        "recommended": "8 GB 显存就能跑，中文干净，大多数人选这个",
+        "light": "6 GB 显存能跑，回复偏短",
+        "other": "在你的电脑上运行"
+      },
+      "noModels": "Ollama 里还没有模型。按安装教程第 2 步下载一个，再点「重新检测」。",
+      "reqGpu": "独立显卡 · 显存 8 GB 以上",
+      "reqMac": "或 M 系列 Mac · 内存 16 GB 以上",
+      "reqBrowser": "Chrome 或 Edge",
+      "reqDisk": "下载约 8 GB（大多数人）",
+      "phoneBody": "当前的 {{model}} 在你的电脑上运行。电脑上的 Yumina 页面要一直开着，这里才能收到回复。想换回来，点右上角切换来源。",
+      "footer": "在你自己的电脑上生成",
+      "footerFree": "不扣蘑菇",
+      "pillOnComputer": "电脑在运行"
+    },
+    "blockedFixWindows": "复制下面这一行，粘贴到 PowerShell 里按回车（按键盘左下角的 Win 键，输入 PowerShell 就能打开）。它会自动设置好并重启 Ollama，几秒就好，这个页面会自己连上。",
+    "blockedFixMac": "复制下面这一行，粘贴到「终端」里按回车（同时按 Command 和空格，输入“终端”就能打开）。它会自动设置好并重启 Ollama，几秒就好，这个页面会自己连上。",
+    "blockedWatching": "正在等 Ollama 放行，弄好后会自动连上…",
+    "blockedNoReboot": "只会重启 Ollama 这个程序，不用重启电脑，也不会下载或安装任何东西。",
+    "blockedLinux": "请按安装教程第 3 步设置 OLLAMA_ORIGINS，然后重启 Ollama 服务。",
+    "connectedToast": "已连上你电脑上的 {{runtime}}，可以选模型了"
   }
 }

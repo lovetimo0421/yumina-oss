@@ -50,6 +50,7 @@ import {
   readRepeatNudge,
   readWanderNudge,
 } from "../lib/studio-tools/read-progress.js";
+import { harnessTurn, outputBudgetGuidance, withToolNote } from "../lib/studio-tools/harness-notes.js";
 import { migrateWorldDefinition } from "@yumina/engine";
 import type { WorldDefinition } from "@yumina/engine";
 import { resolveWorkingSchema, writeStudioWorldSchema } from "../lib/pending-edit.js";
@@ -2005,10 +2006,9 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         const usageLogId = replayGenerated?.usageLogId ?? crypto.randomUUID();
         let outputBudget = MAX_OUTPUT;
         if (creditRecovery && !replayGenerated && sourceRevision) {
-          // Favor a complete small change over an unfinished large replacement.
-          llmMessages.push({ role: "user", content: "[System: Work in small complete steps. Prefer targeted edits. For a new UI feature, connect a minimal usable component to the entry and supply initial-state styles before adding polish. Finish each tool's JSON arguments within this response; do not start a whole-file rewrite that cannot fit.]" });
           const balances = await getAvailableCredits(userId);
-          const budget = planStudioCreditBudget({ messages: llmMessages, tools, price: await getModelPrice(model),
+          const price = await getModelPrice(model);
+          const planBudget = () => planStudioCreditBudget({ messages: llmMessages, tools, price,
             availableCredits: balances.availableCredits, previousCompletionTokens,
             // Ask for the model's full ceiling and let the balance be the only
             // thing that shrinks it. The planner's 8K default was sized for the
@@ -2016,6 +2016,14 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             // max_tokens: 8K was routinely eaten by thinking alone, and the
             // 1.35x ramp from the previous call reset to 8K on every resume.
             desiredOutputTokens: MAX_OUTPUT });
+          let budget = planBudget();
+          // A balance-shrunk cap can cut a large rewrite off mid-JSON, so say so
+          // in the system prompt — never as a user turn (see harness-notes.ts).
+          const guidance = budget.ok ? outputBudgetGuidance(budget.maxTokens) : null;
+          if (guidance) {
+            systemContent.push({ type: "text", text: guidance });
+            budget = planBudget();
+          }
           const preflight: StudioCreditCheckpoint = {
             version: 1, phase: "preflight", messages, iteration, worldRevision: sourceRevision.revision,
             requiredCredits: budget.minimumRequiredCredits,
@@ -2315,7 +2323,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             messages = [
               ...messages,
               { role: "assistant" as const, content: textContent },
-              { role: "user" as const, content: "[System: Your previous response was cut off by the output token limit before you could complete your tool call. Please continue — call the tool now without repeating your reasoning.]" },
+              harnessTurn("output_truncated"),
             ];
             await finishCreditIteration(messages, iteration + 1);
             iteration++;
@@ -2352,7 +2360,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
               // pure inspection that concluded "no edits needed") must be able to decline
               // rather than be strong-armed into fabricating an unwanted edit. A model that
               // was mid-task ("now I'll fix it") gets the push it needs.
-              { role: "user" as const, content: "[System: You replied with text but didn't call any tools. If you intended to create or change anything, call the tool now (write_entry, write_variable, write_behavior, write_custom_ui, edit_custom_ui, write_audio, update_settings, delete_entities) — don't just describe the change in prose. If you were only answering a question, or there is genuinely nothing to change, say so briefly and stop.]" },
+              harnessTurn("text_only_reply"),
             ];
             await finishCreditIteration(messages, iteration + 1);
             iteration++;
@@ -2664,10 +2672,10 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
 
             if (verdict.kind === "repeat") {
               console.log(`[Agent] Injecting re-read guidance for "${verdict.id}" (identical request 2×).`);
-              messages = [...messages, { role: "user" as const, content: readRepeatNudge(verdict.id) }];
+              messages = withToolNote(messages, readRepeatNudge(verdict.id));
             } else if (verdict.kind === "wandering") {
               console.log(`[Agent] Injecting act-now guidance for "${verdict.id}" (${verdict.turns} slices, no edit).`);
-              messages = [...messages, { role: "user" as const, content: readWanderNudge(verdict.id, verdict.turns) }];
+              messages = withToolNote(messages, readWanderNudge(verdict.id, verdict.turns));
             }
           }
           await finishCreditIteration(messages, iteration + 1);
@@ -2848,10 +2856,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
                 .map((i) => `- [${i.code}] ${i.message}${i.fix ? ` → ${i.fix}` : ""}`)
                 .join("\n");
               const more = newErrors.length > 8 ? `\n(+ ${newErrors.length - 8} more)` : "";
-              messages = [
-                ...messages,
-                { role: "user" as const, content: `[System: validation after your change introduced ${newErrors.length} new error(s). Fix them now by calling the appropriate tool, or briefly say why they are acceptable — do not ignore them:\n${shown}${more}]` },
-              ];
+              messages = withToolNote(messages, `Validation after your change introduced ${newErrors.length} new error(s). Fix them now by calling the appropriate tool, or briefly say why they are acceptable — do not ignore them:\n${shown}${more}`);
             }
           } catch { /* never block the loop on validation */ }
         }

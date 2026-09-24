@@ -43,6 +43,22 @@ export interface SandboxEntry {
 export type SandboxLoreUiBinding = LoreUiBinding;
 export type SandboxWorldbook = Worldbook;
 
+/** The player's own machine offered as a model source.
+ *
+ * Only ever non-null for a browser that turned the local bridge on, so the
+ * picker can treat "present" as "this player cares about local models" without
+ * a second flag. `status` is the courier's live state, not a snapshot: a card
+ * mid-session needs to see the connection drop, because every turn after that
+ * point fails until it comes back. */
+export interface LocalBridgeChannelData {
+  status: "idle" | "connecting" | "connected" | "running" | "error";
+  /** "Ollama", "LM Studio", … — null before the first successful detection. */
+  runtimeLabel: string | null;
+  /** Empty whenever the courier is down: a model we can't reach must not be
+   *  selectable, only explained. */
+  models: Array<{ id: string; name: string }>;
+}
+
 // ── Assembled sandbox state ─────────────────────────────────────────
 //
 // Individual channel updates arrive from the parent (see ChannelUpdateMessage
@@ -108,6 +124,11 @@ export interface SandboxState {
    *  contribution registry's lazy loading — see sandbox/extensions/). */
   installedExtensions: string[];
   preferredProvider: "official" | "private";
+  /** The player's own machine as a model source, or null when this browser has
+   *  never volunteered it. Null is the common case, and the picker shows nothing
+   *  about local models for it — discovery lives in AI settings, not in a
+   *  permanent row in front of every player without a GPU. */
+  localBridge: LocalBridgeChannelData | null;
   mixMode: boolean;
   modelPool: Array<{ modelId: string; weight: number; locked?: boolean }>;
   /** Whether older history pages exist server-side (messages are windowed). */
@@ -195,6 +216,7 @@ export interface UIChannelData {
   /** clientEntry ids of the user's installed extensions. */
   installedExtensions: string[];
   preferredProvider: "official" | "private";
+  localBridge: LocalBridgeChannelData | null;
   mixMode: boolean;
   modelPool: Array<{ modelId: string; weight: number; locked?: boolean }>;
   /** Whether older history pages exist server-side (messages are windowed). */

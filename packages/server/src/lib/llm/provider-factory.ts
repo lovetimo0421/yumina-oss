@@ -6,10 +6,13 @@ import { OpenAIProvider } from "./openai.js";
 import { OllamaProvider } from "./ollama.js";
 import { GoogleProvider } from "./google.js";
 import { CustomProvider } from "./custom.js";
+import { LocalBridgeProvider } from "./local-bridge.js";
 
-export type ProviderName = "openrouter" | "anthropic" | "openai" | "google" | "ollama" | "custom";
+export type ProviderName = "openrouter" | "anthropic" | "openai" | "google" | "ollama" | "custom" | "local";
 
-/** Create a provider instance. `baseUrl` and `metadata` are only consulted for `provider === "custom"`. */
+/** Create a provider instance. `baseUrl` and `metadata` are only consulted for `provider === "custom"`.
+ *  For `provider === "local"` the first argument is the player's user id, not a key —
+ *  the model runs on their machine and there is nothing to authenticate against. */
 export function createProvider(
   provider: ProviderName,
   apiKeyOrUrl: string,
@@ -25,6 +28,8 @@ export function createProvider(
       return new GoogleProvider(apiKeyOrUrl);
     case "ollama":
       return new OllamaProvider(apiKeyOrUrl);
+    case "local":
+      return new LocalBridgeProvider(apiKeyOrUrl);
     case "custom":
       if (!baseUrl) {
         throw new Error("createProvider: custom provider requires baseUrl");
@@ -53,6 +58,7 @@ export function createByokProvider(
 
 /** Infer provider from model ID prefix. */
 export function inferProvider(modelId: string): ProviderName {
+  if (modelId.startsWith("local/")) return "local";
   if (modelId.startsWith("custom/")) return "custom";
   if (modelId.startsWith("anthropic/")) return "anthropic";
   if (modelId.startsWith("openai/")) return "openai";

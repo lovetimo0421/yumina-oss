@@ -1160,5 +1160,112 @@
       "note": "蘑菇幣獎勵存入儲存，永不過期。會員獎勵立即生效；若已有會員，則在目前會員結束後開始。",
       "transition": "自 {{date}} 起，只有遊玩並回來的受邀玩家才計入這些獎勵。此前獲得的獎勵全部保留。"
     }
+  },
+  "localModel": {
+    "title": "用你自己的電腦跑",
+    "subtitle": "讓這台電腦上的模型來生成，免費玩。算力是你自己的，不經過我們的伺服器生成。",
+    "statusRunning": "正在這台電腦上生成",
+    "statusConnected": "已就緒，這台電腦隨時待命",
+    "statusConnecting": "正在重新連線…",
+    "statusError": "出問題了",
+    "noneTitle": "沒找到本地模型",
+    "noneBody": "先裝 Ollama（LM Studio、Jan、llama.cpp 也可以），下載一個模型，再點重新偵測。下面有完整步驟。",
+    "downloadOllama": "下載 Ollama",
+    "blockedTitle": "偵測到 {{runtime}}，但它不接受這個網頁的請求",
+    "readyTitle": "找到 {{runtime}}，有 {{count}} 個模型",
+    "readyBody": "開啟之後，你的模型會出現在模型選擇器裡。瀏覽器可能會問要不要允許存取本地網路，點允許。",
+    "check": "偵測這台電腦",
+    "recheck": "重新偵測",
+    "enable": "開啟",
+    "disable": "關閉",
+    "copied": "已複製",
+    "copyFailed": "複製不了，請手動選取文字",
+    "caveats": "玩的時候別關 Yumina 這個分頁，每一輪都靠它送到你的模型。本地模型記卡裡的數值比較弱，重度依賴數值的卡可能會跑偏。",
+    "detectingHint": "如果瀏覽器跳出視窗，問是否允許這個網站存取本地網路上的裝置，請點「允許」。",
+    "deniedTitle": "瀏覽器擋住了這個網站存取你的電腦",
+    "deniedBody": "點網址列最左邊的圖示，把「本地網路存取」改成允許，再點重新偵測。",
+    "freeTag": "免費",
+    "pickerOffline": "連不到你的模型",
+    "pickerOfflineHint": "先把 Ollama 開起來，再點重新連線。",
+    "pickerTitle": "這台電腦",
+    "reconnect": "重新連線",
+    "guide": {
+      "title": "第一次用？4 步設定好",
+      "duration": "約 10–20 分鐘，大部分時間在下載",
+      "youAreHere": "你卡在這一步",
+      "needTitle": "你需要",
+      "needGpu": "一台有獨立顯示卡的電腦，顯示記憶體最好 8 GB 以上（NVIDIA 或 AMD）；或是 M1 以後的晶片、記憶體 16 GB 以上的 Mac。",
+      "needBrowser": "電腦上的 Chrome 或 Edge 瀏覽器。其他瀏覽器可能連不到你的電腦。",
+      "needDisk": "硬碟留 4–18 GB 空間，看你選哪個模型。",
+      "checkVram": "不知道顯示記憶體多大？Windows：按 Ctrl+Shift+Esc 開啟工作管理員 → 效能 → GPU，看「專用 GPU 記憶體」。Mac：點左上角蘋果選單 → 關於這台 Mac，看「記憶體」。",
+      "step1Title": "下載安裝 Ollama",
+      "step1Body": "Ollama 是免費的開源軟體，負責在你的電腦上執行模型。下載安裝檔，照預設選項裝好就行。",
+      "step1After": "裝好後它會在背景執行：Windows 右下角系統匣、Mac 上方選單列會有一個羊駝圖示。",
+      "step2Title": "下載一個模型",
+      "step2TerminalWindows": "按 Windows 鍵，搜尋「PowerShell」開啟，把下面符合你顯示記憶體的那一行複製進去，按 Enter。",
+      "step2TerminalMac": "按 Command+空白鍵，搜尋「終端機」開啟，把下面符合你記憶體的那一行複製進去，按 Enter。",
+      "step2TerminalLinux": "開啟終端機，把下面符合你顯示記憶體的那一行貼上，按 Enter。",
+      "tier": {
+        "large": {
+          "vram": "顯示記憶體 24 GB 以上（Mac：記憶體 32 GB 以上）",
+          "note": "文筆最好"
+        },
+        "medium": {
+          "vram": "顯示記憶體 8–16 GB（Mac：記憶體 16 GB）",
+          "note": "推薦，多數人選這個"
+        },
+        "small": {
+          "vram": "顯示記憶體 6 GB",
+          "note": "能跑，但回覆偏短，數值容易記錯"
+        }
+      },
+      "step2After": "看到 success 就下載好了。模型只需要下載一次。",
+      "step3Title": "允許 Yumina 連線到 Ollama",
+      "step3Why": "Ollama 預設不接受網頁的請求，要先告訴它 Yumina 是可以的。",
+      "os": {
+        "windows": "Windows",
+        "mac": "Mac",
+        "linux": "Linux"
+      },
+      "step3Windows": "一樣在 PowerShell 裡，複製執行這一行：",
+      "step3RestartWindows": "接著在右下角系統匣的羊駝圖示上按右鍵 → Quit Ollama，再從開始選單重新開啟 Ollama。不重開的話設定不會生效。",
+      "step3Mac": "一樣在終端機裡，複製執行這一行：",
+      "step3RestartMac": "接著點上方選單列的羊駝圖示 → Quit Ollama，再從「應用程式」重新開啟。注意：Mac 重新開機後這個設定會失效，要再執行一次這行。",
+      "step3Linux": "Linux 上 Ollama 是系統服務。執行第一行會開啟編輯器，把第二段貼進去存檔，再執行第三行重新啟動服務。",
+      "step4Title": "回到這裡，開啟",
+      "step4Body": "點上面的「偵測這台電腦」。瀏覽器跳出視窗問能不能存取本地網路上的裝置時，點「允許」。找到模型後點「開啟」。",
+      "step4Play": "開始玩：在任何一張卡裡點輸入框下方的模型名稱，在清單最上面「這台電腦」裡選你的模型。",
+      "faqTitle": "常見問題",
+      "faq": {
+        "cost": {
+          "q": "要花錢嗎？",
+          "a": "不扣蘑菇，也不需要 API 金鑰。用的是你自己電腦的算力和電。"
+        },
+        "tab": {
+          "q": "玩的時候要注意什麼？",
+          "a": "電腦上這個 Yumina 分頁要一直開著，每一輪都靠它送到你的模型。關掉的話回覆出不來；重新開啟 Yumina 會自動連回去。"
+        },
+        "phone": {
+          "q": "能用手機玩嗎？",
+          "a": "可以。電腦開著 Yumina 並開啟了這個功能，在電腦上選好本地模型，再用同一個帳號在手機上玩，生成還是在你的電腦上跑。"
+        },
+        "privacy": {
+          "q": "我的聊天內容會去哪裡？",
+          "a": "卡的設定和聊天記錄由 Yumina 整理好，經過你的瀏覽器交給你電腦上的模型生成。生成的回覆跟平常一樣，存在你的 Yumina 聊天記錄裡。"
+        },
+        "quality": {
+          "q": "效果和官方模型比起來如何？",
+          "a": "會弱一些，尤其是要記數值、變數的卡。純聊天和劇情卡夠用。顯示記憶體越大，能跑的模型越大，效果越好。"
+        },
+        "locked": {
+          "q": "為什麼有的卡用不了？",
+          "a": "有些卡的作者設定成只能用官方模型，這類卡沒辦法用本地模型玩。"
+        },
+        "other": {
+          "q": "我用的不是 Ollama？",
+          "a": "LM Studio、Jan、llama.cpp 也可以：開啟它們的本地伺服器（預設連接埠），允許這個網站存取，然後點「偵測這台電腦」，會自動找到。"
+        }
+      }
+    }
   }
 }

@@ -3,6 +3,7 @@ import { getCatalogContextWindow } from "./model-catalog.js";
 import { YUMINA_MODELS } from "@yumina/shared";
 
 const REGISTERED_CONTEXT_WINDOWS = new Map(YUMINA_MODELS.filter(model => model.addedAt).map(model => [model.id, model.contextWindow]));
+import { DEFAULT_LOCAL_CONTEXT, clampLocalMaxTokens } from "./local-bridge.js";
 
 /**
  * Real maximum context window (input + output, in tokens) for a model.
@@ -30,6 +31,19 @@ const REGISTERED_CONTEXT_WINDOWS = new Map(YUMINA_MODELS.filter(model => model.a
  * rests on the context-compression plugin (openrouter.ts), not these numbers.
  */
 export function getModelContextWindow(modelId: string): number {
+  // A model running on the player's machine is capped by what their runtime was
+  // started with, NOT by the architecture's maximum — and the family fallbacks
+  // below would happily read "qwen" out of `local/qwen3.8:27b` and hand back
+  // 262,144. Over-estimating is not harmless here the way it is upstream: the
+  // local runtime drops everything past its own window silently, off the FRONT,
+  // which is precisely where the persona and lorebook sit. The card loses its
+  // memory and nothing errors. Pin it to the same number we ask the runtime to
+  // allocate (`num_ctx` in local-bridge.ts) so the two can never disagree.
+  // `ollama/` is the same story reached a different way (the player exposes their
+  // own server over a tunnel instead of through the browser), and it had the same
+  // silent-truncation bug before this guard.
+  if (modelId.startsWith("local/") || modelId.startsWith("ollama/")) return DEFAULT_LOCAL_CONTEXT;
+
   const live = getCatalogContextWindow(modelId);
   if (live && live > 0) return live;
 
@@ -105,7 +119,14 @@ export function clampMaxContextToModel(
   const window = Math.min(getModelContextWindow(modelId), providerWindow);
   if (!Number.isFinite(window)) return requestedMaxContext; // unknown/custom — no-op
 
-  const outputReserve = effectiveMaxTokens(maxTokens, reasoningEffort, modelId);
+  // Against a 32K local window the platform's 12K reserve is 37% of the budget,
+  // which on a heavy card leaves no room for chat history at all — the trimmer
+  // drops the transcript AND the player's own message, and the runtime then
+  // rejects a prompt with no user turn. Reserve what a local reply actually uses.
+  const isLocal = modelId.startsWith("local/") || modelId.startsWith("ollama/");
+  const outputReserve = isLocal
+    ? clampLocalMaxTokens(effectiveMaxTokens(maxTokens, reasoningEffort, modelId))
+    : effectiveMaxTokens(maxTokens, reasoningEffort, modelId);
   const inputCap = Math.max(256, Math.floor((window - outputReserve) * 0.85));
   if (requestedMaxContext <= inputCap) return requestedMaxContext;
 

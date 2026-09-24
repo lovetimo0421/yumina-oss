@@ -13,7 +13,8 @@ import {
   Copy,
   Link,
   ChevronRight,
-  ChevronLeft,
+  ChevronDown,
+  FolderUp,
   Upload,
   Pencil,
   HardDrive,
@@ -52,6 +53,10 @@ import { feedback } from "@/lib/feedback";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import { getAssetCdnUrl, cardImageUrl, fallbackToOriginalOnError } from "@/lib/asset-url";
 import { getUploadMetadata } from "@/lib/asset-upload";
+import { planFolderImport, readDroppedAssets } from "@/lib/asset-folder-import";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { AssetPagination } from "./asset-pagination";
+import { FolderUploadDialog, type FolderUploadSelection } from "./folder-upload-dialog";
 import { LibraryEmptyState } from "./library-empty-state";
 import { BulkActionsBar } from "./bulk-actions-bar";
 import { useAuthGuard } from "@/hooks/use-auth-guard";
@@ -100,10 +105,6 @@ function hasFileDragPayload(dataTransfer: DataTransfer): boolean {
   return Array.from(dataTransfer.types).includes("Files");
 }
 
-function getDraggedFiles(dataTransfer: DataTransfer): File[] {
-  return Array.from(dataTransfer.files ?? []);
-}
-
 // ─── Main Component ─────────────────────────────────────────────────
 
 export function LibraryAssetsTab({
@@ -137,6 +138,17 @@ export function LibraryAssetsTab({
   const pageSize = useUserAssetStore(s => s.pageSize);
 
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
+  const [folderUpload, setFolderUpload] = useState<FolderUploadSelection | null>(null);
+  const [readingFolder, setReadingFolder] = useState(false);
+  const uploadBatchLock = useRef(false);
+  const folderReadLock = useRef(false);
+  const uploadOwner = useRef(session?.user.id);
+  uploadOwner.current = session?.user.id;
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   // Platform image generation is hosted-only; the local edition shows uploads only.
   const imageGeneration = useFeature("imageGeneration");
   const [generationOpen, setGenerationOpen] = useState(false);
@@ -147,6 +159,8 @@ export function LibraryAssetsTab({
     setGenerationReferenceId(undefined);
     setGenerationOwner(session?.user.id);
     setCurrentFolderId(null);
+    setFolderUpload(null);
+    setPendingUploadCount(0);
   }, [session?.user.id]);
   const [assetFilter, setAssetFilter] = useState<
     "all" | "image" | "audio" | "font" | "txt" | "other"
@@ -172,6 +186,7 @@ export function LibraryAssetsTab({
   const [textPreviewLoading, setTextPreviewLoading] = useState(false);
   const [textPreviewError, setTextPreviewError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
 
   const fetchCurrentPage = useCallback(
     (p?: number) => {
@@ -184,6 +199,8 @@ export function LibraryAssetsTab({
     },
     [fetchAssets, assetFilter, currentFolderId]
   );
+  const refreshCurrentPage = useRef(fetchCurrentPage);
+  refreshCurrentPage.current = fetchCurrentPage;
 
   useEffect(() => {
     fetchCurrentPage(1);
@@ -236,6 +253,15 @@ export function LibraryAssetsTab({
   const childAssets = assets;
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const correctedPage = useRef<string | null>(null);
+  useEffect(() => {
+    if (page <= totalPages) { correctedPage.current = null; return; }
+    const correction = `${currentFolderId}:${assetFilter}:${page}:${totalPages}`;
+    if (!loading && correctedPage.current !== correction) {
+      correctedPage.current = correction;
+      fetchCurrentPage(totalPages);
+    }
+  }, [fetchCurrentPage, loading, page, totalPages, currentFolderId, assetFilter]);
 
   // Asset counts come from server via folder.assetCount
 
@@ -274,32 +300,55 @@ export function LibraryAssetsTab({
 
   const uploadFiles = useCallback(
     async (files: File[], folderId: string | null) => {
-      if (files.length === 0) return;
+      if (files.length === 0 || uploadBatchLock.current) return;
 
+      uploadBatchLock.current = true;
+      const owner = uploadOwner.current;
       setPendingUploadCount(files.length);
 
       try {
         for (const [index, file] of files.entries()) {
+          if (!mounted.current || uploadOwner.current !== owner) break;
           const { type } = getUploadMetadata(file);
           await uploadAsset(file, type, folderId ?? undefined);
-          setPendingUploadCount(files.length - index - 1);
+          if (mounted.current && uploadOwner.current === owner) setPendingUploadCount(files.length - index - 1);
         }
       } finally {
-        setPendingUploadCount(0);
-        fetchCurrentPage();
+        uploadBatchLock.current = false;
+        if (mounted.current && uploadOwner.current === owner) {
+          setPendingUploadCount(0);
+          refreshCurrentPage.current();
+          void fetchFolders();
+        }
       }
     },
-    [fetchCurrentPage, uploadAsset]
+    [fetchFolders, uploadAsset]
   );
 
   const handleUpload = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const files = Array.from(e.target.files ?? []);
       e.target.value = "";
+      if (!isAuthenticated) { requireAuth("create worlds"); return; }
       await uploadFiles(files, currentFolderId);
     },
-    [currentFolderId, uploadFiles]
+    [currentFolderId, isAuthenticated, requireAuth, uploadFiles]
   );
+
+  const stageFolderUpload = useCallback((files: { file: File; path: string }[], folderId: string | null) => {
+    setFolderUpload({
+      plan: planFolderImport(files),
+      parentFolderId: folderId,
+      parentLabel: folders.find((folder) => folder.id === folderId)?.name ?? t("assets.allAssets"),
+    });
+  }, [folders, t]);
+
+  const handleFolderUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!isAuthenticated) { requireAuth("create worlds"); return; }
+    if (files.length) stageFolderUpload(files.map((file) => ({ file, path: file.webkitRelativePath || file.name })), currentFolderId);
+  };
 
   const handleCreateFolder = useCallback(async () => {
     const folder = await createFolder(t("assets.newFolder"), currentFolderId ?? undefined);
@@ -383,12 +432,24 @@ export function LibraryAssetsTab({
         return;
       }
 
-      const files = getDraggedFiles(e.dataTransfer);
-      if (files.length > 0) {
-        await uploadFiles(files, folderId);
+      if (!isAuthenticated) { requireAuth("create worlds"); return; }
+      if (uploadBatchLock.current || folderReadLock.current || folderUpload || uploading) return;
+      folderReadLock.current = true;
+      const owner = uploadOwner.current;
+      setReadingFolder(true);
+      try {
+        const result = await readDroppedAssets(e.dataTransfer);
+        if (!mounted.current || uploadOwner.current !== owner) return;
+        if (result.hasDirectories) stageFolderUpload(result.files, folderId);
+        else await uploadFiles(result.files.map(({ file }) => file), folderId);
+      } catch {
+        if (mounted.current && uploadOwner.current === owner) feedback.error(t("assets.readFolderFailed"));
+      } finally {
+        folderReadLock.current = false;
+        if (mounted.current) setReadingFolder(false);
       }
     },
-    [moveAsset, resolveFolderIdForDropTarget, uploadFiles]
+    [moveAsset, resolveFolderIdForDropTarget, uploadFiles, isAuthenticated, requireAuth, folderUpload, uploading, stageFolderUpload, t]
   );
 
   const toggleSelectAsset = useCallback((id: string, next: boolean) => {
@@ -668,22 +729,26 @@ export function LibraryAssetsTab({
             className="hidden"
             onChange={handleUpload}
           />
-          <button
-            onClick={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } fileInputRef.current?.click(); }}
-            disabled={uploading}
-            className="flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {uploading ? (
-              <Loader2 size={14} className="animate-spin" />
-            ) : (
-              <Upload size={14} />
-            )}
-            {uploading
-              ? effectiveUploadCount > 1
-                ? t("assets.uploadingCount", { count: effectiveUploadCount })
-                : t("assets.uploading")
-              : t("assets.upload")}
-          </button>
+          <input
+            ref={(node) => { folderInputRef.current = node; node?.setAttribute("webkitdirectory", ""); }}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={handleFolderUpload}
+          />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button disabled={uploading || pendingUploadCount > 0 || readingFolder || !!folderUpload} className="flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-60">
+                {uploading || pendingUploadCount > 0 || readingFolder ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                {readingFolder ? t("assets.readingFolder") : uploading || pendingUploadCount > 0 ? effectiveUploadCount > 1 ? t("assets.uploadingCount", { count: effectiveUploadCount }) : t("assets.uploading") : t("assets.upload")}
+                <ChevronDown size={14} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } fileInputRef.current?.click(); }}><Upload size={14} />{t("assets.uploadFiles")}</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } folderInputRef.current?.click(); }}><FolderUp size={14} />{t("assets.uploadFolder")}</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </>}
       </div>
 
@@ -797,28 +862,10 @@ export function LibraryAssetsTab({
 
       {/* ─── Pagination ─── */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-3 pt-2">
-          <button
-            disabled={page <= 1}
-            onClick={() => fetchCurrentPage(page - 1)}
-            className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
-          >
-            <ChevronLeft size={14} />
-            {t("assets.prev")}
-          </button>
-          <span className="text-xs text-muted-foreground tabular-nums">
-            {page} / {totalPages}
-          </span>
-          <button
-            disabled={page >= totalPages}
-            onClick={() => fetchCurrentPage(page + 1)}
-            className="flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground disabled:opacity-30 disabled:pointer-events-none"
-          >
-            {t("assets.next")}
-            <ChevronRight size={14} />
-          </button>
-        </div>
+        <AssetPagination page={page} totalPages={totalPages} loading={loading} onPageChange={fetchCurrentPage} />
       )}
+
+      {folderUpload && <FolderUploadDialog key={session?.user.id ?? "guest"} selection={folderUpload} onClose={() => setFolderUpload(null)} onRefresh={() => { fetchCurrentPage(); void fetchFolders(); }} />}
 
       {imageGeneration && (
         <GenerationPanel

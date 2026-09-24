@@ -32,9 +32,24 @@ interface ModelsState {
    *  Yumina/private mode, or active private profiles, invalidates the cache. */
   lastSourceKey: string;
 
+  /** Models running on the player's own machine, published by the local bridge.
+   *  Kept aside from the fetched list because their source is a browser tab on
+   *  this device, not our API — they must survive a refetch and vanish the
+   *  moment that tab stops couriering, neither of which the source cache does. */
+  localModels: ModelInfo[];
+
   fetchModels: () => Promise<void>;
+  setLocalModels: (models: ModelInfo[]) => void;
   search: (query: string) => ModelInfo[];
   addToRecent: (modelId: string) => void;
+}
+
+const isLocalModel = (m: ModelInfo) => m.id.startsWith("local/");
+
+/** Local models ride alongside whatever the current source returned. Strip
+ *  before appending so a refetch can never stack duplicates. */
+function withLocal(list: ModelInfo[], local: ModelInfo[]): ModelInfo[] {
+  return [...list.filter((m) => !isLocalModel(m)), ...local];
 }
 
 interface ApiKeyEntry {
@@ -267,6 +282,7 @@ export async function fetchPrivateModelCatalog(): Promise<ModelInfo[]> {
 export const useModelsStore = create<ModelsState>((set, get) => ({
   models: [],
   curated: [],
+  localModels: [],
   recentlyUsed: loadRecent(),
   loading: false,
   lastFetched: 0,
@@ -310,10 +326,10 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
         if (!isCurrent()) return;
 
         set({
-          models: composed,
+          models: withLocal(composed, get().localModels),
           // In private mode, every surfaced model is from the user's key, so
           // curated == all for the browser's highlighted section.
-          curated: composed,
+          curated: withLocal(composed, get().localModels),
           loading: false,
           lastFetched: now,
           lastSourceKey: sourceKey,
@@ -355,8 +371,8 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
       const finalOfficial = officialOnly.length > 0 ? officialOnly : fallbackOfficial;
       const curatedFinal = finalOfficial.filter((entry) => officialById.has(entry.id));
       set({
-        models: finalOfficial,
-        curated: curatedFinal,
+        models: withLocal(finalOfficial, get().localModels),
+        curated: withLocal(curatedFinal, get().localModels),
         loading: false,
         lastFetched: now,
         lastSourceKey: sourceKey,
@@ -366,6 +382,14 @@ export const useModelsStore = create<ModelsState>((set, get) => ({
     } finally {
       if (version === requestVersion) pendingSource = null;
     }
+  },
+
+  setLocalModels: (localModels: ModelInfo[]) => {
+    set((state) => ({
+      localModels,
+      models: withLocal(state.models, localModels),
+      curated: withLocal(state.curated, localModels),
+    }));
   },
 
   search: (query: string) => {

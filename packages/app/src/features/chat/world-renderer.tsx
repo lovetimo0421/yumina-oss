@@ -35,6 +35,8 @@ import type {
   SandboxCapabilities,
   SandboxMode,
 } from "@/../sandbox/protocol";
+import { useLocalModelStore } from "@/features/local-model/store";
+import { useModelsStore } from "@/stores/models";
 import { useAudioStore, onAudioTrackEnded } from "@/stores/audio";
 import { useUiStore, FONT_SIZE_SCALE } from "@/stores/ui";
 import { useCreditStore } from "@/edition/slots.state";
@@ -229,6 +231,16 @@ export function WorldRenderer({
   const composerSendKey = useUiStore((s) => s.composerSendKey ?? "enter");
   const uiFontSize = useUiStore((s) => s.fontSize ?? "default");
   const uiFontScale = FONT_SIZE_SCALE[uiFontSize] ?? 1;
+  // The player's own machine as a model source. Subscribed field by field
+  // rather than as one object so the selectors stay reference-stable; the UI
+  // channel effect below re-pushes on any of them changing, which is what puts
+  // a dropped courier in front of a player who is mid-session.
+  const localArmed = useLocalModelStore((s) => s.armed);
+  const localStatus = useLocalModelStore((s) => s.status);
+  const localRuntimeLabel = useLocalModelStore((s) =>
+    s.detection?.status === "ready" ? s.detection.runtime.label : null,
+  );
+  const localModels = useModelsStore((s) => s.localModels);
 
   // Stable refs
   const apiRef = useRef(api);
@@ -735,6 +747,11 @@ export function WorldRenderer({
             m.useModelsStore.getState().addToRecent(args[0] as string);
           }).catch(() => {});
           return;
+        }
+        case "reconnectLocalBridge": {
+          // Re-runs detection, so it also recovers the case the player fixed
+          // between attempts (started Ollama, pulled a different model).
+          return useLocalModelStore.getState().enable();
         }
         case "getModels": {
           return Promise.all([
@@ -1744,6 +1761,13 @@ export function WorldRenderer({
       memorySummaryEnabled: (api as any).memorySummaryEnabled ?? false,
       installedExtensions: (api as any).installedExtensions ?? [],
       preferredProvider: (api as any).preferredProvider ?? "official",
+      localBridge: localArmed
+        ? {
+            status: localStatus,
+            runtimeLabel: localRuntimeLabel,
+            models: localModels.map((m) => ({ id: m.id, name: m.name })),
+          }
+        : null,
       mixMode: (api as any).mixMode ?? false,
       modelPool: (api as any).modelPool ?? [],
       hasEarlierMessages: (api as any).hasEarlierMessages ?? false,

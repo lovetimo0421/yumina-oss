@@ -1,5 +1,6 @@
 import { DEFAULT_MODEL, PLAY_MODELS, PLAN_HIERARCHY } from "@yumina/shared";
 import { composeSelectedModelId } from "./model-id";
+import { isLocalModelId } from "@/features/local-model/enabled-flag";
 
 type PlanId = (typeof PLAN_HIERARCHY)[number];
 
@@ -28,6 +29,12 @@ export function isAccessibleOfficialModel(modelId: string, userPlan: string): bo
 }
 
 export function resolveOfficialSelectedModel(currentModel: string, userPlan: string): string {
+  // A local model survives the switch to official. It isn't in PLAY_MODELS and
+  // never will be, but the server routes `local/` by prefix ahead of the
+  // provider branch — so the only thing this rewrite would accomplish is
+  // silently swapping the player's own GPU for a paid model on their way back
+  // from BYOK.
+  if (isLocalModelId(currentModel)) return currentModel;
   if (isAccessibleOfficialModel(currentModel, userPlan)) return currentModel;
 
   const defaultModel = PLAY_MODELS.find(

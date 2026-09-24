@@ -57,11 +57,11 @@ interface UserAssetState {
   fetchAssetById: (assetId: string) => Promise<UserAsset | null>;
   setPage: (page: number) => void;
   fetchFolders: () => Promise<void>;
-  uploadAsset: (file: File, type: "image" | "audio" | "font" | "txt" | "other", folderId?: string) => Promise<UserAsset | null>;
+  uploadAsset: (file: File, type: "image" | "audio" | "font" | "txt" | "other", folderId?: string, options?: { silent?: boolean; addToList?: boolean }) => Promise<UserAsset | null>;
   deleteAsset: (assetId: string) => Promise<void>;
   renameAsset: (assetId: string, filename: string) => Promise<void>;
   moveAsset: (assetId: string, folderId: string | null) => Promise<void>;
-  createFolder: (name: string, parentFolderId?: string) => Promise<AssetFolder | null>;
+  createFolder: (name: string, parentFolderId?: string, options?: { silent?: boolean }) => Promise<AssetFolder | null>;
   renameFolder: (folderId: string, name: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
   /** Optimistically reflect a folder→world binding on the folder's badge. */
@@ -152,7 +152,7 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
     }
   },
 
-  uploadAsset: async (file, type, folderId) => {
+  uploadAsset: async (file, type, folderId, options) => {
     set((s) => ({
       uploadingCount: s.uploadingCount + 1,
       uploading: true,
@@ -177,13 +177,13 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
       });
 
       set((s) => ({
-        assets: [...s.assets, asset],
+        assets: options?.addToList === false ? s.assets : [...s.assets, asset],
         storage: { ...s.storage, used: s.storage.used + (file.size ?? 0) },
       }));
 
       return asset;
     } catch (error) {
-      feedback.error(getAssetUploadErrorMessage(error), {
+      if (!options?.silent) feedback.error(getAssetUploadErrorMessage(error), {
         label: tr("common:action.retry", "Retry"),
         onClick: () => void useUserAssetStore.getState().uploadAsset(file, type, folderId),
       });
@@ -285,7 +285,7 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
     }
   },
 
-  createFolder: async (name, parentFolderId) => {
+  createFolder: async (name, parentFolderId, options) => {
     try {
       const res = await fetch(`${apiBase}/api/user-assets/folders`, {
         method: "POST",
@@ -294,7 +294,7 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
         body: JSON.stringify({ name, parentFolderId }),
       });
       if (!res.ok) {
-        feedback.error(tr("library:toast.createFolderFailed", "Couldn't create folder"), {
+        if (!options?.silent) feedback.error(tr("library:toast.createFolderFailed", "Couldn't create folder"), {
           label: tr("common:action.retry", "Retry"),
           onClick: () => void useUserAssetStore.getState().createFolder(name, parentFolderId),
         });
@@ -304,7 +304,7 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
       set((s) => ({ folders: [...s.folders, data] }));
       return data;
     } catch {
-      feedback.error(tr("library:toast.createFolderFailed", "Couldn't create folder"), {
+      if (!options?.silent) feedback.error(tr("library:toast.createFolderFailed", "Couldn't create folder"), {
         label: tr("common:action.retry", "Retry"),
         onClick: () => void useUserAssetStore.getState().createFolder(name, parentFolderId),
       });

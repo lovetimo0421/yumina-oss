@@ -21,6 +21,13 @@ test("resolveOfficialSelectedModel replaces non-official current models", () => 
   assert.equal(resolveOfficialSelectedModel("custom/openai/gpt-4o", "plus"), DEFAULT_MODEL);
 });
 
+test("resolveOfficialSelectedModel keeps a local model on the way back from BYOK", () => {
+  // The server routes `local/` by prefix ahead of the provider branch, so
+  // rewriting it here would swap the player's own GPU for a paid model.
+  assert.equal(resolveOfficialSelectedModel("local/qwen3:8b", "free"), "local/qwen3:8b");
+  assert.equal(resolveOfficialSelectedModel("local/qwen3:8b", "plus"), "local/qwen3:8b");
+});
+
 test("resolvePrivateSelectedModel prefers the active profile default model", () => {
   const selected = resolvePrivateSelectedModel(
     [

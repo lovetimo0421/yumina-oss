@@ -8,7 +8,7 @@ import type {
   SessionSummaryMode,
   SessionSummaryPayload,
 } from "@yumina/shared";
-import type { SandboxCapabilities, SandboxEntry, SandboxLoreUiBinding, SandboxWorldbook, SandboxMode, SandboxState } from "./protocol";
+import type { SandboxCapabilities, SandboxEntry, SandboxLoreUiBinding, SandboxWorldbook, SandboxMode, SandboxState, LocalBridgeChannelData } from "./protocol";
 import { wrapMessage, postToParentWindow, type ApiCallMessage } from "./protocol";
 import { renderMarkdown } from "./chat/markdown";
 
@@ -319,6 +319,13 @@ export interface SandboxedYuminaAPI {
   /** Whether the session-memory-summary extension is installed for the user. */
   memorySummaryEnabled: boolean;
   preferredProvider: "official" | "private";
+  /** The player's own machine as a model source — null unless this browser
+   *  turned the local bridge on. Its `models` are selectable through `setModel`
+   *  like any other; the server routes a `local/` id back through this tab. */
+  localBridge: LocalBridgeChannelData | null;
+  /** Re-detect and reconnect the local runtime after it dropped. Resolves once
+   *  the attempt is over — read `localBridge.status` for the outcome. */
+  reconnectLocalBridge: () => Promise<void>;
   mixMode: boolean;
   modelPool: Array<{ modelId: string; weight: number; locked?: boolean }>;
   setPreferredProvider: (provider: "official" | "private") => Promise<{
@@ -660,6 +667,8 @@ const defaultAPI: SandboxedYuminaAPI = {
   userPlan: "free",
   memorySummaryEnabled: false,
   preferredProvider: "official",
+  localBridge: null,
+  reconnectLocalBridge: () => noopPromise(undefined),
   mixMode: false,
   modelPool: [],
   setPreferredProvider: () => noopPromise({ ok: false, error: "Unavailable" }),
@@ -1051,6 +1060,8 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     userPlan: state.userPlan ?? "free",
     memorySummaryEnabled: state.memorySummaryEnabled ?? false,
     preferredProvider: state.preferredProvider ?? "official",
+    localBridge: state.localBridge ?? null,
+    reconnectLocalBridge: () => callParent("reconnectLocalBridge", []),
     mixMode: state.mixMode ?? false,
     modelPool: state.modelPool ?? [],
     setPreferredProvider: (provider) => callParent("setPreferredProvider", [provider]),

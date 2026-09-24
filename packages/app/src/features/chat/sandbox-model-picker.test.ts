@@ -20,6 +20,8 @@ type Api = React.ContextType<typeof YuminaContext>;
 type Props = ComponentProps<typeof ModelPickerModal>;
 const container = document.getElementById("root")!;
 const inlineDialog = () => document.querySelector("[data-yumina-platform-overlay-host]")?.shadowRoot?.querySelector('[role="dialog"]');
+dom.window.matchMedia = (() => ({matches:true,addListener(){},removeListener(){},addEventListener(){},removeEventListener(){}})) as any;
+dom.window.HTMLElement.prototype.scrollIntoView = () => {};
 
 after(() => {
   dom.window.close();
@@ -41,6 +43,28 @@ function makeApi(openModelPicker: () => void): Api {
     setModel: () => assert.fail("Opening or choosing a secondary model must not change the story model"),
   } as unknown as Api;
 }
+
+test('a private-source picker separates computer models and keeps reconnect available when they go offline',async()=>{
+ let chosen='',reconnected=0;
+ const api={...makeApi(()=>{}),preferredProvider:'private',selectedModel:'local/qwen-test',
+  localBridge:{status:'connected',runtimeLabel:'Ollama',models:[{id:'local/qwen-test',name:'qwen-test'}]},
+  reconnectLocalBridge:async()=>{reconnected++;},
+  getModels:async()=>({models:[{id:'local/qwen-test',name:'qwen-test',provider:'Ollama',contextLength:32768},{id:'custom/one',name:'Private one',provider:'Custom',contextLength:32768}],pinnedModels:[],recentlyUsed:[]})} as unknown as Api;
+ const {mode:_mode,openModelPicker:_open,...native}=api;
+ const root=createRoot(container);
+ const render=(status:'connected'|'error')=>act(async()=>root.render(createElement(ModelControlsContext.Provider,{value:{...native,localBridge:{...api.localBridge!,status}}},createElement(ModelPickerModal,{open:true,onClose:()=>{},onSelectModel:id=>{chosen=id;}}))));
+ try{
+  await render('connected');let dialog=inlineDialog()!;assert.ok(dialog);
+  const models=[...dialog.querySelectorAll('button')].filter(b=>b.textContent?.includes('qwen-test'));
+  assert.equal(models.length,1,'local model appears only in its computer section');
+  assert.ok(dialog.textContent?.includes('Private one'));
+  await act(async()=>models[0]!.click());assert.equal(chosen,'local/qwen-test');
+  await render('error');dialog=inlineDialog()!;
+  assert.ok(![...dialog.querySelectorAll('button')].some(b=>b.textContent?.includes('qwen-test')),'offline computer model is not offered from a stale private catalog');
+  const reconnect=[...dialog.querySelectorAll('button')].find(b=>/reconnect/i.test(b.textContent||''));assert.ok(reconnect);
+  await act(async()=>reconnect.click());assert.equal(reconnected,1);
+ }finally{await act(async()=>root.unmount());}
+});
 
 test("legacy cards delegate the chat picker and can reopen after onClose unmounts it", async () => {
   let opens = 0;

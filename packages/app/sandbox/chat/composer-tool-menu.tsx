@@ -104,8 +104,9 @@ export function ComposerToolMenu({ onOpenModelPicker }: { onOpenModelPicker: () 
         mixMode: api.mixMode,
         modelPool: api.modelPool,
         language: api.language,
+        localBridgeStatus: api.localBridge?.status ?? null,
       }),
-    [api.selectedModel, api.preferredProvider, api.mixMode, api.modelPool, api.language],
+    [api.selectedModel, api.preferredProvider, api.mixMode, api.modelPool, api.language, api.localBridge?.status],
   );
 
   // Esc closes the sheet (backdrop click is handled on the overlay element).

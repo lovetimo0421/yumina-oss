@@ -292,6 +292,7 @@ function assembleState(channels: ChannelState): SandboxState {
     memorySummaryEnabled: channels.ui?.memorySummaryEnabled ?? false,
     installedExtensions: channels.ui?.installedExtensions ?? [],
     preferredProvider: channels.ui?.preferredProvider ?? "official",
+    localBridge: channels.ui?.localBridge ?? null,
     mixMode: channels.ui?.mixMode ?? false,
     modelPool: channels.ui?.modelPool ?? [],
     hasEarlierMessages: channels.ui?.hasEarlierMessages ?? false,

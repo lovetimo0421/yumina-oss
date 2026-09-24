@@ -180,6 +180,10 @@ export async function resolveProviderForModel(
   if (options?.forceOfficial) {
     // Custom models can never run under official mode (no pricing/billing info)
     if (providerName === "custom") return null;
+    // Nor can a local one: forceOfficial exists to keep a protected world's
+    // hidden prompt off machines we don't control, and "the player's own PC"
+    // is the most uncontrolled of them.
+    if (providerName === "local") return null;
     if (!retiredAccessCheck && !(await isOfficialModel(modelId))) {
       return null;
     }
@@ -188,6 +192,19 @@ export async function resolveProviderForModel(
       return { provider: createProvider("openrouter", officialKey), providerName: "openrouter" as ProviderName, isByok: false, apiKeyTier: plan as ApiKeyTier };
     }
     return null;
+  }
+
+  // A local model has no key to resolve — it runs on the player's own machine,
+  // reached through their browser, and costs us nothing. Treated as BYOK so the
+  // credit, rate-limit and concurrency gates skip it for the same reason they
+  // skip a player's own API key. Unreachable under forceOfficial (handled above).
+  if (providerName === "local") {
+    return {
+      provider: createProvider("local", userId),
+      providerName: "local" as ProviderName,
+      isByok: true,
+      apiKeyTier: "byok",
+    };
   }
 
   // Private mode: try BYOK first

@@ -26,6 +26,7 @@ import { installMobileViewport } from "@/lib/mobile-viewport";
 import { installOverlayRecovery } from "@/lib/overlay-recovery";
 import { installReadingPageCanvas } from "@/lib/reading-page-canvas";
 import { getMobileReadingPageId } from "@/lib/mobile-reading-route";
+import { isLocalModelArmed } from "@/features/local-model/enabled-flag";
 
 // Globally-mounted modals are render-on-demand (zustand stores drive their
 // visibility), so their feature trees don't belong in the entry chunk. Lazy
@@ -156,6 +157,21 @@ export function AppShell({ children }: AppShellProps) {
       toggleImmersive();
     }
   }, [isPlayPage]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reconnect the local-model bridge for a browser that already opted in.
+  // The courier is a module singleton that survives navigation, but nothing
+  // woke it outside the AI-provider settings panel — so a player who reloaded
+  // and went straight to a chat had no local model in the picker and no way to
+  // tell why. The flag check keeps this free for everyone else: no probe, and
+  // the bridge module never enters the entry chunk.
+  useEffect(() => {
+    if (!isLocalModelArmed()) return;
+    void import("@/features/local-model/store")
+      .then((m) => m.useLocalModelStore.getState().resume())
+      .catch(() => {
+        /* the settings panel is still there to retry from */
+      });
+  }, []);
 
   // Sync the account "world audio" preference into the audio store kill
   // switch (absent = on, so existing users keep current behavior).
