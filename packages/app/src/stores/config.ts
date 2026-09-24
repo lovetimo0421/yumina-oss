@@ -95,7 +95,7 @@ interface ConfigState {
   resetPool: () => void;
   resetDefaults: () => void;
   /** Pull server-side aiConfig and merge in. No-op when not authed (401). */
-  syncFromServer: () => Promise<void>;
+  syncFromServer: (options?: { seedMissing?: boolean }) => Promise<void>;
   /** Hydrate BYOK pins from a freshly authenticated, account-validated profile.
    * Missing pins become empty; this never seeds local configuration to the server. */
   hydratePrivatePins: (accountId: string, aiConfig: unknown) => boolean;
@@ -363,7 +363,7 @@ export const useConfigStore = create<ConfigState>()(
         return true;
       },
 
-      syncFromServer: async () => {
+      syncFromServer: async (options) => {
         try {
           const res = await fetch(`${apiBase}/api/users/me/ai-config`, {
             credentials: "include",
@@ -416,7 +416,7 @@ export const useConfigStore = create<ConfigState>()(
           // Single-shot upload of locally-known values. Bypasses the debounce
           // queue so it doesn't merge with pending user edits or re-fire on
           // every page load (the next sync sees these keys filled in).
-          if (Object.keys(seed).length > 0) {
+          if (options?.seedMissing !== false && Object.keys(seed).length > 0) {
             try {
               await fetch(`${apiBase}/api/users/me/ai-config`, {
                 method: "PUT",

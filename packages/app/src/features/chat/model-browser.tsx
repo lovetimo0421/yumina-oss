@@ -52,6 +52,11 @@ interface ModelBrowserProps {
   privateOnly?: boolean;
   /** Select a secondary model without changing the active provider or mix mode. */
   selectionOnly?: boolean;
+  /** Embedded games can switch source while leaving the world's mix settings alone. */
+  allowProviderSwitch?: boolean;
+  switchProvider?: (provider: "official" | "private") => Promise<void>;
+  selecting?: boolean;
+  onOpenSettings?: () => void;
   /** Let the game picker use this computer without changing the API-source preference. */
   allowLocalSelection?: boolean;
   onMixMode?: () => void;
@@ -110,6 +115,10 @@ export function ModelBrowser({
   studioMode,
   privateOnly: privateOnlyProp = false,
   selectionOnly = false,
+  allowProviderSwitch = false,
+  switchProvider,
+  selecting = false,
+  onOpenSettings,
   allowLocalSelection = false,
 }: ModelBrowserProps) {
   const { models, recentlyUsed, loading, fetchModels } = useModelsStore();
@@ -214,14 +223,18 @@ export function ModelBrowser({
     setSwitching(true);
     setSwitchError(null);
     try {
-      await savePreferredProvider(confirmProvider);
-      if (confirmProvider === "official") {
-        const nextModel = resolveOfficialSelectedModel(useConfigStore.getState().selectedModel, userPlan);
-        if (nextModel !== useConfigStore.getState().selectedModel) setConfig("selectedModel", nextModel);
+      if (switchProvider) {
+        await switchProvider(confirmProvider);
       } else {
-        const profiles = await fetchApiKeyModelProfiles(apiBase).catch(() => []);
-        const nextModel = resolvePrivateSelectedModel(profiles, activeKeyId);
-        if (nextModel && nextModel !== useConfigStore.getState().selectedModel) setConfig("selectedModel", nextModel);
+        await savePreferredProvider(confirmProvider);
+        if (confirmProvider === "official") {
+          const nextModel = resolveOfficialSelectedModel(useConfigStore.getState().selectedModel, userPlan);
+          if (nextModel !== useConfigStore.getState().selectedModel) setConfig("selectedModel", nextModel);
+        } else {
+          const profiles = await fetchApiKeyModelProfiles(apiBase).catch(() => []);
+          const nextModel = resolvePrivateSelectedModel(profiles, activeKeyId);
+          if (nextModel && nextModel !== useConfigStore.getState().selectedModel) setConfig("selectedModel", nextModel);
+        }
       }
       // No pill: the provider control now reads the new value, and the model
       // list below it re-renders around the switch.
@@ -231,9 +244,10 @@ export function ModelBrowser({
     } finally {
       setSwitching(false);
     }
-  }, [confirmProvider, switching, userPlan, activeKeyId, setConfig, t]);
+  }, [confirmProvider, switching, userPlan, activeKeyId, setConfig, t, switchProvider]);
 
   const handleSelect = (modelId: string) => {
+    if (selecting) return;
     // Picking one model means "use this one": leave mix mode, or the pool keeps
     // answering and the pill keeps saying "Mix" whichever source it came from.
     // (selectionOnly / privateOnly pickers choose for something else and leave the story's mix alone.)
@@ -262,7 +276,7 @@ export function ModelBrowser({
 
   // Phones can't run a model; they only see this source when the account is
   // already on a model its computer runs.
-  const sourceLocked = selectionOnly || privateOnly;
+  const sourceLocked = privateOnly || (selectionOnly && !allowProviderSwitch);
   const offerLocal = (!sourceLocked || allowLocalSelection) && !studioMode && (!isLikelyPhone() || isLocalModelId(selectedModel));
   const showLocal = offerLocal && localView && !showMix;
   const chooseSource = (value: "official" | "private" | "local") => {
@@ -270,7 +284,7 @@ export function ModelBrowser({
     setLocalView(false);
     if (!sourceLocked && value !== provider) requestProvider(value);
   };
-  const providerSwitch = (selectionOnly || privateOnly) ? null : (
+  const providerSwitch = sourceLocked ? null : (
     <ProviderSwitchControl
       provider={provider}
       disabled={switching}
@@ -308,6 +322,7 @@ export function ModelBrowser({
         ref={dialogRef}
         tabIndex={-1}
         aria-modal="true"
+        aria-busy={selecting || undefined}
         aria-label={t("modelBrowser.title")}
         className={cn("relative z-10 flex flex-col overflow-hidden border border-white/[0.08] shadow-2xl shadow-black/40 outline-none animate-in fade-in zoom-in-95 slide-in-from-bottom-2 duration-200", expandedOfficial
           ? "h-[min(800px,calc(100dvh-2rem))] w-[min(540px,calc(100vw-1rem))] rounded-[22px] bg-[#1b1a1e]"
@@ -316,6 +331,7 @@ export function ModelBrowser({
             ? "max-h-[min(800px,calc(100dvh-2rem))] w-[min(540px,calc(100vw-1rem))] rounded-[22px] bg-[#1b1a1e]"
             : "w-[min(440px,calc(100vw-2rem))] max-h-[min(600px,calc(100dvh-4rem))] rounded-2xl bg-[#1a1b1e]")}
       >
+        {selecting && <div aria-hidden="true" className="absolute inset-x-0 top-0 z-20 h-0.5 animate-pulse bg-primary" />}
         {showLocal ? (
           <LocalModelPickerView
             selectedModel={selectedModel}
@@ -366,7 +382,7 @@ export function ModelBrowser({
             onClose={onClose}
             onPin={(id) => pinModel(id, "private")}
             onUnpin={(id) => unpinModel(id, "private")}
-            onGoToSettings={() => { onClose(); navigate({ to: "/app/settings", hash: "ai-config" }); }}
+            onGoToSettings={() => { if (onOpenSettings) onOpenSettings(); else { onClose(); navigate({ to: "/app/settings", hash: "ai-config" }); } }}
             providerSwitch={allowLocalSelection ? compactProviderSwitch : providerSwitch}
             usageNote={usageNote}
             onMixMode={(selectionOnly || privateOnly) ? undefined : () => {
@@ -379,7 +395,7 @@ export function ModelBrowser({
       </div>
       </div>
 
-      {!privateOnly && !selectionOnly && <ProviderSwitchConfirmDialog
+      {!sourceLocked && <ProviderSwitchConfirmDialog
         provider={confirmProvider}
         copy={providerSwitchCopy}
         busy={switching}
@@ -813,7 +829,7 @@ function OfficialView({
           const locked = !hasGrokTrial && !canAccessPlan(m.minPlan,userPlan);
           const meta = TIER_META[m.tier as CostTier];
           return <div key={m.id} className={cn("mb-1.5 flex min-h-[68px] w-full items-center rounded-[13px] border transition-colors motion-reduce:transition-none",isSelected ? `${meta.border} ${meta.bg} shadow-md ${meta.glow}` : "border-white/[0.07] bg-white/[0.02]",!locked && !isSelected && "hover:border-white/15 hover:bg-white/[0.04]",locked && "opacity-60")}>
-            <button type="button" disabled={locked} aria-pressed={isSelected} onClick={() => {if(isMixActive)useConfigStore.getState().setConfig("mixMode",false);onSelect(m.id);}} title={(() => {const stats=statsById.get(m.id);if(!stats)return undefined;const estimate=estimateReplyCost(stats,contextTokens);return t(estimate.scaled?"modelBrowser.costForThisChat":"modelBrowser.costRange",{typical:formatCostEstimate(estimate.typical),heavy:formatCostEstimate(estimate.heavy)});})()} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl py-2.5 pl-3.5 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 max-[390px]:gap-2 max-[390px]:pl-2.5">
+            <button type="button" disabled={locked} aria-pressed={isSelected} onClick={() => onSelect(m.id)} title={(() => {const stats=statsById.get(m.id);if(!stats)return undefined;const estimate=estimateReplyCost(stats,contextTokens);return t(estimate.scaled?"modelBrowser.costForThisChat":"modelBrowser.costRange",{typical:formatCostEstimate(estimate.typical),heavy:formatCostEstimate(estimate.heavy)});})()} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl py-2.5 pl-3.5 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 max-[390px]:gap-2 max-[390px]:pl-2.5">
               <span aria-hidden="true" className={cn("h-2 w-2 shrink-0 rounded-full",meta.dot,isSelected ? "opacity-100 ring-4 ring-white/5" : "opacity-70")} />
               <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-2">

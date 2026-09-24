@@ -56,7 +56,9 @@ The **+** menu next to the input box:
 - **Restart Chat** -- clear all messages and start over
 - **Persona**, **Share Play**, and **Branches** retain their existing actions.
 
-Use the image button beside **+**, or paste an image into the input box with Ctrl/Cmd+V. You can remove previews before sending, send an image by itself, or add text. Choose a model with the **Vision** badge. PNG, JPEG, WebP and GIF are supported, up to four images per message, 8 MB each and 16 MB total. A failed send keeps your draft available to retry.
+Use the image button beside **+** to open your personal **Assets**. Browse folders, use the breadcrumbs to go back, or search images in the current folder. Select an image and confirm to attach it. Uploading from this picker saves the image in the current Assets folder for reuse.
+
+You can also paste an image into the input box with Ctrl/Cmd+V. Remove previews before sending, send an image by itself, or add text. Choose a model with the **Vision** badge. PNG, JPEG, WebP and GIF are supported, up to four images per message, 8 MB each and 16 MB total. A failed send keeps your draft available to retry.
 
 ### Fullscreen and exit
 

@@ -1,4 +1,6 @@
 // Types
+export { chatImageCopy, type ChatImageAttachment } from "./types/chat-image.js";
+
 export { AI_GENERATION_DEFAULTS, aiGenerationConfigSchema, resolveAiGenerationConfig } from './ai-generation.js';
 export type { AiGenerationConfig } from './ai-generation.js';
 export { resolveStoryMemory, SUGGESTED_STORY_MEMORY, MIN_STORY_MEMORY, MAX_STORY_MEMORY } from './story-memory.js';

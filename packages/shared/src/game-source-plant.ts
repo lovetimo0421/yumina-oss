@@ -50,6 +50,19 @@ export function source27LivingPlantMatches(p:{type:number;sourceId?:number;textO
  if(special.length)return special.includes(p.sourceId??0)&&p.textOnly===true&&p.bond===undefined;
  return ((p.type>=0&&p.type<=10)||p.type===13||p.type===40)&&p.sourceId===(p.type+1)*10&&p.textOnly===undefined;
 }
+// These chapters expose exact living species for conversation. Card generations
+// are not plant identity, and no bond or action capability is introduced here.
+export function sourceLivingPlantMatches(level:number,sourceLevel:number|undefined,p:{type:number;sourceId?:number;textOnly?:true;bond?:unknown}):boolean {
+ if(p.textOnly!==true||p.bond!==undefined||!Number.isInteger(p.type)||p.sourceId===undefined)return false;
+ if(level===13&&sourceLevel===40161)return p.type===11&&[120,125].includes(p.sourceId);
+ const normal=p.sourceId===(p.type+1)*10;
+ if(level===18&&sourceLevel===40166)return normal&&((p.type>=0&&p.type<=15)||p.type===40)||p.type===11&&p.sourceId===125;
+ if(level===19&&sourceLevel===40167)return normal&&((p.type>=0&&p.type<=15)||p.type===40||p.type===42)||
+  p.type===2&&p.sourceId===35||p.type===11&&p.sourceId===125||p.type===13&&p.sourceId===145||p.type===14&&p.sourceId===155;
+ if(level===20&&sourceLevel===40159)return normal&&((p.type>=8&&p.type<=15)||p.type===42);
+ if(level===21&&sourceLevel===40168)return normal&&((p.type>=0&&p.type<=16)||p.type===40||p.type===42);
+ return false;
+}
 export function sourcePlantBondLeaseMatches(a:SourcePlantBondLease,b:SourcePlantBondLease|undefined):boolean {
  return b!==undefined&&a.token===b.token&&a.revision===b.revision&&a.wave===b.wave&&a.expiresAtTick===b.expiresAtTick&&a.score===b.score;
 }

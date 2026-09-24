@@ -1,3 +1,4 @@
+import { userAssetFilters } from "../lib/user-asset-filters.js";
 import { detachGenerationAsset } from "../lib/generation/asset-receipts.js";
 import { Hono } from "hono";
 import { createHash } from "node:crypto";
@@ -595,36 +596,21 @@ userAssetRoutes.get("/", async (c) => {
   const limit = Math.min(Math.max(parseInt(c.req.query("limit") || "100") || 100, 1), 500);
   const offset = Math.max(parseInt(c.req.query("offset") || "0") || 0, 0);
 
-  const conditions = [eq(userAssets.userId, currentUser.id)];
-
-  if (isAssetType(typeFilter)) {
-    conditions.push(eq(userAssets.type, typeFilter));
-  }
-
-  if (folderId === "root") {
-    conditions.push(isNull(userAssets.folderId));
-  } else if (folderId) {
-    conditions.push(eq(userAssets.folderId, folderId));
-  }
+  const conditions = userAssetFilters(currentUser.id, {
+    type: isAssetType(typeFilter) ? typeFilter : undefined, folderId, search,
+  });
 
   const rows = await db
     .select()
     .from(userAssets)
     .where(and(...conditions))
-    .orderBy(userAssets.createdAt)
+    .orderBy(c.req.query("sort") === "newest" ? desc(userAssets.createdAt) : userAssets.createdAt, userAssets.id)
     .limit(limit)
     .offset(offset);
 
-  // Filter by search if provided
-  let filtered = rows;
-  if (search?.trim()) {
-    const q = search.toLowerCase();
-    filtered = rows.filter((r) => r.filename.toLowerCase().includes(q));
-  }
-
   // Use CDN URLs instead of presigned S3 URLs — eliminates N signing calls
   const origin = getCdnOrigin();
-  const withUrls = filtered.map((row) => ({
+  const withUrls = rows.map((row) => ({
     ...row,
     url: `${origin}/cdn/${row.id}`,
   }));
@@ -639,7 +625,9 @@ userAssetRoutes.get("/", async (c) => {
     .where(eq(userAssets.userId, currentUser.id));
 
   const totalUsed = Number(storageResult?.totalBytes ?? 0);
-  const total = storageResult?.totalCount ?? 0;
+  const [matchingCount] = await db.select({ total: sql<number>`count(*)::int` })
+    .from(userAssets).where(and(...conditions));
+  const total = matchingCount?.total ?? 0;
 
   return c.json({
     data: withUrls,

@@ -71,7 +71,6 @@ export function MessageInput() {
   const [imageError, setImageError] = useState<string | null>(null);
   const [readingImages, setReadingImages] = useState(false);
   const readingRef = useRef(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const lastImagesRef = useRef<ChatImageInput[]>([]);
   const [modelImages, setModelImages] = useState<Record<string, boolean | undefined>>({});
   const imageText = (key: string) => chatImageCopy(api.language, key);
@@ -92,6 +91,21 @@ export function MessageInput() {
     try {
       const added = await readChatImages(files, imagesRef.current);
       setImages(current => [...current, ...added]);
+    } catch (error) { setImageError(error instanceof Error ? error.message : "read"); }
+    finally { readingRef.current = false; setReadingImages(false); }
+  };
+  const pickImage = async () => {
+    if (readingRef.current) return;
+    readingRef.current = true;
+    setReadingImages(true);
+    setImageError(null);
+    try {
+      const image = await api.pickChatImage();
+      if (image) {
+        // Keep the existing four-image and total-byte limits for library images.
+        await readChatImages([], [...imagesRef.current, image]);
+        setImages(current => [...current, image]);
+      }
     } catch (error) { setImageError(error instanceof Error ? error.message : "read"); }
     finally { readingRef.current = false; setReadingImages(false); }
   };
@@ -465,8 +479,6 @@ export function MessageInput() {
             </div>
           )}
 
-          <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden
-            onChange={e => { void addImages(Array.from(e.target.files ?? [])); e.target.value = ""; }} />
           {images.length > 0 && <div className="flex flex-wrap gap-2 px-4 pt-3">
             {images.map((image, index) => <div key={index} className="relative">
               <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} className="h-16 w-16 rounded-lg border border-border object-cover" />
@@ -578,7 +590,7 @@ export function MessageInput() {
                 )}
               </div>
 
-              <button type="button" onClick={() => fileInputRef.current?.click()} disabled={readingImages}
+              <button type="button" onClick={() => void pickImage()} disabled={readingImages}
                 className="play-composer-icon-button hover-surface rounded-lg text-foreground/70 transition-colors hover:text-foreground disabled:opacity-40"
                 aria-label={imageText("add")} title={imageText("add")}>
                 {readingImages ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}

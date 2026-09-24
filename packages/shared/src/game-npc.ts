@@ -2,7 +2,7 @@ import { z } from 'zod';
 import {classicPlantChoiceSchema,classicPlantAnswerSchema} from './game-classic-plant.js';
 import {classicStoryChoiceSchema,classicStoryAnswerSchema,sunDoubleSchema,giftShuffleSchema,roofFavorSchema} from './game-classic-story.js';
 import { source31ChoiceText,source31CurrentChoiceSchema,sourceStorySchema, sourceStoryActionSchema,sourceStoryChoiceSchema,sourceChoiceSchema,sourceStoryNumericSchema } from './game-source-story.js';
-import { sourcePlantTargetSchema,sourcePlantBondSchema,sourcePlantBondLeaseSchema,sourcePlantReactionSchema,sourcePlantRequestSchema,sourcePlantBondSeedSupported,sourcePlantBondLeaseMatches,sourcePlantBondChapterSupported,source27LivingPlantMatches } from './game-source-plant.js';
+import { sourcePlantTargetSchema,sourcePlantBondSchema,sourcePlantBondLeaseSchema,sourcePlantReactionSchema,sourcePlantRequestSchema,sourcePlantBondSeedSupported,sourcePlantBondLeaseMatches,sourcePlantBondChapterSupported,source27LivingPlantMatches,sourceLivingPlantMatches } from './game-source-plant.js';
 
 const boundedInt = z.number().int().min(0).max(1_000_000);
 const unsignedInt = z.number().int().min(0).max(4_294_967_295);
@@ -120,7 +120,7 @@ export const daveSnapshotSchema = z.object({
     .refine(rows => new Set(rows.map(r => r.row)).size === rows.length, 'Duplicate row'),
   selectedPlants: z.array(z.string().max(64)).max(10),
   plantIdentityVersion:z.literal(1).optional(),
-  planted: z.array(z.object({nameplate:z.literal("gatling").optional(),textOnly:z.literal(true).optional(),sourceId:z.number().int().refine(id=>[10,20,30,40,50,60,70,80,90,100,110,120,125,130,140,145,150,155,410].includes(id)).optional(),id:z.number().int().min(1).max(4_294_967_295).optional(),type:z.number().int().min(0).max(52),row:z.number().int().min(0).max(5),column:z.number().int().min(0).max(8),health:boundedInt,maxHealth:z.number().int().min(1).max(1_000_000),bond:sourcePlantBondSchema.optional()}).strict()).max(162).optional(),
+  planted: z.array(z.object({headMissing:z.literal(true).optional(),nameplate:z.literal("gatling").optional(),textOnly:z.literal(true).optional(),sourceId:z.number().int().refine(id=>[10,20,30,35,40,50,60,70,80,90,100,110,120,125,130,140,145,150,155,160,170,410,430].includes(id)).optional(),id:z.number().int().min(1).max(4_294_967_295).optional(),type:z.number().int().min(0).max(52),row:z.number().int().min(0).max(5),column:z.number().int().min(0).max(8),health:boundedInt,maxHealth:z.number().int().min(1).max(1_000_000),bond:sourcePlantBondSchema.optional()}).strict()).max(162).optional(),
   adventureCycle: boundedInt.optional(),
   elapsedTicks: z.number().int().nonnegative().max(4_294_967_295).optional(),
   terrain: z.enum(['day','night','pool','fog','roof']).optional(),
@@ -183,22 +183,32 @@ export const daveSnapshotSchema = z.object({
     } else if(s.planted?.some(p=>p.id!==undefined))
       ctx.addIssue({code:z.ZodIssueCode.custom,path:['plantIdentityVersion'],message:'Plant identity requires its protocol marker'});
     s.planted?.forEach((plant,index)=>{
+      const observed=s.plantIdentityVersion===1&&sourceLivingPlantMatches(s.level,s.sourceStory?.sourceLevel,plant);
+      if(plant.headMissing!==undefined&&!(s.mode==='adventure'&&s.phase==='playing'&&!s.defeated&&s.plantIdentityVersion===1&&
+        plant.id!==undefined&&plant.health>0&&(s.level===6?[0,1,5]:[0,1,5,7,40]).includes(plant.type)&&
+        [6,9,10,13,15,16,17,18,19,21].includes(s.level)&&s.sourceStory?.sourceLevel===sourceBossByLevel[s.level]?.[0]))
+        ctx.addIssue({code:z.ZodIssueCode.custom,path:['planted',index,'headMissing'],message:'Head loss requires a living removable-head plant in its authored chapter'});
       if(plant.nameplate!==undefined&&!(s.mode==='adventure'&&s.phase==='playing'&&!s.defeated&&s.plantIdentityVersion===1&&
         plant.id!==undefined&&plant.type===0&&plant.health>0&&
         ((s.level===8&&s.sourceStory?.sourceLevel===40156)||(s.level===9&&s.sourceStory?.sourceLevel===40157))))
         ctx.addIssue({code:z.ZodIssueCode.custom,path:['planted',index,'nameplate'],message:'A cosmetic Gatling nameplate belongs to a living source 1-8 or 1-9 Peashooter'});
-      if(plant.sourceId!==undefined&&!(s.plantIdentityVersion===1&&((s.level===17&&s.sourceStory?.sourceLevel===40165&&source27LivingPlantMatches(plant))||(s.level===14&&s.sourceStory?.sourceLevel===40162&&plant.type===11&&[120,125].includes(plant.sourceId))||([15,16].includes(s.level)&&s.sourceStory?.sourceLevel===(s.level===16?40164:40163)&&plant.sourceId===(plant.type+1)*10&&[120,130].includes(plant.sourceId)&&plant.textOnly===true)||(s.level===16&&s.sourceStory?.sourceLevel===40164&&((plant.type===13&&[140,145].includes(plant.sourceId))||((plant.type<=10||plant.type===40)&&plant.sourceId===(plant.type+1)*10))))))
-        ctx.addIssue({code:z.ZodIssueCode.custom,path:['planted',index,'sourceId'],message:'Special source identity requires a source2-4 native11 living plant'});
-      if(plant.textOnly!==undefined&&!(s.level===17&&s.sourceStory?.sourceLevel===40165&&source27LivingPlantMatches(plant))&&(!((s.level===15&&s.sourceStory?.sourceLevel===40163)||(s.level===16&&s.sourceStory?.sourceLevel===40164))||!plant.sourceId||![120,130].includes(plant.sourceId)||plant.bond))ctx.addIssue({code:z.ZodIssueCode.custom,path:['planted',index],message:'Text-only special plant cannot carry a bond'});
+      if(plant.sourceId!==undefined&&!observed&&!(s.plantIdentityVersion===1&&((s.level===17&&s.sourceStory?.sourceLevel===40165&&source27LivingPlantMatches(plant))||(s.level===14&&s.sourceStory?.sourceLevel===40162&&plant.type===11&&[120,125].includes(plant.sourceId))||([15,16].includes(s.level)&&s.sourceStory?.sourceLevel===(s.level===16?40164:40163)&&plant.sourceId===(plant.type+1)*10&&[120,130].includes(plant.sourceId)&&plant.textOnly===true)||(s.level===16&&s.sourceStory?.sourceLevel===40164&&((plant.type===13&&[140,145].includes(plant.sourceId))||((plant.type<=10||plant.type===40)&&plant.sourceId===(plant.type+1)*10))))))
+        ctx.addIssue({code:z.ZodIssueCode.custom,path:['planted',index,'sourceId'],message:'Source identity requires a supported living species in its native chapter'});
+      if(plant.textOnly!==undefined&&!observed&&!(s.level===17&&s.sourceStory?.sourceLevel===40165&&source27LivingPlantMatches(plant))&&(!((s.level===15&&s.sourceStory?.sourceLevel===40163)||(s.level===16&&s.sourceStory?.sourceLevel===40164))||!plant.sourceId||![120,130].includes(plant.sourceId)||plant.bond))ctx.addIssue({code:z.ZodIssueCode.custom,path:['planted',index],message:'Text-only special plant cannot carry a bond'});
       if(plant.bond&&(!sourcePlantBondChapterSupported(s.level,s.sourceStory?.sourceLevel)||s.plantIdentityVersion!==1||!sourcePlantBondSeedSupported(plant.type,s.sourceStory?.sourceLevel)))
         ctx.addIssue({code:z.ZodIssueCode.custom,path:['planted',index,'bond'],message:'Plant bonds require a supported native night-chapter plant identity'});
     });
     if(s.sun<0&&!s.sourceStory&&!(s.level===23&&s.headPrize?.stage==='reclaimed'&&s.sun>=-600))ctx.addIssue({code:z.ZodIssueCode.custom,path:['sun'],message:'Negative classic sun requires the witnessed head-prize reclamation'});
     if(s.sourceStory) {
-      if(s.sourceStory.sourceLevel===40168&&(s.level!==21||s.plantIdentityVersion!==undefined||s.planted!==undefined))ctx.addIssue({code:z.ZodIssueCode.custom,path:['level'],message:'Source31 requires native21 without plant projection'});
-      if(s.sourceStory.sourceLevel===40166&&(s.level!==18||s.plantIdentityVersion!==undefined||s.planted?.length))ctx.addIssue({code:z.ZodIssueCode.custom,path:['level'],message:'Source28 requires native18; living plant projection is not integrated'});
-      if(s.sourceStory.sourceLevel===40159&&(s.level!==20||s.plantIdentityVersion!==undefined||s.planted?.length))ctx.addIssue({code:z.ZodIssueCode.custom,path:['level'],message:'Source210 requires native20; living plant projection is not integrated'});
-      if(s.sourceStory.sourceLevel===40167&&(s.level!==19||s.plantIdentityVersion!==undefined||s.planted?.length))ctx.addIssue({code:z.ZodIssueCode.custom,path:['level'],message:'Source29 requires native19; living plant projection is not integrated'});
+      const lateLevels:Record<number,number>={40166:18,40167:19,40159:20,40168:21};
+      const lateLevel=lateLevels[s.sourceStory.sourceLevel];
+      if(lateLevel&&(s.level!==lateLevel||((s.planted!==undefined||s.plantIdentityVersion!==undefined)&&
+        (s.plantIdentityVersion!==1||!s.planted||s.planted.some(p=>!sourceLivingPlantMatches(s.level,s.sourceStory?.sourceLevel,p))))))
+        ctx.addIssue({code:z.ZodIssueCode.custom,path:['planted'],message:'Living source plants require the current chapter and exact native species'});
+
+
+
+
       if(s.sourceStory.sourceLevel===40165&&(s.level!==17||s.planted?.some(p=>!source27LivingPlantMatches(p))))ctx.addIssue({code:z.ZodIssueCode.custom,path:['level'],message:'Source27 requires native17'});
       if(s.sourceStory.sourceLevel===40164&&(s.level!==16||s.planted?.some(p=>!p.sourceId||(p.type===13?![140,145].includes(p.sourceId):p.sourceId!==(p.type+1)*10))))ctx.addIssue({code:z.ZodIssueCode.custom,path:['level'],message:'Source26 requires native16 and exact living source identities'});
       if(s.sourceStory.sourceLevel===40163&&s.level!==15)ctx.addIssue({code:z.ZodIssueCode.custom,path:['level'],message:'Source2-5 requires native15'});
@@ -312,11 +322,20 @@ export const daveRequestSchema = z.object({
    ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceNumericEditVersion'],message:'Numeric editing capability requires a current source2-10 amount question'});
   const answer31=request.sourceStoryChoice;
   if(story?.sourceLevel===40168){
-   const current=source31CurrentChoiceSchema.safeParse(story.choice),labels=source31ChoiceText(story.sceneId,request.locale);
-   if(!answer31||request.sourceStoryNumeric||!current.success||!labels||answer31.epoch!==request.snapshot.levelEpoch||
-    (current.success&&(answer31.epoch!==current.data.epoch||answer31.owner!==current.data.owner||answer31.choiceRevision!==current.data.choiceRevision))||
-    answer31.prompt!==labels?.prompt||JSON.stringify(answer31.options)!==JSON.stringify(labels?.options))
-    ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceStoryChoice'],message:'Source31 requires the exact native capability and authored localized options'});
+   const conversation=story.observationOnly===true||!!request.sourcePlantTarget;
+   if(conversation){
+    if(request.trigger!=='player'||request.messages.at(-1)?.role!=='user'||request.snapshot.phase!=='playing'||request.snapshot.defeated||
+       request.sourceStoryChoice||request.sourceStoryNumeric||request.sourcePlantBondLease||
+       request.snapshot.plantIdentityVersion!==1||!request.snapshot.planted||
+       (story.choice&&('epoch' in story.choice&&story.choice.epoch!==request.snapshot.levelEpoch)))
+      ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceStoryChoice'],message:'Pool conversation is an explicit read-only player turn'});
+   }else{
+    const current=source31CurrentChoiceSchema.safeParse(story.choice),labels=source31ChoiceText(story.sceneId,request.locale);
+    if(!answer31||request.sourceStoryNumeric||!current.success||!labels||answer31.epoch!==request.snapshot.levelEpoch||
+     (current.success&&(answer31.epoch!==current.data.epoch||answer31.owner!==current.data.owner||answer31.choiceRevision!==current.data.choiceRevision))||
+     answer31.prompt!==labels?.prompt||JSON.stringify(answer31.options)!==JSON.stringify(labels?.options))
+     ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceStoryChoice'],message:'Source31 requires the exact native capability and authored localized options'});
+   }
   }else if(answer31&&(answer31.epoch!==undefined||answer31.owner!==undefined||answer31.choiceRevision!==undefined))
    ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceStoryChoice'],message:'Source31 identity cannot authorize another chapter'});
   if(request.sourceStoryNumeric){const s=request.snapshot;
@@ -326,7 +345,7 @@ export const daveRequestSchema = z.object({
    const c=story?.choice;
    if(!c||answer.sceneRevision!==c.sceneRevision||answer.storyRevision!==c.storyRevision||answer.eventToken!==c.eventToken||answer.eventKey!==c.eventKey||answer.sceneId!==c.eventKey||c.kind!==(request.sourceStoryNumeric?'numeric':'binary'))ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceStoryChoice'],message:'Authored answer capability changed'});
   }
-  if(request.sourcePlantTarget&&[40168,40159,40166,40167].includes(story?.sourceLevel??0))ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourcePlantTarget'],message:'Plant routes for this chapter are not integrated'});
+
   if(request.sourcePlantTarget) {
     const target=request.sourcePlantTarget,s=request.snapshot;
     const plant=s.planted?.find(p=>p.id===target.id);

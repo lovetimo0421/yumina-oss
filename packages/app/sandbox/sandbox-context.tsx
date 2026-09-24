@@ -116,6 +116,7 @@ export interface SandboxedYuminaAPI {
   getEntry: (name: string) => SandboxEntry | null;
 
   // ── Game actions (fire-and-forget) ──
+  pickChatImage: () => Promise<import("@yumina/shared").ChatImageInput | null>;
   sendMessage: (text: string, attachments?: import("@yumina/shared").ChatImageInput[]) => void;
   /** Session-scoped, transactional social simulation; requests resolve after persistence. */
   social: {
@@ -583,6 +584,7 @@ const defaultAPI: SandboxedYuminaAPI = {
   loreUiBindings: [],
   worldbooks: [],
   getEntry: () => null,
+  pickChatImage: async () => null,
   sendMessage: () => {},
   social: { get: () => noopPromise(null), action: () => noopPromise(null), generate: () => noopPromise(null) },
   setVariable: () => {},
@@ -923,6 +925,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     },
 
     // Game actions (fire-and-forget)
+    pickChatImage: () => sessionApisAvailable ? callParent("pickChatImage", [], 600_000) : Promise.resolve(null),
     sendMessage: (text, attachments) => postToParent("sendMessage", [text, attachments]),
     social: {
       get: () => socialCall("social.get", []),

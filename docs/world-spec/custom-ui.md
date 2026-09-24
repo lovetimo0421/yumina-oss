@@ -114,6 +114,7 @@ interface SandboxedYuminaAPI {
 
 ```typescript
 type ChatImageInput = { type: "image"; mimeType: string; name: string; data: string };
+pickChatImage(): Promise<ChatImageInput | null>;
 sendMessage(text: string, attachments?: ChatImageInput[]): void;
 editMessage(messageId: string, content: string): Promise<boolean>;
 deleteMessage(messageId: string): Promise<boolean>;
@@ -125,6 +126,8 @@ swipeMessage(messageId: string, direction: "left" | "right"): Promise<Record<str
 setComposerDraft(text: string): void;
 clearPendingChoices(): void;
 ```
+
+`pickChatImage()` opens the player's personal Assets picker, with folder browsing, search and uploads into the current folder. It returns one selected image as validated base64 input for `sendMessage`, or `null` when dismissed or unavailable (including guest previews and read-only sessions). Selection does not send a message. For example: `const image = await api.pickChatImage(); if (image) api.sendMessage("Describe this", [image]);`. The normal attachment limits and model checks still apply; sent images are copied into chat storage so later Assets changes do not alter saved history.
 
 ### Session Management
 

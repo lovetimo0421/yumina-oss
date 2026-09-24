@@ -1,3 +1,8 @@
+import { ChatAssetPicker } from "./chat-asset-picker";
+import { readChatAsset } from "@/lib/chat-asset-input";
+import { chatImageCopy as chatInputCopy } from "@/lib/chat-image-input";
+import type { ChatImageAttachment, ChatImageInput } from "@yumina/shared";
+import { toast } from "sonner";
 import { savePreferredProvider } from "@/lib/provider-switch";
 import { notePlayInteraction } from "./play-interaction";
 import { useStoryNavigation } from "@/hooks/use-story-navigation";
@@ -254,6 +259,36 @@ export function WorldRenderer({
   // Multiplayer: one game-rt connection per renderer, created lazily on
   // room.join. sendRoomFrameRef breaks the ordering knot — handleApiCall is
   // defined before useSandbox returns the frame pump.
+  const [imagePickerOpen, setImagePickerOpen] = useState(false);
+  const imagePickerResolve = useRef<((image: ChatImageInput | null) => void) | null>(null);
+  const imageReadController = useRef<AbortController | null>(null);
+  const closeImagePicker = useCallback(() => {
+    imageReadController.current?.abort();
+    imageReadController.current = null;
+    imagePickerResolve.current?.(null);
+    imagePickerResolve.current = null;
+    setImagePickerOpen(false);
+  }, []);
+  const finishImagePicker = async (asset: ChatImageAttachment) => {
+    if (imageReadController.current) return;
+    const resolve = imagePickerResolve.current;
+    const controller = new AbortController();
+    imageReadController.current = controller;
+    try {
+      const image = await readChatAsset(asset, controller.signal);
+      if (!controller.signal.aborted && imagePickerResolve.current === resolve) {
+        resolve?.(image);
+        imagePickerResolve.current = null;
+        closeImagePicker();
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) toast.error(chatInputCopy(i18n.language, error instanceof Error ? error.message : "read"));
+    } finally {
+      if (imageReadController.current === controller) imageReadController.current = null;
+    }
+  };
+  useEffect(() => { closeImagePicker(); return closeImagePicker; }, [sessionId, closeImagePicker]);
+  useEffect(() => { if (!isActive) closeImagePicker(); }, [isActive, closeImagePicker]);
   const gameRoomRef = useRef<GameRoomConnection | null>(null);
   const sendRoomFrameRef = useRef<((frame: Record<string, unknown>) => void) | null>(null);
 
@@ -289,6 +324,11 @@ export function WorldRenderer({
           return result;
           })().catch(error => ({ error: error instanceof Error ? error.message : "Social request failed" }));
         }
+        case "pickChatImage":
+          if (mode !== "session" || !sessionIdRef.current || !capabilities.canSendMessage || (currentApi as YuminaAPI & { readOnly?: boolean }).readOnly) return null;
+          if (imagePickerResolve.current) return null;
+          setImagePickerOpen(true);
+          return new Promise<ChatImageInput | null>(resolve => { imagePickerResolve.current = resolve; });
         case "sendMessage":
           currentApi.sendMessage(args[0] as string, args[1] as import("@yumina/shared").ChatImageInput[] | undefined);
           return;
@@ -1795,6 +1835,7 @@ export function WorldRenderer({
         overflow: "hidden",
       }}
     >
+      {imagePickerOpen && <ChatAssetPicker onSelect={asset => { void finishImagePicker(asset); }} onClose={closeImagePicker} />}
       <iframe
         // `key` on the attempt counter is what re-mounts the element, so a
         // retry is a genuinely fresh document fetch rather than a no-op src set.

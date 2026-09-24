@@ -47,7 +47,7 @@ export function ModelPickerDropdown<Value extends string>({
           collisionPadding={12}
           aria-label={label}
           onClick={(event) => event.stopPropagation()}
-          onEscapeKeyDown={(event) => event.stopPropagation()}
+          onEscapeKeyDown={(event) => event.stopImmediatePropagation()}
           className="yumina-platform-overlay-surface z-[10030] min-w-[max(12rem,var(--radix-dropdown-menu-trigger-width))] max-w-[calc(100vw-1.5rem)] max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto rounded-2xl border border-white/10 bg-[#242129] p-1.5 text-white/75 shadow-[0_16px_48px_rgba(0,0,0,0.45)] outline-none"
         >
           <DropdownMenu.RadioGroup value={value} onValueChange={(next) => {

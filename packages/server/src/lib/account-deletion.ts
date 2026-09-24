@@ -38,7 +38,7 @@ import {
   type AccountDeletionAccessDecision,
 } from "./account-deletion-access.js";
 import { anonymizeDeletedAccountAudit } from "./account-deletion-audit.js";
-import { eraseDiscoveryAccountData } from "./discovery-erasure.js";
+import { eraseDiscoveryAccountData, findLinkedDiscoveryGuests, purgeErasedDiscoveryEvents } from "./discovery-erasure.js";
 import { hasStripeCleanupArtifacts } from "./account-deletion-policy.js";
 import {
   closeStripeConnectAccount,
@@ -713,6 +713,11 @@ async function runAccountDeletionCleanupJob(job: CleanupJob): Promise<boolean> {
     // delete with a pre-deletion usage_logs snapshot. Re-delete it on every
     // outbox pass, including the mandatory post-presign final sweep.
     db.execute(sql`DELETE FROM daily_user_activity WHERE user_id = ${job.deletedUserId}`),
+    // Safety net for the post-commit discovery purge (process restart, error).
+    // Only on the final sweep: each pass is a full scan of discovery_events.
+    isFinalSweep
+      ? purgeErasedDiscoveryEvents(db as unknown as Parameters<typeof purgeErasedDiscoveryEvents>[0], [`user:${job.deletedUserId}`])
+      : Promise.resolve(),
     (async () => {
       await cancelExternalSubscriptions(billingContext);
       await anonymizeExternalBillingIdentity(billingContext);
@@ -827,25 +832,37 @@ export async function permanentlyDeleteAccount(
   options?: { verificationIdentifier?: string },
 ): Promise<void> {
   await assertAccountDeletionAllowed(userId);
+  // The linked-guest scan reads the whole discovery_events table. Run it with
+  // no locks held; the transaction re-checks only links received since.
+  const knownDiscoveryGuests = await findLinkedDiscoveryGuests(db as unknown as Parameters<typeof findLinkedDiscoveryGuests>[0], userId);
+  let discoveryActors: string[] = [];
   const result = await db.transaction(async (tx) => {
-    // Lock the current account plus every administrator in deterministic
-    // order. Regular users can delete themselves; locking all administrators
-    // only protects the invariant that concurrent deletions can never remove
-    // the final active administrator. FK inserts that target the current user
-    // take a key-share lock and serialize with this final deletion transaction.
-    const lockedAccountResult = await tx.execute(sql`
+    // Lock the current account first. FK inserts that target it take a
+    // key-share lock and serialize with this final deletion transaction.
+    // Administrators are locked (in id order) ONLY when the account being
+    // deleted is itself an administrator: that is the one case the "never
+    // remove the final active administrator" invariant needs. Locking every
+    // admin for an ordinary account made each deletion freeze all admin
+    // writes for its full duration, which took Discover down for admins on
+    // 2026-09-24 while one user's deletion kept retrying.
+    type LockedAccount = { id?: string; role?: string; is_banned?: boolean; is_suspended?: boolean };
+    const targetResult = await tx.execute(sql`
       SELECT id, role, is_banned, is_suspended
       FROM "user"
-      WHERE id = ${userId} OR role = 'admin'
-      ORDER BY id
+      WHERE id = ${userId}
       FOR UPDATE
     `);
-    const lockedAccounts = lockedAccountResult.rows as Array<{
-      id?: string;
-      role?: string;
-      is_banned?: boolean;
-      is_suspended?: boolean;
-    }>;
+    let lockedAccounts = targetResult.rows as LockedAccount[];
+    if (lockedAccounts[0]?.role === "admin") {
+      const adminResult = await tx.execute(sql`
+        SELECT id, role, is_banned, is_suspended
+        FROM "user"
+        WHERE id = ${userId} OR role = 'admin'
+        ORDER BY id
+        FOR UPDATE
+      `);
+      lockedAccounts = adminResult.rows as LockedAccount[];
+    }
     const lockedAccount = lockedAccounts.find((row) => row.id === userId);
     assertAccountDeletionAccessDecision(evaluateAccountDeletionAccess(
       lockedAccount?.role,
@@ -1175,7 +1192,11 @@ export async function permanentlyDeleteAccount(
 
     // Canonical discovery has no user FK. Record durable actor/cutoff erasures
     // before removing its events, even if measurement collection is now off.
-    await eraseDiscoveryAccountData(tx, userId);
+    // The tombstones hide the events from every reader at commit; the physical
+    // delete (a full table scan) runs after commit so it holds no account lock.
+    discoveryActors = await eraseDiscoveryAccountData(tx, userId, undefined, {
+      knownGuests: knownDiscoveryGuests, deferEventDelete: true,
+    });
 
     const deleted = await tx
       .delete(user)
@@ -1281,6 +1302,11 @@ export async function permanentlyDeleteAccount(
     if (!cleanupJob) throw new Error("Failed to queue external account cleanup");
 
     return { context: lockedContext, cleanupJob };
+  });
+
+  void purgeErasedDiscoveryEvents(db as unknown as Parameters<typeof purgeErasedDiscoveryEvents>[0], discoveryActors).catch((error) => {
+    // Tombstones already hide these rows; the outbox's final sweep retries.
+    console.error(`[account-deletion] Discovery event purge for ${userId} failed:`, error);
   });
 
   // Attempt immediately for fast erasure. Any transient failure is durably
