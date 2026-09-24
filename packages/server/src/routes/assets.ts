@@ -15,7 +15,7 @@ import { applyWorldCover } from "../lib/pending-edit.js";
 import { resizeUploadedImageInBackground } from "../lib/image-resize.js";
 
 const assetRoutes = new Hono<AppEnv>();
-const ASSET_TYPES = ["image", "audio", "font", "txt", "other"] as const;
+const ASSET_TYPES = ["image", "video", "audio", "font", "txt", "other"] as const;
 type AssetType = (typeof ASSET_TYPES)[number];
 
 function isAssetType(value: string | undefined): value is AssetType {
@@ -27,6 +27,7 @@ assetRoutes.use("/*", authMiddleware);
 // ─── Constants ──────────────────────────────────────────────────────
 
 const ALLOWED_MIME_TYPES: Record<AssetType, string[]> = {
+  video: ["video/mp4", "video/webm"],
   image: ["image/jpeg", "image/png", "image/gif", "image/webp"],
   audio: [
     "audio/mpeg",

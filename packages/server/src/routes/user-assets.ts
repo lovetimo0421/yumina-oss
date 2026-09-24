@@ -17,13 +17,14 @@ import { ensureWallet } from "../lib/credit-service.js";
 import { resolveEffectivePlanWithEventEntitlements } from "../lib/event-plan-entitlements.js";
 import { env } from "../lib/env.js";
 import { resizeUploadedImageInBackground } from "../lib/image-resize.js";
+import { uploadOperationId, validUploadRequestId } from "../lib/asset-upload-operation.js";
 
 const userAssetRoutes = new Hono<AppEnv>();
 const OUTPUT_CHAT_FOLDER_NAME = "output chat";
 const SESSION_TEXT_FILENAME_PATTERN = String.raw` Session [0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{4}\.txt$`;
 const SESSION_TEXT_RENAME_PATTERN = String.raw`^(.+) Session ([0-9]{4}-[0-9]{2}-[0-9]{2})_([0-9]{4})\.txt$`;
 const SESSION_TEXT_REPLACEMENT = String.raw`\1 - Log \2 \3.txt`;
-const ASSET_TYPES = ["image", "audio", "font", "txt", "other"] as const;
+const ASSET_TYPES = ["image", "video", "audio", "font", "txt", "other"] as const;
 type AssetType = (typeof ASSET_TYPES)[number];
 
 function isAssetType(value: string | undefined): value is AssetType {
@@ -88,6 +89,7 @@ userAssetRoutes.use("/*", authMiddleware);
 // ─── Constants ──────────────────────────────────────────────────────
 
 const ALLOWED_MIME_TYPES: Record<AssetType, string[]> = {
+  video: ["video/mp4", "video/webm"],
   image: ["image/jpeg", "image/png", "image/gif", "image/webp"],
   audio: [
     "audio/mpeg",
@@ -331,21 +333,32 @@ userAssetRoutes.get("/folders", async (c) => {
 // POST /api/user-assets/folders — create folder
 userAssetRoutes.post("/folders", async (c) => {
   const currentUser = c.get("user");
-  const body = await c.req.json<{ name: string; parentFolderId?: string }>();
+  const body = await c.req.json<{ name: string; parentFolderId?: string; requestId?: string }>();
+
+  if (!validUploadRequestId(body.requestId)) return c.json({ error: "Invalid request ID" }, 400);
 
   if (!body.name?.trim()) {
     return c.json({ error: "Folder name is required" }, 400);
   }
 
-  const [result] = await db
+  const id = body.requestId ? uploadOperationId(currentUser.id, "folder", body.requestId) : crypto.randomUUID();
+  if (body.parentFolderId) {
+    const [parent] = await db.select({ id: assetFolders.id }).from(assetFolders)
+      .where(and(eq(assetFolders.id, body.parentFolderId), eq(assetFolders.userId, currentUser.id))).limit(1);
+    if (!parent) return c.json({ error: "Folder not found" }, 404);
+  }
+  const [inserted] = await db
     .insert(assetFolders)
     .values({
+      id,
       userId: currentUser.id,
       name: body.name.trim(),
       parentFolderId: body.parentFolderId ?? null,
     })
+    .onConflictDoNothing({ target: assetFolders.id })
     .returning();
-
+  const result = inserted ?? (await db.select().from(assetFolders).where(and(eq(assetFolders.id, id), eq(assetFolders.userId, currentUser.id))).limit(1))[0];
+  if (!result) return c.json({ error: "Failed to create folder" }, 500);
   return c.json({ data: result }, 201);
 });
 
@@ -414,7 +427,11 @@ userAssetRoutes.post("/upload-url", async (c) => {
     filename: string;
     contentType?: string;
     type: string;
+    requestId?: string;
+    sizeBytes?: number;
   }>();
+
+  if (!validUploadRequestId(body.requestId)) return c.json({ error: "Invalid request ID" }, 400);
 
   if (!body.filename || !body.type) {
     return c.json({ error: "filename and type are required" }, 400);
@@ -440,6 +457,13 @@ userAssetRoutes.post("/upload-url", async (c) => {
     return c.json({ error: `Invalid content type for ${assetType}` }, 400);
   }
 
+  const operationId = body.requestId ? uploadOperationId(currentUser.id, "file", body.requestId) : undefined;
+  if (operationId) {
+    const [existing] = await db.select().from(userAssets)
+      .where(and(eq(userAssets.id, operationId), eq(userAssets.userId, currentUser.id))).limit(1);
+    if (existing) return c.json({ data: { asset: { ...existing, url: `${getCdnOrigin()}/cdn/${existing.id}`, key: existing.url } } });
+  }
+
   // Check total user storage against plan limit
   const storageLimit = await getUserStorageLimit(currentUser.id);
 
@@ -449,7 +473,10 @@ userAssetRoutes.post("/upload-url", async (c) => {
     .where(eq(userAssets.userId, currentUser.id));
 
   const totalUsed = Number(storageResult[0]?.total ?? 0);
-  if (totalUsed >= storageLimit) {
+  if (body.sizeBytes !== undefined && (!Number.isSafeInteger(body.sizeBytes) || body.sizeBytes < 0)) {
+    return c.json({ error: "Invalid file size" }, 400);
+  }
+  if (totalUsed + (body.sizeBytes ?? 0) > storageLimit || totalUsed >= storageLimit) {
     const limitLabel = storageLimit >= 1024 * 1024 * 1024
       ? `${(storageLimit / (1024 * 1024 * 1024)).toFixed(0)} GB`
       : `${(storageLimit / (1024 * 1024)).toFixed(0)} MB`;
@@ -457,7 +484,7 @@ userAssetRoutes.post("/upload-url", async (c) => {
   }
 
   const safeName = sanitizeFilename(body.filename);
-  const key = `users/${currentUser.id}/${assetType}/${crypto.randomUUID()}-${safeName}`;
+  const key = `users/${currentUser.id}/${assetType}/${operationId ?? crypto.randomUUID()}-${safeName}`;
 
   const uploadUrl = await generateUploadUrl(key, contentType);
 
@@ -480,7 +507,10 @@ userAssetRoutes.post("/", async (c) => {
     sizeBytes: number;
     folderId?: string | null;
     folderName?: string;
+    requestId?: string;
   }>();
+
+  if (!validUploadRequestId(body.requestId)) return c.json({ error: "Invalid request ID" }, 400);
 
   if (!body.key || !body.filename || !body.type) {
     return c.json({ error: "key, filename, and type are required" }, 400);
@@ -513,9 +543,14 @@ userAssetRoutes.post("/", async (c) => {
     return c.json({ error: "Failed to create asset folder" }, 500);
   }
 
-  const [result] = await db
+  const id = body.requestId ? uploadOperationId(currentUser.id, "file", body.requestId) : crypto.randomUUID();
+  if (body.requestId && body.key !== `users/${currentUser.id}/${body.type}/${id}-${sanitizeFilename(body.filename)}`) {
+    return c.json({ error: "Invalid asset key for request" }, 400);
+  }
+  const [inserted] = await db
     .insert(userAssets)
     .values({
+      id,
       userId: currentUser.id,
       type: body.type,
       filename: body.filename,
@@ -524,11 +559,14 @@ userAssetRoutes.post("/", async (c) => {
       mimeType,
       folderId,
     })
+    .onConflictDoNothing({ target: userAssets.id })
     .returning();
+  const result = inserted ?? (await db.select().from(userAssets).where(and(eq(userAssets.id, id), eq(userAssets.userId, currentUser.id))).limit(1))[0];
+  if (!result) return c.json({ error: "Failed to register asset" }, 500);
 
   // Cap oversized image masters in place — new uploads only, same URL + format,
   // transparency preserved. Fire-and-forget: never blocks the upload response.
-  if (body.type === "image") {
+  if (inserted && body.type === "image") {
     resizeUploadedImageInBackground(result!.url, mimeType, result!.id);
   }
 

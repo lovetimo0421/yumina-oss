@@ -8,6 +8,79 @@ import {
 } from "./asset-upload";
 import { createUploadTestPng, PNG_SIGNATURE, pngChunk } from "./test-fixtures/upload-png";
 
+test("video inference recognizes MP4 and WebM without browser metadata", () => {
+  assert.deepEqual(getUploadMetadata(new File(["video"], "scene.MP4")), { type: "video", contentType: "video/mp4" });
+  assert.deepEqual(getUploadMetadata(new File(["video"], "scene.webm", { type: "application/octet-stream" })), { type: "video", contentType: "video/webm" });
+});
+
+test("browser transfer emits byte progress and aborts immediately without retry or registration", async () => {
+  const oldFetch = globalThis.fetch;
+  const oldXhr = Object.getOwnPropertyDescriptor(globalThis, "XMLHttpRequest");
+  const controller = new AbortController();
+  let aborted = false, sent = 0, requests = 0, loaded = 0;
+  class FakeXhr extends EventTarget {
+    upload = new EventTarget(); timeout = 0;
+    open() {} setRequestHeader() {}
+    send() {
+      sent++;
+      this.upload.dispatchEvent(new Event("loadstart"));
+      const progress = new Event("progress");
+      Object.assign(progress, { lengthComputable: true, loaded: 5, total: 10 });
+      this.upload.dispatchEvent(progress);
+    }
+    abort() { aborted = true; this.dispatchEvent(new Event("abort")); this.dispatchEvent(new Event("loadend")); }
+  }
+  globalThis.fetch = async () => { requests++; return Response.json({ data: { uploadUrl: "/storage", key: "key" } }); };
+  Object.defineProperty(globalThis, "XMLHttpRequest", { configurable: true, value: FakeXhr });
+  try {
+    const run = uploadAssetWithPresignedUrl({ file: new File(["1234567890"], "a.txt"), prepareUrl: "/prepare", registerUrl: "/register", registerBody: {}, signal: controller.signal,
+      onProgress: progress => { loaded = progress.loaded; } });
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(loaded, 5);
+    controller.abort(); await assert.rejects(run);
+    assert.equal(aborted, true); assert.equal(sent, 1); assert.equal(requests, 1);
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldXhr) Object.defineProperty(globalThis, "XMLHttpRequest", oldXhr); else Reflect.deleteProperty(globalThis, "XMLHttpRequest");
+  }
+});
+
+test("prepare timeout is bounded and cancellation never advances to storage", async () => {
+  const config = { file: new File(["a"], "a.txt"), prepareUrl: "/prepare", registerUrl: "/register", registerBody: {} };
+  let requests = 0;
+  const fetchImpl: typeof fetch = async (_input, init) => {
+    requests++;
+    return new Promise((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true }));
+  };
+  await assert.rejects(uploadAssetWithPresignedUrl({ ...config, fetchImpl, prepareTimeoutMs: 5 }), (error: unknown) => error instanceof AssetUploadError && error.stage === "prepare");
+  const controller = new AbortController();
+  const run = uploadAssetWithPresignedUrl({ ...config, fetchImpl, signal: controller.signal });
+  await new Promise(resolve => setImmediate(resolve));
+  controller.abort();
+  await assert.rejects(run);
+  assert.equal(requests, 2);
+});
+
+test("retry after a lost registration response reuses the committed asset without uploading again", async () => {
+  let committed = false, transfers = 0, registrations = 0;
+  const controller = new AbortController();
+  const stages: string[] = [];
+  const fetchImpl: typeof fetch = async (input, init) => {
+    if (input === "/prepare") return Response.json({ data: committed ? { asset: { id: "stable-id" } } : { uploadUrl: "/storage", key: "stable-key" } });
+    if (input === "/storage") { transfers++; return new Response(null, { status: 200 }); }
+    registrations++; committed = true;
+    return new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("Aborted", "AbortError")), { once: true });
+      controller.abort();
+    });
+  };
+  const config = { file: new File(["a"], "a.txt"), prepareUrl: "/prepare", registerUrl: "/register", registerBody: {}, fetchImpl, onStage: (stage: string) => stages.push(stage) };
+  await assert.rejects(uploadAssetWithPresignedUrl({ ...config, signal: controller.signal }));
+  assert.deepEqual(await uploadAssetWithPresignedUrl(config), { id: "stable-id" });
+  assert.equal(transfers, 1); assert.equal(registrations, 1);
+  assert.deepEqual(stages, ["prepare", "storage", "register", "prepare"]);
+});
+
 function pngFile(animated = false, metadata?: Buffer) {
   return new File([new Uint8Array(createUploadTestPng(animated, metadata))], "upload-test.png", { type: "image/png" });
 }

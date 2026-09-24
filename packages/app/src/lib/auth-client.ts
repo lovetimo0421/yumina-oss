@@ -7,6 +7,8 @@ import { useUiStore } from "@/stores/ui";
 import { useStudioSidebarStore } from "@/stores/studio-sidebar";
 import { resetAnalyticsUser } from "@/lib/analytics";
 import { clearSessionPickerCache } from "@/lib/session-picker-cache";
+import { assetImportStore } from "@/stores/asset-import";
+import { useUserAssetStore } from "@/stores/user-assets";
 
 export const authClient = createAuthClient({
   baseURL: import.meta.env?.VITE_API_URL || "",
@@ -68,6 +70,8 @@ export function clearSessionCache() {
 }
 
 export function clearAllStores() {
+  assetImportStore.getState().resetOwner(null);
+  useUserAssetStore.getState().clear();
   useUserProfileStore.getState().clear();
   // Wallet, check-ins, follows, favorites: hosted-only stores reset behind the seam.
   resetHostedStoresOnSignOut();

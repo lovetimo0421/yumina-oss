@@ -46,9 +46,15 @@ For audio patterns and conditional BGM → [Advanced: Audio Design](/creator/adv
 
 You can upload images, audio files, fonts, and other media through the **Assets** section in the editor. Files are hosted on Yumina's CDN and can be referenced anywhere in your custom UI, entries, or audio tracks. No need to host files yourself.
 
+In **Library → Assets**, upload MP4 or WebM videos with **Upload → Upload files**. Use the **Video** filter to find them, then open a video's preview to play it with the built-in controls.
+
 In **Library → Assets**, choose **Upload → Upload folder**, or drag a folder onto the asset area. Review the folder tree and file counts before starting the import. The selected folder and its subfolders are saved inside your current asset folder; empty folders are not imported.
 
-Folder imports support JPG/JPEG, PNG, GIF, and WebP images, plus TXT, LOG, Markdown (`.md` / `.markdown`), CSV, and JSON text files. Unsupported files are listed and skipped. If an import stops or some files fail, keep the dialog open and choose **Retry remaining files** to continue without uploading successful files again.
+Folder imports support JPG/JPEG, PNG, GIF, and WebP images; TXT, LOG, Markdown (`.md` / `.markdown`), CSV, and JSON text files; MP4 and WebM videos; MP3, WAV, OGG, AAC, and M4A audio; and WOFF, WOFF2, TTF, and OTF fonts. Unsupported files are listed and skipped.
+
+During a folder import, the dialog shows the current file's uploaded bytes, percentage, and transfer speed, plus overall progress and completed file count. Close the dialog or choose **Upload in background** to keep uploading while visiting other Yumina pages. The floating upload panel shows progress; choose **Details** to reopen the dialog. Keep the browser tab open and avoid refreshing it: the task does not survive a reload or closing the tab.
+
+**Cancel upload** stops the active transfer and remaining files. If you cancel or some files fail, choose **Retry remaining files** before dismissing the task to continue without uploading successful files again.
 
 To jump through a large library, enter a page number in the pagination field and press **Go** or Enter. The outer arrow buttons jump to the first or last page; the inner arrows move one page at a time.
 

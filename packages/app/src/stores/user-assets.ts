@@ -5,6 +5,9 @@ import {
   getAssetUploadErrorMessage,
   uploadAssetWithPresignedUrl,
   type UploadProgress,
+  type UploadAssetType,
+  type AssetUploadStage,
+  createUploadTimeout,
 } from "@/lib/asset-upload";
 
 const tr = (key: string, fallback: string) =>
@@ -57,11 +60,11 @@ interface UserAssetState {
   fetchAssetById: (assetId: string) => Promise<UserAsset | null>;
   setPage: (page: number) => void;
   fetchFolders: () => Promise<void>;
-  uploadAsset: (file: File, type: "image" | "audio" | "font" | "txt" | "other", folderId?: string, options?: { silent?: boolean; addToList?: boolean }) => Promise<UserAsset | null>;
+  uploadAsset: (file: File, type: UploadAssetType, folderId?: string, options?: { requestId?: string; silent?: boolean; addToList?: boolean; signal?: AbortSignal; onProgress?: (progress: UploadProgress) => void; onStage?: (stage: AssetUploadStage) => void }) => Promise<UserAsset | null>;
   deleteAsset: (assetId: string) => Promise<void>;
   renameAsset: (assetId: string, filename: string) => Promise<void>;
   moveAsset: (assetId: string, folderId: string | null) => Promise<void>;
-  createFolder: (name: string, parentFolderId?: string, options?: { silent?: boolean }) => Promise<AssetFolder | null>;
+  createFolder: (name: string, parentFolderId?: string, options?: { requestId?: string; silent?: boolean; signal?: AbortSignal }) => Promise<AssetFolder | null>;
   renameFolder: (folderId: string, name: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
   /** Optimistically reflect a folder→world binding on the folder's badge. */
@@ -72,6 +75,7 @@ interface UserAssetState {
 }
 
 const apiBase = import.meta.env.VITE_API_URL || "";
+let accountEpoch = 0;
 
 export const useUserAssetStore = create<UserAssetState>((set, get) => ({
   assets: [],
@@ -153,6 +157,9 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
   },
 
   uploadAsset: async (file, type, folderId, options) => {
+    const epoch = accountEpoch;
+    let reconciled = false;
+    if (options?.signal?.aborted) return null;
     set((s) => ({
       uploadingCount: s.uploadingCount + 1,
       uploading: true,
@@ -165,7 +172,12 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
         preferredType: type,
         prepareUrl: `${apiBase}/api/user-assets/upload-url`,
         registerUrl: `${apiBase}/api/user-assets`,
+        prepareBody: { requestId: options?.requestId, sizeBytes: file.size },
+        onReconciled: () => { reconciled = true; },
+        signal: options?.signal,
+        onStage: options?.onStage,
         registerBody: ({ key, resolvedType, contentType }) => ({
+          requestId: options?.requestId,
           key,
           filename: file.name,
           type: resolvedType,
@@ -173,12 +185,17 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
           sizeBytes: file.size,
           folderId: folderId ?? undefined,
         }),
-        onProgress: (progress) => set({ uploadProgress: progress }),
+        onProgress: (progress) => {
+          if (epoch !== accountEpoch || options?.signal?.aborted) return;
+          set({ uploadProgress: progress });
+          options?.onProgress?.(progress);
+        },
       });
 
+      if (epoch !== accountEpoch || options?.signal?.aborted) return null;
       set((s) => ({
         assets: options?.addToList === false ? s.assets : [...s.assets, asset],
-        storage: { ...s.storage, used: s.storage.used + (file.size ?? 0) },
+        storage: { ...s.storage, used: s.storage.used + (reconciled ? 0 : file.size) },
       }));
 
       return asset;
@@ -189,14 +206,16 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
       });
       return null;
     } finally {
-      set((s) => {
-        const uploadingCount = Math.max(0, s.uploadingCount - 1);
+      if (epoch === accountEpoch) {
+        set((s) => {
+          const uploadingCount = Math.max(0, s.uploadingCount - 1);
 
-        return {
-          uploadingCount,
-          uploading: uploadingCount > 0,
-        };
-      });
+          return {
+            uploadingCount,
+            uploading: uploadingCount > 0,
+          };
+        });
+      }
     }
   },
 
@@ -286,12 +305,16 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
   },
 
   createFolder: async (name, parentFolderId, options) => {
+    const epoch = accountEpoch;
+    const timeout = createUploadTimeout(20_000, options?.signal);
     try {
+      timeout.signal.throwIfAborted();
       const res = await fetch(`${apiBase}/api/user-assets/folders`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ name, parentFolderId }),
+        body: JSON.stringify({ name, parentFolderId, requestId: options?.requestId }),
+        signal: timeout.signal,
       });
       if (!res.ok) {
         if (!options?.silent) feedback.error(tr("library:toast.createFolderFailed", "Couldn't create folder"), {
@@ -301,7 +324,10 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
         return null;
       }
       const { data } = await res.json();
-      set((s) => ({ folders: [...s.folders, data] }));
+      if (epoch !== accountEpoch || options?.signal?.aborted) return null;
+      set((s) => ({ folders: s.folders.some(folder => folder.id === data.id)
+        ? s.folders.map(folder => folder.id === data.id ? { ...folder, ...data } : folder)
+        : [...s.folders, data] }));
       return data;
     } catch {
       if (!options?.silent) feedback.error(tr("library:toast.createFolderFailed", "Couldn't create folder"), {
@@ -309,6 +335,8 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
         onClick: () => void useUserAssetStore.getState().createFolder(name, parentFolderId),
       });
       return null;
+    } finally {
+      timeout.cleanup();
     }
   },
 
@@ -402,7 +430,8 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
       ),
     })),
 
-  clear: () =>
+  clear: () => {
+    accountEpoch++;
     set({
       assets: [],
       folders: [],
@@ -413,5 +442,6 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
       storage: { used: 0, limit: 100 * 1024 * 1024 },
       page: 1,
       total: 0,
-    }),
+    });
+  },
 }));

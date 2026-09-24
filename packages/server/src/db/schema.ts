@@ -569,7 +569,7 @@ export const assets = pgTable("assets", {
   worldId: text("world_id")
     .notNull()
     .references(() => worlds.id, { onDelete: "cascade" }),
-  type: text("type", { enum: ["image", "audio", "font", "txt", "other"] }).notNull(),
+  type: text("type", { enum: ["image", "video", "audio", "font", "txt", "other"] }).notNull(),
   filename: text("filename").notNull(),
   url: text("url").notNull(),
   sizeBytes: integer("size_bytes"),

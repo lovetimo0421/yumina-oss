@@ -3,7 +3,7 @@ export const APP_NAME = "Yumina";
 export const MESSAGE_ROLES = ["user", "assistant", "system"] as const;
 export type MessageRole = (typeof MESSAGE_ROLES)[number];
 
-export const ASSET_TYPES = ["image", "audio", "font", "txt", "other"] as const;
+export const ASSET_TYPES = ["image", "video", "audio", "font", "txt", "other"] as const;
 export type AssetType = (typeof ASSET_TYPES)[number];
 
 export { MAX_WORLD_NAME as MAX_WORLD_NAME_LENGTH } from "./limits.js";

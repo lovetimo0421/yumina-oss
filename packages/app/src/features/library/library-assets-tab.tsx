@@ -4,6 +4,7 @@ import {
   File as FileIcon,
   Image,
   Music4,
+  Video,
   Type,
   Download,
   Trash2,
@@ -56,7 +57,7 @@ import { getUploadMetadata } from "@/lib/asset-upload";
 import { planFolderImport, readDroppedAssets } from "@/lib/asset-folder-import";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 import { AssetPagination } from "./asset-pagination";
-import { FolderUploadDialog, type FolderUploadSelection } from "./folder-upload-dialog";
+import { assetImportStore, useAssetImportStore } from "@/stores/asset-import";
 import { LibraryEmptyState } from "./library-empty-state";
 import { BulkActionsBar } from "./bulk-actions-bar";
 import { useAuthGuard } from "@/hooks/use-auth-guard";
@@ -77,6 +78,8 @@ function getAssetIcon(type: string, size = 24) {
   switch (type) {
     case "image":
       return <Image size={size} />;
+    case "video":
+      return <Video size={size} />;
     case "audio":
       return <Music4 size={size} />;
     case "font":
@@ -138,7 +141,8 @@ export function LibraryAssetsTab({
   const pageSize = useUserAssetStore(s => s.pageSize);
 
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
-  const [folderUpload, setFolderUpload] = useState<FolderUploadSelection | null>(null);
+  const folderUpload = useAssetImportStore(s => s.task?.selection ?? null);
+  const importRevision = useAssetImportStore(s => s.revision);
   const [readingFolder, setReadingFolder] = useState(false);
   const uploadBatchLock = useRef(false);
   const folderReadLock = useRef(false);
@@ -159,11 +163,11 @@ export function LibraryAssetsTab({
     setGenerationReferenceId(undefined);
     setGenerationOwner(session?.user.id);
     setCurrentFolderId(null);
-    setFolderUpload(null);
+    assetImportStore.getState().resetOwner(session?.user.id ?? null);
     setPendingUploadCount(0);
   }, [session?.user.id]);
   const [assetFilter, setAssetFilter] = useState<
-    "all" | "image" | "audio" | "font" | "txt" | "other"
+    "all" | "image" | "video" | "audio" | "font" | "txt" | "other"
   >("all");
   const [previewAsset, setPreviewAsset] = useState<UserAsset | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -206,6 +210,12 @@ export function LibraryAssetsTab({
     fetchCurrentPage(1);
     fetchFolders();
   }, [fetchCurrentPage, fetchFolders]);
+
+  useEffect(() => {
+    if (!importRevision) return;
+    refreshCurrentPage.current();
+    void fetchFolders();
+  }, [importRevision, fetchFolders]);
 
   useEffect(() => {
     if (!highlightedAssetId) return;
@@ -276,9 +286,10 @@ export function LibraryAssetsTab({
   );
   const parentFolderId = currentFolder?.parentFolderId ?? null;
   const effectiveUploadCount = pendingUploadCount > 0 ? pendingUploadCount : uploadingCount;
-  const assetFilterLabels: Record<"all" | "image" | "audio" | "font" | "txt" | "other", string> = {
+  const assetFilterLabels: Record<"all" | "image" | "video" | "audio" | "font" | "txt" | "other", string> = {
     all: t("assets.all"),
     image: t("assets.image"),
+    video: t("assets.video"),
     audio: t("assets.audio"),
     font: t("assets.font"),
     txt: t("assets.txt"),
@@ -336,11 +347,12 @@ export function LibraryAssetsTab({
   );
 
   const stageFolderUpload = useCallback((files: { file: File; path: string }[], folderId: string | null) => {
-    setFolderUpload({
+    if (!uploadOwner.current) return;
+    assetImportStore.getState().select({
       plan: planFolderImport(files),
       parentFolderId: folderId,
       parentLabel: folders.find((folder) => folder.id === folderId)?.name ?? t("assets.allAssets"),
-    });
+    }, uploadOwner.current);
   }, [folders, t]);
 
   const handleFolderUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -677,7 +689,7 @@ export function LibraryAssetsTab({
 
         {/* Type filters */}
         <div className="library-asset-filters">
-          {(["all", "image", "audio", "font", "txt", "other"] as const).map(
+          {(["all", "image", "video", "audio", "font", "txt", "other"] as const).map(
             (type) => (
               <button
                 key={type}
@@ -865,7 +877,6 @@ export function LibraryAssetsTab({
         <AssetPagination page={page} totalPages={totalPages} loading={loading} onPageChange={fetchCurrentPage} />
       )}
 
-      {folderUpload && <FolderUploadDialog key={session?.user.id ?? "guest"} selection={folderUpload} onClose={() => setFolderUpload(null)} onRefresh={() => { fetchCurrentPage(); void fetchFolders(); }} />}
 
       {imageGeneration && (
         <GenerationPanel
@@ -971,6 +982,7 @@ export function LibraryAssetsTab({
             </div>
 
             <div className="flex items-center justify-center py-4">
+              {previewAsset?.type === "video" && <video controls playsInline preload="metadata" src={previewAsset.url} className="max-h-[65vh] w-full rounded-lg" />}
               {previewAsset?.type === "audio" && (
                 <audio
                   controls

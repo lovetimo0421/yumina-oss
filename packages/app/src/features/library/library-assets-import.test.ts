@@ -29,6 +29,7 @@ test("folder drops discard late reads after account changes and invalid page cor
   const wrapper = ({ children }: { children?: ReactNode }) => createElement("div", null, children);
   const require = createRequire(import.meta.url);
   const mocks: Record<string, unknown> = {
+    "@/stores/asset-import": { assetImportStore: { getState: () => ({ resetOwner: noop }) }, useAssetImportStore: (selector: (s: object) => unknown) => selector({ task: null, revision: 0 }) },
     "react-i18next": { useTranslation: () => ({ t }) },
     "@/stores/user-assets": { useUserAssetStore: (selector: (value: typeof state) => unknown) => selector(state) },
     "@/stores/worlds": { useWorldsStore: (selector: (value: object) => unknown) => selector({ worlds: [], fetchWorlds: noop }) },

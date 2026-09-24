@@ -9,7 +9,7 @@ import i18n from "@/lib/i18n";
 export interface Asset {
   id: string;
   worldId: string;
-  type: "image" | "audio" | "font" | "txt" | "other";
+  type: "image" | "video" | "audio" | "font" | "txt" | "other";
   filename: string;
   url: string; // presigned GET URL
   mimeType: string | null;
@@ -29,7 +29,7 @@ interface AssetState {
   uploadAsset: (
     worldId: string,
     file: File,
-    type: "image" | "audio" | "font" | "txt" | "other"
+    type: "image" | "video" | "audio" | "font" | "txt" | "other"
   ) => Promise<Asset | null>;
   deleteAsset: (worldId: string, assetId: string) => Promise<void>;
   clear: () => void;

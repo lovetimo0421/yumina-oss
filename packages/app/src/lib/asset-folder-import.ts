@@ -1,4 +1,4 @@
-import { getUploadMetadata } from "./asset-upload";
+import { getUploadMetadata, type UploadAssetType } from "./asset-upload";
 
 export interface FolderFile {
   file: File;
@@ -6,7 +6,7 @@ export interface FolderFile {
 }
 
 export interface FolderImportPlan {
-  files: (FolderFile & { type: "image" | "txt" })[];
+  files: (FolderFile & { type: UploadAssetType })[];
   skipped: string[];
   directories: string[];
   totalBytes: number;
@@ -14,6 +14,9 @@ export interface FolderImportPlan {
 
 const imageTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
 const textTypes = new Set(["text/plain", "text/markdown", "text/csv", "application/json"]);
+const videoTypes = new Set(["video/mp4", "video/webm"]);
+const audioTypes = new Set(["audio/mpeg", "audio/wav", "audio/x-wav", "audio/ogg", "audio/aac", "audio/mp4"]);
+const fontTypes = new Set(["font/woff", "font/woff2", "font/ttf", "font/otf"]);
 
 export function planFolderImport(entries: FolderFile[]): FolderImportPlan {
   const plan: FolderImportPlan = { files: [], skipped: [], directories: [], totalBytes: 0 };
@@ -24,12 +27,14 @@ export function planFolderImport(entries: FolderFile[]): FolderImportPlan {
     const { type, contentType } = getUploadMetadata(entry.file);
     if (parts.some((part) => !part.trim() || part === "." || part === ".." || /[\\\0]/.test(part))
       || parts.at(-1) !== entry.file.name || seen.has(entry.path)
-      || !((type === "image" && imageTypes.has(contentType)) || (type === "txt" && textTypes.has(contentType)))) {
+      || !((type === "image" && imageTypes.has(contentType)) || (type === "txt" && textTypes.has(contentType))
+        || (type === "video" && videoTypes.has(contentType)) || (type === "audio" && audioTypes.has(contentType))
+        || (type === "font" && fontTypes.has(contentType)))) {
       plan.skipped.push(entry.path);
       continue;
     }
     seen.add(entry.path);
-    plan.files.push({ ...entry, type: type as "image" | "txt" });
+    plan.files.push({ ...entry, type });
     plan.totalBytes += entry.file.size;
     for (let depth = 1; depth < parts.length; depth++) directories.add(parts.slice(0, depth).join("/"));
   }
@@ -81,7 +86,8 @@ export async function importFolderFiles(
     parentFolderId?: string;
     signal: AbortSignal;
     createFolder: (name: string, parentId?: string) => Promise<{ id: string } | null>;
-    uploadFile: (file: File, type: "image" | "txt", folderId?: string) => Promise<unknown>;
+    uploadFile: (file: File, type: UploadAssetType, folderId?: string) => Promise<unknown>;
+    onFile?: (entry: FolderImportPlan["files"][number]) => void;
     onProgress: (completed: number, attempted: number) => void;
   },
 ): Promise<string[]> {
@@ -110,6 +116,7 @@ export async function importFolderFiles(
   for (const entry of plan.files) {
     if (options.signal.aborted) break;
     if (state.completed.has(entry.path)) continue;
+    options.onFile?.(entry);
     try {
       const folderId = await ensureFolder(entry.path.split("/").slice(0, -1).join("/"));
       if (options.signal.aborted) break;

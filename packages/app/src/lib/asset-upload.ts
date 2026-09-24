@@ -2,7 +2,7 @@ import { holdReload } from "./reload-safety";
 import { feedback } from "./feedback";
 import i18n from "./i18n";
 
-export type UploadAssetType = "image" | "audio" | "font" | "txt" | "other";
+export type UploadAssetType = "image" | "video" | "audio" | "font" | "txt" | "other";
 export type AssetUploadStage = "prepare" | "storage" | "register";
 
 export interface UploadProgress {
@@ -23,6 +23,8 @@ const EXTENSION_MIME_TYPES: Record<string, string> = {
   png: "image/png",
   gif: "image/gif",
   webp: "image/webp",
+  mp4: "video/mp4",
+  webm: "video/webm",
   mp3: "audio/mpeg",
   wav: "audio/wav",
   ogg: "audio/ogg",
@@ -59,6 +61,7 @@ interface ApiResponse<T> {
 interface PresignedUploadData {
   uploadUrl?: string;
   key?: string;
+  asset?: unknown;
 }
 
 interface UploadRequestContext {
@@ -82,6 +85,10 @@ export interface PresignedAssetUploadConfig {
   registerCredentials?: RequestCredentials;
   storageTimeoutMs?: number;
   registerTimeoutMs?: number;
+  prepareTimeoutMs?: number;
+  signal?: AbortSignal;
+  onStage?: (stage: AssetUploadStage) => void;
+  onReconciled?: () => void;
   /**
    * When set, a raster image (not GIF/SVG) is downscaled to at most this many
    * pixels on its longest edge and re-encoded as JPEG before upload. Use for
@@ -143,13 +150,16 @@ function isAbortError(error: unknown): boolean {
     : !!error && typeof error === "object" && "name" in error && error.name === "AbortError";
 }
 
-function createTimeoutSignal(timeoutMs: number) {
+export function createUploadTimeout(timeoutMs: number, signal?: AbortSignal) {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const abort = () => controller.abort();
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
 
   return {
     signal: controller.signal,
-    cleanup: () => clearTimeout(timeoutId),
+    cleanup: () => { clearTimeout(timeoutId); signal?.removeEventListener("abort", abort); },
   };
 }
 
@@ -212,12 +222,22 @@ function uploadWithXhr(
   contentType: string,
   timeoutMs: number,
   onProgress: (progress: UploadProgress) => void,
+  signal?: AbortSignal,
 ): Promise<number> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url);
     xhr.setRequestHeader("Content-Type", contentType);
     xhr.timeout = timeoutMs;
+    const abort = () => xhr.abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    xhr.addEventListener("loadend", () => signal?.removeEventListener("abort", abort));
+    xhr.addEventListener("abort", () => reject(new DOMException("Upload cancelled", "AbortError")));
+    if (signal?.aborted) {
+      signal.removeEventListener("abort", abort);
+      reject(new DOMException("Upload cancelled", "AbortError"));
+      return;
+    }
 
     let startTime = 0;
     xhr.upload.addEventListener("loadstart", () => {
@@ -254,11 +274,12 @@ async function uploadToStorage(
   timeoutMs: number,
   onProgress?: (progress: UploadProgress) => void,
   customFetch?: typeof fetch,
+  signal?: AbortSignal,
 ): Promise<void> {
   // Use XHR for upload progress when available and not using a custom fetch (tests)
   if (onProgress && typeof XMLHttpRequest !== "undefined" && !customFetch) {
     try {
-      const status = await uploadWithXhr(url, file, contentType, timeoutMs, onProgress);
+      const status = await uploadWithXhr(url, file, contentType, timeoutMs, onProgress, signal);
       if (status < 200 || status >= 300) {
         throw new AssetUploadError("storage", "Upload to storage failed", { status });
       }
@@ -274,7 +295,7 @@ async function uploadToStorage(
 
   // Fallback: fetch-based upload (no progress, used in tests or when onProgress not needed)
   const f = customFetch ?? fetch;
-  const timeout = createTimeoutSignal(timeoutMs);
+  const timeout = createUploadTimeout(timeoutMs, signal);
   try {
     const response = await f(url, {
       method: "PUT",
@@ -417,11 +438,17 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
   registerCredentials = "include",
   storageTimeoutMs,
   registerTimeoutMs = DEFAULT_REGISTER_TIMEOUT_MS,
+  prepareTimeoutMs = 20_000,
+  signal,
+  onStage,
+  onReconciled,
   resizeImageMaxDimension,
   resizeImageQuality,
   onProgress,
 }: PresignedAssetUploadConfig): Promise<T> {
   const f = fetchImpl ?? fetch;
+  signal?.throwIfAborted();
+  onStage?.("prepare");
   // Preserve animations and inconclusive inspections; only proven stills may
   // pass through the canvas, which would otherwise keep just the first frame.
   const animated = (await isAnimatedImageFile(inputFile)) !== false;
@@ -444,29 +471,46 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
   const effectiveStorageTimeout = storageTimeoutMs ?? calculateStorageTimeout(file.size);
 
   // Stage 1: Prepare — get presigned URL
-  const prepareResponse = await f(prepareUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    credentials: prepareCredentials,
-    body: JSON.stringify({
-      filename: file.name,
-      contentType,
-      type: resolvedType,
-      ...(animated ? { animated: true } : {}),
-      ...prepareBody,
-    }),
-  });
+  signal?.throwIfAborted();
+  const prepareTimeout = createUploadTimeout(prepareTimeoutMs, signal);
+  let preparePayload: ApiResponse<PresignedUploadData> | null;
+  try {
+    const prepareResponse = await f(prepareUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: prepareCredentials,
+      signal: prepareTimeout.signal,
+      body: JSON.stringify({
+        filename: file.name,
+        contentType,
+        type: resolvedType,
+        ...(animated ? { animated: true } : {}),
+        ...prepareBody,
+      }),
+    });
 
-  const preparePayload = await parseApiResponse<PresignedUploadData>(prepareResponse);
+    preparePayload = await parseApiResponse<PresignedUploadData>(prepareResponse);
 
-  if (!prepareResponse.ok) {
-    throw new AssetUploadError(
-      "prepare",
-      getApiErrorMessage(preparePayload, "Failed to prepare upload"),
-      { status: prepareResponse.status }
-    );
+    if (!prepareResponse.ok) {
+      throw new AssetUploadError(
+        "prepare",
+        getApiErrorMessage(preparePayload, "Failed to prepare upload"),
+        { status: prepareResponse.status }
+      );
+    }
+  } catch (error) {
+    if (signal?.aborted) signal.throwIfAborted();
+    if (error instanceof AssetUploadError) throw error;
+    throw new AssetUploadError("prepare", isAbortError(error) ? "Preparing upload timed out" : "Failed to prepare upload", { cause: error });
+  } finally {
+    prepareTimeout.cleanup();
   }
 
+  signal?.throwIfAborted();
+  if (preparePayload?.data?.asset !== undefined) {
+    onReconciled?.();
+    return preparePayload.data.asset as T;
+  }
   const uploadUrl = preparePayload?.data?.uploadUrl;
   const key = preparePayload?.data?.key;
 
@@ -475,14 +519,17 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
   }
 
   // Stage 2: Upload to S3 with retry on transient errors
+  signal?.throwIfAborted();
+  onStage?.("storage");
   const customFetch = fetchImpl ? f : undefined;
   await withRetry(
     () => {
       onProgress?.({ fraction: 0, loaded: 0, total: file.size, bytesPerSecond: 0 });
-      return uploadToStorage(uploadUrl, file, contentType, effectiveStorageTimeout, onProgress, customFetch);
+      signal?.throwIfAborted();
+      return uploadToStorage(uploadUrl, file, contentType, effectiveStorageTimeout, onProgress, customFetch, signal);
     },
     MAX_STORAGE_RETRIES,
-    isRetryableStorageError,
+    (error) => !signal?.aborted && isRetryableStorageError(error),
   );
 
   // Stage 3: Register asset in DB
@@ -491,7 +538,9 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
       ? registerBody({ file, resolvedType, contentType, key })
       : registerBody;
 
-  const registerTimeout = createTimeoutSignal(registerTimeoutMs);
+  signal?.throwIfAborted();
+  onStage?.("register");
+  const registerTimeout = createUploadTimeout(registerTimeoutMs, signal);
   try {
     const registerResponse = await f(registerUrl, {
       method: "POST",
@@ -543,6 +592,7 @@ export function inferAssetTypeFromFile(file: Pick<File, "name" | "type">): Uploa
   const mimeType = normalizeMimeType(file.name, file.type);
 
   if (mimeType.startsWith("image/")) return "image";
+  if (mimeType.startsWith("video/")) return "video";
   if (mimeType.startsWith("audio/")) return "audio";
   if (mimeType.startsWith("font/") || mimeType.includes("font")) return "font";
   if (mimeType.startsWith("text/") || mimeType === "application/json") return "txt";

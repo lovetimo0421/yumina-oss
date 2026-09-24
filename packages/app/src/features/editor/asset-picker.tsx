@@ -19,7 +19,7 @@ import { cardImageUrl, fallbackToOriginalOnError } from "@/lib/asset-url";
 
 interface AssetPickerProps {
   worldId: string;
-  filterType?: "image" | "audio" | "font" | "txt" | "other";
+  filterType?: "image" | "video" | "audio" | "font" | "txt" | "other";
   onSelect: (assetRef: string) => void;
   onClose: () => void;
 }

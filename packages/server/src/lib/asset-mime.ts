@@ -4,6 +4,8 @@ const EXTENSION_MIME_TYPES: Record<string, string> = {
   png: "image/png",
   gif: "image/gif",
   webp: "image/webp",
+  mp4: "video/mp4",
+  webm: "video/webm",
   mp3: "audio/mpeg",
   wav: "audio/wav",
   ogg: "audio/ogg",

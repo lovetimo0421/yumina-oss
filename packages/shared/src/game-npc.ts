@@ -120,7 +120,7 @@ export const daveSnapshotSchema = z.object({
     .refine(rows => new Set(rows.map(r => r.row)).size === rows.length, 'Duplicate row'),
   selectedPlants: z.array(z.string().max(64)).max(10),
   plantIdentityVersion:z.literal(1).optional(),
-  planted: z.array(z.object({textOnly:z.literal(true).optional(),sourceId:z.number().int().refine(id=>[10,20,30,40,50,60,70,80,90,100,110,120,125,130,140,145,150,155,410].includes(id)).optional(),id:z.number().int().min(1).max(4_294_967_295).optional(),type:z.number().int().min(0).max(52),row:z.number().int().min(0).max(5),column:z.number().int().min(0).max(8),health:boundedInt,maxHealth:z.number().int().min(1).max(1_000_000),bond:sourcePlantBondSchema.optional()}).strict()).max(162).optional(),
+  planted: z.array(z.object({nameplate:z.literal("gatling").optional(),textOnly:z.literal(true).optional(),sourceId:z.number().int().refine(id=>[10,20,30,40,50,60,70,80,90,100,110,120,125,130,140,145,150,155,410].includes(id)).optional(),id:z.number().int().min(1).max(4_294_967_295).optional(),type:z.number().int().min(0).max(52),row:z.number().int().min(0).max(5),column:z.number().int().min(0).max(8),health:boundedInt,maxHealth:z.number().int().min(1).max(1_000_000),bond:sourcePlantBondSchema.optional()}).strict()).max(162).optional(),
   adventureCycle: boundedInt.optional(),
   elapsedTicks: z.number().int().nonnegative().max(4_294_967_295).optional(),
   terrain: z.enum(['day','night','pool','fog','roof']).optional(),
@@ -183,6 +183,10 @@ export const daveSnapshotSchema = z.object({
     } else if(s.planted?.some(p=>p.id!==undefined))
       ctx.addIssue({code:z.ZodIssueCode.custom,path:['plantIdentityVersion'],message:'Plant identity requires its protocol marker'});
     s.planted?.forEach((plant,index)=>{
+      if(plant.nameplate!==undefined&&!(s.mode==='adventure'&&s.phase==='playing'&&!s.defeated&&s.plantIdentityVersion===1&&
+        plant.id!==undefined&&plant.type===0&&plant.health>0&&
+        ((s.level===8&&s.sourceStory?.sourceLevel===40156)||(s.level===9&&s.sourceStory?.sourceLevel===40157))))
+        ctx.addIssue({code:z.ZodIssueCode.custom,path:['planted',index,'nameplate'],message:'A cosmetic Gatling nameplate belongs to a living source 1-8 or 1-9 Peashooter'});
       if(plant.sourceId!==undefined&&!(s.plantIdentityVersion===1&&((s.level===17&&s.sourceStory?.sourceLevel===40165&&source27LivingPlantMatches(plant))||(s.level===14&&s.sourceStory?.sourceLevel===40162&&plant.type===11&&[120,125].includes(plant.sourceId))||([15,16].includes(s.level)&&s.sourceStory?.sourceLevel===(s.level===16?40164:40163)&&plant.sourceId===(plant.type+1)*10&&[120,130].includes(plant.sourceId)&&plant.textOnly===true)||(s.level===16&&s.sourceStory?.sourceLevel===40164&&((plant.type===13&&[140,145].includes(plant.sourceId))||((plant.type<=10||plant.type===40)&&plant.sourceId===(plant.type+1)*10))))))
         ctx.addIssue({code:z.ZodIssueCode.custom,path:['planted',index,'sourceId'],message:'Special source identity requires a source2-4 native11 living plant'});
       if(plant.textOnly!==undefined&&!(s.level===17&&s.sourceStory?.sourceLevel===40165&&source27LivingPlantMatches(plant))&&(!((s.level===15&&s.sourceStory?.sourceLevel===40163)||(s.level===16&&s.sourceStory?.sourceLevel===40164))||!plant.sourceId||![120,130].includes(plant.sourceId)||plant.bond))ctx.addIssue({code:z.ZodIssueCode.custom,path:['planted',index],message:'Text-only special plant cannot carry a bond'});

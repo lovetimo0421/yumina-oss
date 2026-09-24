@@ -18,13 +18,19 @@ test("plans nested Chinese folder names and recognizes images and text without b
 
 test("skips unsupported content, malformed relative paths and duplicate files", () => {
   const plan = planFolderImport([
-    entry("assets/page.html", "text/html"), entry("assets/icon.svg", "image/svg+xml"), entry("assets/movie.mp4"),
-    entry("assets/sound.mp3"), entry("assets/../secret.txt"), entry("/root/a.txt"), entry("a//b.txt"),
+    entry("assets/page.html", "text/html"), entry("assets/icon.svg", "image/svg+xml"), entry("assets/movie.exe"),
+    entry("assets/sound.zip"), entry("assets/../secret.txt"), entry("/root/a.txt"), entry("a//b.txt"),
     entry("a.txt"), entry("a.txt"), entry("a.jpg", "text/html"), entry("a.bmp", "image/bmp"),
   ]);
   assert.equal(plan.files.length, 1);
   assert.equal(plan.skipped.length, 10);
   assert.deepEqual(plan.directories, []);
+});
+
+test("folder import accepts video, animations, audio and fonts with missing MIME metadata", () => {
+  const plan = planFolderImport(["clip.MP4", "clip.webm", "idle.gif", "idle.webp", "music.mp3", "font.woff2"].map(name => entry(`media/${name}`)));
+  assert.deepEqual(plan.files.map(file => file.type), ["video", "video", "image", "image", "audio", "font"]);
+  assert.deepEqual(plan.skipped, []);
 });
 
 test("creates each directory once under the selected destination and retains same filenames in different folders", async () => {
