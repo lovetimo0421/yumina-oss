@@ -28,5 +28,6 @@
   "cancelFailed": "取消訂閱失敗",
   "reactivateFailed": "恢復訂閱失敗",
   "promptEditConflict": "這條提示詞已在另一台裝置上被修改，已為你顯示最新版本。本次編輯未儲存。",
-  "failedStartSession": "啟動會話失敗"
+  "failedStartSession": "啟動會話失敗",
+  "inviteWindowClosed": "邀請碼只能在註冊後 48 小時內使用。"
 }

@@ -4,6 +4,7 @@ import { db } from '../db/index.js';
 import { attachBonus, bonusCompatibilityEnabled } from './free-credit-policy.js';
 import { insertHashedTransaction, type LedgerDatabase } from './transaction-hash.js';
 import { withDatabaseQueryTimeout } from '../db/query-deadline.js';
+import { scheduleQuestCollect } from './quest-auto-collect.js';
 
 type Rows<T>={rows:T[]};
 const date = (value: Date | string | null): Date | null => value == null ? null : new Date(value);
@@ -126,7 +127,11 @@ export async function settleQualifiedReferral(inviteeId:string,database:LedgerDa
     if(status==='rewarded'){
       const inviteeWallet=await tx.execute(sql`SELECT id,plan_version FROM credit_wallets WHERE user_id=${inviteeId} FOR UPDATE`) as Rows<{id:string;plan_version:number|null}>;
       const w=inviteeWallet.rows[0];
-      if(w&&(w.plan_version??1)===2){
+      // Only friends who claimed under the old 500 + 500 offer are owed this half;
+      // since 2026-09-24 a claim pays 300 once and nothing more (referral-service.ts).
+      const oldOffer=w?await tx.execute(sql`SELECT 1 FROM credit_transactions WHERE wallet_id=${w.id} AND type='referral_reward'
+        AND description LIKE 'Welcome bonus: referred by%' AND amount>=500 LIMIT 1`) as Rows<unknown>:{rows:[]};
+      if(w&&(w.plan_version??1)===2&&oldOffer.rows.length>0){
         if(!bonusCompatibilityEnabled())throw Error('REFERRAL_BONUS_NOT_CONFIGURED');
         const half=500;
         const updated=await tx.execute(sql`UPDATE credit_wallets SET balance=balance+${half},addon_balance=addon_balance+${half},updated_at=${now}
@@ -144,6 +149,7 @@ export async function settleQualifiedReferral(inviteeId:string,database:LedgerDa
       transaction_id=${transactionId},reward_expires_at=${expiresAt},rewarded_at=${status==='rewarded'?now:null} WHERE invitee_id=${inviteeId}`);
     return status==='rewarded';
   });
+  if(rewarded)scheduleQuestCollect(before.referrer_id); // "3 active friends this week" may just have finished
   if(rewarded){
     // The reward ladder and the Wayfinder title both count ACTIVE friends, so they
     // advance here, when the friend qualifies — not at registration. Dynamic

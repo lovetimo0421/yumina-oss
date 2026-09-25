@@ -58,7 +58,7 @@ import { translateContent } from "../lib/translate.js";
 import { aggregatedCounters } from "../lib/world-aggregates.js";
 import { syncSearchDocNormalized } from "../lib/normalize-search.js";
 import { captureHubEvent, newFeedRequestId } from "../lib/analytics.js";
-import { feedVariantFor, loadEngagementContext, variantUsesEngagement } from "../lib/engagement.js";
+import { feedVariantFor, loadEngagementContext, modelArmEligible, variantUsesEngagement } from "../lib/engagement.js";
 import { loadPublishedRankerModel } from "../lib/ranker-model.js";
 import { logFeedServe } from "../lib/feed-log.js";
 import { loadFeaturedHeroSlots, loadFeaturedSlots } from "../lib/editorial.js";
@@ -765,12 +765,11 @@ worldRoutes.get("/hub", async (c, next) => {
   // echo it back on every hub_impression / hub_click emitted from cards
   // that came from this response.
   const feedRequestId = newFeedRequestId();
-  // Ship-2 ranking experiment arms. The model handle is process-cached
-  // (5-min DB head poll) so this await is ~free. No published model →
-  // 50/50 control/engage_v1; model published → 20/40/40 with engage_v2.
-  // Guests single-arm on the best-known treatment (shared CF-cached feed).
+  // Ranking arms (2026-09-24): everyone rides engage_v1; a published
+  // time-spent model opens engage_v2 for half of the accounts. The model
+  // handle is process-cached (5-min DB head poll) so this await is ~free.
   const rankerModel = await loadPublishedRankerModel(rd);
-  const rankingVariant = feedVariantFor(currentUser?.id, rankerModel !== null);
+  const rankingVariant = feedVariantFor(currentUser?.id, modelArmEligible(rankerModel));
   // Per-visit rotation (2026-08-20): authed treatment users get a 45-min
   // "visit bucket" that seeds a small score jitter + newcomer rotation, so
   // returning to Discover shows a freshly ordered feed while pages WITHIN
@@ -965,6 +964,8 @@ worldRoutes.get("/hub", async (c, next) => {
       // context — attach them now.
       engagement.tier = profile.tier;
       engagement.craft = profile.craftAffinity;
+      engagement.tasteCentroid = profile.userEmbeddingCentroid;
+      engagement.profileSignalCount = profile.effectiveSignalCount;
       // Dismissals are product behavior, not an experiment: both arms
       // honor them. Search still bypasses exclusions (matchesFilters), so
       // a dismissed world stays findable by name.

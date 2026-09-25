@@ -885,6 +885,7 @@ const INDEX_DDLS = [
   `CREATE INDEX IF NOT EXISTS platform_achievement_tiers_achievement_id_idx ON platform_achievement_tiers(achievement_id)`,
   `CREATE INDEX IF NOT EXISTS user_achievement_progress_user_id_idx ON user_achievement_progress(user_id)`,
   `CREATE INDEX IF NOT EXISTS user_personas_user_id_idx ON user_personas(user_id)`,
+  `CREATE INDEX IF NOT EXISTS user_last_active_at_idx ON "user"(last_active_at DESC NULLS LAST)`,
 ];
 
 const COLUMN_ALTERS = [
@@ -897,6 +898,7 @@ const COLUMN_ALTERS = [
   `ALTER TABLE account_deletion_cleanup_jobs ADD COLUMN IF NOT EXISTS verification_identifiers JSONB NOT NULL DEFAULT '[]'`,
   `ALTER TABLE account_deletion_cleanup_jobs ADD COLUMN IF NOT EXISTS stripe_connect_id TEXT`,
   `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS display_username TEXT`,
+  `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP`,
   `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`,
   `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_banned BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_suspended BOOLEAN NOT NULL DEFAULT false`,

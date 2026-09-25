@@ -90,9 +90,11 @@ export const user = pgTable("user", {
   stripeSubscriptionId: text("stripe_subscription_id"),
   inviteCodeId: text("invite_code_id"),
   lifetimePlaytimeSeconds: integer("lifetime_playtime_seconds").notNull().default(0),
+  /** Latest play or AI request; see lib/last-active.ts. Null until the account does either. */
+  lastActiveAt: timestamp("last_active_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+}, (t) => [index("user_last_active_at_idx").on(t.lastActiveAt.desc().nullsLast())]);
 
 /** Durable increments awaiting the batched lifetime-counter update. */
 export const playtimeLifetimePending = pgTable("playtime_lifetime_pending", {
@@ -3429,3 +3431,114 @@ export const discoveryErasedActors = pgTable("discovery_erased_actors", {
   actorId: text("actor_id").primaryKey(),
   erasedThrough: timestamp("erased_through", { withTimezone: true }).notNull(),
 });
+
+// ─── Invite Race ─────────────────────────────────────────────────────
+// Mirrors scripts/prepare-invite-race.sql (the apply path). Declared here so a
+// schema push never treats the separately installed tables as obsolete.
+const tz = { withTimezone: true } as const;
+
+export const inviteRaceEvents = pgTable("invite_race_events", {
+  id: text("id").primaryKey(),
+  startsAt: timestamp("starts_at", tz).notNull(),
+  roundCount: integer("round_count").notNull(),
+  status: text("status").notNull().default("draft"),
+  rules: jsonb("rules").$type<Record<string, unknown>>().notNull(),
+  rulesLockedAt: timestamp("rules_locked_at", tz),
+  endedAt: timestamp("ended_at", tz),
+  createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+});
+
+export const inviteRaceRounds = pgTable("invite_race_rounds", {
+  eventId: text("event_id").notNull().references(() => inviteRaceEvents.id, { onDelete: "cascade" }),
+  roundNo: integer("round_no").notNull(),
+  startsAt: timestamp("starts_at", tz).notNull(),
+  endsAt: timestamp("ends_at", tz).notNull(),
+  settleAfter: timestamp("settle_after", tz).notNull(),
+  status: text("status").notNull().default("open"),
+  totalTickets: integer("total_tickets"),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at", tz),
+}, (t) => [primaryKey({ columns: [t.eventId, t.roundNo] })]);
+
+export const inviteRaceFriends = pgTable("invite_race_friends", {
+  inviteeId: text("invitee_id").primaryKey(),
+  inviterId: text("inviter_id").notNull(),
+  eventId: text("event_id").notNull().references(() => inviteRaceEvents.id, { onDelete: "cascade" }),
+  joinedAt: timestamp("joined_at", tz).notNull(),
+  windowEndsAt: timestamp("window_ends_at", tz).notNull(),
+  signupRound: integer("signup_round"),
+  activeRound: integer("active_round"),
+  activeAt: timestamp("active_at", tz),
+  spentTotal: integer("spent_total").notNull().default(0),
+  updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
+}, (t) => [index("invite_race_friends_inviter").on(t.eventId, t.inviterId)]);
+
+export const inviteRaceTickets = pgTable("invite_race_tickets", {
+  eventId: text("event_id").notNull().references(() => inviteRaceEvents.id, { onDelete: "cascade" }),
+  roundNo: integer("round_no").notNull(),
+  inviteeId: text("invitee_id").notNull(),
+  inviterId: text("inviter_id").notNull(),
+  signup: integer("signup").notNull().default(0),
+  active: integer("active").notNull().default(0),
+  usage: integer("usage").notNull().default(0),
+  lastEarnedAt: timestamp("last_earned_at", tz),
+}, (t) => [
+  primaryKey({ columns: [t.eventId, t.roundNo, t.inviteeId] }),
+  index("invite_race_tickets_inviter").on(t.eventId, t.roundNo, t.inviterId),
+]);
+
+export const inviteRaceStandings = pgTable("invite_race_standings", {
+  eventId: text("event_id").notNull().references(() => inviteRaceEvents.id, { onDelete: "cascade" }),
+  roundNo: integer("round_no").notNull(),
+  inviterId: text("inviter_id").notNull(),
+  tickets: integer("tickets").notNull(),
+  reachedAt: timestamp("reached_at", tz),
+  rank: integer("rank"),
+}, (t) => [primaryKey({ columns: [t.eventId, t.roundNo, t.inviterId] })]);
+
+export const inviteRaceRoundHistory = pgTable("invite_race_round_history", {
+  eventId: text("event_id").notNull().references(() => inviteRaceEvents.id, { onDelete: "cascade" }),
+  roundNo: integer("round_no").notNull(),
+  at: timestamp("at", tz).notNull(),
+  totalTickets: integer("total_tickets").notNull(),
+  participants: integer("participants").notNull(),
+  usdPerTicket: numeric("usd_per_ticket", { precision: 12, scale: 6 }).notNull(),
+}, (t) => [primaryKey({ columns: [t.eventId, t.roundNo, t.at] })]);
+
+export const inviteRaceExclusions = pgTable("invite_race_exclusions", {
+  eventId: text("event_id").notNull().references(() => inviteRaceEvents.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull(),
+  kind: text("kind").notNull(),
+  reason: text("reason").notNull(),
+  excludedBy: text("excluded_by").notNull(),
+  excludedAt: timestamp("excluded_at", tz).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.eventId, t.userId, t.kind] })]);
+
+export const inviteRacePayouts = pgTable("invite_race_payouts", {
+  eventId: text("event_id").notNull().references(() => inviteRaceEvents.id, { onDelete: "cascade" }),
+  roundNo: integer("round_no").notNull(),
+  userId: text("user_id").notNull(),
+  tickets: integer("tickets").notNull(),
+  rank: integer("rank"),
+  rankUsd: numeric("rank_usd", { precision: 10, scale: 2 }).notNull().default("0"),
+  shareUsd: numeric("share_usd", { precision: 10, scale: 2 }).notNull().default("0"),
+  totalUsd: numeric("total_usd", { precision: 10, scale: 2 }).notNull(),
+  method: text("method").notNull(),
+  mushies: integer("mushies"),
+  creditTransactionId: text("credit_transaction_id"),
+  cashStatus: text("cash_status"),
+  status: text("status").notNull().default("pending"),
+  chooseBy: timestamp("choose_by", tz),
+  providerOrderId: text("provider_order_id"),
+  providerError: text("provider_error"),
+  createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.eventId, t.roundNo, t.userId] })]);
+
+export const inviteRaceUserHistory = pgTable("invite_race_user_history", {
+  eventId: text("event_id").notNull().references(() => inviteRaceEvents.id, { onDelete: "cascade" }),
+  roundNo: integer("round_no").notNull(),
+  userId: text("user_id").notNull(),
+  at: timestamp("at", tz).notNull(),
+  tickets: integer("tickets").notNull(),
+  estimateUsd: numeric("estimate_usd", { precision: 10, scale: 2 }).notNull(),
+}, (t) => [primaryKey({ columns: [t.eventId, t.roundNo, t.userId, t.at] })]);

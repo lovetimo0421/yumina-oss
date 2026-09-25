@@ -284,7 +284,16 @@ export const sourceStorySchema=z.object({
  sunflower:sunflower.optional(),
  cards:z.array(currentCard).max(12)
   .refine(cards=>new Set(cards.map(c=>c.packetIndex)).size===cards.length,'Duplicate packet identity').optional(),
- guideRole:z.union([z.literal(0),z.literal(1),z.literal(3)]).optional(),
+ guideRole:z.union([z.literal(0),z.literal(1),z.literal(2),z.literal(3)]).optional(),
+ // Current physical state, not a promise made in an earlier dialogue.
+ houseRuined:z.boolean().optional(),
+ // Source 2-7 exports this only during the announced health action. It is
+ // derived from native execution state, not inferred from dialogue/history.
+ healthAction:z.object({status:z.enum(['pending','applied']),delta:z.union([
+  z.literal(-299),z.literal(-149),z.literal(-100),z.literal(-50),z.literal(50),z.literal(150),z.literal(200),z.literal(300),
+ ])}).strict().optional(),
+ // Source 2-10's actual home-entry rule; independent of art or old dialogue.
+ houseEntryProtected:z.boolean().optional(),
  walletHalfUnits:z.number().int().min(0).max(2_000_000).optional(),
  examReveal:z.object({sceneId:z.union([z.literal(23023),z.literal(23024)]),marks:source23ExamMarksSchema}).strict().optional(),
  // The saved native board supplies this only after all marks were revealed.
@@ -302,6 +311,14 @@ export const sourceStorySchema=z.object({
    .refine(a=>new Set(a.map(v=>v.eventId)).size===a.length,'Duplicate authored action'),
  }).strict().optional(),
 }).strict().superRefine((s,ctx)=>{
+ if(s.healthAction&&(s.sourceLevel!==40165||s.sceneKind!=='fixed'||s.sceneId!==27034||
+    !['talking','acting'].includes(s.phase)||s.hammerPending||
+    (s.healthAction.status==='applied'&&s.healthAction.delta<0)))
+  ctx.addIssue({code:z.ZodIssueCode.custom,path:['healthAction'],message:'Health action observation belongs to the current source27 health event'});
+ if(s.houseEntryProtected!==undefined&&(s.sourceLevel!==40159||s.phase==='won'||s.phase==='lost'))
+  ctx.addIssue({code:z.ZodIssueCode.custom,path:['houseEntryProtected'],message:'Current finale protection belongs to active source210'});
+ if(s.houseRuined!==undefined&&(s.sourceLevel!==40165||s.phase==='won'||s.phase==='lost'))
+  ctx.addIssue({code:z.ZodIssueCode.custom,path:['houseRuined'],message:'Current house observation belongs to active source27'});
  if(s.examRecord!==undefined&&(s.sourceLevel!==40161||(s.examReveal&&s.examRecord.marks.some((mark,i)=>mark!==s.examReveal!.marks[i]))))
   ctx.addIssue({code:z.ZodIssueCode.custom,path:['examRecord'],message:'Saved marks belong to source23 and must agree with the visible paper'});
  if(s.shoppingBill!==undefined&&(s.sourceLevel!==40162||s.shoppingBill.total!==Math.floor(
@@ -329,8 +346,8 @@ export const sourceStorySchema=z.object({
  if(((source210||source28)&&s.cards!==undefined)||((source210||source28||source29)&&(s.dave!==undefined||s.walletHalfUnits!==undefined)))ctx.addIssue({code:z.ZodIssueCode.custom,message:'Native projections for this chapter are not integrated'});
  if(source110&&s.cards!==undefined)
   ctx.addIssue({code:z.ZodIssueCode.custom,path:['cards'],message:'Source1-10 conveyor templates have no selected-packet projection'});
- if(s.guideRole!==undefined&&!(source27||((source22||source26)&&s.guideRole!==3)))
-  ctx.addIssue({code:z.ZodIssueCode.custom,path:['guideRole'],message:'Guide role requires a current source2-2, source2-6 or source2-7 observation; crimson belongs to source2-7 only'});
+ if(s.guideRole!==undefined&&!(source29&&!['won','lost'].includes(s.phase)||source27&&s.guideRole!==2||(source22||source26)&&s.guideRole<=1))
+  ctx.addIssue({code:z.ZodIssueCode.custom,path:['guideRole'],message:'Guide role must match the observed chapter cast: source2-2, source2-6, source2-7 or active source2-9'});
  s.cards?.forEach((card,index)=>{
   // olv scales remaining time separately from current duration. Prior changes
   // can leave a signed duration or remaining time greater than that duration.

@@ -90,3 +90,27 @@ test("ranker evaluator: legacy binary model reports kind=binary, baseline 0", ()
   assert.equal(model.kind, "binary");
   assert.equal(model.valueBaseline, 0);
 });
+
+test("ranker evaluator: tweedie model returns exp(raw) = expected minutes, kind=tweedie", () => {
+  const tweedieJson = {
+    objective: "tweedie",
+    tree_info: [
+      {
+        tree_structure: {
+          split_feature: 0,
+          threshold: 0.5,
+          decision_type: "<=",
+          default_left: true,
+          left_child: { leaf_value: -1.0 },
+          right_child: { leaf_value: 1.0 },
+        },
+      },
+      { tree_structure: { leaf_value: 0.5 } },
+    ],
+  } as never;
+  const model = buildRankerModel(7, tweedieJson, ["f0", "f1"], 2.2);
+  assert.equal(model.kind, "tweedie");
+  assert.equal(model.valueBaseline, 2.2);
+  assert.ok(Math.abs(model.predict({ f0: 0.9 }) - Math.exp(1.5)) < 1e-9);
+  assert.ok(Math.abs(model.predict({ f0: 0.4 }) - Math.exp(-0.5)) < 1e-9);
+});

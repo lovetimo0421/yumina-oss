@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import { db } from "../db/index.js";
 import { usageLogs } from "../db/schema.js";
 import { captureServerError } from "./posthog.js";
+import { touchLastActive } from "./last-active.js";
+import { scheduleQuestCollect } from "./quest-auto-collect.js";
+
+/** The turns the daily and weekly quests count (lib/quests.ts questProgress). */
+const QUEST_TURN_ENDPOINTS = new Set(["send", "regenerate", "continue"]);
 import type { LedgerDatabase } from "./transaction-hash.js";
 
 type UsageLogInsert = typeof usageLogs.$inferInsert;
@@ -101,6 +106,8 @@ function isSessionFkViolation(err: unknown): boolean {
 export async function recordUsageLog(row: UsageLogInsert, options?: {database?: LedgerDatabase; strict?: boolean}): Promise<void> {
   const database = options?.database ?? db;
   const values = { ...row, id: row.id ?? randomUUID() };
+  // Any AI request is activity for the admin Users lookup (throttled, never awaited).
+  touchLastActive(values.userId);
   if (!(values.endpoint in USAGE_ENDPOINT_BILLING_POLICY)) {
     // New LLM spend path without a billing decision — alarm, don't block.
     // The log row still lands so the spend stays visible for reconciliation.
@@ -137,4 +144,6 @@ export async function recordUsageLog(row: UsageLogInsert, options?: {database?: 
       if (options?.strict) throw retryErr;
     }
   }
+  // A finished turn can finish a quest; the collector looks a few seconds later.
+  if (QUEST_TURN_ENDPOINTS.has(values.endpoint) && (values.completionTokens ?? 0) > 0) scheduleQuestCollect(values.userId);
 }

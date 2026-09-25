@@ -28,5 +28,6 @@
   "cancelFailed": "Failed to cancel subscription",
   "reactivateFailed": "Failed to reactivate subscription",
   "promptEditConflict": "This prompt was changed on another device — showing the latest version. Your edit was not saved.",
-  "failedStartSession": "Failed to start session"
+  "failedStartSession": "Failed to start session",
+  "inviteWindowClosed": "Invite codes can only be used within 48 hours of creating your account."
 }

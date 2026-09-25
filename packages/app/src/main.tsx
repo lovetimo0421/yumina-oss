@@ -1,4 +1,5 @@
 import { StrictMode, useEffect, useRef, useState } from "react";
+import { rememberShareInvite } from "@/lib/share-invite";
 import { createRoot } from "react-dom/client";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { PostHogProvider } from "@posthog/react";
@@ -21,6 +22,7 @@ import { isAnalyticsEnabled } from "@/lib/analytics-enabled";
 import { getLandingRoute } from "@/edition/routes";
 
 rememberArrival();
+rememberShareInvite();
 
 // Safari < 18.4 lacks requestIdleCallback — PostHog SDK uses it internally.
 if (typeof window.requestIdleCallback === "undefined") {

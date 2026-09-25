@@ -139,10 +139,17 @@ export async function getClaimedMilestones(userId: string) {
 
 /** The mushies a referred user receives. */
 export const REFERRAL_GIFT_MUSHIES = 1000;
+/**
+ * What an invited friend gets for entering a code (owner 2026-09-24): 300,
+ * once, as expiring Bonus — on top of the 700 every new account starts with.
+ * No second half when they come back; friends who claimed under the older
+ * 500 + 500 offer still get their second 500 (qualified-referrals.ts).
+ */
+export const REFERRAL_WELCOME_MUSHIES = 300;
 export function newFreeReferralOffer(now = new Date()) {
   const config = freeCreditRollout();
   const bonus = config.enabled && now.getTime() >= Date.parse(config.launchAt!);
-  return { amount: bonus ? 500 : 1000, bonus, expiresAt: bonus ? bonusRewardGroup(now).expiresAt.toISOString() : null };
+  return { amount: bonus ? REFERRAL_WELCOME_MUSHIES : 1000, bonus, expiresAt: bonus ? bonusRewardGroup(now).expiresAt.toISOString() : null };
 }
 /**
  * Lineup v2 (owner 2026-09-16): the 1,000 welcome gift is paid in two halves —
@@ -158,13 +165,13 @@ export async function referralWelcomePolicy(userId: string) {
   const wallet = await ensureWallet(userId);
   const effective = (await checkBalance(userId)).wallet.plan;
   if ((wallet.planVersion ?? 1) === 2) {
-    return { amount: REFERRAL_GIFT_V2_HALF, bonus: true, expiresAt: bonusRewardGroup(new Date()).expiresAt.toISOString(), deferred: REFERRAL_GIFT_V2_HALF };
+    return { amount: REFERRAL_WELCOME_MUSHIES, bonus: true, expiresAt: bonusRewardGroup(new Date()).expiresAt.toISOString() };
   }
   const config = freeCreditRollout();
   if (!config.enabled) return { amount: 1000, bonus: false, expiresAt: null };
   const account = await policyAccount(userId, effective, wallet.periodStart);
   const bonus = account.createdAt.getTime() >= Date.parse(config.launchAt!) && await useBonusRewards(userId, effective, wallet.periodStart);
-  return { amount: bonus ? 500 : 1000, bonus, expiresAt: bonus ? bonusRewardGroup(new Date()).expiresAt.toISOString() : null };
+  return { amount: bonus ? REFERRAL_WELCOME_MUSHIES : 1000, bonus, expiresAt: bonus ? bonusRewardGroup(new Date()).expiresAt.toISOString() : null };
 }
 
 // ─── Grant Rewards ──────────────────────────────────────────────────

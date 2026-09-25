@@ -28,5 +28,6 @@
   "cancelFailed": "取消订阅失败",
   "reactivateFailed": "恢复订阅失败",
   "promptEditConflict": "这条提示词已在另一台设备上被修改，已为你显示最新版本。本次编辑未保存。",
-  "failedStartSession": "启动会话失败"
+  "failedStartSession": "启动会话失败",
+  "inviteWindowClosed": "邀请码只能在注册后 48 小时内使用。"
 }

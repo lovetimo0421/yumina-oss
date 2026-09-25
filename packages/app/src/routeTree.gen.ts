@@ -24,6 +24,7 @@ import { Route as AppSettingsRouteImport } from './routes/app/settings'
 import { Route as AppProfileRouteImport } from './routes/app/profile'
 import { Route as AppPortalsRouteImport } from './routes/app/portals'
 import { Route as AppLibraryRouteImport } from './routes/app/library'
+import { Route as AppInviteRaceRouteImport } from './routes/app/invite-race'
 import { Route as AppExtensionsRouteImport } from './routes/app/extensions'
 import { Route as AppConfigsRouteImport } from './routes/app/configs'
 import { Route as AppWorldsIndexRouteImport } from './routes/app/worlds.index'
@@ -109,6 +110,11 @@ const AppLibraryRoute = AppLibraryRouteImport.update({
   path: '/library',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInviteRaceRoute = AppInviteRaceRouteImport.update({
+  id: '/invite-race',
+  path: '/invite-race',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppExtensionsRoute = AppExtensionsRouteImport.update({
   id: '/extensions',
   path: '/extensions',
@@ -166,6 +172,7 @@ export interface FileRoutesByFullPath {
   '/verified': typeof VerifiedRoute
   '/app/configs': typeof AppConfigsRoute
   '/app/extensions': typeof AppExtensionsRoute
+  '/app/invite-race': typeof AppInviteRaceRoute
   '/app/library': typeof AppLibraryRoute
   '/app/portals': typeof AppPortalsRoute
   '/app/profile': typeof AppProfileRouteWithChildren
@@ -191,6 +198,7 @@ export interface FileRoutesByTo {
   '/verified': typeof VerifiedRoute
   '/app/configs': typeof AppConfigsRoute
   '/app/extensions': typeof AppExtensionsRoute
+  '/app/invite-race': typeof AppInviteRaceRoute
   '/app/library': typeof AppLibraryRoute
   '/app/portals': typeof AppPortalsRoute
   '/app/settings': typeof AppSettingsRoute
@@ -216,6 +224,7 @@ export interface FileRoutesById {
   '/verified': typeof VerifiedRoute
   '/app/configs': typeof AppConfigsRoute
   '/app/extensions': typeof AppExtensionsRoute
+  '/app/invite-race': typeof AppInviteRaceRoute
   '/app/library': typeof AppLibraryRoute
   '/app/portals': typeof AppPortalsRoute
   '/app/profile': typeof AppProfileRouteWithChildren
@@ -244,6 +253,7 @@ export interface FileRouteTypes {
     | '/verified'
     | '/app/configs'
     | '/app/extensions'
+    | '/app/invite-race'
     | '/app/library'
     | '/app/portals'
     | '/app/profile'
@@ -269,6 +279,7 @@ export interface FileRouteTypes {
     | '/verified'
     | '/app/configs'
     | '/app/extensions'
+    | '/app/invite-race'
     | '/app/library'
     | '/app/portals'
     | '/app/settings'
@@ -293,6 +304,7 @@ export interface FileRouteTypes {
     | '/verified'
     | '/app/configs'
     | '/app/extensions'
+    | '/app/invite-race'
     | '/app/library'
     | '/app/portals'
     | '/app/profile'
@@ -428,6 +440,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppLibraryRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/invite-race': {
+      id: '/app/invite-race'
+      path: '/invite-race'
+      fullPath: '/app/invite-race'
+      preLoaderRoute: typeof AppInviteRaceRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/extensions': {
       id: '/app/extensions'
       path: '/extensions'
@@ -525,6 +544,7 @@ const AppWorldsRouteWithChildren = AppWorldsRoute._addFileChildren(
 interface AppRouteChildren {
   AppConfigsRoute: typeof AppConfigsRoute
   AppExtensionsRoute: typeof AppExtensionsRoute
+  AppInviteRaceRoute: typeof AppInviteRaceRoute
   AppLibraryRoute: typeof AppLibraryRoute
   AppPortalsRoute: typeof AppPortalsRoute
   AppProfileRoute: typeof AppProfileRouteWithChildren
@@ -539,6 +559,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppConfigsRoute: AppConfigsRoute,
   AppExtensionsRoute: AppExtensionsRoute,
+  AppInviteRaceRoute: AppInviteRaceRoute,
   AppLibraryRoute: AppLibraryRoute,
   AppPortalsRoute: AppPortalsRoute,
   AppProfileRoute: AppProfileRouteWithChildren,

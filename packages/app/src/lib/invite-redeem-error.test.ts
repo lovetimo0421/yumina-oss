@@ -24,6 +24,7 @@ test("maps invite redemption API errors to localized reason keys", () => {
     ["INVALID_INVITE_CODE", "invalidInviteCode"],
     ["OWN_REFERRAL_CODE", "ownReferralCode"],
     ["REFERRAL_CODE_ALREADY_USED", "referralCodeAlreadyUsed"],
+    ["INVITE_WINDOW_CLOSED", "inviteWindowClosed"],
   ] as const;
 
   for (const [code, key] of cases) {

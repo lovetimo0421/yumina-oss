@@ -13,6 +13,9 @@ const sourceBossByLevel:ReadonlyArray<readonly number[]|null>=[null,
  [40160,1061],[40161,1070],[40162,1071],[40163,1080],[40164,1082],[40165,1090],
  [40166,1093],[40167,1064],[40159,1094],[40168,1035]];
 const visibleBossSchema=z.object({sourceId:z.number().int(),health:boundedInt.min(1),maxHealth:boundedInt.min(1),warning:z.boolean()}).strict();
+const roofBossSchema=z.object({health:boundedInt.min(1),maxHealth:boundedInt.min(1),headExposed:z.boolean(),
+  projectile:z.object({kind:z.enum(['fire','ice']),row:z.number().int().min(0).max(4)}).strict().nullable(),
+}).strict().refine(b=>b.health<=b.maxHealth,'Boss health cannot exceed its maximum');
 export const daveDirectionKindSchema = z.enum([
   'fair_terms','raise_stakes','extend_time','rally_plants','reveal_clue','switch_lane',
   'call_sunflower','call_peashooter','call_wallnut',
@@ -116,6 +119,7 @@ export const daveSnapshotSchema = z.object({
   scenario:davePublicScenarioSchema.optional(),
   sourceStory:sourceStorySchema.optional(),
   visibleBoss:visibleBossSchema.optional(),
+  roofBoss:roofBossSchema.optional(),
   rows: z.array(z.object({row:z.number().int().min(0).max(5), plants:boundedInt, enemies:boundedInt, mower:z.boolean()}).strict()).max(6)
     .refine(rows => new Set(rows.map(r => r.row)).size === rows.length, 'Duplicate row'),
   selectedPlants: z.array(z.string().max(64)).max(10),
@@ -125,11 +129,16 @@ export const daveSnapshotSchema = z.object({
   elapsedTicks: z.number().int().nonnegative().max(4_294_967_295).optional(),
   terrain: z.enum(['day','night','pool','fog','roof']).optional(),
   conveyor: z.boolean().optional(),
+  sourceConveyor:z.object({speed:z.number().finite().min(-5).max(15),composition:z.array(z.object({
+    sourceId:z.number().int().refine(id=>[10,15,20,30,40,60,70,80,90,410].includes(id)),count:z.number().int().min(1).max(4096),
+  }).strict()).max(10)}).strict().optional(),
   visibleEnemies: z.array(z.object({type:z.number().int().min(0).max(32),count:boundedInt}).strict()).max(33).optional(),
   visibleThreats: z.array(z.object({row:z.number().int().min(0).max(5),type:z.number().int().min(0).max(32),column:z.number().int().min(-1).max(9)}).strict()).max(6).optional(),
   fogMasked: z.boolean().optional(),
   stormVisibility: z.enum(['obscured','glimpse']).optional(),
   fogClearCells: z.array(z.object({row:z.number().int().min(0).max(5),column:z.number().int().min(0).max(8)}).strict()).max(54).optional(),
+  groundObstacles:z.object({complete:z.boolean(),items:z.array(z.object({kind:z.enum(['grave','crater']),row:z.number().int().min(0).max(5),column:z.number().int().min(0).max(8)}).strict()).max(54)}).strict().optional(),
+  fogState:z.object({motion:z.enum(['settled','displaced','returning']),lights:z.array(z.object({plantId:z.number().int().min(1).max(4_294_967_295),mode:z.enum(['normal','focused','inactive'])}).strict()).max(162)}).strict().optional(),
   challengeState: z.enum(['none','active','completed','failed']).optional(),
   interactionFlags: z.number().int().min(0).max(7).optional(),
   phase: z.enum(['playing','lost']).optional(),
@@ -147,6 +156,24 @@ export const daveSnapshotSchema = z.object({
   recentEvents: z.array(z.enum(['wave_clear','mower_used','plant_lost','offer_completed'])).max(8),
 }).strict().refine(s => s.defeated === undefined || s.defeated === (s.phase === 'lost'), 'Inconsistent outcome')
   .superRefine((s,ctx) => {
+    if(s.sourceConveyor&&(s.mode!=='adventure'||s.level!==10||s.phase!=='playing'||s.defeated||s.scenario||s.conveyor!==true||
+      s.sourceStory?.sourceLevel!==40149||['won','lost'].includes(s.sourceStory.phase)||
+      new Set(s.sourceConveyor.composition.map(p=>p.sourceId)).size!==s.sourceConveyor.composition.length||
+      s.sourceConveyor.composition.reduce((n,p)=>n+p.count,0)>4096))
+      ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceConveyor'],message:'Conveyor observations must belong to the active source 1-10 deck'});
+    if(s.groundObstacles){
+      const g=s.groundObstacles;
+      if(s.mode!=='adventure'||s.phase!=='playing'||s.defeated||!s.rows.length||
+        new Set(g.items.map(p=>`${p.row}:${p.column}`)).size!==g.items.length||
+        g.items.some(p=>!s.rows.some(r=>r.row===p.row))||
+        (s.stormVisibility==='obscured'&&(g.complete||g.items.length>0))||
+        (s.fogMasked&&(!s.fogClearCells||(g.complete&&s.fogClearCells.length!==s.rows.length*9)||
+          g.items.some(p=>!s.fogClearCells?.some(c=>c.row===p.row&&c.column===p.column)))))
+        ctx.addIssue({code:z.ZodIssueCode.custom,path:['groundObstacles'],message:'Ground observations must match currently visible Adventure cells'});
+    }
+    if(s.roofBoss&&(s.mode!=='adventure'||s.level!==50||s.phase!=='playing'||s.defeated||s.terrain!=='roof'||
+      s.conveyor!==true||s.fogMasked!==false||s.sourceStory||s.scenario))
+      ctx.addIssue({code:z.ZodIssueCode.custom,path:['roofBoss'],message:'Boss state must belong to the current classic roof finale'});
     if(s.stormVisibility!==undefined&&(s.mode!=='adventure'||s.level!==40||s.terrain!=='fog'||s.fogMasked!==false||
       s.stormVisibility==='obscured'&&(s.rows.some(r=>r.enemies!==0)||(s.visibleEnemies?.length??0)>0||(s.visibleThreats?.length??0)>0)))
       ctx.addIssue({code:z.ZodIssueCode.custom,path:['stormVisibility'],message:'Storm observations must match the visible Adventure 4-10 lawn'});
@@ -154,6 +181,10 @@ export const daveSnapshotSchema = z.object({
       new Set(s.fogClearCells.map(c=>`${c.row}:${c.column}`)).size!==s.fogClearCells.length||
       s.fogClearCells.some(c=>!s.rows.some(r=>r.row===c.row))))
       ctx.addIssue({code:z.ZodIssueCode.custom,path:['fogClearCells'],message:'Fog cells must belong to the current observed fog lawn'});
+    if(s.fogState!==undefined&&(s.mode!=='adventure'||s.phase!=='playing'||s.defeated||s.terrain!=='fog'||s.fogMasked!==true||s.plantIdentityVersion!==1||
+      new Set(s.fogState.lights.map(l=>l.plantId)).size!==s.fogState.lights.length||
+      s.fogState.lights.some(l=>!s.planted?.some(p=>p.id===l.plantId&&p.type===25&&p.health>0))))
+      ctx.addIssue({code:z.ZodIssueCode.custom,path:['fogState'],message:'Fog state must describe current living Planterns on the observed fog lawn'});
     if(s.visibleThreats!==undefined) {
       const threats=s.visibleThreats,types=s.visibleEnemies;
       if(s.mode!=='adventure'||!types||new Set(threats.map(t=>t.row)).size!==threats.length||
@@ -200,6 +231,10 @@ export const daveSnapshotSchema = z.object({
     });
     if(s.sun<0&&!s.sourceStory&&!(s.level===23&&s.headPrize?.stage==='reclaimed'&&s.sun>=-600))ctx.addIssue({code:z.ZodIssueCode.custom,path:['sun'],message:'Negative classic sun requires the witnessed head-prize reclamation'});
     if(s.sourceStory) {
+      if(s.sourceStory.houseEntryProtected!==undefined&&(s.phase!=='playing'||s.defeated))
+        ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceStory','houseEntryProtected'],message:'Current finale protection requires an active lawn'});
+      if(s.sourceStory.houseRuined!==undefined&&(s.phase!=='playing'||s.defeated))
+        ctx.addIssue({code:z.ZodIssueCode.custom,path:['sourceStory','houseRuined'],message:'Current house observation requires an active lawn'});
       const lateLevels:Record<number,number>={40166:18,40167:19,40159:20,40168:21};
       const lateLevel=lateLevels[s.sourceStory.sourceLevel];
       if(lateLevel&&(s.level!==lateLevel||((s.planted!==undefined||s.plantIdentityVersion!==undefined)&&
@@ -292,6 +327,7 @@ export const daveRequestSchema = z.object({
   }
   if(request.classicPlantChoice){
     const s=request.snapshot,c=request.classicPlantChoice,p=s.planted?.find(p=>p.id===c.plantId);
+    const observedLight=s.fogState?.lights.find(l=>l.plantId===c.plantId);
     const neutral=c.status==='none';
     if(request.trigger!=='player'||request.messages.at(-1)?.role!=='user'||s.sourceStory||s.scenario||s.conveyor||
       s.level<22||s.level>49||s.phase!=='playing'||s.defeated||s.plantIdentityVersion!==1||s.wave!==c.wave||
@@ -304,7 +340,8 @@ export const daveRequestSchema = z.object({
       ([c.garlicDirection,c.garlicRevision,c.garlicUp,c.garlicDown].some(v=>v!==undefined)&&
        (p?.type!==36||!neutral||c.garlicDirection===undefined||c.garlicRevision===undefined||c.garlicUp===undefined||c.garlicDown===undefined||c.requestKind!==undefined))||
       ([c.lightMode,c.lightRevision].some(v=>v!==undefined)&&
-       (p?.type!==25||!neutral||s.level<31||s.level>39||s.terrain!=='fog'||!s.fogMasked||c.lightMode===undefined||c.lightRevision===undefined||c.requestKind!==undefined))||
+       (p?.type!==25||!neutral||s.level<31||s.level>39||s.terrain!=='fog'||!s.fogMasked||c.lightMode===undefined||c.lightRevision===undefined||c.requestKind!==undefined||
+        observedLight&&observedLight.mode!==(c.lightMode===1?'focused':'normal')))||
       (c.requestKind!==undefined&&(!c.status||['offered','active'].includes(c.status)||c.wave<2||c.wave+2>s.waves||c.score>=3||
         (c.requestKind==='company'&&![1,9,41].includes(p?.type??-1))))||
       !p||p.health<=0||p.type>48||request.sourcePlantTarget||request.sourcePlantBondLease||request.sourceStoryChoice||request.sourceStoryNumeric)

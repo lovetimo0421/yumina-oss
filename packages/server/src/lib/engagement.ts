@@ -33,9 +33,12 @@
  *                handler for BOTH experiment arms; it's product behavior,
  *                not a ranking experiment).
  *
- * Without a published model, authed users hash 50/50 into control vs
- * engage_v1. Guests retain the existing engage_v1 assignment. Recommended
- * HTTP responses are private, no-store; feed caching stays server-side in
+ * Arms (2026-09-24): every guest and account rides engage_v1. The model
+ * arm (engage_v2) opens 50/50 for accounts only once a time-spent model
+ * (the discovery-features-v3 contract) is published; the retired
+ * story-stats model never opens it. control is retired: it lost to both
+ * treatment arms on every metric for five weeks. Recommended HTTP
+ * responses are private, no-store; feed caching stays server-side in
  * Redis. `hub_serve.variant` + `feed_serves.variant` carry the arm for
  * measurement.
  *
@@ -53,13 +56,14 @@ import type { RankerModelHandle } from "./ranker-model.js";
 // ─── Experiment arm ──────────────────────────────────────────────────
 
 /**
- * control   — the pre-Ship-1 hand-tuned formula, untouched (the baseline).
+ * control   — the pre-Ship-1 hand-tuned formula. Retired 2026-09-24 (kept
+ *             in the type for stored serves and old reports; never assigned).
  * engage_v1 — heuristic engagement terms (CTR/quality/velocity/explore/fatigue).
- * engage_v2 — Ship 2: the nightly-trained LightGBM model replaces the
+ *             Since 2026-09-24 the arm everyone rides.
+ * engage_v2 — the model arm: the published model replaces the
  *             ctr/quality/velocity heuristics (it consumed those as
- *             features); explore/fatigue/session stay additive because
- *             they encode per-user state and platform policy the model
- *             can't know. Only exists once a model passes offline eval.
+ *             features); explore/fatigue/session stay additive. Opens only
+ *             for a time-spent (v3) model, see modelArmEligible.
  */
 export type FeedVariant = "control" | "engage_v1" | "engage_v2";
 
@@ -74,28 +78,34 @@ export function fnvHash01(input: string): number {
   return (h >>> 0) / 0x1_0000_0000;
 }
 
+/** A ranker input only the time-spent (discovery-features-v3) contract
+ * produces. Its presence tells the arm assignment that a published model
+ * learned from user×card history, seen cards and the multi-day label,
+ * rather than being the retired story-stats model. */
+export const TIME_SPENT_MODEL_MARKER = "exp_seen_before";
+
+/** Does a published model open the model arm? Only a time-spent model does.
+ * The legacy 29-input model serves nobody: it trailed engage_v1 on every
+ * metric for a month, and the v3 exam compares against engage_v1's served
+ * order, so engage_v1 stays the single incumbent until v3 passes. */
+export function modelArmEligible(model: Pick<RankerModelHandle, "featureNames"> | null | undefined): boolean {
+  return Boolean(model && model.featureNames.includes(TIME_SPENT_MODEL_MARKER));
+}
+
 /**
- * Deterministic per-user experiment arm. Guests retain the legacy
- * engage_v1 assignment, including after a model publishes. This preserves
- * the existing guest baseline and deterministic reuse in the legacy feed's
- * server-side Redis cache. Recommended HTTP responses are private,
- * no-store. Guest assignment remains a rollout choice; a guest experiment
- * would need its own assignment and corresponding server cache keys.
+ * Deterministic per-user experiment arm.
  *
- * Bucket continuity across the v2 activation: v1 keeps buckets [0,40) (a
- * subset of its old [0,50)), control keeps [80,100) (a subset of its old
- * [50,100)) — so most users' arm is stable when the model publishes, and
- * nobody silently moves BETWEEN v1 and control.
+ * 2026-09-24: control and the legacy model arm are retired. Everyone rides
+ * engage_v1 until a time-spent model publishes; then accounts split 50/50
+ * between engage_v1 and engage_v2 by the same FNV bucket as before, so the
+ * accounts that were in engage_v1 under the old 40/40/20 split (buckets
+ * [0,40)) stay there. Guests always ride engage_v1: their feed is one
+ * shared, deterministic document per language, so a guest experiment would
+ * need its own assignment and cache keys.
  */
-export function feedVariantFor(userId?: string | null, hasModel = false): FeedVariant {
-  if (!userId) return "engage_v1";
-  const bucket = fnvHash01(`feedexp1:${userId}`) * 100;
-  if (hasModel) {
-    if (bucket < 40) return "engage_v1";
-    if (bucket < 80) return "engage_v2";
-    return "control";
-  }
-  return bucket < 50 ? "engage_v1" : "control";
+export function feedVariantFor(userId?: string | null, modelArmOpen = false): FeedVariant {
+  if (!userId || !modelArmOpen) return "engage_v1";
+  return fnvHash01(`feedexp1:${userId}`) * 100 < 50 ? "engage_v1" : "engage_v2";
 }
 
 /** Does this arm receive the engagement context at ranking time? BOTH
@@ -157,6 +167,18 @@ export interface CraftAffinity {
   sampleSize: number;
 }
 
+/** One user's history with one card, from feed_events over 30 days. */
+export interface ExposureStat {
+  impressions7d: number;
+  impressions14d: number;
+  impressions30d: number;
+  clicks14d: number;
+  clicks30d: number;
+  /** Epoch ms of the latest impression / click, or null. */
+  lastImpressionAt: number | null;
+  lastClickAt: number | null;
+}
+
 export interface EngagementContext {
   variant: FeedVariant;
   /** Context-local map; loaded snapshot rows are shared and frozen. Replace a
@@ -164,8 +186,19 @@ export interface EngagementContext {
   stats: Map<string, WorldEngagementStat>;
   globals: EngagementGlobals;
   /** worldId → unclicked impressions shown to THIS user in the last 14d.
-   * Only worlds at/above the light-fatigue threshold are present. */
+   * Only worlds at/above the light-fatigue threshold are present. Derived
+   * from `exposure`; kept so the v1 heuristic penalty is unchanged. */
   fatigue: Map<string, number>;
+  /** worldId → this user's history with the card over the last 30 days
+   * (our own feed log). The learned ranker reads it as features, so the
+   * data decides how much a passed card should drop and for how long
+   * (owner, 2026-09-24: scrolling past is weak evidence, not a "no"). */
+  exposure: Map<string, ExposureStat>;
+  /** Long-term content-taste centroid from the profile (unit vector), or
+   * null for cold users. Set by the handler once the profile loads. */
+  tasteCentroid: number[] | null;
+  /** profile.effectiveSignalCount, set by the handler with the tier. */
+  profileSignalCount: number;
   /** Worlds this user explicitly marked "not interested". */
   dismissedWorldIds: Set<string>;
   /** Session-level adaptation (Ship 2, the no-quiz cold-start): unit
@@ -270,8 +303,32 @@ const VELOCITY_LN_MAX = 1.4;
  * clicks/plays → stepped demotion. Mirrors X's feedback-fatigue window. */
 export const FATIGUE_LIGHT_IMPRESSIONS = 8;
 export const FATIGUE_HEAVY_IMPRESSIONS = 16;
-const FATIGUE_LIGHT_PENALTY = 35;
-const FATIGUE_HEAVY_PENALTY = 55;
+/** Points a card loses once repeated unclicked showings have used up its
+ * click rate entirely; the measured share still kept scales it down. 90 sits
+ * between the two anchors the old cliff implied (35 at 8 showings, 55 at 16). */
+const FATIGUE_WEIGHT = 90;
+
+/** Share of the first showing's click rate a card keeps on its n-th showing
+ * to the same user. Viewport impressions, 14 days, measured 2026-09-24
+ * (docs/recsys/2026-09-24-time-spent-recsys-design.md §1): 4.93% → 4.17%
+ * → 3.92% → 3.65% (4th–7th) → 2.93% (8th–15th) → 2.25% (16th+). */
+export function fatigueKeep(showing: number): number {
+  if (showing <= 1) return 1;
+  if (showing === 2) return 0.85;
+  if (showing === 3) return 0.80;
+  if (showing <= 7) return 0.74;
+  if (showing <= 15) return 0.59;
+  return 0.46;
+}
+
+/** Discount for the NEXT showing given this user's unclicked history with
+ * the card. A smooth curve, not a cliff: a passed card sinks gradually
+ * instead of vanishing at exactly eight showings, and a card that still
+ * converts is never hidden. A clicked card is never fatigued. */
+export function fatigueDiscount(stat: ExposureStat | undefined): number {
+  if (!stat || stat.clicks14d > 0 || stat.impressions14d < 1) return 0;
+  return Math.round(FATIGUE_WEIGHT * (1 - fatigueKeep(stat.impressions14d + 1)) * 10) / 10;
+}
 
 /** Exploration eligibility: young + under-exposed. Consumed by the
  * deep-slot injector in recommendations.ts (not an additive score — see
@@ -287,6 +344,42 @@ export function isExploreEligible(
 ): boolean {
   if ((stat?.impressionsTotal ?? 0) >= EXPLORE_MAX_IMPRESSIONS) return false;
   return candidateAgeDays(candidate, now) <= EXPLORE_MAX_AGE_DAYS;
+}
+
+/** Prior strength for a newcomer's audition estimate: pseudo-impressions
+ * pulled toward the pool's own rate. */
+const EXPLORE_PRIOR_IMPRESSIONS = 100;
+
+/** Pool rate for auditions: qualified plays per feed impression over 7 days
+ * across the candidates that have impressions. Falls back to the product of
+ * the global click rate and qualified rate when nothing in the pool has
+ * been shown yet. Never zero, so the posterior keeps a spread. */
+export function exploreValuePrior(stats: Iterable<WorldEngagementStat | undefined>, globals: EngagementGlobals): number {
+  let qualified = 0, impressions = 0;
+  for (const stat of stats) if (stat && stat.impressions7d > 0) { qualified += stat.qualifiedPlays7d; impressions += stat.impressions7d; }
+  const fallback = Math.max(globals.ctr * globals.qualifiedRate, 1e-4);
+  return impressions > 0 ? Math.min(1, Math.max(qualified / impressions, 1e-4)) : fallback;
+}
+
+/** Thompson-style audition draw for a newcomer (2026-09-24): one sample per
+ * (visit, card) from the posterior of its qualified plays per impression —
+ * Beta posterior, normal approximation, prior = pool rate over
+ * EXPLORE_PRIOR_IMPRESSIONS pseudo-impressions. An untested story draws
+ * widely and earns its audition; a story that keeps failing draws low and
+ * yields its slot; a story that holds attention draws high and expands.
+ * Deterministic per seed, so pages within one visit agree with each other.
+ * This is the data-driven form of Roblox's "test and expand", using the
+ * five-minute rollups the ranker already holds. */
+export function exploreValueSample(stat: WorldEngagementStat | undefined, prior: number, seed: string): number {
+  const impressions = Math.max(0, stat?.impressions7d ?? 0);
+  const qualified = Math.min(Math.max(0, stat?.qualifiedPlays7d ?? 0), impressions);
+  const n = impressions + EXPLORE_PRIOR_IMPRESSIONS;
+  const mean = Math.min(1, Math.max(0, (qualified + EXPLORE_PRIOR_IMPRESSIONS * prior) / n));
+  const sd = Math.sqrt(Math.max(mean * (1 - mean), 1e-8) / n);
+  const u1 = Math.min(Math.max(fnvHash01(`${seed}:u1`), 1e-9), 1 - 1e-9);
+  const u2 = fnvHash01(`${seed}:u2`);
+  const z = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+  return Math.max(0, mean + sd * z);
 }
 
 /** Deterministic rotation score in [0,1) — same hash family as the cold
@@ -467,6 +560,27 @@ export function buildRankerFeatures(
   const uiTier = customUiTier(candidate.customUiLoc);
   const craft = ctx.craft;
 
+  // History with this exact card (v3). Hours are capped at 30 days; "never"
+  // sits at the cap so a first showing and a month-old one look alike.
+  const exposure = ctx.exposure.get(candidate.id);
+  const hoursSince = (at: number | null | undefined) =>
+    at == null ? EXPOSURE_HOURS_CAP : Math.min(EXPOSURE_HOURS_CAP, Math.max(0, (now.getTime() - at) / 3_600_000));
+  const hoursSinceImpression = hoursSince(exposure?.lastImpressionAt);
+  const hoursSinceClick = hoursSince(exposure?.lastClickAt);
+  // Similarity terms the v1 heuristics add outside the model (v3 feeds them in
+  // as raw cosines so the trees learn when each one matters).
+  const embedding = candidate.embedding && candidate.embedding.length ? l2Normalize(candidate.embedding) : null;
+  const worldLatent = ctx.userLatent ? ctx.worldLatent.get(candidate.id) : undefined;
+  const alsKnown = Boolean(ctx.userLatent && worldLatent && worldLatent.length === ctx.userLatent.length);
+  const tasteKnown = Boolean(embedding && ctx.tasteCentroid && ctx.tasteCentroid.length === embedding.length);
+  const sessionKnown = Boolean(embedding && ctx.sessionCentroid && ctx.sessionCentroid.length === embedding.length);
+  let sessionTagOverlap = 0;
+  if (ctx.sessionTags.size > 0 && Array.isArray(candidate.tags)) {
+    for (const tag of candidate.tags) if (ctx.sessionTags.has(tag.trim().toLowerCase())) sessionTagOverlap += 1;
+  }
+  const source = (name: string) => (candidate.candidateSource?.includes(name) ? 1 : 0);
+  const hour = now.getUTCHours() + now.getUTCMinutes() / 60;
+
   return {
     position: 0,
     surf_recommended: 1,
@@ -500,8 +614,40 @@ export function buildRankerFeatures(
     user_audio_pref: craft?.audio ?? 0,
     user_log_token_pref: craft?.logTokens ?? 0,
     user_craft_known: craft && craft.sampleSize >= CRAFT_MIN_SAMPLE ? 1 : 0,
+    // ── v3: this user's history with this card ──
+    exp_seen_before: exposure && exposure.impressions30d > 0 ? 1 : 0,
+    exp_impressions_7d_log1p: Math.log1p(exposure?.impressions7d ?? 0),
+    exp_impressions_30d_log1p: Math.log1p(exposure?.impressions30d ?? 0),
+    exp_hours_since_impression: hoursSinceImpression,
+    exp_seen_last_hour: hoursSinceImpression < 1 ? 1 : 0,
+    exp_unclicked_14d: exposure && exposure.clicks14d === 0 ? exposure.impressions14d : 0,
+    exp_clicked_before: exposure && exposure.clicks30d > 0 ? 1 : 0,
+    exp_clicks_30d: exposure?.clicks30d ?? 0,
+    exp_hours_since_click: hoursSinceClick,
+    // ── v3: similarity, as raw cosines ──
+    als_cosine: alsKnown ? dot(ctx.userLatent!, worldLatent!) : 0,
+    als_known: alsKnown ? 1 : 0,
+    taste_cosine: tasteKnown ? dot(ctx.tasteCentroid!, embedding!) : 0,
+    taste_known: tasteKnown ? 1 : 0,
+    session_cosine: sessionKnown ? dot(ctx.sessionCentroid!, embedding!) : 0,
+    session_tag_overlap: Math.min(SESSION_TAG_OVERLAP_CAP, sessionTagOverlap),
+    // ── v3: which recall routes surfaced the card ──
+    src_co_played: source("co_played"),
+    src_similar_played: source("similar_played"),
+    src_creator_affinity: source("creator_affinity"),
+    src_followed_recent: source("followed_recent"),
+    src_popular_recent: source("popular_recent"),
+    // ── v3: user and context ──
+    user_signal_count_log1p: Math.log1p(Math.max(0, ctx.profileSignalCount)),
+    hour_sin: Math.sin((2 * Math.PI * hour) / 24),
+    hour_cos: Math.cos((2 * Math.PI * hour) / 24),
+    weekday_utc: now.getUTCDay(),
   };
 }
+
+/** Feature-time caps for the v3 history inputs. */
+const EXPOSURE_HOURS_CAP = 24 * 30;
+const SESSION_TAG_OVERLAP_CAP = 5;
 
 /**
  * Compute the engagement contribution for one candidate. Pure and
@@ -531,10 +677,11 @@ export function scoreEngagement(
   if (useModel) {
     try {
       const raw = ctx.model!.predict(buildRankerFeatures(candidate, stat, ctx, now));
-      if (ctx.model!.kind === "regression") {
-        // raw = predicted log1p(minutes); lift = predicted minutes vs the
+      if (ctx.model!.kind === "regression" || ctx.model!.kind === "tweedie") {
+        // regression: raw = predicted log1p(minutes). tweedie: the handle
+        // already returns expected minutes. Lift = predicted minutes vs the
         // model's average-world baseline (the time-value objective).
-        const predictedMin = Math.expm1(raw);
+        const predictedMin = ctx.model!.kind === "tweedie" ? raw : Math.expm1(raw);
         const baseline = ctx.model!.valueBaseline;
         model = MODEL_WEIGHT * clampLn(
           (predictedMin + MODEL_VALUE_PRIOR_MIN) / (baseline + MODEL_VALUE_PRIOR_MIN),
@@ -575,10 +722,10 @@ export function scoreEngagement(
     }
   }
 
-  let fatiguePenalty = 0;
-  const unclicked = ctx.fatigue.get(candidate.id) ?? 0;
-  if (unclicked >= FATIGUE_HEAVY_IMPRESSIONS) fatiguePenalty = FATIGUE_HEAVY_PENALTY;
-  else if (unclicked >= FATIGUE_LIGHT_IMPRESSIONS) fatiguePenalty = FATIGUE_LIGHT_PENALTY;
+  // Fatigue follows the measured decay of a card's click rate with repeated
+  // unclicked showings (fatigueKeep); ctx.fatigue keeps the legacy threshold
+  // map for the exposure_unclicked_impressions snapshot input only.
+  const fatiguePenalty = fatigueDiscount(ctx.exposure.get(candidate.id));
 
   // Exploration moved OUT of the additive score (owner decision
   // 2026-08-19): an unproven card must never buy its way into premium top
@@ -673,8 +820,10 @@ export function scoreEngagement(
 const STATS_CACHE_KEY = "rec:engstats:v2";
 const STATS_CACHE_TTL_SEC = 300;
 const FATIGUE_CACHE_PREFIX = "rec:fatigue:";
-const FATIGUE_CACHE_TTL_SEC = 600;
 const FATIGUE_WINDOW_DAYS = 14;
+const EXPOSURE_CACHE_PREFIX = "rec:exposure:v1:";
+const EXPOSURE_CACHE_TTL_SEC = 600;
+const EXPOSURE_WINDOW_DAYS = 30;
 const DISMISS_CACHE_PREFIX = "rec:dismiss:";
 const DISMISS_CACHE_TTL_SEC = 300;
 
@@ -693,9 +842,12 @@ export function emptyEngagementContext(variant: FeedVariant): EngagementContext 
     stats: new Map(),
     globals: { ctr: 0, qualifiedRate: 0 },
     fatigue: new Map(),
+    exposure: new Map(),
     dismissedWorldIds: new Set(),
     sessionCentroid: null,
     sessionTags: new Set(),
+    tasteCentroid: null,
+    profileSignalCount: 0,
     tier: null,
     craft: null,
     model: null,
@@ -890,38 +1042,75 @@ async function loadUserLatent(db: Database, userId: string): Promise<UserLatentS
   }
 }
 
-async function loadFatigueMap(db: Database, userId: string): Promise<Map<string, number>> {
-  const cacheKey = FATIGUE_CACHE_PREFIX + userId;
+/** Compact cache row: [imp7, imp14, imp30, clk14, clk30, lastImpMs, lastClkMs]. */
+type ExposureRow = [number, number, number, number, number, number, number];
+
+function exposureFromRow(row: ExposureRow): ExposureStat {
+  return {
+    impressions7d: row[0], impressions14d: row[1], impressions30d: row[2],
+    clicks14d: row[3], clicks30d: row[4],
+    lastImpressionAt: row[5] > 0 ? row[5] : null, lastClickAt: row[6] > 0 ? row[6] : null,
+  };
+}
+
+/** This user's history with every card our feed log has shown them in the
+ * last 30 days. One grouped read on the (user_id, created_at) index, cached
+ * briefly; the click beacon purges it so the next page sees the tap. */
+async function loadExposureMap(db: Database, userId: string): Promise<Map<string, ExposureStat>> {
+  const cacheKey = EXPOSURE_CACHE_PREFIX + userId;
   if (redis) {
     try {
       const cached = await redis.get(cacheKey);
-      if (cached) return new Map(Object.entries(JSON.parse(cached) as Record<string, number>));
+      if (cached) {
+        const parsed = JSON.parse(cached) as Record<string, ExposureRow>;
+        return new Map(Object.entries(parsed).map(([id, row]) => [id, exposureFromRow(row)]));
+      }
     } catch { /* fall through */ }
   }
 
-  let entries: Record<string, number> = {};
+  const entries: Record<string, ExposureRow> = {};
   try {
     const result = await db.execute(sql`
       SELECT world_id,
-             COUNT(*) FILTER (WHERE event_type = 'impression') AS imp
+             COUNT(*) FILTER (WHERE event_type = 'impression' AND created_at > now() - interval '7 days') AS imp7,
+             COUNT(*) FILTER (WHERE event_type = 'impression' AND created_at > now() - (${FATIGUE_WINDOW_DAYS}::int * interval '1 day')) AS imp14,
+             COUNT(*) FILTER (WHERE event_type = 'impression') AS imp30,
+             COUNT(*) FILTER (WHERE event_type IN ('click', 'play') AND created_at > now() - (${FATIGUE_WINDOW_DAYS}::int * interval '1 day')) AS clk14,
+             COUNT(*) FILTER (WHERE event_type IN ('click', 'play')) AS clk30,
+             MAX(created_at) FILTER (WHERE event_type = 'impression') AS last_imp,
+             MAX(created_at) FILTER (WHERE event_type IN ('click', 'play')) AS last_clk
       FROM feed_events
       WHERE user_id = ${userId}
-        AND created_at > now() - (${FATIGUE_WINDOW_DAYS}::int * interval '1 day')
+        AND created_at > now() - (${EXPOSURE_WINDOW_DAYS}::int * interval '1 day')
       GROUP BY world_id
-      HAVING COUNT(*) FILTER (WHERE event_type = 'impression') >= ${FATIGUE_LIGHT_IMPRESSIONS}
-         AND COUNT(*) FILTER (WHERE event_type IN ('click', 'play')) = 0
     `);
     const raw = (result as unknown as { rows?: Array<Record<string, unknown>> }).rows ?? [];
-    for (const r of raw) entries[String(r.world_id)] = Number(r.imp ?? 0);
+    const ms = (value: unknown) => {
+      const t = value instanceof Date ? value.getTime() : typeof value === "string" ? Date.parse(value) : NaN;
+      return Number.isFinite(t) ? t : 0;
+    };
+    for (const r of raw) {
+      entries[String(r.world_id)] = [Number(r.imp7 ?? 0), Number(r.imp14 ?? 0), Number(r.imp30 ?? 0),
+        Number(r.clk14 ?? 0), Number(r.clk30 ?? 0), ms(r.last_imp), ms(r.last_clk)];
+    }
   } catch (err) {
-    warnOnce("feed_events(fatigue)", err);
-    entries = {};
+    warnOnce("feed_events(exposure)", err);
   }
 
   if (redis) {
-    redis.set(cacheKey, JSON.stringify(entries), "EX", FATIGUE_CACHE_TTL_SEC).catch(() => {});
+    redis.set(cacheKey, JSON.stringify(entries), "EX", EXPOSURE_CACHE_TTL_SEC).catch(() => {});
   }
-  return new Map(Object.entries(entries));
+  return new Map(Object.entries(entries).map(([id, row]) => [id, exposureFromRow(row)]));
+}
+
+/** The v1 fatigue map, unchanged in meaning: worlds this user saw at least
+ * FATIGUE_LIGHT_IMPRESSIONS times in 14 days and never clicked or played. */
+export function fatigueFromExposure(exposure: Map<string, ExposureStat>): Map<string, number> {
+  const fatigue = new Map<string, number>();
+  for (const [worldId, stat] of exposure) {
+    if (stat.impressions14d >= FATIGUE_LIGHT_IMPRESSIONS && stat.clicks14d === 0) fatigue.set(worldId, stat.impressions14d);
+  }
+  return fatigue;
 }
 
 async function loadDismissedWorldIds(db: Database, userId: string): Promise<Set<string>> {
@@ -958,27 +1147,44 @@ async function loadDismissedWorldIds(db: Database, userId: string): Promise<Set<
  * freshness is the whole point, and the click beacon invalidates the feed
  * cache so this runs on the very next page load after a tap.
  */
+/** Who the 45-minute session belongs to. Accounts tap through the feed
+ * beacon (feed_events, keyed by user). Guests have no user row; their taps
+ * live in the discovery log keyed by actor (`guest:<uuid>`), indexed by
+ * (actor_id, occurred_at). Either way the same centroid + tag terms apply,
+ * so a guest's second page leans toward the first page's tap (2026-09-24). */
+export type SessionSubject = { userId: string } | { actorId: string };
+
 async function loadSessionSignals(
   db: Database,
-  userId: string,
+  subject: SessionSubject,
 ): Promise<{ centroid: number[] | null; tags: Set<string> }> {
   const none = { centroid: null, tags: new Set<string>() };
   let worldIds: string[] = [];
   try {
-    const result = await db.execute(sql`
+    const result = await db.execute("userId" in subject ? sql`
       SELECT world_id
       FROM feed_events
-      WHERE user_id = ${userId}
+      WHERE user_id = ${subject.userId}
         AND event_type IN ('click', 'play')
         AND created_at > now() - (${SESSION_WINDOW_MINUTES}::int * interval '1 minute')
       GROUP BY world_id
       ORDER BY MAX(created_at) DESC
       LIMIT ${SESSION_MAX_WORLDS}
+    ` : sql`
+      SELECT world_id
+      FROM discovery_events
+      WHERE actor_id = ${subject.actorId}
+        AND event_type IN ('click', 'play_intent')
+        AND occurred_at > now() - (${SESSION_WINDOW_MINUTES}::int * interval '1 minute')
+        AND world_id <> ''
+      GROUP BY world_id
+      ORDER BY MAX(occurred_at) DESC
+      LIMIT ${SESSION_MAX_WORLDS}
     `);
     const rows = (result as unknown as { rows?: Array<Record<string, unknown>> }).rows ?? [];
     worldIds = rows.map((r) => String(r.world_id));
   } catch (err) {
-    warnOnce("feed_events(session)", err);
+    warnOnce("userId" in subject ? "feed_events(session)" : "discovery_events(session)", err);
     return none;
   }
   if (worldIds.length === 0) return none;
@@ -1029,15 +1235,17 @@ export async function loadEngagementContext(
   db: Database,
   userId: string | null,
   variant: FeedVariant,
-  opts?: { model?: RankerModelHandle | null; rotationSeed?: string | null },
+  opts?: { model?: RankerModelHandle | null; rotationSeed?: string | null; actor?: string | null },
 ): Promise<EngagementContext> {
   const treatment = variant !== "control";
-  const [dismissed, snapshot, fatigue, session, worldLatent, userLatent] = await Promise.all([
+  // A guest's session taste comes from the discovery log by actor id.
+  const guestActor = !userId && opts?.actor && opts.actor.startsWith("guest:") ? opts.actor : null;
+  const [dismissed, snapshot, exposure, session, worldLatent, userLatent] = await Promise.all([
     userId ? loadDismissedWorldIds(db, userId) : Promise.resolve(new Set<string>()),
     treatment ? loadStatsSnapshot(db) : Promise.resolve<StatsSnapshot | null>(null),
-    treatment && userId ? loadFatigueMap(db, userId) : Promise.resolve(new Map<string, number>()),
-    treatment && userId
-      ? loadSessionSignals(db, userId)
+    treatment && userId ? loadExposureMap(db, userId) : Promise.resolve(new Map<string, ExposureStat>()),
+    treatment && userId ? loadSessionSignals(db, { userId })
+      : treatment && guestActor ? loadSessionSignals(db, { actorId: guestActor })
       : Promise.resolve({ centroid: null, tags: new Set<string>() }),
     // Guests have no user vector, so world factors cannot affect their score.
     treatment && userId ? loadWorldLatentSnapshot(db) : Promise.resolve(emptyWorldLatentSnapshot()),
@@ -1050,7 +1258,8 @@ export async function loadEngagementContext(
   }
   const ctx = emptyEngagementContext(variant);
   ctx.dismissedWorldIds = dismissed;
-  ctx.fatigue = fatigue;
+  ctx.exposure = exposure;
+  ctx.fatigue = fatigueFromExposure(exposure);
   ctx.sessionCentroid = session.centroid;
   ctx.sessionTags = session.tags;
   // Independent reads can straddle an atomic trainer commit. Only a coherent
@@ -1074,7 +1283,7 @@ export async function loadEngagementContext(
 export async function invalidateUserEngagementCaches(userId: string): Promise<void> {
   if (!redis) return;
   try {
-    await redis.del(DISMISS_CACHE_PREFIX + userId, FATIGUE_CACHE_PREFIX + userId);
+    await redis.del(DISMISS_CACHE_PREFIX + userId, FATIGUE_CACHE_PREFIX + userId, EXPOSURE_CACHE_PREFIX + userId);
   } catch { /* self-expires */ }
 }
 

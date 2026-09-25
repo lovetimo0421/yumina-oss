@@ -25,5 +25,6 @@
   "copyError": "コピーに失敗しました",
   "messageCopied": "メッセージをコピーしました",
   "promptEditConflict": "このプロンプトは別のデバイスで変更されました。最新の内容を表示しています。今回の編集は保存されていません。",
-  "failedStartSession": "セッションの開始に失敗しました"
+  "failedStartSession": "セッションの開始に失敗しました",
+  "inviteWindowClosed": "招待コードはアカウント作成から48時間以内のみ使えます。"
 }

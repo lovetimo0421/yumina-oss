@@ -841,68 +841,53 @@ function guestProtectedUpdate(
 /**
  * Build the editor's WorldDefinition draft from a server world payload.
  *
- * Single source of truth for the load transform used by the STALE_WORLD 3-way
- * merge, so the server side it fetches is shaped identically to the worldDraft /
- * _baseSchema the editor already holds (the merge's common-ancestor invariant).
- * Kept in sync with the inline transform in loadWorld + refreshWorldSchema, which
- * predate this helper.
+ * The one load transform: loadWorld, refreshWorldSchema, loadWorldFromData and
+ * the STALE_WORLD 3-way merge all build through it, so the merge's server side
+ * is shaped exactly like the worldDraft / _baseSchema the editor holds.
  */
 function buildServerDraftFromData(data: any): WorldDefinition {
   const schema = (data.schema ?? {}) as WorldDefinition;
   const rawSchema = data.schema as Record<string, unknown> | undefined;
+  // The whole schema rides through; the lines below only fill defaults and take
+  // the values the DB row owns. A list naming what to keep forgets every field
+  // added after it, and the next save (a full-schema PATCH) deletes it.
   const rawDraft: WorldDefinition = {
+    ...schema,
     id: schema.id || data.id,
     version: schema.version || "1.0.0",
-    // DB name first — same rule as loadWorld (see comment there).
+    // worlds.name (data.name) is the display-name truth — the hub, the review
+    // queue and the publish NAME_REQUIRED gate all read it. The schema copy can
+    // lag behind a publish-modal rename; schema.name is only a fallback.
     name: data.name || schema.name || "",
     description: schema.description || data.description || "",
     author: schema.author || "",
     avatar: data.thumbnailUrl || schema.avatar,
-    coverCrop: schema.coverCrop,
-    galleryCoverCrop: schema.galleryCoverCrop,
     entries: schema.entries || [],
     variables: normalizeVariableIds(schema.variables || []),
     rules: schema.rules || [],
     reactions: schema.reactions || [],
-    characters: schema.characters,
     components: schema.components || [],
-    uiBlueprint: schema.uiBlueprint,
     audioTracks: schema.audioTracks || [],
-    bgmPlaylist: schema.bgmPlaylist,
-    conditionalBGM: schema.conditionalBGM,
-    lorebookEntries: schema.lorebookEntries,
     customUI: schema.customUI || [],
-    ...(rawSchema?.customComponents ? { customComponents: rawSchema.customComponents } : {}),
-    ...(rawSchema?.messageRenderer ? { messageRenderer: rawSchema.messageRenderer } : {}),
     customTags: schema.customTags || [],
-    entryFolders: schema.entryFolders,
-    editorMode: schema.editorMode,
-    rootComponent: schema.rootComponent,
     loreUiBindings: normalizeLoreUiBindings(schema.loreUiBindings),
     worldbooks: schema.worldbooks ?? [],
     settings: {
+      ...(rawSchema?.settings as WorldDefinition["settings"] | undefined),
       maxTokens: schema.settings?.maxTokens ?? 12000,
       maxContext: schema.settings?.maxContext ?? 200000,
       temperature: schema.settings?.temperature ?? 1.0,
       topP: schema.settings?.topP ?? 1,
       frequencyPenalty: schema.settings?.frequencyPenalty ?? 0,
       presencePenalty: schema.settings?.presencePenalty ?? 0,
-      topK: schema.settings?.topK,
-      minP: schema.settings?.minP,
       playerName: schema.settings?.playerName ?? "User",
-      systemPrompt: schema.settings?.systemPrompt,
-      greeting: schema.settings?.greeting,
       lorebookScanDepth: schema.settings?.lorebookScanDepth ?? 2,
       lorebookRecursionDepth: schema.settings?.lorebookRecursionDepth ?? 0,
-      layoutMode: schema.settings?.layoutMode,
-      uiMode: schema.settings?.uiMode,
-      ...((rawSchema?.settings as any)?.fullScreenComponent !== undefined
-        ? { fullScreenComponent: (rawSchema!.settings as any).fullScreenComponent }
-        : {}),
     },
   } as WorldDefinition;
   const draft = migrateWorldDefinition(rawDraft);
   draft.entries = normalizePositions(draft.entries);
+  // Heal dangling entry→folder refs so orphaned entries render (don't vanish).
   draft.entries = normalizeFolders(draft).world.entries;
   draft.loreUiBindings = normalizeLoreUiBindings(draft.loreUiBindings);
   return draft;
@@ -1106,72 +1091,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       }
       const { data } = await res.json();
       if (controller.signal.aborted) return;
-      const schema = (data.schema ?? {}) as WorldDefinition;
-      const rawSchema = data.schema as Record<string, unknown> | undefined;
-
-      // Build raw draft then migrate
-      const rawDraft: WorldDefinition = {
-        id: schema.id || data.id,
-        version: schema.version || "1.0.0",
-        // worlds.name (data.name) is the display-name truth — the hub, the
-        // review queue and the publish NAME_REQUIRED gate all read it. The
-        // schema copy can lag behind a publish-modal rename; preferring it
-        // here would show the stale template name AND write it back over the
-        // rename on the next save. schema.name is only a fallback.
-        name: data.name || schema.name || "",
-        description: schema.description || data.description || "",
-        author: schema.author || "",
-        avatar: data.thumbnailUrl || schema.avatar,
-        coverCrop: schema.coverCrop,
-        galleryCoverCrop: schema.galleryCoverCrop,
-        entries: schema.entries || [],
-        variables: normalizeVariableIds(schema.variables || []),
-        rules: schema.rules || [],
-        reactions: schema.reactions || [],
-        characters: schema.characters,
-        components: schema.components || [],
-        uiBlueprint: schema.uiBlueprint,
-        audioTracks: schema.audioTracks || [],
-        bgmPlaylist: schema.bgmPlaylist,
-        conditionalBGM: schema.conditionalBGM,
-        lorebookEntries: schema.lorebookEntries,
-        customUI: schema.customUI || [],
-        // Pass deprecated v18 fields through for migrateV18ToV19
-        ...(rawSchema?.customComponents ? { customComponents: rawSchema.customComponents } : {}),
-        ...(rawSchema?.messageRenderer ? { messageRenderer: rawSchema.messageRenderer } : {}),
-        customTags: schema.customTags || [],
-        entryFolders: schema.entryFolders,
-        editorMode: schema.editorMode,
-        rootComponent: schema.rootComponent,
-        loreUiBindings: normalizeLoreUiBindings(schema.loreUiBindings),
-        worldbooks: schema.worldbooks ?? [],
-        settings: {
-          maxTokens: schema.settings?.maxTokens ?? 12000,
-          maxContext: schema.settings?.maxContext ?? 200000,
-          temperature: schema.settings?.temperature ?? 1.0,
-          topP: schema.settings?.topP ?? 1,
-          frequencyPenalty: schema.settings?.frequencyPenalty ?? 0,
-          presencePenalty: schema.settings?.presencePenalty ?? 0,
-          topK: schema.settings?.topK,
-          minP: schema.settings?.minP,
-          playerName: schema.settings?.playerName ?? "User",
-          systemPrompt: schema.settings?.systemPrompt,
-          greeting: schema.settings?.greeting,
-          lorebookScanDepth: schema.settings?.lorebookScanDepth ?? 2,
-          lorebookRecursionDepth: schema.settings?.lorebookRecursionDepth ?? 0,
-          layoutMode: schema.settings?.layoutMode,
-          uiMode: schema.settings?.uiMode,
-          ...((rawSchema?.settings as any)?.fullScreenComponent !== undefined
-            ? { fullScreenComponent: (rawSchema!.settings as any).fullScreenComponent }
-            : {}),
-        },
-      } as WorldDefinition;
-
-      const draft = migrateWorldDefinition(rawDraft);
-      draft.entries = normalizePositions(draft.entries);
-      // Heal dangling entry→folder refs so orphaned entries render (don't vanish).
-      draft.entries = normalizeFolders(draft).world.entries;
-      draft.loreUiBindings = normalizeLoreUiBindings(draft.loreUiBindings);
+      const draft = buildServerDraftFromData(data);
       if (controller.signal.aborted) return;
 
       set({
@@ -1256,65 +1176,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const { data } = await res.json();
       if (sessionAtRequest !== editorSession || !data || data.id !== get().serverWorldId) return;
       if (!canApplyServerSnapshot(data.updatedAt, started, get())) return;
-      const schema = (data.schema ?? {}) as WorldDefinition;
-      const rawSchema = data.schema as Record<string, unknown> | undefined;
-      const rawDraft: WorldDefinition = {
-        id: schema.id || data.id,
-        version: schema.version || "1.0.0",
-        // DB name first — same rule as loadWorld (see comment there).
-        name: data.name || schema.name || "",
-        description: schema.description || data.description || "",
-        author: schema.author || "",
-        avatar: data.thumbnailUrl || schema.avatar,
-        coverCrop: schema.coverCrop,
-        galleryCoverCrop: schema.galleryCoverCrop,
-        entries: schema.entries || [],
-        variables: normalizeVariableIds(schema.variables || []),
-        rules: schema.rules || [],
-        reactions: schema.reactions || [],
-        characters: schema.characters,
-        components: schema.components || [],
-        uiBlueprint: schema.uiBlueprint,
-        audioTracks: schema.audioTracks || [],
-        bgmPlaylist: schema.bgmPlaylist,
-        conditionalBGM: schema.conditionalBGM,
-        lorebookEntries: schema.lorebookEntries,
-        customUI: schema.customUI || [],
-        // Pass deprecated v18 fields through for migrateV18ToV19
-        ...(rawSchema?.customComponents ? { customComponents: rawSchema.customComponents } : {}),
-        ...(rawSchema?.messageRenderer ? { messageRenderer: rawSchema.messageRenderer } : {}),
-        customTags: schema.customTags || [],
-        entryFolders: schema.entryFolders,
-        editorMode: schema.editorMode,
-        rootComponent: schema.rootComponent,
-        loreUiBindings: normalizeLoreUiBindings(schema.loreUiBindings),
-        worldbooks: schema.worldbooks ?? [],
-        settings: {
-          maxTokens: schema.settings?.maxTokens ?? 12000,
-          maxContext: schema.settings?.maxContext ?? 200000,
-          temperature: schema.settings?.temperature ?? 1.0,
-          topP: schema.settings?.topP ?? 1,
-          frequencyPenalty: schema.settings?.frequencyPenalty ?? 0,
-          presencePenalty: schema.settings?.presencePenalty ?? 0,
-          topK: schema.settings?.topK,
-          minP: schema.settings?.minP,
-          playerName: schema.settings?.playerName ?? "User",
-          systemPrompt: schema.settings?.systemPrompt,
-          greeting: schema.settings?.greeting,
-          lorebookScanDepth: schema.settings?.lorebookScanDepth ?? 2,
-          lorebookRecursionDepth: schema.settings?.lorebookRecursionDepth ?? 0,
-          layoutMode: schema.settings?.layoutMode,
-          uiMode: schema.settings?.uiMode,
-          ...((rawSchema?.settings as any)?.fullScreenComponent !== undefined
-            ? { fullScreenComponent: (rawSchema!.settings as any).fullScreenComponent }
-            : {}),
-        },
-      } as WorldDefinition;
-      const draft = migrateWorldDefinition(rawDraft);
-      draft.entries = normalizePositions(draft.entries);
-      // Heal dangling entry→folder refs so orphaned entries render (don't vanish).
-      draft.entries = normalizeFolders(draft).world.entries;
-      draft.loreUiBindings = normalizeLoreUiBindings(draft.loreUiBindings);
+      const draft = buildServerDraftFromData(data);
       const serverToken = validServerToken(data.updatedAt) ?? get().baseUpdatedAt;
       const pendingEdit = (data.pendingEdit ?? null) as WorldPendingEditSummary | null;
       const worldStatus = (data.status as string | null) ?? (data.isPublished ? "published" : "draft");
@@ -1473,67 +1335,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     editorSession++;
     retireRecoveryOffer();
     loadAbort?.abort();
-    const schema = (data.schema ?? {}) as unknown as WorldDefinition;
-    const rawSchema = data.schema as Record<string, unknown> | undefined;
-
-    const rawDraft: WorldDefinition = {
-      id: schema.id || data.id,
-      version: schema.version || "1.0.0",
-      // DB name first — same rule as loadWorld (see comment there).
-      name: data.name || schema.name || "",
-      description: schema.description || data.description || "",
-      author: schema.author || "",
-      avatar: data.thumbnailUrl || schema.avatar,
-      coverCrop: schema.coverCrop,
-      galleryCoverCrop: schema.galleryCoverCrop,
-      entries: schema.entries || [],
-      variables: normalizeVariableIds(schema.variables || []),
-      rules: schema.rules || [],
-      reactions: schema.reactions || [],
-      characters: schema.characters,
-      components: schema.components || [],
-      uiBlueprint: schema.uiBlueprint,
-      audioTracks: schema.audioTracks || [],
-      bgmPlaylist: schema.bgmPlaylist,
-      conditionalBGM: schema.conditionalBGM,
-      lorebookEntries: schema.lorebookEntries,
-      customUI: schema.customUI || [],
-      // Pass deprecated v18 fields through for migrateV18ToV19
-      ...(rawSchema?.customComponents ? { customComponents: rawSchema.customComponents } : {}),
-      ...(rawSchema?.messageRenderer ? { messageRenderer: rawSchema.messageRenderer } : {}),
-      customTags: schema.customTags || [],
-      entryFolders: schema.entryFolders,
-      editorMode: schema.editorMode,
-      rootComponent: schema.rootComponent,
-      loreUiBindings: normalizeLoreUiBindings(schema.loreUiBindings),
-      worldbooks: schema.worldbooks ?? [],
-      settings: {
-        maxTokens: schema.settings?.maxTokens ?? 12000,
-        maxContext: schema.settings?.maxContext ?? 200000,
-        temperature: schema.settings?.temperature ?? 1.0,
-        topP: schema.settings?.topP ?? 1,
-        frequencyPenalty: schema.settings?.frequencyPenalty ?? 0,
-        presencePenalty: schema.settings?.presencePenalty ?? 0,
-        topK: schema.settings?.topK,
-        minP: schema.settings?.minP,
-        playerName: schema.settings?.playerName ?? "User",
-        systemPrompt: schema.settings?.systemPrompt,
-        greeting: schema.settings?.greeting,
-        lorebookScanDepth: schema.settings?.lorebookScanDepth ?? 2,
-        lorebookRecursionDepth: schema.settings?.lorebookRecursionDepth ?? 0,
-        layoutMode: schema.settings?.layoutMode,
-        uiMode: schema.settings?.uiMode,
-        ...((rawSchema?.settings as any)?.fullScreenComponent !== undefined
-          ? { fullScreenComponent: (rawSchema!.settings as any).fullScreenComponent }
-          : {}),
-      },
-    } as WorldDefinition;
-
-    const draft = migrateWorldDefinition(rawDraft);
-    draft.entries = normalizePositions(draft.entries);
-    // Heal dangling entry→folder refs so orphaned entries render (don't vanish).
-    draft.entries = normalizeFolders(draft).world.entries;
-    draft.loreUiBindings = normalizeLoreUiBindings(draft.loreUiBindings);
+    const draft = buildServerDraftFromData(data);
 
     set({
       worldDraft: draft,

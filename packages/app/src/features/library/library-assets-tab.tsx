@@ -1230,7 +1230,7 @@ function FolderCard({
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>
+      <ContextMenuTrigger asChild disabled={isRenaming}>
         <div
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
@@ -1412,7 +1412,7 @@ function AssetCard({
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild>
+      <ContextMenuTrigger asChild disabled={isRenaming}>
         <div
           draggable={!selectable}
           onDragStart={onDragStart}

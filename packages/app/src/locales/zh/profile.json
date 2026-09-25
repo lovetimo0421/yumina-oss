@@ -979,6 +979,8 @@
     "claimed": "已领取",
     "checking": "确认中",
     "claimedToast": "已领取 +{{amount}} 蘑菇",
+    "autoCollectNote": "完成的每日和每周任务会在几分钟内自动领取。",
+    "autoCollectedToast": "已为你自动领取 +{{amount}} 蘑菇",
     "errorChecking": "暂时确认不了，稍后重试。",
     "errorCapReached": "本周期的任务奖励已领满。",
     "errorGeneric": "领取失败，稍后再试。",
@@ -1365,5 +1367,219 @@
     "blockedNoReboot": "只会重启 Ollama 这个程序，不用重启电脑，也不会下载或安装任何东西。",
     "blockedLinux": "请按安装教程第 3 步设置 OLLAMA_ORIGINS，然后重启 Ollama 服务。",
     "connectedToast": "已连上你电脑上的 {{runtime}}，可以选模型了"
+  },
+  "inviteRace": {
+    "title": "邀请赛",
+    "headline": "邀请好友，一起瓜分 1,000 美元",
+    "startsOn": "{{date}} 开始",
+    "ended": "本次邀请赛已结束。",
+    "preview": "预览中，只有管理员能看到。",
+    "none": "目前没有进行中的邀请赛。",
+    "loadFailed": "加载失败，一分钟后会自动重试。",
+    "rank": "第 {{rank}} 名",
+    "estimate": "我的预计奖金",
+    "toRank": "再得 {{n}} 张券，就能升到第 {{rank}} 名（+{{prize}}）",
+    "toRankNoPrize": "再得 {{n}} 张券，就能升到第 {{rank}} 名",
+    "firstTicket": "邀请一位好友，拿到你的第一张券。",
+    "top": "排行榜",
+    "topEmpty": "还没有人拿到券，第一张券就能排第一。",
+    "you": "你",
+    "ticketsN": "{{n}} 张",
+    "ticketsShort": "张券",
+    "friends": "你的好友（{{n}}）",
+    "friendsEmpty": "还没有好友加入，先把链接分享出去吧。",
+    "returnTomorrow": "隔天回来玩一次，你 +3 张",
+    "playMore": "再多玩一会儿，你 +3 张",
+    "toNextBand": "距下一档还差 {{n}} 张",
+    "excluded": "不计入本次活动",
+    "inviteLink": "我的邀请链接",
+    "copy": "复制链接",
+    "copied": "已复制",
+    "copyFailed": "复制失败，请手动复制。",
+    "chooseBy": "请在 {{date}} 前选择，逾期将以蘑菇发放",
+    "chooseFailed": "保存失败，请再试一次。",
+    "rules": "完整规则",
+    "rBand": "{{from}}–{{to}} 蘑菇：每 {{per}} 蘑菇 1 张（共 {{n}} 张）",
+    "estimateNote": "页面每 2 分钟更新一次，显示的是预计金额；最终金额以 7 天审核后为准。",
+    "unit": {
+      "d": "天",
+      "h": "时",
+      "m": "分"
+    },
+    "share": "分享",
+    "shareText": "我在 Yumina 玩 AI 互动故事，超好玩！用我的链接注册，送你 300 蘑菇：{{url}}",
+    "poster": {
+      "codeLabel": "我的邀请码",
+      "button": "生成海报",
+      "title": "分享海报",
+      "hint": "保存图片，发到任何地方——海报上有你的邀请码。",
+      "download": "保存图片",
+      "failed": "海报生成失败，请重试。",
+      "scan": "扫码加入",
+      "line1": "邀请好友",
+      "line2": "一起瓜分",
+      "sub": "好友玩得越多，你分得越多",
+      "capLabel": "每位好友最多为你带来",
+      "capUnit": "张券",
+      "capDetail": "注册 +{{a}} · 隔天回来 +{{b}} · 持续玩最多 +{{c}}",
+      "st1": "分享链接",
+      "sb1": "好友通过你的链接注册",
+      "st2": "好友来玩",
+      "sb2": "隔天回来，持续玩",
+      "st3": "按券瓜分",
+      "sb3": "结算时按券数分 {{pool}}",
+      "tipLabel": "小提醒",
+      "tip": "新朋友注册就送 300 蘑菇"
+    },
+    "chart": {
+      "today": "近 24 小时",
+      "thisRound": "本期",
+      "hoverTickets": "当时 {{n}} 张券",
+      "day": "24 小时",
+      "round": "全部"
+    },
+    "why": {
+      "friends": "好友带来 {{n}} 张券（{{usd}}）",
+      "pool": "参与的人变多，每张券从 {{from}} 变为 {{to}}（{{usd}}）",
+      "formula": "预计奖金 = {{tickets}} 张券 × 每张 {{v}}",
+      "plusRank": "+ 排名奖 {{usd}}",
+      "poolUp": "每张券从 {{from}} 涨到 {{to}}（{{usd}}）"
+    },
+    "leading": "你目前排名第一。",
+    "activityTitle": "好友动态",
+    "act": {
+      "cameBack": "{{name}} 回来玩了",
+      "joined": "{{name}} 通过你的链接注册了"
+    },
+    "ago": {
+      "m": "{{n}} 分钟前",
+      "h": "{{n}} 小时前"
+    },
+    "how": {
+      "title": "怎么拿券",
+      "s1": "好友用你的链接注册",
+      "s2": "好友隔天回来玩",
+      "s3": "好友持续玩",
+      "s3b": "注册后 {{days}} 天内，好友用满 {{free}} 蘑菇后，每多用 {{low}}–{{high}} 蘑菇，你再 +1 张券。",
+      "upTo": "最多 +{{n}}",
+      "pot": "{{pot}} 按券分",
+      "splitTitle": "$1,000 怎么分",
+      "split": "前 5 名另得 {{ranks}}；其余 {{pot}} 按每个人的券数分配。",
+      "upToLabel": "最多",
+      "exShort": "用 {{m}} 蘑菇",
+      "formulaLine": "你的券 = 所有好友带来的券加起来，每位好友最多 {{max}} 张。券越多，分到的奖金越多。",
+      "unit": "张券"
+    },
+    "payout": {
+      "title": "奖品能换成什么",
+      "small": "不满 {{cash}}：直接发蘑菇（$1 = {{rate}} 蘑菇）。",
+      "large": "{{cash}} 及以上：可选蘑菇，或通过 Tremendous 邮件领取。打开邮件后，按你所在地区选择：PayPal、Venmo、Starbucks、Cash App、Amazon、Target、Walmart、Google Play、Visa 虚拟卡、Roblox、Xbox 等（选项因地区而异）。",
+      "catalog": "查看全部可选奖品"
+    },
+    "friendsTitle": "我邀请的好友",
+    "friendsCount": "共 {{n}} 位",
+    "funnel": {
+      "signedUp": "全部",
+      "waiting": "还没回来",
+      "active": "回来玩了",
+      "playing": "常玩",
+      "maxed": "已满额"
+    },
+    "friendsTable": {
+      "joined": "{{date}} 加入",
+      "search": "搜索好友",
+      "none": "没有符合条件的好友。",
+      "more": "加载更多（{{shown}}/{{total}}）"
+    },
+    "status": {
+      "excluded": "不计入",
+      "waiting": "还没回来",
+      "maxed": "已满额",
+      "playing": "常玩",
+      "active": "回来玩了"
+    },
+    "sort": {
+      "tickets": "券最多",
+      "newest": "最新加入"
+    },
+    "waitingTip": "还有 {{n}} 位好友没回来。他们隔天再玩一次，你就多得 3 张券，可以去提醒一下。",
+    "windowClosed": "计券时间已结束",
+    "banner": {
+      "live": "还剩 {{days}} 天",
+      "title": "邀请好友，一起瓜分 1,000 美元",
+      "steps": "好友注册 +1 · 隔天回来 +3 · 持续玩最多 +60",
+      "yourEstimate": "我的预计",
+      "cta": "查看"
+    },
+    "promo": {
+      "title": "邀请好友，一起瓜分 1,000 美元",
+      "sub": "好友玩得越多，你的券越多。距离结算还有 {{days}} 天。",
+      "copy": "复制我的邀请链接",
+      "open": "查看详情"
+    },
+    "sub": "好友玩得越多，你拿到的券越多。结算时，奖池按券数分给大家。",
+    "countdownLabel": "距离结算",
+    "tag": "邀请赛进行中 · 预计 {{usd}}",
+    "claim": {
+      "title": "领取奖金",
+      "giftCard": "{{usd}} 礼品卡或现金",
+      "giftCardPlus": "{{usd}} 礼品卡或现金 + {{m}} 蘑菇",
+      "allMushies": "全部换成 {{m}} 蘑菇"
+    },
+    "full": {
+      "whoTitle": "谁可以参加",
+      "who1": "所有已注册的 Yumina 用户都可以作为邀请人参加。",
+      "who2": "被邀请的好友必须是活动期间新注册的账号，并通过你的邀请链接、你分享的作品链接，或你的邀请码注册。",
+      "who3": "已封禁的账号不参与计算。",
+      "ticketsTitle": "券怎么算",
+      "t1": "好友通过你的邀请注册：1 张（注册券最多 {{cap}} 张）。",
+      "t2": "好友在另一天再次回来玩（至少玩 3 轮对话或 10 分钟）：再得 3 张。",
+      "t3": "好友注册后 {{days}} 天内使用的蘑菇，按以下档位继续换券（免费、赠送和购买的蘑菇都算）：",
+      "t4": "每位好友最多为你带来 {{max}} 张券。",
+      "t5": "使用自带 API 的好友同样计算注册券和回访券；自带 API 不消耗蘑菇，所以不计入蘑菇档位。",
+      "splitTitle": "奖池怎么分",
+      "s1": "本期奖池 $1,000。",
+      "s2": "券数前 5 名另得 {{ranks}}；券数相同时，先达到的人排名靠前。",
+      "s3": "其余 {{pot}} 按每个人的券数分配；不满 $1 的份额不发放，重新分给其他人。",
+      "payTitle": "奖金怎么发",
+      "p1": "不满 {{cash}}：自动以蘑菇发放到你的钱包（$1 = {{rate}} 蘑菇）。",
+      "p2": "{{cash}} 及以上：可选蘑菇，或通过 Tremendous 邮件领取。",
+      "p3": "奖品由奖励合作方 Tremendous 通过邮件发送到你的注册邮箱。打开邮件后按你所在地区选择，例如 PayPal、Venmo、Starbucks、Cash App、Amazon、Target、Walmart、Google Play、Visa 虚拟卡、Roblox、Xbox 等；可选项因地区而异。",
+      "p4": "礼品卡或现金按整数美元发放，零头以蘑菇发放。例如 $23.47 = $23 + 470 蘑菇。",
+      "p5": "结果确定后 {{choose}} 天内未选择的，将自动以蘑菇发放。",
+      "whenTitle": "什么时候确定",
+      "w1": "活动页面每 2 分钟更新一次，显示的是预计金额。",
+      "w2": "活动结束后有 7 天审核期，审核完成后公布最终结果并发放奖金。",
+      "fairTitle": "公平规则",
+      "f1": "退款或申诉的付款所对应的券，会在结算前剔除。",
+      "f2": "批量注册、只为刷券的虚假账号会被剔除；情节严重的，取消该邀请人本次活动的全部资格。",
+      "f3": "为自己的其他账号付费游玩是允许的，但必须是真实付款。",
+      "termsTitle": "其他条款",
+      "x1": "奖金可能需要你自行申报相关税费。",
+      "x2": "如遇作弊、系统错误或不可抗力，Yumina 保留调整、暂停或提前结束活动的权利，并会提前公告。",
+      "x3": "对账号资格和结果的认定，以 Yumina 的审核为准。如有疑问，可在社区公告下留言或联系客服。"
+    },
+    "stats": {
+      "mine": "我的券",
+      "all": "全部券数",
+      "people": "{{n}} 人参与",
+      "value": "每张券约值",
+      "rank": "我的排名"
+    },
+    "hero": {
+      "eyebrow": "邀请赛",
+      "title": "邀请好友\n一起赢奖励",
+      "subtitle": "奖池 1,000 美元，好友玩得越多，你分得越多 · 还剩 {{days}} 天",
+      "cta": "查看我的券"
+    },
+    "giftCardHow": "我们的奖励合作方 Tremendous 会发邮件到你的注册邮箱，打开后按你所在地区选择 PayPal、礼品卡、Visa 虚拟卡等（选项因地区而异）。",
+    "eventCard": {
+      "status": "进行中",
+      "title": "邀请好友，一起赢奖励"
+    },
+    "rankPrize": {
+      "won": "含排名奖 {{usd}}"
+    },
+    "worldLinkHint": "分享任意作品的链接，也会带上你的邀请码。"
   }
 }

@@ -16,7 +16,7 @@ export function drainLifetimePlaytime() {
     SELECT user_id,seconds FROM playtime_lifetime_pending ORDER BY user_id
     LIMIT 500 FOR UPDATE SKIP LOCKED
   ), credited AS (
-    UPDATE "user" u SET lifetime_playtime_seconds=u.lifetime_playtime_seconds+p.seconds
+    UPDATE "user" u SET lifetime_playtime_seconds=u.lifetime_playtime_seconds+p.seconds,last_active_at=now()
     FROM pending p WHERE u.id=p.user_id RETURNING u.id
   ) DELETE FROM playtime_lifetime_pending p USING pending batch,credited c
     WHERE p.user_id=batch.user_id AND c.id=p.user_id RETURNING p.user_id`;

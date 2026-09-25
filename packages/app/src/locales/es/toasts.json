@@ -25,5 +25,6 @@
   "copyError": "Error al copiar",
   "messageCopied": "Mensaje copiado",
   "promptEditConflict": "Este prompt fue modificado en otro dispositivo; se muestra la versión más reciente. Tu edición no se guardó.",
-  "failedStartSession": "Falló al iniciar la sesión"
+  "failedStartSession": "Falló al iniciar la sesión",
+  "inviteWindowClosed": "Los códigos de invitación solo se pueden usar en las 48 horas siguientes a crear tu cuenta."
 }

@@ -981,6 +981,8 @@
     "claimed": "Reclamada",
     "checking": "comprobando…",
     "claimedToast": "Has reclamado +{{amount}} Mushies",
+    "autoCollectNote": "Las misiones diarias y semanales terminadas se cobran solas en unos minutos.",
+    "autoCollectedToast": "+{{amount}} Mushies cobrados por ti",
     "errorChecking": "No se pudo confirmar ahora mismo. Inténtalo en un momento.",
     "errorCapReached": "Las recompensas de misiones de este ciclo están agotadas.",
     "errorGeneric": "No se pudo reclamar. Inténtalo en un momento.",
@@ -1269,5 +1271,219 @@
         }
       }
     }
+  },
+  "inviteRace": {
+    "title": "Carrera de invitaciones",
+    "headline": "Invita amigos y repartan US$1,000",
+    "startsOn": "Empieza el {{date}}",
+    "ended": "La carrera ha terminado.",
+    "preview": "Vista previa: solo los administradores ven este evento.",
+    "none": "No hay ninguna carrera de invitaciones en curso.",
+    "loadFailed": "No se pudo cargar. Se reintentará en un minuto.",
+    "rank": "Puesto #{{rank}}",
+    "estimate": "Tu estimación",
+    "toRank": "{{n}} boletos más para llegar al #{{rank}} (+{{prize}})",
+    "toRankNoPrize": "{{n}} boletos más para llegar al #{{rank}}",
+    "firstTicket": "Invita a un amigo para conseguir tu primer boleto.",
+    "top": "Clasificación",
+    "topEmpty": "Nadie tiene boletos todavía. El primero va en cabeza.",
+    "you": "Tú",
+    "ticketsN": "{{n}} boletos",
+    "ticketsShort": "boletos",
+    "friends": "Tus amigos ({{n}})",
+    "friendsEmpty": "Todavía no hay amigos en esta carrera. Comparte tu enlace.",
+    "returnTomorrow": "Vuelve otro día → +3",
+    "playMore": "Juega un poco más → +3",
+    "toNextBand": "{{n}} boletos para el siguiente nivel",
+    "excluded": "No cuenta en esta carrera",
+    "inviteLink": "Tu enlace de invitación",
+    "copy": "Copiar",
+    "copied": "Copiado",
+    "copyFailed": "No se pudo copiar el enlace.",
+    "chooseBy": "Elige antes del {{date}}; si no, se paga en mushies",
+    "chooseFailed": "No se pudo guardar tu elección. Inténtalo de nuevo.",
+    "rules": "Reglas",
+    "rBand": "{{from}} → {{to}} mushies: 1 boleto cada {{per}} ({{n}} boletos)",
+    "estimateNote": "El tablero se actualiza cada 2 minutos y muestra estimaciones. Los importes finales llegan tras 7 días de revisión.",
+    "unit": {
+      "d": "d",
+      "h": "h",
+      "m": "m"
+    },
+    "share": "Compartir",
+    "shareText": "Únete a Yumina: historias interactivas con IA. Regístrate con mi enlace y recibe 300 mushies: {{url}}",
+    "poster": {
+      "codeLabel": "Mi código",
+      "button": "Crear póster",
+      "title": "Tu póster para compartir",
+      "hint": "Guárdalo y publícalo donde quieras: lleva tu código.",
+      "download": "Guardar imagen",
+      "failed": "No se pudo crear el póster.",
+      "scan": "Escanea para unirte",
+      "line1": "Invita amigos,",
+      "line2": "repartan",
+      "sub": "Cuanto más jueguen, mayor tu parte",
+      "capLabel": "Cada amigo te da hasta",
+      "capUnit": "boletos",
+      "capDetail": "Registro +{{a}} · Vuelve +{{b}} · Sigue jugando hasta +{{c}}",
+      "st1": "Comparte tu enlace",
+      "sb1": "Un amigo se registra con él",
+      "st2": "Juegan",
+      "sb2": "Vuelven y siguen jugando",
+      "st3": "Reparto por boletos",
+      "sb3": "{{pool}} repartidos por boletos",
+      "tipLabel": "Ojo",
+      "tip": "Los nuevos reciben 300 mushies al registrarse"
+    },
+    "chart": {
+      "today": "últimas 24 h",
+      "thisRound": "hasta ahora",
+      "hoverTickets": "{{n}} boletos en ese momento",
+      "day": "24 H",
+      "round": "Todo"
+    },
+    "why": {
+      "friends": "Tus amigos aportaron {{n}} boletos ({{usd}})",
+      "pool": "Se unió más gente: cada boleto {{from}} → {{to}} ({{usd}})",
+      "formula": "Estimación = {{tickets}} boletos × {{v}} cada uno",
+      "plusRank": "+ {{usd}} de premio por puesto",
+      "poolUp": "Cada boleto {{from}} → {{to}} ({{usd}})"
+    },
+    "leading": "Vas primero. ¡Mantenlo!",
+    "activityTitle": "Actividad de tus amigos",
+    "act": {
+      "cameBack": "{{name}} volvió a jugar",
+      "joined": "{{name}} se registró con tu enlace"
+    },
+    "ago": {
+      "m": "{{n}} min",
+      "h": "{{n}} h"
+    },
+    "how": {
+      "title": "Cómo funciona",
+      "s1": "Tu amigo se registra con tu enlace",
+      "s2": "Vuelve al día siguiente",
+      "s3": "Sigue jugando",
+      "s3b": "En sus primeros {{days}} días, al pasar {{free}} mushies, cada {{low}}–{{high}} mushies más te da otro boleto.",
+      "upTo": "hasta +{{n}}",
+      "pot": "{{pot}} repartidos por boletos",
+      "splitTitle": "Cómo se reparten los $1,000",
+      "split": "El top 5 gana {{ranks}}. Los otros {{pot}} se reparten por boletos: cada boleto cuenta.",
+      "upToLabel": "hasta",
+      "exShort": "{{m}} mushies",
+      "formulaLine": "Tus boletos = la suma de los de tus amigos, hasta {{max}} por amigo. Más boletos, mayor parte.",
+      "unit": "boletos"
+    },
+    "payout": {
+      "title": "Qué puedes recibir",
+      "small": "Menos de {{cash}}: en mushies ($1 = {{rate}} mushies).",
+      "large": "{{cash}} o más: elige mushies o recíbelo por correo a través de Tremendous. Abre el correo y elige lo disponible en tu país: PayPal, Venmo, Starbucks, Cash App, Amazon, Target, Walmart, Google Play, Visa virtual, Roblox, Xbox y más (las opciones varían según el país).",
+      "catalog": "Ver todas las opciones"
+    },
+    "friendsTitle": "Amigos que invitaste",
+    "friendsCount": "{{n}} en total",
+    "funnel": {
+      "signedUp": "Todos",
+      "waiting": "Falta que vuelvan",
+      "active": "Volvieron",
+      "playing": "Jugando",
+      "maxed": "Al máximo"
+    },
+    "friendsTable": {
+      "joined": "Se unió el {{date}}",
+      "search": "Buscar amigos",
+      "none": "Ningún amigo coincide.",
+      "more": "Ver más ({{shown}} de {{total}})"
+    },
+    "status": {
+      "excluded": "No cuenta",
+      "waiting": "Esperando",
+      "maxed": "Al máximo",
+      "playing": "Jugando",
+      "active": "Volvió"
+    },
+    "sort": {
+      "tickets": "Más boletos",
+      "newest": "Recientes"
+    },
+    "waitingTip": "{{n}} amigos aún no han vuelto. Cada uno suma +3 boletos el día que vuelva a jugar: envíales un mensaje.",
+    "windowClosed": "El conteo terminó",
+    "banner": {
+      "live": "quedan {{days}} días",
+      "title": "Invita amigos y repartan US$1,000",
+      "steps": "Se registra +1 · vuelve +3 · sigue jugando hasta +60",
+      "yourEstimate": "tu estimación",
+      "cta": "Abrir"
+    },
+    "promo": {
+      "title": "Invita amigos y repartan US$1,000",
+      "sub": "Cuanto más jueguen tus amigos, más boletos consigues. Pago en {{days}} días.",
+      "copy": "Copiar mi enlace",
+      "open": "Ver detalles"
+    },
+    "sub": "Cuanto más jueguen tus amigos, más boletos consigues. Al final, el premio se reparte por boletos.",
+    "countdownLabel": "Pago en",
+    "tag": "Carrera de invitaciones activa · est. {{usd}}",
+    "claim": {
+      "title": "Cobra tu premio",
+      "giftCard": "Tarjeta regalo o efectivo de {{usd}}",
+      "giftCardPlus": "{{usd}} en tarjeta o efectivo + {{m}} mushies",
+      "allMushies": "Todo en {{m}} mushies"
+    },
+    "full": {
+      "whoTitle": "Quién puede participar",
+      "who1": "Cualquier jugador registrado en Yumina puede participar como anfitrión.",
+      "who2": "Los amigos invitados deben ser cuentas nuevas creadas durante el evento, registradas con tu enlace de invitación, un enlace de historia que compartiste o tu código.",
+      "who3": "Las cuentas bloqueadas no cuentan.",
+      "ticketsTitle": "Cómo se cuentan los boletos",
+      "t1": "Un amigo se registra con tu invitación: 1 boleto (hasta {{cap}} boletos de registro).",
+      "t2": "El amigo vuelve otro día y juega (al menos 3 turnos o 10 minutos): 3 más.",
+      "t3": "Los mushies que el amigo usa en sus primeros {{days}} días dan más boletos por niveles (cuentan los gratis, regalados y comprados):",
+      "t4": "Un amigo puede darte como máximo {{max}} boletos.",
+      "t5": "Los amigos que juegan con su propia clave de API ganan los boletos de registro y regreso; no gastan mushies, así que los niveles de mushies no aplican.",
+      "splitTitle": "Cómo se reparte el premio",
+      "s1": "El premio de este periodo es de $1,000.",
+      "s2": "El top 5 por boletos gana además {{ranks}}. Los empates los gana quien llegó primero.",
+      "s3": "Los otros {{pot}} se reparten por boletos. Las partes de menos de $1 no se pagan y se reparten entre los demás.",
+      "payTitle": "Cómo se pagan los premios",
+      "p1": "Menos de {{cash}}: se paga automáticamente en mushies a tu cartera ($1 = {{rate}} mushies).",
+      "p2": "{{cash}} o más: elige mushies o recíbelo por correo a través de Tremendous.",
+      "p3": "Los premios los envía nuestro socio Tremendous al correo de tu cuenta. Ábrelo y elige lo disponible en tu país, por ejemplo PayPal, Venmo, Starbucks, Cash App, Amazon, Target, Walmart, Google Play, Visa virtual, Roblox, Xbox; las opciones varían según el país.",
+      "p4": "Las tarjetas y el efectivo se pagan en dólares enteros; los centavos llegan en mushies. Por ejemplo, $23.47 = $23 + 470 mushies.",
+      "p5": "Si no eliges en {{choose}} días desde el resultado, se paga en mushies.",
+      "whenTitle": "Cuándo es definitivo",
+      "w1": "La página se actualiza cada 2 minutos y muestra estimaciones.",
+      "w2": "Hay 7 días de revisión al terminar el evento. Después llegan los resultados y premios definitivos.",
+      "fairTitle": "Juego limpio",
+      "f1": "Los boletos de pagos reembolsados o disputados se eliminan antes del reparto.",
+      "f2": "Los lotes de cuentas falsas creadas para ganar boletos se eliminan; en casos graves el anfitrión pierde todo el evento.",
+      "f3": "Pagar para jugar en tu propia segunda cuenta está permitido, siempre que sea un pago real.",
+      "termsTitle": "Otros términos",
+      "x1": "Puedes ser responsable de los impuestos de tu premio.",
+      "x2": "En caso de trampas, errores del sistema o causas ajenas, Yumina puede ajustar, pausar o terminar el evento antes, y lo anunciará.",
+      "x3": "La revisión de Yumina decide la elegibilidad y los resultados. Preguntas: responde en el anuncio de la Comunidad o contacta a soporte."
+    },
+    "stats": {
+      "mine": "Mis boletos",
+      "all": "Boletos en total",
+      "people": "{{n}} jugadores",
+      "value": "Un boleto ≈",
+      "rank": "Mi puesto"
+    },
+    "hero": {
+      "eyebrow": "Carrera de invitaciones",
+      "title": "Invita amigos,\nganen juntos",
+      "subtitle": "Un premio de US$1,000: cuanto más jueguen tus amigos, mayor tu parte · quedan {{days}} días",
+      "cta": "Ver mis boletos"
+    },
+    "giftCardHow": "Nuestro socio Tremendous envía un correo a la dirección de tu cuenta; ábrelo y elige PayPal, una tarjeta de regalo, Visa virtual y más (las opciones varían según el país).",
+    "eventCard": {
+      "status": "En curso",
+      "title": "Invita amigos y ganen juntos"
+    },
+    "rankPrize": {
+      "won": "incluye premio de puesto {{usd}}"
+    },
+    "worldLinkHint": "Compartir el enlace de cualquier historia también lleva tu invitación."
   }
 }

@@ -79,7 +79,9 @@ function walkTree(node: LgbNode, features: Float64Array): number {
   return current.leaf_value;
 }
 
-export type RankerModelKind = "binary" | "regression";
+/** binary: sigmoid → P(click). regression: raw log1p(minutes). tweedie:
+ * exp(raw) → expected minutes (the zero-inflated time-value objective). */
+export type RankerModelKind = "binary" | "regression" | "tweedie";
 
 export interface RankerModelHandle {
   id: number;
@@ -115,8 +117,9 @@ export function buildRankerModel(
   // LightGBM dumps "regression" for the LGBMRegressor and "binary sigmoid:1"
   // for the old classifier — so legacy rows (and any future binary model)
   // still get the sigmoid, and only regression models return raw.
-  const kind: RankerModelKind = (modelJson.objective ?? "").startsWith("regression")
-    ? "regression"
+  const objective = modelJson.objective ?? "";
+  const kind: RankerModelKind = objective.startsWith("tweedie") ? "tweedie"
+    : objective.startsWith("regression") ? "regression"
     : "binary";
 
   return {
@@ -139,7 +142,9 @@ export function buildRankerModel(
       }
       let raw = 0;
       for (const tree of trees) raw += walkTree(tree, vec);
-      return kind === "regression" ? raw : 1 / (1 + Math.exp(-raw));
+      if (kind === "regression") return raw;
+      if (kind === "tweedie") return Math.exp(raw);
+      return 1 / (1 + Math.exp(-raw));
     },
   };
 }

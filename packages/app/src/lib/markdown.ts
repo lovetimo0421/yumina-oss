@@ -30,7 +30,7 @@ function renderMarkdownLinkHtml(linkText: string, href: string): string {
   const normalizedHref = href.trim();
   const safeText = linkText.trim();
   const isInternalLink = normalizedHref.startsWith("/");
-  const isCommunityEventLink = normalizedHref.startsWith("/app/community/events/");
+  const isCommunityEventLink = normalizedHref.startsWith("/app/community/events/") || normalizedHref.startsWith("/app/invite-race");
 
   if (isCommunityEventLink) {
     return `<a href="${normalizedHref}" style="display:inline-flex;align-items:center;justify-content:center;padding:0.72rem 1.1rem;border-radius:999px;background:#C9A25E;color:#ffffff;font-weight:700;text-decoration:none;box-shadow:0 8px 20px rgba(156,116,37,0.18);">${safeText}</a>`;

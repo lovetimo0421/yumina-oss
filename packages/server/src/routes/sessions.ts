@@ -30,6 +30,7 @@ import { mergeGameStatePatch, normalizeGameState } from "../lib/game-state.js";
 import { hasStorySummary } from "../lib/session-compaction.js";
 import { collectExtensionInvalidation } from "../lib/extension-hooks.js";
 import { regenerateDroppedMemoryTiers } from "../extensions/session-memory/hooks.js";
+import { scheduleQuestCollect } from "../lib/quest-auto-collect.js";
 
 const sessionRoutes = new Hono<AppEnv>();
 
@@ -227,6 +228,7 @@ sessionRoutes.post("/", async (c) => {
       await recordDiscoveryOutcome(tx, attribution, "session_started", createdSession.id);
       return createdSession;
     });
+    scheduleQuestCollect(currentUser.id); // "Open a new world" may just have finished.
   } catch (err) {
     console.error("[SESSION] Failed to create session for world", body.worldId, err);
     return c.json({ error: "Failed to initialize session — this world may have invalid data" }, 500);

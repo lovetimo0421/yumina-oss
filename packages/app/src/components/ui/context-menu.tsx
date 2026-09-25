@@ -1,9 +1,36 @@
 import * as React from "react";
 import * as ContextMenuPrimitive from "@radix-ui/react-context-menu";
 import { cn } from "@/lib/utils";
+import { createContextMenuTouchGuard, keepMenuInViewport } from "@/lib/context-menu-touch";
 
-const ContextMenu = ContextMenuPrimitive.Root;
-const ContextMenuTrigger = ContextMenuPrimitive.Trigger;
+const TouchGuardContext = React.createContext<ReturnType<typeof createContextMenuTouchGuard> | null>(null);
+
+function ContextMenu({ onOpenChange, ...props }: React.ComponentProps<typeof ContextMenuPrimitive.Root>) {
+  const [guard] = React.useState(createContextMenuTouchGuard);
+  React.useEffect(() => () => guard.dispose(), [guard]);
+  return <TouchGuardContext.Provider value={guard}>
+    <ContextMenuPrimitive.Root {...props} onOpenChange={(open) => {
+      guard.setOpen(open);
+      onOpenChange?.(open);
+    }} />
+  </TouchGuardContext.Provider>;
+}
+
+const ContextMenuTrigger = React.forwardRef<
+  React.ComponentRef<typeof ContextMenuPrimitive.Trigger>,
+  React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.Trigger>
+>(({ disabled, style, onPointerDown, ...props }, ref) => {
+  const guard = React.useContext(TouchGuardContext);
+  return <ContextMenuPrimitive.Trigger {...props} ref={ref} disabled={disabled}
+    style={{ ...(!disabled && { userSelect: "none", WebkitUserSelect: "none" } as const), ...style }}
+    onPointerDown={(event) => {
+      onPointerDown?.(event);
+      if (!disabled && !event.defaultPrevented && event.pointerType !== "mouse") {
+        guard?.start(event.currentTarget.ownerDocument);
+      }
+    }} />;
+});
+ContextMenuTrigger.displayName = ContextMenuPrimitive.Trigger.displayName;
 const ContextMenuGroup = ContextMenuPrimitive.Group;
 const ContextMenuSub = ContextMenuPrimitive.Sub;
 
@@ -14,8 +41,9 @@ const ContextMenuContent = React.forwardRef<
   <ContextMenuPrimitive.Portal>
     <ContextMenuPrimitive.Content
       ref={ref}
+      collisionPadding={8}
       className={cn(
-        "z-50 min-w-[8rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md",
+        "z-50 min-w-[8rem] max-w-[var(--radix-context-menu-content-available-width)] max-h-[var(--radix-context-menu-content-available-height)] overflow-x-hidden overflow-y-auto [overflow-wrap:anywhere] rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
         className
       )}
@@ -97,19 +125,29 @@ ContextMenuSubTrigger.displayName = ContextMenuPrimitive.SubTrigger.displayName;
 const ContextMenuSubContent = React.forwardRef<
   React.ComponentRef<typeof ContextMenuPrimitive.SubContent>,
   React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.SubContent>
->(({ className, ...props }, ref) => (
+>(({ className, ...props }, ref) => {
+  const [element, setElement] = React.useState<HTMLDivElement | null>(null);
+  React.useLayoutEffect(() => element ? keepMenuInViewport(element) : undefined, [element]);
+  const setRef = React.useCallback((node: HTMLDivElement | null) => {
+    setElement(node);
+    if (typeof ref === "function") ref(node);
+    else if (ref) ref.current = node;
+  }, [ref]);
+  return (
   <ContextMenuPrimitive.Portal>
     <ContextMenuPrimitive.SubContent
-      ref={ref}
+      ref={setRef}
+      collisionPadding={8}
       className={cn(
-        "z-50 min-w-[8rem] overflow-hidden rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg",
+        "z-50 min-w-[8rem] max-w-[calc(100vw-1rem)] max-h-[var(--radix-context-menu-content-available-height)] overflow-x-hidden overflow-y-auto [overflow-wrap:anywhere] rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95",
         className
       )}
       {...props}
     />
   </ContextMenuPrimitive.Portal>
-));
+  );
+});
 ContextMenuSubContent.displayName = ContextMenuPrimitive.SubContent.displayName;
 
 export {

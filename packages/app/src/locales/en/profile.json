@@ -992,6 +992,8 @@
     "claimed": "Claimed",
     "checking": "checking…",
     "claimedToast": "Claimed +{{amount}} Mushies",
+    "autoCollectNote": "Finished daily and weekly quests are collected for you within a few minutes.",
+    "autoCollectedToast": "+{{amount}} Mushies collected for you",
     "errorChecking": "Could not confirm that just now. Try again in a moment.",
     "errorCapReached": "This cycle's quest rewards are fully claimed.",
     "errorGeneric": "Could not claim that. Try again in a moment.",
@@ -1378,5 +1380,219 @@
     "blockedNoReboot": "Only the Ollama app restarts, not your computer. Nothing is downloaded or installed.",
     "blockedLinux": "Set OLLAMA_ORIGINS as in step 3 of the setup guide, then restart the Ollama service.",
     "connectedToast": "Connected to {{runtime}} on your computer. Pick a model."
+  },
+  "inviteRace": {
+    "title": "Invite Race",
+    "headline": "Invite friends, split $1,000",
+    "startsOn": "Starts {{date}}",
+    "ended": "The race has ended.",
+    "preview": "Preview — only admins can see this event.",
+    "none": "There's no invite race running right now.",
+    "loadFailed": "Couldn't load the race. It will retry in a minute.",
+    "rank": "Rank #{{rank}}",
+    "estimate": "Your estimate",
+    "toRank": "{{n}} more tickets to reach #{{rank}} (+{{prize}})",
+    "toRankNoPrize": "{{n}} more tickets to reach #{{rank}}",
+    "firstTicket": "Invite a friend to get your first ticket.",
+    "top": "Leaderboard",
+    "topEmpty": "Nobody has a ticket yet. The first one leads.",
+    "you": "You",
+    "ticketsN": "{{n}} tickets",
+    "ticketsShort": "tickets",
+    "friends": "Your friends ({{n}})",
+    "friendsEmpty": "No friends in this race yet. Share your link below.",
+    "returnTomorrow": "Comes back another day → you +3",
+    "playMore": "Plays a bit more → you +3",
+    "toNextBand": "{{n}} tickets to the next level",
+    "excluded": "Not counted in this race",
+    "inviteLink": "Your invite link",
+    "copy": "Copy link",
+    "copied": "Copied",
+    "copyFailed": "Couldn't copy the link.",
+    "chooseBy": "Choose by {{date}}, or it's paid in mushies",
+    "chooseFailed": "Couldn't save your choice. Try again.",
+    "rules": "Full rules",
+    "rBand": "{{from}} → {{to}} mushies: 1 ticket per {{per}} ({{n}} tickets)",
+    "estimateNote": "The board updates every 2 minutes and shows estimates. Final amounts come after a 7-day review.",
+    "unit": {
+      "d": "d",
+      "h": "h",
+      "m": "m"
+    },
+    "share": "Share",
+    "shareText": "Join me on Yumina — interactive stories with AI. Sign up with my link and get 300 mushies: {{url}}",
+    "poster": {
+      "codeLabel": "My invite code",
+      "button": "Make poster",
+      "title": "Your share poster",
+      "hint": "Save it and post it anywhere — your code is on it.",
+      "download": "Save image",
+      "failed": "Couldn't make the poster.",
+      "scan": "Scan to join",
+      "line1": "Invite friends,",
+      "line2": "split",
+      "sub": "The more they play, the bigger your share",
+      "capLabel": "Each friend can earn you up to",
+      "capUnit": "tickets",
+      "capDetail": "Sign up +{{a}} · Come back +{{b}} · Keep playing up to +{{c}}",
+      "st1": "Share your link",
+      "sb1": "A friend signs up with it",
+      "st2": "They play",
+      "sb2": "Come back, keep playing",
+      "st3": "Split by tickets",
+      "sb3": "{{pool}} split by tickets",
+      "tipLabel": "Heads-up",
+      "tip": "New players get 300 mushies on signup"
+    },
+    "chart": {
+      "today": "past 24h",
+      "thisRound": "so far",
+      "hoverTickets": "{{n}} tickets at that time",
+      "day": "24H",
+      "round": "All"
+    },
+    "why": {
+      "friends": "Friends brought {{n}} tickets ({{usd}})",
+      "pool": "More people joined: each ticket {{from}} → {{to}} ({{usd}})",
+      "formula": "Estimate = {{tickets}} tickets × {{v}} each",
+      "plusRank": "+ {{usd}} rank prize",
+      "poolUp": "Each ticket {{from}} → {{to}} ({{usd}})"
+    },
+    "leading": "You're in first place. Keep it.",
+    "activityTitle": "Friend activity",
+    "act": {
+      "cameBack": "{{name}} came back to play",
+      "joined": "{{name}} signed up with your link"
+    },
+    "ago": {
+      "m": "{{n}}m",
+      "h": "{{n}}h"
+    },
+    "how": {
+      "title": "How to earn tickets",
+      "s1": "Friend signs up with your link",
+      "s2": "They come back the next day",
+      "s3": "They keep playing",
+      "s3b": "Within {{days}} days of signing up, once they pass {{free}} mushies, every {{low}}–{{high}} more mushies gives you another ticket.",
+      "upTo": "up to +{{n}}",
+      "pot": "{{pot}} shared by tickets",
+      "splitTitle": "How the $1,000 is split",
+      "split": "Top 5 win {{ranks}}. The other {{pot}} is split by tickets — every ticket counts.",
+      "upToLabel": "up to",
+      "exShort": "{{m}} mushies",
+      "formulaLine": "Your tickets = all your friends’ tickets added up, up to {{max}} per friend. More tickets, bigger share.",
+      "unit": "tickets"
+    },
+    "payout": {
+      "title": "What you can get",
+      "small": "Under {{cash}}: paid in mushies ($1 = {{rate}} mushies).",
+      "large": "{{cash}} and up: take mushies, or claim it by email through Tremendous. Open the email and pick what's offered where you live: PayPal, Venmo, Starbucks, Cash App, Amazon, Target, Walmart, Google Play, virtual Visa, Roblox, Xbox and more (options vary by country).",
+      "catalog": "See every reward option"
+    },
+    "friendsTitle": "Friends you invited",
+    "friendsCount": "{{n}} total",
+    "funnel": {
+      "signedUp": "All",
+      "waiting": "Not back yet",
+      "active": "Came back",
+      "playing": "Playing a lot",
+      "maxed": "Maxed"
+    },
+    "friendsTable": {
+      "joined": "Joined {{date}}",
+      "search": "Search friends",
+      "none": "No friends match.",
+      "more": "Show more ({{shown}} of {{total}})"
+    },
+    "status": {
+      "excluded": "Not counted",
+      "waiting": "Not back yet",
+      "maxed": "Maxed",
+      "playing": "Playing a lot",
+      "active": "Came back"
+    },
+    "sort": {
+      "tickets": "Most tickets",
+      "newest": "Newest"
+    },
+    "waitingTip": "{{n}} friends haven't come back yet. Each one is +3 tickets the day they play again — send them a message.",
+    "windowClosed": "Counting has ended",
+    "banner": {
+      "live": "{{days}} days left",
+      "title": "Invite friends, split $1,000",
+      "steps": "Friend signs up +1 · comes back +3 · keeps playing up to +60",
+      "yourEstimate": "your estimate",
+      "cta": "Open"
+    },
+    "promo": {
+      "title": "Invite friends, split $1,000",
+      "sub": "The more your friends play, the more tickets you get. Payout in {{days}} days.",
+      "copy": "Copy my invite link",
+      "open": "See details"
+    },
+    "sub": "The more your friends play, the more tickets you get. At the end, the pool is split by tickets.",
+    "countdownLabel": "Payout in",
+    "tag": "Invite Race is on · est. {{usd}}",
+    "claim": {
+      "title": "Claim your prize",
+      "giftCard": "{{usd}} gift card or cash",
+      "giftCardPlus": "{{usd}} gift card or cash + {{m}} mushies",
+      "allMushies": "All as {{m}} mushies"
+    },
+    "full": {
+      "whoTitle": "Who can join",
+      "who1": "Every registered Yumina player can take part as an inviter.",
+      "who2": "Invited friends must be new accounts created during the event, signing up through your invite link, a story link you shared, or your invite code.",
+      "who3": "Banned accounts don't count.",
+      "ticketsTitle": "How tickets count",
+      "t1": "A friend signs up through your invite: 1 ticket (up to {{cap}} signup tickets).",
+      "t2": "The friend comes back on another day and plays (at least 3 turns or 10 minutes): 3 more.",
+      "t3": "Mushies the friend uses in their first {{days}} days earn more tickets in these levels (free, gifted and bought mushies all count):",
+      "t4": "One friend can earn you at most {{max}} tickets.",
+      "t5": "Friends playing with their own API key still earn signup and return tickets; they don't spend mushies, so the mushie levels don't apply.",
+      "splitTitle": "How the pool is split",
+      "s1": "This period's pool is $1,000.",
+      "s2": "The top 5 by tickets also win {{ranks}}. Ties go to whoever got there first.",
+      "s3": "The other {{pot}} is split by everyone's tickets. Shares under $1 aren't paid and are re-split among everyone else.",
+      "payTitle": "How prizes are paid",
+      "p1": "Under {{cash}}: paid automatically as mushies to your wallet ($1 = {{rate}} mushies).",
+      "p2": "{{cash}} and up: take mushies, or claim it by email through Tremendous.",
+      "p3": "Prizes are sent by our rewards partner Tremendous to your account email. Open it and pick what's offered where you live, e.g. PayPal, Venmo, Starbucks, Cash App, Amazon, Target, Walmart, Google Play, virtual Visa, Roblox, Xbox; options vary by country.",
+      "p4": "Gift cards and cash are paid in whole dollars; the cents come as mushies. For example, $23.47 = $23 + 470 mushies.",
+      "p5": "If you don't choose within {{choose}} days of the result, it's paid as mushies.",
+      "whenTitle": "When results are final",
+      "w1": "The page updates every 2 minutes and shows estimates.",
+      "w2": "There is a 7-day review after the event ends. Final results and prizes come after that review.",
+      "fairTitle": "Fair play",
+      "f1": "Tickets from refunded or disputed payments are removed before the split.",
+      "f2": "Batches of fake accounts made to farm tickets are removed; in serious cases the inviter loses everything for the event.",
+      "f3": "Paying for play on your own second account is allowed — it just has to be a real payment.",
+      "termsTitle": "Other terms",
+      "x1": "You may be responsible for any taxes on your prize.",
+      "x2": "In case of cheating, system errors or events outside our control, Yumina may adjust, pause or end the event early, and will announce it.",
+      "x3": "Yumina's review decides account eligibility and results. Questions: reply under the Community announcement or contact support."
+    },
+    "stats": {
+      "mine": "My tickets",
+      "all": "All tickets",
+      "people": "{{n}} players",
+      "value": "One ticket ≈",
+      "rank": "My rank"
+    },
+    "hero": {
+      "eyebrow": "Invite Race",
+      "title": "Invite friends,\nwin together",
+      "subtitle": "A $1,000 pool — the more your friends play, the bigger your share · {{days}} days left",
+      "cta": "See my tickets"
+    },
+    "giftCardHow": "Our rewards partner Tremendous emails your account's address; open it and pick PayPal, a gift card, virtual Visa and more (options vary by country).",
+    "eventCard": {
+      "status": "Live",
+      "title": "Invite friends, win together"
+    },
+    "rankPrize": {
+      "won": "incl. {{usd}} rank prize"
+    },
+    "worldLinkHint": "Sharing any story link also carries your invite."
   }
 }

@@ -12,11 +12,11 @@ test("pending lifetime time commits with the session and drains exactly once wit
     return db.query(query.sql, query.params);
   };
   const snapshot = async () => ({
-    users: (await db.query<{ id: string; lifetime_playtime_seconds: number }>('SELECT * FROM "user" ORDER BY id')).rows,
+    users: (await db.query<{ id: string; lifetime_playtime_seconds: number }>('SELECT id,lifetime_playtime_seconds FROM "user" ORDER BY id')).rows,
     pending: (await db.query<{ user_id: string; seconds: number }>('SELECT * FROM playtime_lifetime_pending ORDER BY user_id')).rows,
   });
   try {
-    await db.exec(`CREATE TABLE "user"(id text PRIMARY KEY,lifetime_playtime_seconds integer NOT NULL);
+    await db.exec(`CREATE TABLE "user"(id text PRIMARY KEY,lifetime_playtime_seconds integer NOT NULL,last_active_at timestamp);
       CREATE TABLE play_sessions(id text PRIMARY KEY,playtime_seconds integer);
       INSERT INTO "user" VALUES ('u',100);
       INSERT INTO play_sessions VALUES ('s',100);`);
@@ -34,6 +34,7 @@ test("pending lifetime time commits with the session and drains exactly once wit
     await db.exec('DELETE FROM play_sessions');
     await run(drainLifetimePlaytime());
     assert.deepEqual(await snapshot(),{users:[{id:'u',lifetime_playtime_seconds:120}],pending:[]});
+    assert.ok((await db.query<{ last_active_at: Date | null }>('SELECT last_active_at FROM "user"')).rows[0]!.last_active_at, 'crediting play time stamps last active');
     await run(drainLifetimePlaytime());
     assert.equal((await snapshot()).users[0]!.lifetime_playtime_seconds,120);
     await run(enqueueLifetimePlaytime('u',7));
