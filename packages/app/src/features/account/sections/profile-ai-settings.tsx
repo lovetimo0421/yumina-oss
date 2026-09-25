@@ -1,6 +1,7 @@
 import { savePreferredProvider } from "@/lib/provider-switch";
 import { estimateReplyCost, formatCostEstimate } from "@yumina/shared";
 import { useState, useEffect, useCallback } from "react";
+import { TokenNumberInput } from "@/components/ui/token-number-input";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -69,7 +70,7 @@ export function ProfileAiSettings() {
     loading: creditLoading, fetchCredits,
   } = useCreditStore();
 
-  const { selectedModel, storyMemory, streaming, mixMode, modelPool, setConfig } = useConfigStore();
+  const { selectedModel, maxContext, storyMemory, streaming, mixMode, modelPool, setConfig } = useConfigStore();
 
   const [provider, setProvider] = useState<"official" | "private">(storedProvider);
   const [switching, setSwitching] = useState(false);
@@ -193,8 +194,8 @@ export function ProfileAiSettings() {
   // recommendations, one number. It is the story-memory dial now, matching
   // Settings > AI Configuration.
   const storyMemoryMax = Math.min(contextMax, 200_000);
-  // null = never chosen, so show what the account gets today.
-  const storyMemoryValue = storyMemory ?? storyMemoryMax;
+  // Show the server's account-age default without persisting it as a choice.
+  const storyMemoryValue = storyMemory ?? Math.min(maxContext, profile?.defaultStoryMemory ?? storyMemoryMax);
   const providerSwitchCopy: ProviderSwitchCopy = {
     official: {
       title: tChat("modelBrowser.switchToOfficial"),
@@ -296,18 +297,14 @@ export function ProfileAiSettings() {
                 <span className="text-[11px] text-white/30">{t("config.storyMemoryShort")}</span>
               </div>
               <div className="flex items-center gap-2 sm:ml-auto">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={storyMemoryValue.toLocaleString()}
+                <TokenNumberInput
+                  aria-label={t("config.storyMemory")}
+                  value={storyMemoryValue}
+                  min={2048}
+                  max={storyMemoryMax}
+                  formatted
                   placeholder="16,000"
-                  onChange={(e) => {
-                    const raw = e.target.value.replace(/,/g, "");
-                    const num = parseInt(raw, 10);
-                    if (!isNaN(num)) {
-                      setConfig("storyMemory", Math.max(2048, Math.min(storyMemoryMax, num)));
-                    }
-                  }}
+                  onCommit={(value) => setConfig("storyMemory", value)}
                   className={`${storyMemoryValue >= 100_000 ? "w-[5.5rem]" : "w-[5rem]"} rounded-lg border border-white/[0.08] bg-white/[0.03] px-2 py-1 text-right text-xs font-semibold tabular-nums text-white/70 placeholder:text-white/20 focus:border-gold/30 focus:outline-none`}
                 />
                 {storyMemoryValue !== 16000 && (

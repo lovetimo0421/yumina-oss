@@ -136,7 +136,10 @@ export function Chat({ renderBubble, className, children }: ChatProps) {
 
   return (
     <div
-      className={`flex h-full w-full min-w-0 flex-1 flex-col overflow-hidden ${className ?? ""}`}
+      // Keep the complete chat above preceding positioned creator backgrounds.
+      // Without a stacking context, a z-index:0 background can cover the plain
+      // textarea while positioned toolbar buttons remain visible above it.
+      className={`relative z-0 flex h-full w-full min-w-0 flex-1 flex-col overflow-hidden ${className ?? ""}`}
     >
       {/* Optional creator header content */}
       {children}

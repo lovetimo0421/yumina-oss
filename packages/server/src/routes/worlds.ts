@@ -794,6 +794,7 @@ worldRoutes.get("/hub", async (c, next) => {
             ? "popular"
             : "newest";
 
+  const filtersStartedAt = performance.now();
   const baseFilters = await buildHubBaseFilters(feed === "recommended" ? db : rd, {
     currentUserId: currentUser?.id,
     accountPreferences,
@@ -809,6 +810,7 @@ worldRoutes.get("/hub", async (c, next) => {
     feed,
     preferredLang,
   });
+  const filtersMs = performance.now() - filtersStartedAt;
 
   if (baseFilters.noResults) {
     return c.json({ data: [], total: 0 });
@@ -837,7 +839,8 @@ worldRoutes.get("/hub", async (c, next) => {
         }
       }
       const measurementMs = performance.now() - measurementStartedAt;
-      c.header("Server-Timing", `rank;dur=${rankingMs.toFixed(1)}, measure;dur=${measurementMs.toFixed(1)}`);
+      const marks = Object.entries(page.timings ?? {}).map(([name, ms]) => `${name.replace(/_ms$/, "")};dur=${ms.toFixed(1)}`).join(", ");
+      c.header("Server-Timing", `filters;dur=${filtersMs.toFixed(1)}, rank;dur=${rankingMs.toFixed(1)}, measure;dur=${measurementMs.toFixed(1)}${marks ? ", " + marks : ""}`);
       if (!c.req.raw.signal?.aborted) {
         logFeedServe({ id: page.feedRequestId, userId: currentUser?.id ?? null, surface: "recommended", feed,
           tier: page.tier, variant: page.variant, lang: baseFilters.preferredLang, offset: page.offset, worldIds: page.servedIds });
@@ -847,7 +850,9 @@ worldRoutes.get("/hub", async (c, next) => {
           world_ids: page.ids, tier: page.tier, variant: page.variant, cache: "cursor",
           policy_version: DISCOVERY_POLICY_VERSION, catalog_scans: page.scans,
           duration_ms: Math.round(performance.now() - startedAt), has_more: page.hasMore,
-          ranking_ms: Math.round(rankingMs), measurement_ms: Math.round(measurementMs),
+          ranking_ms: Math.round(rankingMs), measurement_ms: Math.round(measurementMs), filters_ms: Math.round(filtersMs),
+          // Where a fresh visit spent its ranking time (see serveDiscoveryFeed).
+          ...Object.fromEntries(Object.entries(page.timings ?? {}).map(([name, ms]) => ["t_" + name, Math.round(ms)])),
           authenticated: Boolean(currentUser),
           measurement_status: discoveryMeasurementEnabled() ? (attributionToken ? "recorded" : "unavailable") : "off",
           snapshot_bytes: attributionToken ? Buffer.byteLength(JSON.stringify(page.snapshots), "utf8") : 0,

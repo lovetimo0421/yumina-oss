@@ -3,7 +3,6 @@ import { db } from "../db/index.js";
 import { usageLogs } from "../db/schema.js";
 import { captureServerError } from "./posthog.js";
 import { touchLastActive } from "./last-active.js";
-import { scheduleQuestCollect } from "./quest-auto-collect.js";
 
 /** The turns the daily and weekly quests count (lib/quests.ts questProgress). */
 const QUEST_TURN_ENDPOINTS = new Set(["send", "regenerate", "continue"]);
@@ -145,5 +144,13 @@ export async function recordUsageLog(row: UsageLogInsert, options?: {database?: 
     }
   }
   // A finished turn can finish a quest; the collector looks a few seconds later.
-  if (QUEST_TURN_ENDPOINTS.has(values.endpoint) && (values.completionTokens ?? 0) > 0) scheduleQuestCollect(values.userId);
+  if (QUEST_TURN_ENDPOINTS.has(values.endpoint) && (values.completionTokens ?? 0) > 0) {
+    // The collector imports the hosted edition, which mounts routes that use
+    // this writer. Load it after module initialization to avoid a router cycle.
+    // Capture the event time now so crossing a reward reset cannot move it.
+    const at = new Date();
+    void import("./quest-auto-collect.js")
+      .then(({ scheduleQuestCollect }) => scheduleQuestCollect(values.userId, at))
+      .catch((error) => captureServerError("quest-collect-schedule-failed", error, { userId: values.userId }));
+  }
 }

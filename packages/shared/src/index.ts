@@ -402,4 +402,5 @@ export { IMAGE_MODEL_CAPABILITIES } from "./constants/image-models.js";
 export { personaEntriesSchema, formatPersonaEntries, MAX_PERSONA_ENTRIES, MAX_PERSONA_ENTRY_TITLE, MAX_PERSONA_ENTRY_CONTENT, MAX_PERSONA_ENTRIES_TOTAL } from "./types/persona-entries.js";
 export type { PersonaEntry } from "./types/persona-entries.js";
 export * from "./invite-race.js";
+export type { DeliveredPurchase, PurchaseReceipt } from "./types/purchase-receipt.js";
 export { KREW_ABOUT_HTML, KREW_PAGE_CSS } from "./krew-public-page.js";

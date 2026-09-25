@@ -38,6 +38,7 @@ globalThis.fetch = async (input, init) => {
 // missing-table behavior, so their empty databases must remain under test control.
 // This list controls setup only: the launcher still discovers and runs all tests.
 const fullSchemaTests = new Set([
+  "src/lib/stripe-single-subscription.integration.test.ts",
   "src/routes/agent-image-batch.test.ts",
   "src/lib/generation/image-batch-bindings.test.ts",
   "src/lib/generation/image-batches.test.ts",

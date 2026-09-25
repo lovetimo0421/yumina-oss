@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ChevronRight, Lock } from "lucide-react";
 import { isKimiAntiRepetitionModel } from "@/lib/kimi-repetition";
 import { useConfigStore } from "@/stores/config";
+import { useUserProfileStore } from "@/stores/user-profile";
 import { useCreditStore } from "@/edition/slots.state";
 import { GlobalPrompts } from "@/features/configs/global-prompts";
 import { Select } from "@/components/ui/select";
@@ -17,6 +18,8 @@ const OVERALL_PRESETS = [64_000, 128_000, 200_000] as const;
 
 export function AiConfigTab() {
   const { t } = useTranslation("profile");
+  const { profile, fetchProfile } = useUserProfileStore();
+  useEffect(() => { void fetchProfile(); }, [fetchProfile]);
   const {
     maxTokens,
     maxContext,
@@ -68,10 +71,9 @@ export function AiConfigTab() {
   // default 200,000 reads as a self-imposed limit on a plan that has none.
   const overallCeiling = Math.min(contextMax, 200_000);
   const storyMemoryMax = overallCeiling;
-  // Never chosen: show what the account is actually getting today, which is
-  // the whole window. The suggestion chip is the nudge; the number is not
-  // allowed to claim a change that has not happened.
-  const storyMemoryValue = storyMemory ?? overallCeiling;
+  // New accounts inherit 16K; older accounts retain their effective window.
+  // This display metadata must never become an explicit saved preference.
+  const storyMemoryValue = storyMemory ?? Math.min(maxContext, profile?.defaultStoryMemory ?? overallCeiling);
   const atOverallMax = maxContext >= overallCeiling;
 
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -147,6 +149,8 @@ export function AiConfigTab() {
                 })}
               </div>
               <NumberInput
+                commitOnBlur
+                aria-label={t("config.storyMemory")}
                 min={2048}
                 max={storyMemoryMax}
                 step={1024}
@@ -214,6 +218,8 @@ export function AiConfigTab() {
                 <span className="text-xs text-sub">{maxTokens.toLocaleString()} tokens</span>
               </div>
               <NumberInput
+                commitOnBlur
+                aria-label={t("config.responseLength")}
                 min={256}
                 max={32768}
                 step={256}

@@ -84,6 +84,11 @@ export type ServerHubEventMap = {
     /** Cursor work, split without including world/account identifiers. */
     ranking_ms?: number;
     measurement_ms?: number;
+    /** Hub filter construction (account preferences, blocks, language). */
+    filters_ms?: number;
+    /** Where a fresh visit spent its ranking time: t_profile_ms, t_engagement_ms,
+     * t_personalization_ms, t_retrieve_ms, t_rank_ms, t_hydrate_ms, t_page_ms. */
+    [mark: `t_${string}_ms`]: number | undefined;
     authenticated?: boolean;
     has_more?: boolean;
     measurement_status?: "recorded" | "unavailable" | "off";

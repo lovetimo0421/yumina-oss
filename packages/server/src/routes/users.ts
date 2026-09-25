@@ -1,4 +1,6 @@
 import { Hono } from "hono";
+import { env } from "../lib/env.js";
+import { profileStoryMemoryDefault } from "../lib/profile-story-memory.js";
 import { eq, and, ne, sql, desc, ilike, or, inArray, type SQL } from "drizzle-orm";
 import { db, readDb, readOwn, flagWrite } from "../db/index.js";
 import { posthog } from "../lib/posthog.js";
@@ -96,7 +98,11 @@ users.get("/me", authMiddleware, async (c) => {
 
   const showcasedAchievement = await fetchShowcasedAchievement(row.showcasedAchievementId, currentUser.id);
 
-  return c.json({ data: { ...row, showcasedAchievement } });
+  return c.json({ data: {
+    ...row,
+    showcasedAchievement,
+    defaultStoryMemory: profileStoryMemoryDefault(row.createdAt, env.STORY_MEMORY_DEFAULT_AT),
+  } });
 });
 
 // GET /api/users/me/playtime — hours played in last 14 days
@@ -859,7 +865,10 @@ users.on(["POST", "PATCH"], "/me", authMiddleware, rateLimitMiddleware("profile-
   updated.image = resolveImageCdn(updated.image);
   updated.banner = resolveImageCdn(updated.banner);
 
-  return c.json({ data: updated });
+  return c.json({ data: {
+    ...updated,
+    defaultStoryMemory: profileStoryMemoryDefault(updated.createdAt, env.STORY_MEMORY_DEFAULT_AT),
+  } });
   } catch (err) {
     console.error("[USERS] Error updating profile:", err);
     return c.json({ error: "Failed to update profile" }, 500);

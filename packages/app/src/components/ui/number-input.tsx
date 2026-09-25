@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { TokenNumberInput } from "./token-number-input";
 
 export interface NumberInputProps
   extends Omit<React.InputHTMLAttributes<HTMLInputElement>, "onChange" | "type"> {
@@ -8,10 +9,12 @@ export interface NumberInputProps
   min?: number;
   max?: number;
   step?: number;
+  /** Keep integer edits local until blur/Enter instead of persisting each digit. */
+  commitOnBlur?: boolean;
 }
 
 export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
-  ({ className, value, onChange, min, max, step = 1, disabled, ...props }, ref) => {
+  ({ className, value, onChange, min, max, step = 1, disabled, commitOnBlur = false, ...props }, ref) => {
     const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const val = e.target.value;
       if (val === "") {
@@ -47,7 +50,16 @@ export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
           className
         )}
       >
-        <input
+        {commitOnBlur && typeof value === "number" && min !== undefined && max !== undefined ? <TokenNumberInput
+          {...props}
+          ref={ref}
+          value={value}
+          min={min}
+          max={max}
+          onCommit={onChange}
+          disabled={disabled}
+          className="min-h-[44px] w-full min-w-0 flex-1 bg-transparent px-4 py-2 text-sm text-foreground outline-none"
+        /> : <input
           ref={ref}
           type="number"
           value={value}
@@ -59,7 +71,7 @@ export const NumberInput = React.forwardRef<HTMLInputElement, NumberInputProps>(
           disabled={disabled}
           className="min-h-[44px] w-full min-w-0 flex-1 bg-transparent px-4 py-2 text-sm text-foreground outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
           {...props}
-        />
+        />}
       </div>
     );
   }

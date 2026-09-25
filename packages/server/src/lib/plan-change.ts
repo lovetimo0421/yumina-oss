@@ -565,7 +565,10 @@ export async function finalizePlanChange(
       return { status: "applied", plan: w.plan, balance: Math.floor(w.balance), periodEnd: w.periodEnd.toISOString() };
     }
     if (!sub.pending_update) {
-      return stripePlan === wallet.plan
+      // Matching an unchanged tier also happens when an unpaid upgrade expires.
+      // Only a paid upgrade invoice can confirm delivery (including webhook-first).
+      return sub.status === "active" && item && inv && stripePlan === wallet.plan
+        && isCycleResetInvoice(inv, item, sub, stripePlan)
         ? { status: "applied", plan: wallet.plan, balance: Math.floor(wallet.balance), periodEnd: wallet.periodEnd.toISOString() }
         : { status: "unchanged" };
     }

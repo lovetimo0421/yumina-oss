@@ -40,6 +40,8 @@ interface UserProfile {
   /** ISO timestamp of account creation — used by ad-conversion attribution
    *  (fresh account on first profile load = this session's signup). */
   createdAt: string | null;
+  /** Server-resolved rollout default; null means inherit the effective window. */
+  defaultStoryMemory?: number | null;
 }
 
 interface UserProfileState {
@@ -77,6 +79,8 @@ function mapProfileResponse(data: Record<string, unknown>): UserProfile {
     isBanned: data.isBanned === true,
     isPartner: data.isPartner === true,
     createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
+    defaultStoryMemory: typeof data.defaultStoryMemory === "number" && Number.isFinite(data.defaultStoryMemory)
+      ? data.defaultStoryMemory : null,
   };
 }
 

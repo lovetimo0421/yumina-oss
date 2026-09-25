@@ -834,7 +834,7 @@ async function recordMonthlyExpiry(
  */
 export async function refreshMonthlyCredits(
   userId: string,
-  options?: { periodStart?: Date; periodEnd?: Date },
+  options?: { periodStart?: Date; periodEnd?: Date; referenceId?: string },
 ): Promise<boolean> {
   const wallet = await ensureWallet(userId);
   const now = new Date();
@@ -857,6 +857,13 @@ export async function refreshMonthlyCredits(
   return db.transaction(async (tx) => {
   const [locked] = await tx.select().from(creditWallets).where(eq(creditWallets.id,wallet.id)).for("update");
   if (!locked || locked.plan !== wallet.plan || (!options && locked.periodEnd.getTime() !== wallet.periodEnd.getTime())) return false;
+  if (options?.referenceId) {
+    const [prior] = await tx.select({ id: creditTransactions.id }).from(creditTransactions).where(and(
+      eq(creditTransactions.walletId, wallet.id), eq(creditTransactions.referenceId, options.referenceId),
+      eq(creditTransactions.type, "plan_grant"),
+    )).limit(1);
+    if (prior) return false;
+  }
   // Reset subscription mushies + preserve addon mushies.
   // balance = monthlyCredits + addonBalance (addon never expires)
   // When called from a webhook (with options), also clear stale planExpiresAt/
@@ -905,6 +912,7 @@ export async function refreshMonthlyCredits(
     walletId: wallet.id,
     amount: renewalGrant,
     type: "plan_grant",
+    referenceId: options?.referenceId ?? null,
     balanceAfter: updated.balance,
     description: planVersion === 2
       ? `Monthly ${wallet.plan} plan renewal (drop 1)${wallet.planVersion === 1 ? " — moved to the 2026-09 lineup" : ""}`

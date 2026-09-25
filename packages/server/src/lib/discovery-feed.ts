@@ -17,5 +17,7 @@ export async function serveDiscoveryFeed(_db: unknown, _options: unknown) {
     feedRequestId: '', offset: 0, nextCursor: null, hasMore: false, scans: 0,
     tier: 'cold' as const, variant: 'control' as const, modelId: null,
     visitId: '', servedAt: '', snapshots: {},
+    // Stage timings the hosted feed reports on hub_serve; none in the local build.
+    timings: {} as Record<string, number>,
   };
 }
