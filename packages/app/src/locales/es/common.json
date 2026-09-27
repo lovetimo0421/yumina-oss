@@ -106,6 +106,7 @@
     "user": "Usuario"
   },
   "notifications": {
+    "settings": "Ajustes de notificaciones",
     "socialEventAnnouncement": "Se han actualizado las reglas del evento para compartir YUMINA. Abre el evento para ver los detalles.",
     "socialEventInitialApproved": "Tu publicación superó la revisión inicial. Se concedieron {{amount}} Mushies.",
     "socialEventNeedsChanges": "Tu participación necesita cambios. Ábrela para ver los comentarios.",

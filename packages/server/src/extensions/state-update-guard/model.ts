@@ -22,7 +22,8 @@ export async function resolveGuardModel(userId: string, modelId: string, forceOf
   const model = applyModelRedirect(selection.model!);
   const resolved = await resolveProviderForModel(userId, model, {
     forceOfficial: forceOfficial || selection.provider === "official",
-    forcePrivate: !officialModels || selection.provider === "private", allowOfficialFallback: false,
+    forcePrivate: !officialModels || selection.provider === "private",
+    allowOfficialFallback: selection.provider === "official",
   });
   if (!resolved) throw new Error("The selected correction model has no available provider. Check AI Provider settings or choose another model.");
   if (!resolved.isByok) {

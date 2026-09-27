@@ -113,6 +113,7 @@ type CloudedGlassTexture = "lighter" | "darker" | "cloudy";
 interface NotificationPreferences {
   engagement: boolean;
   social: boolean;
+  creatorPosts: boolean;
   library: boolean;
   community: boolean;
 }
@@ -120,6 +121,7 @@ interface NotificationPreferences {
 const DEFAULT_NOTIFICATION_PREFS: NotificationPreferences = {
   engagement: true,
   social: true,
+  creatorPosts: true,
   library: true,
   community: true,
 };
@@ -254,6 +256,7 @@ function loadNotificationPreferences(raw: unknown): NotificationPreferences {
     return {
       engagement: obj.engagement !== false,
       social: obj.social !== false,
+      creatorPosts: obj.creatorPosts !== false,
       library: obj.library !== false,
       community: obj.community !== false,
     };
@@ -311,16 +314,17 @@ function loadSettings(preferences?: Record<string, unknown>): ProfileSettings {
 
 // --- Reusable pieces ---
 
-function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+function ToggleSwitch({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: string }) {
   return (
     <label className="relative inline-flex shrink-0 cursor-pointer items-center">
       <input
         type="checkbox"
         className="peer sr-only"
+        aria-label={label}
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
       />
-      <div className="h-6 w-11 rounded-full border border-white/10 bg-white/10 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-transparent after:bg-white after:transition-all peer-checked:bg-gold peer-checked:after:translate-x-full peer-checked:after:border-transparent peer-focus:outline-none" />
+      <div className="h-6 w-11 rounded-full border border-white/10 bg-white/10 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-transparent after:bg-white after:transition-all peer-checked:bg-gold peer-checked:after:translate-x-full peer-checked:after:border-transparent peer-focus-visible:ring-2 peer-focus-visible:ring-gold/70 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-card" />
     </label>
   );
 }
@@ -560,8 +564,13 @@ export function SettingsPage() {
 
     syncFromHash();
     window.addEventListener("hashchange", syncFromHash);
-    return () => window.removeEventListener("hashchange", syncFromHash);
-  }, []);
+    // Router navigation uses pushState, which does not emit native hashchange.
+    const unsubscribe = router.subscribe("onResolved", syncFromHash);
+    return () => {
+      window.removeEventListener("hashchange", syncFromHash);
+      unsubscribe();
+    };
+  }, [router]);
 
   useEffect(() => {
     if (!pendingTargetId || mobileShowNav) return;
@@ -2230,6 +2239,7 @@ function NotificationsSection({
   const NOTIFICATION_GROUPS = [
     { key: "engagement" as const, titleKey: "notifications.groups.engagement" as const, descKey: "notifications.groups.engagementDesc" as const },
     { key: "social" as const, titleKey: "notifications.groups.social" as const, descKey: "notifications.groups.socialDesc" as const },
+    { key: "creatorPosts" as const, titleKey: "notifications.groups.creatorPosts" as const, descKey: "notifications.groups.creatorPostsDesc" as const },
     { key: "library" as const, titleKey: "notifications.groups.library" as const, descKey: "notifications.groups.libraryDesc" as const },
     { key: "community" as const, titleKey: "notifications.groups.community" as const, descKey: "notifications.groups.communityDesc" as const },
   ];
@@ -2248,6 +2258,7 @@ function NotificationsSection({
                 <div className="mt-0.5 text-xs text-sub">{t(group.descKey)}</div>
               </div>
               <ToggleSwitch
+                label={t(group.titleKey)}
                 checked={settings.notificationPreferences[group.key]}
                 onChange={(v) => toggleNotifPref(group.key, v)}
               />

@@ -336,7 +336,7 @@ export const worlds = pgTable("worlds", {
   // column. See normalize-search.ts + worlds.ts handlers.
   searchDocNormalized: text("search_doc_normalized"),
   // Phase 7 content embedding: 1536-dim vector from OpenAI
-  // text-embedding-3-small over (name + description + tags + first_message
+  // text-embedding-3-large at 1536 dims (was -small until 2026-09-25) over (name + description + tags + first_message
   // snippet + author_note). Drives the `similar_played` recall route and
   // the `vectorScore` term in scoreRecommendationBase. NULL until the
   // backfill / on-publish hook fills it in. Indexed with HNSW for cosine

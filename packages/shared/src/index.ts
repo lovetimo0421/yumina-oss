@@ -404,3 +404,6 @@ export type { PersonaEntry } from "./types/persona-entries.js";
 export * from "./invite-race.js";
 export type { DeliveredPurchase, PurchaseReceipt } from "./types/purchase-receipt.js";
 export { KREW_ABOUT_HTML, KREW_PAGE_CSS } from "./krew-public-page.js";
+
+export { KREW_CONFIG_ELEMENT_ID, getKrewPublicConfig, normalizeKrewClientOrigin } from "./krew-config.js";
+export type { KrewPublicConfig } from "./krew-config.js";

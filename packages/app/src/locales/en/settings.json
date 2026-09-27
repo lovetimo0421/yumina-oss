@@ -237,6 +237,8 @@
       "engagementDesc": "Favorites, reviews, likes, and tips on your worlds and bundles.",
       "social": "Social",
       "socialDesc": "New followers and publishes from creators you follow.",
+      "creatorPosts": "Creator post notifications",
+      "creatorPostsDesc": "Posts from creators you follow or whose cards are in your library. Requires social notifications to be on.",
       "library": "Library",
       "libraryDesc": "Updates and status changes for worlds in your library.",
       "community": "Community",

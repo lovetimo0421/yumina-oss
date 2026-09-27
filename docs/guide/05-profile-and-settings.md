@@ -86,6 +86,8 @@ In **Settings → Generation → Backup model**, choose **Ask every time**, **Us
 ### Notifications
 Granular toggles for engagement (favorites, reviews), social (followers, followed creators publishing), library (world updates), and community (thread replies, likes, room invites) notifications.
 
+Open the notification bell and select the gear to jump to **Settings → Notifications**. **Creator post notifications** is on by default; turn it off to stop notifications about posts from creators you follow or whose cards are in your library. These notifications also require **Social** to be on. When publishing a community post, **Notify players about this post** is off by default; turn it on to notify your chosen audience.
+
 ### Display
 - **Font size:** Small / Default / Large / X-Large
 - **Language:** English, Chinese (Simplified), Japanese, Korean

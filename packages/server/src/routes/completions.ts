@@ -134,7 +134,7 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld, allowRetiredForAccessCheck: true });
   if (!resolved) {
     if (isProtectedWorld) {
-      return c.json({ error: "This world requires official API keys. Please remove your custom key to play." }, 400);
+      return c.json({ error: "This world requires the official Yumina API. Switch to it before playing this world.", code: "PROTECTED_WORLD" }, 403);
     }
     return c.json({ error: "No API key available for this model" }, 400);
   }

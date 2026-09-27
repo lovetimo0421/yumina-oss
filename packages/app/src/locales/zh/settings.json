@@ -237,6 +237,8 @@
       "engagementDesc": "你的世界和资源包的收藏、评价、点赞和打赏。",
       "social": "社交",
       "socialDesc": "新关注者和你关注的创作者的新发布。",
+      "creatorPosts": "创作者发帖通知",
+      "creatorPostsDesc": "接收你关注的创作者或库中卡片作者的发帖通知。需同时开启社交通知。",
       "library": "库",
       "libraryDesc": "你收藏的世界的更新和状态变更。",
       "community": "社区",

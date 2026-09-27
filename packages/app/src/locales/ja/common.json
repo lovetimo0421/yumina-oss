@@ -106,6 +106,7 @@
     "user": "ユーザー"
   },
   "notifications": {
+    "settings": "通知設定",
     "socialEventAnnouncement": "YUMINA シェアイベントのルールが更新されました。イベント詳細をご確認ください。",
     "socialEventInitialApproved": "SNS投稿が初回審査を通過し、{{amount}} Mushies が付与されました。",
     "socialEventNeedsChanges": "イベント投稿の修正が必要です。審査内容を確認してください。",

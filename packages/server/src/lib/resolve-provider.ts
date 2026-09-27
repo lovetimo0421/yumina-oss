@@ -59,8 +59,8 @@ export async function getUserApiKey(
  *  half the length of a real `sk-or-v1-…` key — decryption succeeded but
  *  produced a value that, when sent as `Authorization: Bearer <value>`,
  *  caused OpenRouter to return 401 "Missing Authentication header". Treating
- *  these as null lets `resolveProviderForModel` fall through cleanly to the
- *  official key path instead of forwarding a junk token. */
+ *  these as null avoids forwarding a junk token; private mode then fails
+ *  closed unless official fallback was explicitly requested. */
 function sanitizeDecrypted(key: string | null): string | null {
   if (key === null) return null;
   const trimmed = key.trim();
@@ -175,9 +175,10 @@ export async function resolveProviderForModel(
   const preferredProvider = options?.forcePrivate ? "private" : meta.preferredProvider;
   const retiredAccessCheck = options?.allowRetiredForAccessCheck && RETIRED_PLAY_MODEL_IDS.has(modelId);
 
-  // Force official keys (e.g., protected worlds with allowEdit=false)
-  // Skip BYOK entirely — user's own key must never see the prompt data
+  // Protected worlds cannot expose their prompt through BYOK. In private mode,
+  // reject the request instead of silently spending the user's Mushies.
   if (options?.forceOfficial) {
+    if (options.forcePrivate || !allowsOfficialKeyFallback(preferredProvider, options.allowOfficialFallback)) return null;
     // Custom models can never run under official mode (no pricing/billing info)
     if (providerName === "custom") return null;
     // Nor can a local one: forceOfficial exists to keep a protected world's
@@ -288,8 +289,8 @@ function resolveOfficialKey(plan: string): string | null {
 
 /**
  * The OpenRouter key a side call (music generation) should use for this user.
- * Mirrors resolveProviderForModel: private-mode BYOK first, then the official
- * key for the user's plan, then BYOK as the no-official-key fallback.
+ * Mirrors resolveProviderForModel: private mode uses only the user's key;
+ * official mode uses Yumina's key, with BYOK as a no-official-key fallback.
  */
 export async function resolveOpenRouterKeyForUser(userId: string): Promise<{
   apiKey: string;
@@ -301,6 +302,7 @@ export async function resolveOpenRouterKeyForUser(userId: string): Promise<{
   if (preferredProvider === "private") {
     const byok = await getUserApiKey(userId, "openrouter");
     if (byok) return { apiKey: byok, isByok: true, apiKeyTier: "byok" };
+    if (!allowsOfficialKeyFallback(preferredProvider)) return null;
   }
 
   const officialKey = resolveOfficialKey(plan);

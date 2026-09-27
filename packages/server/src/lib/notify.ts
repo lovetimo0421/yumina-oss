@@ -157,6 +157,7 @@ async function notificationAllowed(
 
   const prefs = (row?.preferences ?? {}) as Record<string, unknown>;
   const notifPrefs = (prefs.notificationPreferences ?? {}) as Record<string, boolean>;
+  if (type === "creator_community_post" && notifPrefs.creatorPosts === false) return false;
   if (group && notifPrefs[group] === false) return false;
   return !isNotificationSubjectMuted(prefs, subject);
 }
@@ -370,6 +371,7 @@ export async function notifyMany(
     allowedIds = rows.filter((row) => {
       const prefs = (row.preferences ?? {}) as Record<string, unknown>;
       const notifPrefs = (prefs.notificationPreferences ?? {}) as Record<string, boolean>;
+      if (type === "creator_community_post" && notifPrefs.creatorPosts === false) return false;
       if (group && notifPrefs[group] === false) return false;
       return !isNotificationSubjectMuted(prefs, subject);
     }).map((row) => row.id);

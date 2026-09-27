@@ -114,6 +114,7 @@
     "user": "用户"
   },
   "notifications": {
+    "settings": "通知设置",
     "socialEventAnnouncement": "YUMINA 分享活动规则已更新，点击查看参与详情。",
     "socialEventInitialApproved": "你的社媒帖子已通过初审，并发放 {{amount}} Mushies。",
     "socialEventNeedsChanges": "你的活动投稿需要修改，点此查看审核意见。",

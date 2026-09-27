@@ -5,7 +5,12 @@
  * suitable for direct insertion into `worlds.embedding` (pgvector
  * `vector(1536)`).
  *
- * The current provider is OpenAI text-embedding-3-small, using OPENAI_API_KEY.
+ * The current provider is OpenAI text-embedding-3-large asked for 1536
+ * dimensions (2026-09-25; was text-embedding-3-small). Same column width, a
+ * markedly stronger model, above all on the Chinese, Japanese and Spanish
+ * half of the catalog. Uses OPENAI_API_KEY. Vectors from the two models are
+ * not comparable: switching requires the full backfill in
+ * scripts/embed-worlds.ts right after deploy.
  *
  * Input is versioned and bounded by embedding-content.ts, including enabled
  * published greeting entries. Hooks log identifiers/hashes, never story bodies.
@@ -18,17 +23,18 @@ import { buildWorldEmbeddingInput, type WorldEmbeddingContent } from "./embeddin
 export { buildWorldEmbeddingInput, buildWorldEmbeddingText } from "./embedding-content.js";
 
 export const EMBEDDING_DIMENSIONS = 1536;
+export const EMBEDDING_MODEL = "text-embedding-3-large";
 
 interface EmbeddingProvider {
   embed(input: string): Promise<number[]>;
   embedBatch(inputs: string[]): Promise<number[][]>;
 }
 
-/** OpenAI text-embedding-3-small. The backfill batches at 64 inputs. */
+/** OpenAI text-embedding-3-large at 1536 dimensions. The backfill batches at 64 inputs. */
 class OpenAIEmbeddingProvider implements EmbeddingProvider {
   constructor(
     private apiKey: string,
-    private model: string = "text-embedding-3-small",
+    private model: string = EMBEDDING_MODEL,
   ) {}
 
   async embed(input: string): Promise<number[]> {
@@ -48,6 +54,7 @@ class OpenAIEmbeddingProvider implements EmbeddingProvider {
       body: JSON.stringify({
         model: this.model,
         input: inputs,
+        dimensions: EMBEDDING_DIMENSIONS,
       }),
     });
     if (!res.ok) {

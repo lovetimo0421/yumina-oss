@@ -114,6 +114,7 @@
     "user": "User"
   },
   "notifications": {
+    "settings": "Notification settings",
     "socialEventAnnouncement": "The YUMINA sharing event rules have been updated. Open the event for details.",
     "socialEventInitialApproved": "Your social post passed initial review. {{amount}} Mushies were granted.",
     "socialEventNeedsChanges": "Your social event entry needs changes. Open it to review the feedback.",

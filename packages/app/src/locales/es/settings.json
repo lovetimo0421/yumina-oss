@@ -237,6 +237,8 @@
       "engagementDesc": "Favoritos, reseñas, me gusta y propinas en tus mundos y paquetes.",
       "social": "Social",
       "socialDesc": "Nuevos seguidores y publicaciones de creadores que sigues.",
+      "creatorPosts": "Publicaciones de creadores",
+      "creatorPostsDesc": "Publicaciones de creadores que sigues o cuyas cartas están en tu biblioteca. Requiere activar las notificaciones sociales.",
       "library": "Biblioteca",
       "libraryDesc": "Actualizaciones y cambios de estado de mundos en tu Biblioteca.",
       "community": "Comunidad",
