@@ -1268,9 +1268,9 @@ export function ComponentHost() {
 
       case "api-response": {
         if (msg.callId.startsWith("shim-")) {
-          resolveShimCall(msg.callId, msg.result);
+          resolveShimCall(msg.callId, msg.result, msg.error);
         } else {
-          resolveApiCall(msg.callId, msg.result);
+          resolveApiCall(msg.callId, msg.result, msg.error);
         }
         break;
       }

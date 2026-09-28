@@ -328,7 +328,7 @@ Call inside any component body. Same API everywhere — no per-surface restricti
 | `readOnly` | Whether the session is read-only |
 | `canvasMode` | Current rendering mode: `"chat"`, `"custom"`, or `"fullscreen"` |
 | `greetingContent` | Greeting text extracted from world entries |
-| **Storage** (per-world, persists across sessions) | |
+| **Storage** (browser-local, per-world; not cloud/session storage) | |
 | `storage.get(key)` | Read a value (async) |
 | `storage.set(key, value)` | Write a value (async) |
 | `storage.remove(key)` | Delete a value (async) |
@@ -373,6 +373,50 @@ Call inside any component body. Same API everywhere — no per-surface restricti
 - `SessionMemoryModal` — The official **Session Memory & Story Summary** panel (the "会话记忆与剧情摘要 / Session Context" extension: Systems / Memory / Story Summary / Summaryception tabs). Props: `{ open: boolean, onClose: () => void }`. This is the SAME modal the built-in chat composer opens from its "Context" button. **When a card ships a custom composer (its own `<input>`/`<textarea>` instead of the built-in one), that Context button is gone — you MUST re-add this modal yourself, or the player loses session memory entirely.** Gate it on `api.memorySummaryEnabled` (see **Pattern: Session Memory Button** below). Do NOT hand-roll a memory/summary panel and do NOT substitute `api.injectContext` — that is a different feature.
 
 ## Asset Handling — NEVER Inline Base64
+
+### Player galleries and storage scope
+
+`api.storage` is browser-local UI storage, scoped by world. It does not sync
+across devices, is not included in checkpoints or Shared Playthroughs, and is
+not made cloud-backed by including `api.sessionId` in a key. Reserve it for
+non-critical preferences/cache. Handle rejected writes; never mark a payload
+saved until the returned promise resolves.
+
+Do not implement a persistent player gallery by putting `FileReader` data URLs
+in `api.storage`, or move those base64 strings into game variables. Player images
+use the private `api.media` service by default. It stores bytes and metadata
+separately from AI variables; world authors do not gain access to players' files.
+Creator assets still use `@asset:`. Do not put a private player image in the
+public creator asset library or save an expiring signed URL as its identity.
+
+```tsx
+// Load pages; URL values are temporary display URLs. Persist only media/entry IDs.
+const page = await api.media.list(0);
+// page.items: { id, entryId, filename, metadata, version, url, thumbnailUrl, deleted }
+// If page.hasMore, request the next offset. Re-fetch after writes or on reopen.
+// Replays call list() too, even with an empty api.sessionId. They cannot write.
+if (!api.readOnly && page.uploadsEnabled) {
+  const saved = await api.media.pick({ metadata: { title: "Character portrait" } });
+  // Native file chooser -> validated private cloud upload -> session association.
+  // null means canceled. Only a resolved non-null result means saved.
+}
+// With an existing file input: api.media.upload(file, {
+//   entryId: stableEntryId, uploadId: stableRequestUuid, metadata: { title }
+// }); Reuse uploadId when retrying the SAME file/request after a network failure.
+// Remove just one live association: api.media.remove(item.entryId, item.version).
+// Permanent deletion is managed under Library > Assets > Save images.
+```
+
+Handle rejected uploads with an error state and retain the selected File for
+retry. A paused rollout or full account must never fall back to a pretend cloud
+save. `api.media.list()` also resolves the authorized, frozen reference set in
+shared replays; honor `api.readOnly`. Static JPEG, PNG and WebP only: 16 MiB input,
+40 MP decode ceiling, display image at most 2048px plus thumbnail; processed
+images replace the uploaded original. Refresh display URLs after five minutes.
+Existing local images require migration from the original browser; the server
+cannot recover bytes it never received. Do not delete local originals before
+both the upload and the session save have been confirmed. Do not invent a runtime
+upload SDK method: verify it exists in the target version before using it.
 
 Binary assets (images, audio, fonts) must go through the asset system, never be embedded directly as data URIs. Inline base64 inflates files by 33% over the raw binary, ships on every page load, and bloats the world JSON so reads can't see the full file without pagination.
 

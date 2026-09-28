@@ -24,6 +24,7 @@ import posthog from "posthog-js";
 import { useSandbox } from "../sandbox/use-sandbox";
 import { GameRoomConnection } from "./game-room-connection";
 import { slimMessages } from "./slim-messages";
+import { scopeStorageKey, writeWorldStorage } from "./world-storage";
 import { createSideCallStreamReader } from "./side-call-stream";
 import { isCompiledValid, type CompiledRoot } from "@/features/studio/lib/compiled-format";
 import { absoluteImageUrl } from "@/lib/asset-url";
@@ -64,6 +65,8 @@ import { toPillText } from "@/lib/feedback-policy";
  * single line and clamp it, so `api.showToast` can never produce a paragraph
  * (or trip the DEV copy guard).
  */
+import { listSessionImages, uploadSessionImage, chooseSessionImage, mediaRequest } from "@/lib/session-media";
+import { adaptOncinGalleryFiles, createOncinCloudGallery, isOncinGalleryKey, isOncinGalleryWorld, oncinGallerySessionKey } from "./oncin-cloud-gallery";
 
 const SANDBOX_URL = SANDBOX_DOC_URL;
 const apiBase = import.meta.env.VITE_API_URL || "";
@@ -94,35 +97,6 @@ function isPendingMessageId(value: unknown): value is string {
   return typeof value === "string" && value.startsWith(PENDING_MESSAGE_ID_PREFIX);
 }
 
-/**
- * Confine a sandbox-supplied storage key to THIS world's namespaces. Already
- * fully-scoped keys (the compat shims' `yumina:{local|session}:{worldId}:…`)
- * pass through only when their worldId matches; anything else — including a
- * crafted prefix targeting another world — gets the default namespace applied.
- */
-function scopeStorageKey(worldId: string, rawKey: string): string {
-  const key = String(rawKey);
-  if (key.startsWith(`yumina:local:${worldId}:`) || key.startsWith(`yumina:session:${worldId}:`)) {
-    return key;
-  }
-  return `yumina:local:${worldId}:${key}`;
-}
-
-function evictOldestYuminaKeys(protectKey: string): void {
-  const entries: { key: string; size: number }[] = [];
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (k && k.startsWith("yumina:local:") && k !== protectKey) {
-      entries.push({ key: k, size: (localStorage.getItem(k) ?? "").length });
-    }
-  }
-  entries.sort((a, b) => b.size - a.size);
-  const toEvict = Math.max(1, Math.ceil(entries.length * 0.25));
-  for (let i = 0; i < toEvict && i < entries.length; i++) {
-    localStorage.removeItem(entries[i]!.key);
-  }
-}
-
 const SESSION_CAPABILITIES: SandboxCapabilities = {
   canSendMessage: true,
   canPersistSession: true,
@@ -150,6 +124,8 @@ interface WorldRendererProps {
   api: YuminaAPI;
   /** Session ID */
   sessionId: string;
+  /** Read-only media grants use the published snapshot, never its source session. */
+  mediaShareId?: string;
   /** World ID */
   worldId: string;
   /** Persona-aware user. Same branching as {{user}}: persona if active, else account.
@@ -188,12 +164,13 @@ interface WorldRendererProps {
 
 export function WorldRenderer({
   entryFile,
-  files,
+  files: incomingFiles,
   precompiled,
   variables,
   variableDefs,
   api,
   sessionId,
+  mediaShareId,
   worldId,
   user,
   className,
@@ -216,6 +193,7 @@ export function WorldRenderer({
   });
   useEffect(() => { setModelPickerOpen(false); }, [sessionId, isActive]);
   const modelFallback = useChatStore((s) => s.modelFallback?.sessionId === sessionId ? s.modelFallback : null);
+  const files=useMemo(()=>adaptOncinGalleryFiles(worldId,incomingFiles),[worldId,incomingFiles]);
   const bgmVolume = useAudioStore((s) => s.bgmVolume);
   const sfxVolume = useAudioStore((s) => s.sfxVolume);
   const router = useRouter();
@@ -252,6 +230,9 @@ export function WorldRenderer({
   apiRef.current = api;
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
+  const mediaShareIdRef = useRef(mediaShareId);
+  mediaShareIdRef.current = mediaShareId;
+  const galleryAdapterRef = useRef<{key:string;adapter:ReturnType<typeof createOncinCloudGallery>} | null>(null);
   const worldIdRef = useRef(worldId);
   worldIdRef.current = worldId;
   const activeLoreSlotsRef = useRef(new Set<string>());
@@ -329,6 +310,23 @@ export function WorldRenderer({
           if (imagePickerResolve.current) return null;
           setImagePickerOpen(true);
           return new Promise<ChatImageInput | null>(resolve => { imagePickerResolve.current = resolve; });
+        case "media.list": {
+          const sid=sessionIdRef.current,shareId=mediaShareIdRef.current;
+          if(!sid&&!shareId)return Promise.resolve({items:[],hasMore:false});
+          return listSessionImages(sid,Number(args[0])||0,shareId);
+        }
+        case "media.pick": case "media.upload": case "media.remove": {
+          const sid=sessionIdRef.current;
+          if(!sid||mode!=="session"||!capabilities.canPersistSession||(currentApi as YuminaAPI & {readOnly?:boolean}).readOnly)throw new Error("This view is read-only");
+          if(method==="media.remove")return mediaRequest(`session-media/session/${encodeURIComponent(sid)}/entries/${encodeURIComponent(String(args[0]))}`,{method:"DELETE",body:JSON.stringify({version:args[1]})});
+          return (async()=>{
+            const file=method==="media.pick"?await chooseSessionImage():args[0] as Blob;
+            if(!file)return null;
+            if(sessionIdRef.current!==sid)throw new Error("Session changed; image was not saved");
+            const options=(method==="media.pick"?args[0]:args[1]) as Parameters<typeof uploadSessionImage>[2];
+            return uploadSessionImage(sid,file,options);
+          })();
+        }
         case "sendMessage":
           currentApi.sendMessage(args[0] as string, args[1] as import("@yumina/shared").ChatImageInput[] | undefined);
           return;
@@ -1138,21 +1136,32 @@ export function WorldRenderer({
         // full `yumina:{local|session}:{worldId}:` keys; everything else gets
         // the default namespace applied here, never trusted from the caller.
         case "storage.get": {
+          if(isOncinGalleryKey(worldIdRef.current,args[0],sessionIdRef.current,mediaShareIdRef.current)){
+            const adapterKey=`${worldIdRef.current}:${sessionIdRef.current}:${mediaShareIdRef.current??""}`;
+            if(galleryAdapterRef.current?.key!==adapterKey)galleryAdapterRef.current={key:adapterKey,adapter:createOncinCloudGallery(sessionIdRef.current,mediaShareIdRef.current,()=>{
+              void import("sonner").then(({toast})=>toast.info("Gallery is available this session, but persistent UI storage is temporarily unavailable."));
+            })};
+            const localKey=scopeStorageKey(worldIdRef.current,args[0]);
+            return galleryAdapterRef.current.adapter.get(()=>localStorage.getItem(`${localKey}:pending-cloud`)??localStorage.getItem(localKey));
+          }
           return localStorage.getItem(scopeStorageKey(worldIdRef.current, args[0] as string));
         }
         case "storage.set": {
-          const key = scopeStorageKey(worldIdRef.current, args[0] as string);
-          try {
-            localStorage.setItem(key, args[1] as string);
-          } catch {
-            evictOldestYuminaKeys(key);
-            try {
-              localStorage.setItem(key, args[1] as string);
-            } catch {
-              console.warn("[WorldRenderer] localStorage quota exceeded, write dropped");
-              return { error: "quota_exceeded" };
+          if(isOncinGalleryKey(worldIdRef.current,args[0],sessionIdRef.current,mediaShareIdRef.current)){
+            const adapterKey=`${worldIdRef.current}:${sessionIdRef.current}:${mediaShareIdRef.current??""}`;
+            if(galleryAdapterRef.current?.key!==adapterKey)throw new Error("Load the gallery before saving");
+            if(galleryAdapterRef.current.adapter.usesCloud){
+              if(mediaShareIdRef.current)throw new Error("This gallery is read-only");
+              const pendingKey=`${scopeStorageKey(worldIdRef.current,args[0])}:pending-cloud`;
+              const payload=String(args[1]);
+              // Preserve the original legacy key. Pending writes are best-effort
+              // browser recovery; a failed cloud write always rejects the RPC.
+              try{localStorage.setItem(pendingKey,payload);}catch{/* Cloud may still succeed when the browser quota is full. */}
+              return galleryAdapterRef.current.adapter.set(payload).then(()=>{try{if(localStorage.getItem(pendingKey)===payload)localStorage.removeItem(pendingKey);}catch{/* Recovery copy may remain. */}});
             }
           }
+          const key = scopeStorageKey(worldIdRef.current, args[0] as string);
+          writeWorldStorage(localStorage, key, args[1] as string);
           return;
         }
         case "storage.remove": {
@@ -1178,7 +1187,7 @@ export function WorldRenderer({
           return { error: `unknown_method:${method}` };
       }
     },
-    [i18n, navigateToStory, router],
+    [i18n, navigateToStory, router, mode, capabilities.canSendMessage, capabilities.canPersistSession],
   );
 
   // ── Streaming API call handler (LLM completions) ──
@@ -1756,7 +1765,7 @@ export function WorldRenderer({
       worldId,
       worldName: api.worldName,
       worldCover: api.worldCover ?? null,
-      sessionId,
+      sessionId: isOncinGalleryWorld(worldId) ? oncinGallerySessionKey(sessionId,mediaShareId) : sessionId,
       // Resolved here as well as in chat-view: this effect IS the sandbox
       // boundary, so any caller that hands us a raw S3 key or relative ref
       // still pushes a fetchable absolute URL across the bridge.
@@ -1780,7 +1789,7 @@ export function WorldRenderer({
       worldbooks: worldbooks ?? [],
     };
     pushIfChanged("session", data);
-  }, [worldId, sessionId, api.worldName, api.worldCover, api.currentUser, user, entries, loreUiBindings, worldbooks]);
+  }, [worldId, sessionId, mediaShareId, api.worldName, api.worldCover, api.currentUser, user, entries, loreUiBindings, worldbooks]);
 
   // Push UI channel. Intentionally left without a dependency array: it carries
   // ~15 small fields (pendingChoices, model picker, checkpoints, volumes, …),

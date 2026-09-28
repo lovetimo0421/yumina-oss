@@ -292,6 +292,8 @@ export interface ApiResponseMessage {
   type: "api-response";
   callId: string;
   result: unknown;
+  /** Rejected transport/handler call, separate from a domain result. */
+  error?: string;
 }
 
 /** Streaming response chunk for long-running calls (e.g. LLM completions) */

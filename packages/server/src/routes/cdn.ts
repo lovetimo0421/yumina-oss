@@ -5,6 +5,7 @@ import { db } from "../db/index.js";
 import { isS3Configured, getObject } from "../lib/s3.js";
 import { Readable } from "node:stream";
 import { publicAssetCacheControl } from "../lib/public-asset-cache.js";
+import { isPublicCdnKey, resolvePublicCdnKey } from "../lib/cdn-key-policy.js";
 
 // In-memory LRU cache: assetId → s3Key
 // Assets are immutable, so the mapping never changes.
@@ -33,7 +34,6 @@ function setCachedS3Key(assetId: string, s3Key: string): void {
 const cdnRoutes = new Hono();
 
 // Allowed S3 key prefixes (defense-in-depth against arbitrary key access)
-const ALLOWED_KEY_PREFIXES = ["worlds/", "reports/", "studio-chat/", "users/", "bundles/", "dm/", "community/"];
 
 /**
  * CORS for the public asset route.
@@ -91,7 +91,7 @@ cdnRoutes.get("/key/:encodedKey", async (c) => {
     return c.json({ error: "Invalid key" }, 400);
   }
 
-  if (!ALLOWED_KEY_PREFIXES.some((p) => s3Key.startsWith(p))) {
+  if (!isPublicCdnKey(s3Key)) {
     return c.json({ error: "Invalid key prefix" }, 400);
   }
 
@@ -176,9 +176,7 @@ cdnRoutes.get("/:assetId", async (c) => {
   const assetId = c.req.param("assetId");
 
   // Check in-memory cache first
-  let s3Key: string | null = getCachedS3Key(assetId) ?? null;
-
-  if (!s3Key) {
+  const s3Key = await resolvePublicCdnKey(getCachedS3Key(assetId) ?? null, async () => {
     // Single query across both tables
     const result = await db.execute(sql`
       SELECT url FROM assets WHERE id = ${assetId}
@@ -188,13 +186,10 @@ cdnRoutes.get("/:assetId", async (c) => {
     `);
 
     const rows = result.rows as Array<{ url: string }>;
-    if (rows.length > 0) {
-      s3Key = rows[0]!.url;
-      setCachedS3Key(assetId, s3Key);
-    }
-  }
+    return rows[0]?.url ?? null;
+  }, (key) => setCachedS3Key(assetId, key));
 
-  if (!s3Key) {
+  if (!s3Key || !isPublicCdnKey(s3Key)) {
     return c.json({ error: "Asset not found" }, 404);
   }
 

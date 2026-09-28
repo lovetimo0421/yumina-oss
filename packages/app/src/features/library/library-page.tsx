@@ -8,7 +8,7 @@ import { useAuthGuard } from "@/hooks/use-auth-guard";
 import { useUserProfileStore } from "@/stores/user-profile";
 import { LibraryGameGrid } from "./library-game-grid";
 import { LibraryMyProjects } from "./library-my-projects";
-import { LibraryAssetsTab } from "./library-assets-tab";
+import { LibraryResourcesTab } from "./library-session-media";
 import { LibraryBundlesTab } from "@/edition/slots";
 import { useEdition } from "@/edition/edition";
 import { LibraryDetailPanel } from "./library-detail-panel";
@@ -280,7 +280,7 @@ export function LibraryPage() {
         />
       )}
 
-      {effectiveActiveTab === "assets" && <LibraryAssetsTab highlightedAssetId={view === "assets" ? assetId : undefined} showBindingHint />}
+      {effectiveActiveTab === "assets" && <LibraryResourcesTab highlightedAssetId={view === "assets" ? assetId : undefined} showBindingHint />}
 
       {effectiveActiveTab === "bundle" && <LibraryBundlesTab />}
 

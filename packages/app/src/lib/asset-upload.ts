@@ -484,6 +484,7 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
         filename: file.name,
         contentType,
         type: resolvedType,
+        sizeBytes: file.size,
         ...(animated ? { animated: true } : {}),
         ...prepareBody,
       }),

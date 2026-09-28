@@ -27,8 +27,8 @@ try {
 
 /**
  * Handler for API calls from the sandbox.
- * Returns a value for async calls (resolved via api-response),
- * or void/undefined for fire-and-forget calls.
+ * Requests receive api-response even when the handler returns void. Only
+ * notification call IDs opt out of a response; return values do not decide it.
  */
 export type ApiHandler = (method: string, args: unknown[]) => unknown | Promise<unknown>;
 
@@ -247,19 +247,37 @@ export class SandboxBridge {
           break;
         }
 
-        const result = this.onApiCall(msg.method, msg.args);
-        // Send api-response for async calls (both SDK "async-" and compat shim "shim-")
-        // Fire-and-forget calls (prefixed "fire-" or "shim-fire-") don't need a response
+        // A successful storage.set/remove returns void, but its SDK caller is
+        // still waiting. Reply based on the call ID, never the handler's result.
         const needsResponse =
-          !msg.callId.includes("fire") && result !== undefined;
-        if (needsResponse) {
-          Promise.resolve(result).then((resolved) => {
-            this.send({
-              type: "api-response",
-              callId: msg.callId,
-              result: resolved,
-            });
+          msg.callId.length > 0 &&
+          !msg.callId.startsWith("fire-") &&
+          !msg.callId.startsWith("shim-fire-");
+        const replyError = (error: unknown) => {
+          const message = error instanceof Error ? error.message : typeof error === "string" ? error : "API call failed";
+          this.send({
+            type: "api-response",
+            callId: msg.callId,
+            result: undefined,
+            error: message.slice(0, 500) || "API call failed",
           });
+        };
+        try {
+          // Keep synchronous mutations synchronous; notifications and subsequent
+          // storage/checkpoint requests rely on their original dispatch order.
+          const result = this.onApiCall(msg.method, msg.args);
+          if (needsResponse) {
+            Promise.resolve(result).then((resolved) => {
+              this.send({
+                type: "api-response",
+                callId: msg.callId,
+                result: resolved,
+              });
+            }, replyError);
+          }
+        } catch (error) {
+          if (needsResponse) replyError(error);
+          else throw error;
         }
         break;
       }

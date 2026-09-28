@@ -381,6 +381,7 @@ export function PlaythroughReplayView({ playthroughId, returnContext }: { playth
         variableDefs={worldDef?.variables ?? []}
         api={replayAPI}
         sessionId=""
+        mediaShareId={playthroughId}
         worldId={pt.worldId}
         mode="guest-preview"
         capabilities={REPLAY_CAPABILITIES}

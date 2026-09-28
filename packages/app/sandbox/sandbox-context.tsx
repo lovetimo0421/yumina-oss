@@ -11,6 +11,7 @@ import type {
 import type { SandboxCapabilities, SandboxEntry, SandboxLoreUiBinding, SandboxWorldbook, SandboxMode, SandboxState, LocalBridgeChannelData } from "./protocol";
 import { wrapMessage, postToParentWindow, type ApiCallMessage } from "./protocol";
 import { renderMarkdown } from "./chat/markdown";
+import type { SessionImage } from "../src/lib/session-media";
 
 export type { SandboxEntry } from "./protocol";
 
@@ -253,6 +254,13 @@ export interface SandboxedYuminaAPI {
   // ── Markdown ──
   renderMarkdown: (text: string) => string;
 
+  /** Private cloud images scoped to the active save; available read-only in replays. */
+  media: {
+    list: (offset?: number) => Promise<{items:SessionImage[];hasMore:boolean;uploadsEnabled?:boolean}>;
+    upload: (file: Blob, options?: {entryId?:string;filename?:string;metadata?:Record<string,unknown>;uploadId?:string}) => Promise<{mediaId:string;entryId:string}>;
+    pick: (options?: {entryId?:string;metadata?:Record<string,unknown>}) => Promise<{mediaId:string;entryId:string}|null>;
+    remove: (entryId:string,version:number) => Promise<{removed:boolean}>;
+  };
   // ── Storage (async, parent-mediated, per-world scoped) ──
   // Replaces: localStorage.getItem/setItem
   storage: {
@@ -630,6 +638,12 @@ const defaultAPI: SandboxedYuminaAPI = {
   getAudioVolume: () => 1,
   resolveAssetUrl: (ref) => ref,
   renderMarkdown: (t) => t,
+  media: {
+    list: () => noopPromise({items:[],hasMore:false}),
+    upload: () => Promise.reject(new Error("No active session")),
+    pick: () => noopPromise(null),
+    remove: () => Promise.reject(new Error("No active session")),
+  },
   storage: {
     get: () => noopPromise(null),
     set: () => noopPromise(undefined),
@@ -816,11 +830,12 @@ function callParent<T>(method: string, args: unknown[], timeoutMs = 10_000): Pro
 }
 
 /** Called by sandbox-host when receiving api-response from parent */
-export function resolveApiCall(callId: string, result: unknown): void {
+export function resolveApiCall(callId: string, result: unknown, error?: string): void {
   const pending = pendingCalls.get(callId);
   if (pending) {
     pendingCalls.delete(callId);
-    pending.resolve(result);
+    if (error !== undefined) pending.reject(new Error(error));
+    else pending.resolve(result);
   }
 }
 
@@ -1019,10 +1034,16 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     // Markdown
     renderMarkdown,
 
+    media: {
+      list: (offset) => callParent("media.list", [offset ?? 0], 60_000),
+      upload: (file, options) => callParent("media.upload", [file, options], 240_000),
+      pick: (options) => callParent("media.pick", [options], 600_000),
+      remove: (entryId, version) => callParent("media.remove", [entryId, version], 60_000),
+    },
     // Storage (async, per-world scoped)
     storage: {
-      get: (key) => callParent("storage.get", [key]),
-      set: (key, value) => callParent("storage.set", [key, value]),
+      get: (key) => callParent("storage.get", [key], key.startsWith("oncin:gallery:v2:") ? 600_000 : 10_000),
+      set: (key, value) => callParent("storage.set", [key, value], key.startsWith("oncin:gallery:v2:") ? 600_000 : 10_000),
       remove: (key) => callParent("storage.remove", [key]),
     },
 

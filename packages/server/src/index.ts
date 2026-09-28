@@ -58,6 +58,8 @@ import { assetRoutes } from "./routes/assets.js";
 import { userPromptsRoutes } from "./routes/user-prompts.js";
 import { userPresetOverridesRoutes } from "./routes/user-preset-overrides.js";
 import { userAssetRoutes } from "./routes/user-assets.js";
+import { sessionMediaRoutes } from "./routes/session-media.js";
+import { startSessionMediaCleanup } from "./lib/session-media.js";
 import { assetRefRoutes } from "./routes/asset-references.js";
 import { folderBindingRoutes } from "./routes/folder-bindings.js";
 import { personaRoutes } from "./routes/personas.js";
@@ -262,6 +264,7 @@ app.route("/api", assetRoutes);
 app.route("/api/user-prompts", userPromptsRoutes);
 app.route("/api/user-preset-overrides", userPresetOverridesRoutes);
 app.route("/api/user-assets", userAssetRoutes);
+app.route("/api/session-media", sessionMediaRoutes);
 app.route("/api", assetRefRoutes);
 app.route("/api", folderBindingRoutes);
 app.route("/api/personas", personaRoutes);
@@ -655,6 +658,7 @@ async function start() {
   // edition (hosted: recommendations, payouts, rollups, image generation, ...;
   // local: nothing).
   edition.startBackgroundJobs();
+  if (edition.name === "hosted") startSessionMediaCleanup();
 
   // Load the cl100k_base ranks up front so token budgeting is exact from the
   // first request. estimateTokens falls back to a char heuristic until the

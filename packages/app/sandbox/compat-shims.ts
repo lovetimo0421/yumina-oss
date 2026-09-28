@@ -51,11 +51,12 @@ function shimFireAndForget(method: string, args: unknown[]): void {
 }
 
 /** Called by sandbox-host when api-response arrives for shim calls */
-export function resolveShimCall(callId: string, result: unknown): void {
+export function resolveShimCall(callId: string, result: unknown, error?: string): void {
   const pending = shimPendingCalls.get(callId);
   if (pending) {
     shimPendingCalls.delete(callId);
-    pending.resolve(result);
+    if (error !== undefined) pending.reject(new Error(error));
+    else pending.resolve(result);
   }
 }
 

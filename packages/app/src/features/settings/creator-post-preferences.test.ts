@@ -8,7 +8,7 @@ import { JSDOM } from "jsdom";
 import { transform } from "sucrase";
 
 test("notification settings shortcut changes sections even when Settings is already mounted", () => {
-  const source = readFileSync(new URL("./settings-page.tsx", import.meta.url), "utf8");
+  const source = readFileSync(new URL("./settings-page.tsx", import.meta.url), "utf8").replace(/\r\n?/g, "\n");
   const syncStart = source.indexOf("    const syncFromHash =");
   const effect = source.slice(source.lastIndexOf("  useEffect(() => {", syncStart), source.indexOf("\n\n  useEffect", syncStart));
   const dom = new JSDOM("", { url: "https://yumina.test/app/settings#account" });
@@ -43,7 +43,7 @@ test("notification settings shortcut changes sections even when Settings is alre
 });
 
 test("creator-post setting loads saved opt-out and toggles without changing other notification choices", async () => {
-  const source = readFileSync(new URL("./settings-page.tsx", import.meta.url), "utf8");
+  const source = readFileSync(new URL("./settings-page.tsx", import.meta.url), "utf8").replace(/\r\n?/g, "\n");
   const section = source.slice(source.indexOf("function NotificationsSection("), source.indexOf("type FontSize ="));
   const loader = source.slice(source.indexOf("function loadNotificationPreferences("), source.indexOf("function loadSettings("));
   const defaults = source.slice(source.indexOf("const DEFAULT_NOTIFICATION_PREFS"), source.indexOf("interface PrivacySettings"));

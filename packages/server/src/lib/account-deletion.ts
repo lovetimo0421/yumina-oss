@@ -212,6 +212,7 @@ async function getDeletionContext(
     ].filter(Boolean))],
     assetPrefixes: [...new Set([
       `users/${userId}/`,
+      `private-session-media/${userId}/`,
       `dm/${userId}/`,
       `studio-chat/${userId}/`,
       `community/${userId}/`,

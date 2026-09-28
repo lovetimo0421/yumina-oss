@@ -815,6 +815,39 @@ export const assetReferences = pgTable("asset_references", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Private session media never shares the public user_assets/CDN namespace.
+export const sessionMediaFiles = pgTable("session_media", {
+  id: text("id").primaryKey(), userId: text("user_id").notNull().references(() => user.id, {onDelete:"cascade"}),
+  filename: text("filename").notNull(), hash: text("hash").notNull(), objectKey: text("object_key").notNull(), thumbnailKey: text("thumbnail_key").notNull(),
+  sizeBytes: bigint("size_bytes",{mode:"number"}).notNull(), width: integer("width").notNull(), height: integer("height").notNull(),
+  status: text("status").notNull().default("ready"), revision: integer("revision").notNull().default(1),
+  unreferencedAt: timestamp("unreferenced_at",{withTimezone:true}), createdAt: timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+}, t=>[uniqueIndex("session_media_hash_uq").on(t.userId,t.hash).where(sql`${t.status}='ready'`),index("session_media_owner_idx").on(t.userId,t.createdAt,t.id),
+  index("session_media_deleting_idx").on(t.id).where(sql`${t.status}='deleting'`),index("session_media_unreferenced_idx").on(t.unreferencedAt).where(sql`${t.status}='ready' AND ${t.unreferencedAt} IS NOT NULL`),
+  check("session_media_size_bytes_check",sql`${t.sizeBytes}>=0`),check("session_media_status_check",sql`${t.status} IN ('ready','deleting','deleted')`)]);
+export const sessionMediaUploads = pgTable("session_media_uploads", {
+  id: text("id").primaryKey(), userId: text("user_id").notNull().references(()=>user.id,{onDelete:"cascade"}),
+  sessionId: text("session_id").references(()=>playSessions.id,{onDelete:"set null"}),entryId:text("entry_id").notNull(),
+  filename:text("filename").notNull(),contentType:text("content_type").notNull(),inputBytes:bigint("input_bytes",{mode:"number"}).notNull(),reservedBytes:bigint("reserved_bytes",{mode:"number"}).notNull(),
+  metadata:jsonb("metadata").notNull().default({}),tempKey:text("temp_key").notNull(),status:text("status").notNull().default("pending"),
+  attempt:text("attempt"),attempts:jsonb("attempts").notNull().default([]),processingAt:timestamp("processing_at",{withTimezone:true}),mediaId:text("media_id").references(()=>sessionMediaFiles.id),
+  expiresAt:timestamp("expires_at",{withTimezone:true}).notNull(),cleanedAt:timestamp("cleaned_at",{withTimezone:true}),createdAt:timestamp("created_at",{withTimezone:true}).notNull().defaultNow(),
+},t=>[index("session_media_upload_owner_idx").on(t.userId,t.createdAt),index("session_media_upload_cleanup_idx").on(t.expiresAt).where(sql`${t.cleanedAt} IS NULL`),check("session_media_uploads_status_check",sql`${t.status} IN ('pending','processing','complete','expired')`)]);
+export const sessionMediaReferences = pgTable("session_media_refs", {
+  id:text("id").primaryKey(),mediaId:text("media_id").notNull().references(()=>sessionMediaFiles.id,{onDelete:"cascade"}),
+  sessionId:text("session_id").references(()=>playSessions.id,{onDelete:"cascade"}),checkpointId:text("checkpoint_id").references(()=>checkpoints.id,{onDelete:"cascade"}),shareId:text("share_id").references(()=>sharedPlaythroughs.id,{onDelete:"cascade"}),
+  entryId:text("entry_id").notNull(),metadata:jsonb("metadata").notNull().default({}),version:integer("version").notNull().default(1),
+  addedAt:timestamp("added_at",{withTimezone:true}).notNull().default(sql`clock_timestamp()`),removedAt:timestamp("removed_at",{withTimezone:true}),
+},t=>[uniqueIndex("session_media_live_entry_uq").on(t.sessionId,t.entryId).where(sql`${t.sessionId} IS NOT NULL AND ${t.removedAt} IS NULL`),
+  index("session_media_ref_file_idx").on(t.mediaId),index("session_media_ref_session_idx").on(t.sessionId,t.addedAt,t.removedAt),index("session_media_ref_checkpoint_idx").on(t.checkpointId),index("session_media_ref_share_idx").on(t.shareId),
+  check("session_media_refs_check",sql`num_nonnulls(${t.sessionId},${t.checkpointId},${t.shareId})=1`)]);
+
+export const sessionMediaDocuments = pgTable("session_media_documents", {
+  id:text("id").primaryKey(),sessionId:text("session_id").references(()=>playSessions.id,{onDelete:"cascade"}),
+  checkpointId:text("checkpoint_id").references(()=>checkpoints.id,{onDelete:"cascade"}),shareId:text("share_id").references(()=>sharedPlaythroughs.id,{onDelete:"cascade"}),
+  value:jsonb("value").notNull().default({}),version:integer("version").notNull(),addedAt:timestamp("added_at",{withTimezone:true}).notNull().default(sql`clock_timestamp()`),removedAt:timestamp("removed_at",{withTimezone:true}),
+},t=>[uniqueIndex("session_media_document_live_uq").on(t.sessionId).where(sql`${t.removedAt} IS NULL AND ${t.sessionId} IS NOT NULL`),index("session_media_document_share_idx").on(t.shareId),index("session_media_document_checkpoint_idx").on(t.checkpointId),check("session_media_documents_check",sql`num_nonnulls(${t.sessionId},${t.checkpointId},${t.shareId})=1`)]);
+
 // Binds a user's asset folder to one of their worlds. Purely an organizational
 // convenience for the editor (surface "this card's folders" first) — it does NOT
 // affect publishing/packaging, which still walks @asset refs via scan-world-assets.

@@ -27,6 +27,7 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { Readable } from "node:stream";
 import { env, IS_DEV, IS_LOCAL_EDITION, PUBLIC_ORIGIN, STORAGE_DIR } from "./env.js";
 import { LocalDiskStorage } from "./storage/local-disk.js";
+import { copyAndVerifyObject, type VerifiedCopyMetadata } from "./s3-copy-verification.js";
 
 export type StorageKind = "s3" | "local" | "none";
 
@@ -104,15 +105,47 @@ function getClient(): S3Client {
  */
 export async function generateUploadUrl(
   key: string,
-  contentType: string
+  contentType: string,
+  options?: { contentLength: number; expiresIn: number },
 ): Promise<string> {
-  if (useLocal()) return getLocalDiskStorage().generateUploadUrl(key, contentType);
+  if (useLocal()) {
+    // Private session uploads need signed size limits and private read URLs.
+    if (key.startsWith("private-session-media/")) throw new Error("MEDIA_NOT_CONFIGURED");
+    return getLocalDiskStorage().generateUploadUrl(key, contentType);
+  }
   const command = new PutObjectCommand({
     Bucket: env.AWS_S3_BUCKET_NAME,
     Key: key,
     ContentType: contentType,
+    ...(options ? { ContentLength: options.contentLength } : {}),
   });
-  return getSignedUrl(getClient(), command, { expiresIn: 3600 });
+  return getSignedUrl(getClient(), command, { expiresIn: options?.expiresIn ?? 3600 });
+}
+
+/** Only call after authorizing a private media reference. Never persist this URL. */
+export async function generatePrivateReadUrl(key: string): Promise<string> {
+  if (storageKind() !== "s3") throw new Error("MEDIA_NOT_CONFIGURED");
+  return getSignedUrl(getClient(), new GetObjectCommand({
+    Bucket: env.AWS_S3_BUCKET_NAME, Key: key,
+    ResponseCacheControl: "private, no-store", ResponseContentType: "image/webp",
+  }), { expiresIn: 300 });
+}
+
+/** Enforce a byte ceiling while streaming; a lying object header cannot exhaust RAM. */
+export async function getObjectBufferLimited(key: string, maxBytes: number): Promise<Buffer> {
+  const object = await getObject(key, { signal: AbortSignal.timeout(30_000) });
+  if (!object.body || (object.contentLength ?? 0) > maxBytes) throw new Error("MEDIA_INVALID_SIZE");
+  const stream = object.body as AsyncIterable<Uint8Array> & { destroy?: () => void };
+  const chunks: Buffer[] = [];
+  let size = 0;
+  try {
+    for await (const chunk of stream) {
+      size += chunk.length;
+      if (size > maxBytes) throw new Error("MEDIA_INVALID_SIZE");
+      chunks.push(Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks, size);
+  } finally { stream.destroy?.(); }
 }
 
 /** Inspect an object without exposing it through the public CDN proxy. */
@@ -138,7 +171,7 @@ export async function headObject(key: string): Promise<{
  * `body` is an SDK stream for S3 or a Node `Readable` for local disk; both
  * consumers (`cdn.ts`, event-proof reads) already branch on `instanceof Readable`.
  */
-export async function getObject(key: string, opts?: { range?: string }): Promise<{
+export async function getObject(key: string, opts?: { range?: string; signal?: AbortSignal }): Promise<{
   body: GetObjectCommandOutput["Body"] | Readable;
   contentType: string;
   contentLength: number | undefined;
@@ -156,7 +189,7 @@ export async function getObject(key: string, opts?: { range?: string }): Promise
     // GETs with 206 + ContentRange; un-ranged behavior is unchanged.
     ...(opts?.range ? { Range: opts.range } : {}),
   });
-  const response = await getClient().send(command);
+  const response = await getClient().send(command, { abortSignal: opts?.signal });
   return {
     body: response.Body,
     contentType: response.ContentType ?? "application/octet-stream",
@@ -222,14 +255,30 @@ export async function putObject(
 }
 
 /** Copy an object server-side to a key that was never exposed by a presigned PUT. */
-export async function copyObject(sourceKey: string, destinationKey: string): Promise<void> {
-  if (useLocal()) return getLocalDiskStorage().copyObject(sourceKey, destinationKey);
+export async function copyObject(
+  sourceKey: string,
+  destinationKey: string,
+  etag?: string,
+  expectedMetadata?: { contentLength: number; contentType: string },
+): Promise<void> {
+  if (useLocal()) {
+    // The local backend has no atomic conditional-copy operation.
+    if (etag) throw new Error("Conditional copy requires S3 storage");
+    return getLocalDiskStorage().copyObject(sourceKey, destinationKey);
+  }
   const encodedSource = `${env.AWS_S3_BUCKET_NAME}/${sourceKey.split("/").map(encodeURIComponent).join("/")}`;
-  await getClient().send(new CopyObjectCommand({
+  const copy = (metadata?: VerifiedCopyMetadata) => getClient().send(new CopyObjectCommand({
     Bucket: env.AWS_S3_BUCKET_NAME,
     CopySource: encodedSource,
     Key: destinationKey,
-  }));
+    ...metadata,
+    ...(etag ? { CopySourceIfMatch: `"${etag}"` } : {}),
+  }), { abortSignal: AbortSignal.timeout(30_000) });
+  if (etag) {
+    await copyAndVerifyObject(copy, () => headObject(destinationKey), { ...expectedMetadata, etag });
+  } else {
+    await copy();
+  }
 }
 
 /** Delete an object (missing objects are not an error on either backend). */

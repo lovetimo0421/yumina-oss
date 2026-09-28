@@ -113,10 +113,12 @@ function hasFileDragPayload(dataTransfer: DataTransfer): boolean {
 export function LibraryAssetsTab({
   highlightedAssetId,
   showBindingHint = false,
+  resourceNav,
 }: {
   highlightedAssetId?: string;
   /** Show the "bind a folder to a card" hint banner (global library only). */
   showBindingHint?: boolean;
+  resourceNav?: React.ReactNode;
 }) {
   const { t } = useTranslation("library");
   const { requireAuth, isAuthenticated, session } = useAuthGuard();
@@ -654,6 +656,7 @@ export function LibraryAssetsTab({
       </div>
 
       {/* ─── Toolbar ─── */}
+      {resourceNav}
       <div className="library-asset-toolbar">
         {/* Breadcrumb */}
         <nav className="flex items-center gap-1 text-sm min-w-0 flex-1">

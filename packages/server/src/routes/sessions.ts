@@ -9,6 +9,7 @@ import { eq, and, ne, desc, asc, sql, count, inArray } from "drizzle-orm";
 import { db, readOwn } from "../db/index.js";
 import { createHash, randomUUID } from "node:crypto";
 import { playSessions, worlds, messages, apiKeys, worldMemories, checkpoints, userLibrary, user, summaryceptionSnippets } from "../db/schema.js";
+import { sessionMedia } from "../lib/session-media.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { decryptApiKey } from "../lib/crypto.js";
 import { extractMemories, loadWorldMemories } from "../lib/memory-extractor.js";
@@ -1778,12 +1779,16 @@ sessionRoutes.post("/:id/checkpoints/:checkpointId/restore", async (c) => {
   const restoredState = renewSocialEpoch(normalizeGameState(worldDef, checkpoint.state), randomUUID());
   applyPersonaMetadataToState(restoredState, await resolvePersonaForSession(sessionRows[0]!), currentUser);
 
+  const invalidation = collectExtensionInvalidation({ reason: "checkpoint-restore", sessionId });
+  await db.transaction(async (tx) => {
+  await sessionMedia.restore(tx, currentUser.id, sessionId, checkpointId);
+
   // Delete all current messages
-  await db.delete(messages).where(eq(messages.sessionId, sessionId));
+  await tx.delete(messages).where(eq(messages.sessionId, sessionId));
 
   // Re-insert messages from snapshot
   if (snapshotMessages.length > 0) {
-    await db.insert(messages).values(
+    await tx.insert(messages).values(
       snapshotMessages.map((m) => ({
         id: m.id as string,
         sessionId,
@@ -1816,8 +1821,7 @@ sessionRoutes.post("/:id/checkpoints/:checkpointId/restore", async (c) => {
   // summaryception snippets and structured session memory — in the same
   // atomic update, or prompts would inject content from the pre-restore
   // timeline.
-  const invalidation = collectExtensionInvalidation({ reason: "checkpoint-restore", sessionId });
-  await db
+  await tx
     .update(playSessions)
     .set({
       state: restoredState as unknown as Record<string, unknown>,
@@ -1832,6 +1836,7 @@ sessionRoutes.post("/:id/checkpoints/:checkpointId/restore", async (c) => {
       updatedAt: new Date(),
     })
     .where(eq(playSessions.id, sessionId));
+  });
   await invalidation.runAfter();
 
   // Return restored messages + state
