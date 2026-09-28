@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm";
-import { readOwn } from "../db/index.js";
+import { readOwn, type Database } from "../db/index.js";
 import { userBlocks } from "../db/schema.js";
 
 export const BLOCKED_ERROR = {
@@ -29,6 +29,18 @@ export async function getBlockStatus(userA: string, userB: string): Promise<Bloc
   };
 }
 
+/** Both directions of a block hide profiles and creator-owned content. */
+export async function listMutuallyBlockedUserIds(viewerId: string, database?: Database): Promise<string[]> {
+  const rd = database ?? await readOwn(viewerId);
+  const rows = await rd.select({
+    blockerId: userBlocks.blockerId,
+    blockedId: userBlocks.blockedId,
+  }).from(userBlocks).where(sql`
+    ${userBlocks.blockerId} = ${viewerId} OR ${userBlocks.blockedId} = ${viewerId}
+  `);
+  return [...new Set(rows.map((row) => row.blockerId === viewerId ? row.blockedId : row.blockerId))];
+}
+
 
 export async function listBlockedUsersForHiding(viewerId: string): Promise<{
   hideWorldCreatorIds: string[];
@@ -40,7 +52,6 @@ export async function listBlockedUsersForHiding(viewerId: string): Promise<{
     rd
       .select({
         blockedId: userBlocks.blockedId,
-        hideBlockedWorlds: userBlocks.hideBlockedWorlds,
         hideBlockedActivity: userBlocks.hideBlockedActivity,
       })
       .from(userBlocks)
@@ -48,15 +59,14 @@ export async function listBlockedUsersForHiding(viewerId: string): Promise<{
     rd
       .select({
         blockerId: userBlocks.blockerId,
-        hideOwnWorlds: userBlocks.hideOwnWorlds,
       })
       .from(userBlocks)
       .where(eq(userBlocks.blockedId, viewerId)),
   ]);
 
   return {
-    hideWorldCreatorIds: outgoing.filter((row) => row.hideBlockedWorlds).map((row) => row.blockedId),
-    hiddenByCreatorIds: incoming.filter((row) => row.hideOwnWorlds).map((row) => row.blockerId),
+    hideWorldCreatorIds: outgoing.map((row) => row.blockedId),
+    hiddenByCreatorIds: incoming.map((row) => row.blockerId),
     hideActivityUserIds: outgoing.filter((row) => row.hideBlockedActivity).map((row) => row.blockedId),
   };
 }

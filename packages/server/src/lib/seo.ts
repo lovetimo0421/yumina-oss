@@ -1,4 +1,5 @@
 import { eq, or, and, isNull, desc } from "drizzle-orm";
+import { KREW_PREVIEW_IMAGE } from "@yumina/shared";
 import { readPublic } from "../db/index.js";
 import { PUBLIC_ORIGIN } from "./env.js";
 import { worlds } from "../db/schema.js";
@@ -13,10 +14,8 @@ const DEFAULT_TITLE = "Yumina - AI Interactive Fiction Platform";
 const KREW_TITLE = "Krew.io - Free Multiplayer Pirate Ship Battle Game";
 const KREW_DESCRIPTION =
   "Krew.io is a free online 3D pirate game. Captain a ship or join a krew, fire cannons, fish, trade and sink rivals to rule the seven seas. Play now, no download.";
-// Composed from the live landing scene + the game's logo (tools: krew-og-build in the SEO PR).
-// New file name on purpose: the old one is cached immutable at the CDN for a year.
-const KREW_IMAGE = `${SITE_URL}/krew-og-v2.jpg`;
-const KREW_IMAGE_ALT = "Krew.io: a pirate island at sea under the Krew.io logo. Free 3D pirate battle game in your browser.";
+// The same real game scene is visible in the public About section.
+const KREW_IMAGE = `${SITE_URL}${KREW_PREVIEW_IMAGE.path}`;
 
 export interface PageMeta {
   title: string;
@@ -25,6 +24,8 @@ export interface PageMeta {
   image?: string;
   /** Alt text for the social image (og:image:alt / twitter:image:alt). */
   imageAlt?: string;
+  imageWidth?: number;
+  imageHeight?: number;
   type?: string;
   /**
    * Serve this page's own title in <title>. Yumina pages keep the brand as the
@@ -76,13 +77,25 @@ const STATIC_META: Record<string, PageMeta> = {
     description: KREW_DESCRIPTION,
     url: `${SITE_URL}/krew`,
     image: KREW_IMAGE,
-    imageAlt: KREW_IMAGE_ALT,
+    imageAlt: KREW_PREVIEW_IMAGE.alt,
+    imageWidth: KREW_PREVIEW_IMAGE.width,
+    imageHeight: KREW_PREVIEW_IMAGE.height,
     jsonLd: {
       "@context": "https://schema.org",
       "@type": "VideoGame",
       name: "Krew.io",
-      alternateName: ["Krew2.io", "Krew"],
+      alternateName: ["Krew IO", "Krew2.io", "Krew"],
       url: `${SITE_URL}/krew`,
+      mainEntityOfPage: {
+        "@type": "WebPage",
+        "@id": `${SITE_URL}/krew`,
+        primaryImageOfPage: {
+          "@type": "ImageObject",
+          url: KREW_IMAGE,
+          width: KREW_PREVIEW_IMAGE.width,
+          height: KREW_PREVIEW_IMAGE.height,
+        },
+      },
       sameAs: ["https://krew.io", "https://play.krew.io"],
       image: KREW_IMAGE,
       screenshot: KREW_IMAGE,
@@ -282,6 +295,14 @@ export function injectMeta(baseHtml: string, meta: PageMeta): string {
   );
 
   if (meta.image) {
+    for (const [dimension, value] of [["width", meta.imageWidth], ["height", meta.imageHeight]] as const) {
+      if (value !== undefined) {
+        html = html.replace(
+          new RegExp(`(<meta property="og:image:${dimension}" content=")[^"]*(" \\/>)`),
+          (_match, before: string, after: string) => `${before}${value}${after}`,
+        );
+      }
+    }
     html = html.replace(
       /(<meta property="og:image" content=")[^"]*(" \/>)/,
       `$1${meta.image}$2`,

@@ -250,7 +250,18 @@ export interface Checkpoint {
 }
 
 export interface SessionData {
-  sessionPersona?: { persona: { id?: string; name: string } | null } | null;
+  sessionPersona?: {
+    selectionVersion?: string;
+    persona: {
+      id?: string;
+      name: string;
+      avatarUrl?: string | null;
+      appearance?: string | null;
+      personality?: string | null;
+      backstory?: string | null;
+      entries?: { title: string; content: string }[];
+    } | null;
+  } | null;
   personaLocked?: boolean;
   id: string;
   userId?: string;

@@ -106,7 +106,7 @@ import {
   runExtensionInvalidation,
 } from "../lib/extension-hooks.js";
 
-import { generationBaseline, regenerationState } from "../lib/regeneration-state.js";
+import { generationBaseline, messageGenerationState, regenerationState, reconcileRegenerationState } from "../lib/regeneration-state.js";
 import { normalizeGameState, reconcileTurnState } from "../lib/game-state.js";
 import { thinSnapshotForStorage, pruneSessionSnapshots } from "../lib/snapshot.js";
 import { messageContentUpdate } from "../lib/message-edit.js";
@@ -2253,13 +2253,14 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   try {
 
   const activeSwipe = msg.swipes?.[msg.activeSwipeIndex ?? 0];
-  const previousRows = !activeSwipe?.generationState && msg.createdAt
+  const messageBaseline = messageGenerationState(msg.swipes);
+  const previousRows = !messageBaseline && msg.createdAt
     ? await db.select({ stateSnapshot: messages.stateSnapshot }).from(messages)
       .where(and(eq(messages.sessionId, msg.sessionId), eq(messages.role, "assistant"), lt(messages.createdAt, msg.createdAt)))
       .orderBy(desc(messages.createdAt)).limit(1)
     : [];
   const regenBase = regenerationState(worldDef, gameState, {
-    generationState: activeSwipe?.generationState,
+    generationState: messageBaseline,
     stateSnapshot: activeSwipe?.stateSnapshot ?? msg.stateSnapshot,
     stateChanges: activeSwipe?.stateChanges ?? msg.stateChanges,
   }, previousRows[0]?.stateSnapshot);
@@ -2853,8 +2854,8 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             );
             const liveState = (lockedSession.rows[0] as { state: Record<string, unknown> } | undefined)?.state;
             await outputAttempt.checkCommit(tx, liveState, finalState);
-            const turnState = reconcileTurnState(worldDef, liveState, gameState, finalState);
-            // Preserve concurrent UI writes in this swipe's baseline, too.
+            const turnState = reconcileRegenerationState(worldDef, liveState, gameState, finalState);
+            // All alternatives retain the message's original starting state.
             const generationSnapshot = thinSnapshotForStorage(
               generationBaseline(worldDef, liveState, gameState, snapshot, finalState) as unknown as Record<string, unknown>,
             );
@@ -3780,13 +3781,14 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           }
 
           const originalSwipe = existingSwipes[activeSwipeIndex];
-          const previousRows = !originalSwipe?.generationState && lastAssistantMsg.createdAt
+          const messageBaseline = messageGenerationState(lastAssistantMsg.swipes);
+          const previousRows = !messageBaseline && lastAssistantMsg.createdAt
             ? await db.select({ stateSnapshot: messages.stateSnapshot }).from(messages)
               .where(and(eq(messages.sessionId, sessionId), eq(messages.role, "assistant"), lt(messages.createdAt, lastAssistantMsg.createdAt)))
               .orderBy(desc(messages.createdAt)).limit(1)
             : [];
           const originalBaseline = regenerationState(worldDef, gameState, {
-            generationState: originalSwipe?.generationState,
+            generationState: messageBaseline,
             stateSnapshot: originalSwipe?.stateSnapshot ?? lastAssistantMsg.stateSnapshot,
             stateChanges: originalSwipe?.stateChanges ?? lastAssistantMsg.stateChanges,
           }, previousRows[0]?.stateSnapshot);

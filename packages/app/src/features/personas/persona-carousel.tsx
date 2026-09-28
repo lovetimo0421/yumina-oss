@@ -48,11 +48,12 @@ function PersonaAvatar({ persona, size, className = "" }: PersonaAvatarProps) {
 }
 
 interface PersonaCarouselProps {
+  disabled?: boolean;
   onEdit: (persona: Persona | null) => void;
   sessionSelection?: { personaId: string | null; hasPersona: boolean; onSelect: (id: string | null) => Promise<void> };
 }
 
-export function PersonaCarousel({ onEdit, sessionSelection }: PersonaCarouselProps) {
+export function PersonaCarousel({ onEdit, sessionSelection, disabled = false }: PersonaCarouselProps) {
   const { t } = useTranslation("profile");
   const {
     personas: storedPersonas,
@@ -97,6 +98,7 @@ export function PersonaCarousel({ onEdit, sessionSelection }: PersonaCarouselPro
   const isNewSlot = (idx: number) => idx === total + 1;
 
   const handleActivate = async (persona: Persona) => {
+    if (disabled) return;
     if (sessionSelection) return sessionSelection.onSelect(persona.id);
     if (persona.isActive || savingSelection) return;
     setSaveFailed(false);
@@ -104,6 +106,7 @@ export function PersonaCarousel({ onEdit, sessionSelection }: PersonaCarouselPro
   };
 
   const handleDeactivate = async () => {
+    if (disabled) return;
     if (sessionSelection) return sessionSelection.onSelect(null);
     if (savingSelection || !personas.some((p) => p.isActive)) return;
     setSaveFailed(false);
@@ -209,6 +212,8 @@ export function PersonaCarousel({ onEdit, sessionSelection }: PersonaCarouselPro
             {/* Center card (active slot) */}
             <div className="w-44 shrink-0 transition-all duration-300">
               <CenterCard
+                disabled={disabled || (!sessionSelection && savingSelection)}
+                selectLabel={t("persona.session.select")}
                 index={activeIndex}
                 personas={personas}
                 isNoPersonaSlot={isNoPersonaSlot(activeIndex)}
@@ -358,6 +363,8 @@ function CompactCard({
 }
 
 interface CenterCardProps {
+  disabled: boolean;
+  selectLabel: string;
   allowReselect?: boolean;
   selectionHasPersona?: boolean;
   index: number;
@@ -378,6 +385,8 @@ interface CenterCardProps {
 }
 
 function CenterCard({
+  disabled,
+  selectLabel,
   allowReselect,
   selectionHasPersona,
   index,
@@ -401,9 +410,9 @@ function CenterCard({
     return (
       <button
         type="button"
-        onClick={() => !selected && onDeactivate()}
+        onClick={() => (allowReselect || !selected) && onDeactivate()}
         aria-pressed={selected}
-        disabled={selected}
+        disabled={disabled || (selected && !allowReselect)}
         className={`relative flex w-full flex-col items-center gap-3 rounded-2xl border-2 px-4 py-5 text-center transition-all duration-300 ${
           selected
             ? "cursor-default border-gold/30 bg-gold/[0.05] shadow-[0_0_30px_rgba(255,215,0,0.1)]"
@@ -461,7 +470,6 @@ function CenterCard({
           ? "border-gold/30 bg-gold/[0.05] shadow-[0_0_30px_rgba(255,215,0,0.1)]"
           : "cursor-pointer border-white/10 bg-white/[0.02] hover:border-gold/20 hover:bg-white/[0.04]"
       }`}
-      onClick={() => (allowReselect || !persona.isActive) && onActivate(persona)}
     >
       {/* Active badge */}
       {persona.isActive && (
@@ -475,6 +483,10 @@ function CenterCard({
         </div>
       )}
 
+      <button type="button" aria-pressed={persona.isActive}
+        disabled={disabled || (!allowReselect && persona.isActive)}
+        onClick={() => onActivate(persona)}
+        className="flex w-full flex-col items-center gap-3 rounded-xl disabled:cursor-default disabled:opacity-60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gold">
       {/* Avatar */}
       <PersonaAvatar
         persona={persona}
@@ -501,7 +513,9 @@ function CenterCard({
         </span>
       )}
 
-      {/* Action buttons */}
+      <span className="text-xs text-gold">{selectLabel}</span>
+      </button>
+      {/* Action buttons are siblings of the selection button. */}
       <div className="flex items-center gap-2">
         <button
           onClick={(e) => {

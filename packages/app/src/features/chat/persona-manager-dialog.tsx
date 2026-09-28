@@ -6,7 +6,7 @@ import { PersonaEditModal } from "@/features/personas/persona-edit-modal";
 import { useChatStore } from "@/stores/chat";
 import { FieldError } from "@/components/ui/field-error";
 import { usePersonasStore, type Persona } from "@/stores/personas";
-import { createChatPersonaController } from "@/lib/refresh-chat-persona";
+import { createChatPersonaController, PersonaSaveUnconfirmedError } from "@/lib/refresh-chat-persona";
 import { Lock, Unlock } from "lucide-react";
 
 interface PersonaManagerDialogProps {
@@ -21,6 +21,7 @@ export function PersonaManagerDialog({ open, onClose, sessionId }: PersonaManage
   const [editingPersona, setEditingPersona] = useState<Persona | null | undefined>(undefined);
 
   const [saving, setSaving] = useState(false);
+  const [pendingName, setPendingName] = useState("");
   // R3/R4: the dialog stays open, so the failure belongs inside it — under the
   // carousel the user just clicked, never in a pill.
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -44,7 +45,8 @@ export function PersonaManagerDialog({ open, onClose, sessionId }: PersonaManage
       getState: useChatStore.getState,
       apply: (session) => useChatStore.setState({ session }),
       onSaving: setSaving,
-      onError: (error) => setSaveError(error ? t("persona.session.saveError") : null),
+      onError: (error) => setSaveError(error ? t(error instanceof PersonaSaveUnconfirmedError ? "persona.session.unconfirmed" : "persona.session.saveError") : null),
+      onEvent: (event) => { void import("@/lib/analytics").then(({ captureHubEvent }) => captureHubEvent("persona_selection", event)).catch(() => {}); },
     });
     controller.current = current;
     return () => { current.dispose(); controller.current = null; };
@@ -70,14 +72,21 @@ export function PersonaManagerDialog({ open, onClose, sessionId }: PersonaManage
   useEffect(() => {
     const previous = previousSource.current;
     if (previous.sessionId === sessionId && previous.sourceVersion !== sourceVersion) {
-      controller.current?.refresh();
+      // The receipt can change the source itself; refresh only real profile edits.
+      const committed = useChatStore.getState().session?.sessionPersona?.persona;
+      const version = (p: typeof source | typeof committed) => p ? JSON.stringify([
+        p.id, p.name, p.avatarUrl ?? null, p.appearance ?? null, p.personality ?? null, p.backstory ?? null, p.entries ?? [],
+      ]) : null;
+      if (version(source) !== version(committed)) controller.current?.refresh();
     }
     previousSource.current = { sessionId, sourceVersion };
   }, [sessionId, sourceVersion]);
   const select = async (personaId: string | null) => {
+    setPendingName(usePersonasStore.getState().personas.find((p) => p.id === personaId)?.name ?? t("persona.none"));
     await controller.current?.setLock(true, personaId);
   };
   const toggleLock = async () => {
+    setPendingName(locked ? t("persona.session.following") : saved?.name ?? t("persona.none"));
     await controller.current?.setLock(!locked, saved?.id ?? null);
   };
 
@@ -114,8 +123,10 @@ export function PersonaManagerDialog({ open, onClose, sessionId }: PersonaManage
           </button>
           <fieldset disabled={saving || streaming || !sessionId} className="min-w-0 disabled:opacity-60">
             <PersonaCarousel onEdit={(persona) => setEditingPersona(persona)}
+              disabled={saving || streaming || !sessionId}
               sessionSelection={{ personaId: saved?.id ?? null, hasPersona: !!saved, onSelect: select }} />
           </fieldset>
+          {(saving || streaming) && <p role="status" className="text-sm text-muted-foreground">{t(saving ? "persona.session.saving" : "persona.session.streaming", { name: pendingName })}</p>}
           <FieldError message={saveError} />
         </DialogContent>
       </Dialog>

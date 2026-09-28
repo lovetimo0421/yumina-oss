@@ -17,7 +17,7 @@ import type { AppEnv } from "../lib/types.js";
 import { resolveImageCdn } from "../lib/cdn-url.js";
 import { scanAssets } from "../lib/asset-scanner.js";
 import { captureSessionPersona } from "../lib/session-persona.js";
-import { applyPersonaMetadata, applyPersonaMetadataToState } from "../lib/persona-metadata.js";
+import { applyPersonaMetadata, applyPersonaMetadataToState, personaIdentityReceipt } from "../lib/persona-metadata.js";
 import { resolvePersonaForWorld, resolvePersonaForSession, setSessionPersona, setSessionPersonaLock } from "../lib/resolve-persona.js";
 import { getPendingEdit, resolveSessionWorldSchema } from "../lib/pending-edit.js";
 import { viewerSeesWorkingCopy } from "../lib/working-copy.js";
@@ -485,7 +485,7 @@ sessionRoutes.get("/:id", async (c) => {
   return c.json({
     data: {
       ...sessionRows[0]!,
-      sessionPersona,
+      sessionPersona: { ...sessionPersona, selectionVersion: sessionRows[0]!.sessionPersona?.selectionVersion ?? "" },
       currentUser: {
         id: currentUser.id,
         name: currentUser.name,
@@ -532,9 +532,11 @@ sessionRoutes.put("/:id/persona", async (c) => {
   if (!body || !(body.personaId === null || typeof body.personaId === "string")) {
     return c.json({ error: "personaId must be a string or null" }, 400);
   }
-  const result = await setSessionPersona(currentUser.id, sessionId, body.personaId);
-  if ("error" in result) return c.json({ error: result.error }, 404);
-  return c.json(result);
+  if (body.expectedVersion !== undefined && (typeof body.expectedVersion !== "string" || body.expectedVersion.length > 64)) return c.json({ error: "Invalid persona version" }, 400);
+  const result = await setSessionPersona(currentUser.id, sessionId, body.personaId, body.expectedVersion);
+  if ("error" in result) return c.json({ error: result.error }, result.error === "Persona selection changed" ? 409 : 404);
+  // Preserve the legacy data.persona field for older clients.
+  return c.json({ data: { ...result.data, ...personaIdentityReceipt(sessionId, { personaLocked: true, sessionPersona: result.data }, currentUser) } });
 
 });
 
@@ -549,9 +551,10 @@ sessionRoutes.put("/:id/persona-lock", async (c) => {
   if (body.locked && !(body.personaId === null || typeof body.personaId === "string")) {
     return c.json({ error: "personaId must be a string or null when locking" }, 400);
   }
-  const result = await setSessionPersonaLock(currentUser.id, sessionId, body.locked, body.personaId);
-  if ("error" in result) return c.json({ error: result.error }, 404);
-  return c.json(result);
+  if (body.expectedVersion !== undefined && (typeof body.expectedVersion !== "string" || body.expectedVersion.length > 64)) return c.json({ error: "Invalid persona version" }, 400);
+  const result = await setSessionPersonaLock(currentUser.id, sessionId, body.locked, body.personaId, body.expectedVersion);
+  if ("error" in result) return c.json({ error: result.error }, result.error === "Persona selection changed" ? 409 : 404);
+  return c.json({ data: personaIdentityReceipt(sessionId, result.data, currentUser) });
 });
 
 // PATCH /api/sessions/:id/state — update session state

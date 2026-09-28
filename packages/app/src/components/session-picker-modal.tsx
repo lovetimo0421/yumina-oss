@@ -74,6 +74,7 @@ function SessionPickerModalImpl({
   creating,
 }: SessionPickerModalProps) {
   const { t, i18n } = useTranslation(["chat", "common"]);
+  const { t: tProfile } = useTranslation("profile");
   const contentRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
   const hasVariants = variants.length > 1;
@@ -98,7 +99,8 @@ function SessionPickerModalImpl({
   const [showVersionPicker, setShowVersionPicker] = useState(false);
   const [newSessionVersionId, setNewSessionVersionId] = useState<string>(world.id);
   const [showAllLanguages, setShowAllLanguages] = useState(false);
-  const bindingSaving = usePersonasStore((s) => Object.values(s.savingWorldBindings).some(Boolean));
+  const selectionBlocked = usePersonasStore((s) => s.savingSelection || s.selectionFailed);
+  const selectionFailed = usePersonasStore((s) => s.selectionFailed);
 
   // Compare by base language so a Traditional (zh-Hant) UI still treats zh
   // variants as the "current language" — Traditional and Simplified share one
@@ -246,7 +248,7 @@ function SessionPickerModalImpl({
   };
 
   const handleNewSessionClick = () => {
-    if (Object.values(usePersonasStore.getState().savingWorldBindings).some(Boolean)) return;
+    if (usePersonasStore.getState().savingSelection || usePersonasStore.getState().selectionFailed) return;
     if (hasVariants) {
       setShowVersionPicker((prev) => {
         if (!prev) {
@@ -501,7 +503,7 @@ function SessionPickerModalImpl({
                     key={variant.id}
                     type="button"
                     onClick={() => setNewSessionVersionId(variant.id)}
-                    disabled={creating || bindingSaving}
+                    disabled={creating || selectionBlocked}
                     className={`flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm transition-all disabled:opacity-50 ${
                       isSelected
                         ? "border border-primary/20 bg-primary/[0.06] text-foreground"
@@ -529,10 +531,10 @@ function SessionPickerModalImpl({
           <button
             type="button"
             onClick={showVersionPicker ? () => {
-              if (Object.values(usePersonasStore.getState().savingWorldBindings).some(Boolean)) return;
+              if (usePersonasStore.getState().savingSelection || usePersonasStore.getState().selectionFailed) return;
               setShowVersionPicker(false); onCreateSession(newSessionVersionId);
             } : handleNewSessionClick}
-            disabled={creating || bindingSaving}
+            disabled={creating || selectionBlocked}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary/90 px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-all hover:bg-primary disabled:opacity-50"
           >
             {creating ? (
@@ -542,6 +544,7 @@ function SessionPickerModalImpl({
             )}
             {t("header.newSession")}
           </button>
+          {selectionBlocked && <p role="status" className="mt-2 text-sm text-muted-foreground">{tProfile(selectionFailed ? "persona.session.creationBlocked" : "persona.session.waitSelection")}</p>}
         </div>
       </div>
     </div>,

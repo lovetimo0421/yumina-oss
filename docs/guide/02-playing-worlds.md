@@ -36,6 +36,10 @@ Once you're in a session:
 
 At the bottom of the last AI message you'll see a `< 1/1 >` control. Click **>** to generate a new response, **<** to go back to a previous version. You can generate several and pick your favorite.
 
+Each version starts from the variables saved before that reply and keeps its own result, including inventories and other nested data. For example, if affection started at 10 and the first reply raised it to 13, regenerating starts from 10 again. Switching versions restores that version's saved result; later variable edits do not carry into another version.
+
+**Continue** extends the selected version. Regenerating afterward still starts from before the original reply. For older replies without a saved starting state, Yumina reconstructs it from the saved result and change history; missing historical values cannot be recovered exactly.
+
 ### Message actions
 
 Hover over any message (long-press on mobile) for action buttons:

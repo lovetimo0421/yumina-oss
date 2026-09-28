@@ -54,10 +54,10 @@ export async function setAccountPersona(userId: string, personaId: string | null
 }
 
 /** Session and persona must both belong to the authenticated user. */
-export async function setSessionPersona(userId: string, sessionId: string, personaId: string | null): Promise<
-  { data: SessionPersona; error?: never } | { error: "Session not found" | "Persona not found"; data?: never }
+export async function setSessionPersona(userId: string, sessionId: string, personaId: string | null, expectedVersion?: string): Promise<
+  { data: SessionPersona; error?: never } | { error: "Session not found" | "Persona not found" | "Persona selection changed"; data?: never }
 > {
-  const result = await setSessionPersonaLock(userId, sessionId, true, personaId);
+  const result = await setSessionPersonaLock(userId, sessionId, true, personaId, expectedVersion);
   if (result.error) return { error: result.error };
   // Preserve the legacy response shape, but never write the account default.
   return { data: result.data.sessionPersona };
@@ -70,27 +70,32 @@ export async function setSessionPersonaLock(
   sessionId: string,
   locked: boolean,
   personaId?: string | null,
+  expectedVersion?: string,
 ): Promise<
   { data: { personaLocked: boolean; sessionPersona: SessionPersona }; error?: never }
-  | { error: "Session not found" | "Persona not found"; data?: never }
+  | { error: "Session not found" | "Persona not found" | "Persona selection changed"; data?: never }
 > {
-  const [owned] = await db.select({ id: playSessions.id }).from(playSessions)
+  const [owned] = await db.select({ id: playSessions.id, sessionPersona: playSessions.sessionPersona }).from(playSessions)
     .where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, userId)));
   if (!owned) return { error: "Session not found" } as const;
-
-  if (!locked) {
-    const binding = captureSessionPersona(await resolvePersonaForWorld(userId, null));
-    await db.update(playSessions).set({ personaLocked: false, sessionPersona: binding, updatedAt: new Date() })
-      .where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, userId)));
-    return { data: { personaLocked: false, sessionPersona: binding } } as const;
+  const previousVersion = expectedVersion ?? owned.sessionPersona?.selectionVersion ?? "";
+  let persona;
+  if (!locked) persona = await resolvePersonaForWorld(userId, null);
+  else {
+    if (personaId === undefined) return { error: "Persona not found" } as const;
+    [persona] = personaId === null ? [] : await db.select().from(userPersonas)
+      .where(and(eq(userPersonas.id, personaId), eq(userPersonas.userId, userId)));
+    if (personaId !== null && !persona) return { error: "Persona not found" } as const;
   }
-
-  if (personaId === undefined) return { error: "Persona not found" } as const;
-  const [persona] = personaId === null ? [] : await db.select().from(userPersonas)
-    .where(and(eq(userPersonas.id, personaId), eq(userPersonas.userId, userId)));
-  if (personaId !== null && !persona) return { error: "Persona not found" } as const;
-  const binding = captureSessionPersona(persona ?? null);
-  await db.update(playSessions).set({ personaLocked: true, sessionPersona: binding, updatedAt: new Date() })
-    .where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, userId)));
-  return { data: { personaLocked: true, sessionPersona: binding } } as const;
+  const binding = { ...captureSessionPersona(persona ?? null), selectionVersion: crypto.randomUUID() };
+  // Compare-and-swap makes a delayed request unable to overwrite a newer save,
+  // including when a client timed out and retried before the old request finished.
+  // Return only the ID: a full RETURNING row would detoast large game states.
+  const updated = await db.execute(sql`UPDATE ${playSessions}
+    SET persona_locked = ${locked}, session_persona = ${JSON.stringify(binding)}::jsonb, updated_at = now()
+    WHERE ${playSessions.id} = ${sessionId} AND ${playSessions.userId} = ${userId}
+      AND coalesce(${playSessions.sessionPersona}->>'selectionVersion', '') = ${previousVersion}
+    RETURNING ${playSessions.id}`);
+  if (!updated.rows.length) return { error: "Persona selection changed" } as const;
+  return { data: { personaLocked: locked, sessionPersona: binding } } as const;
 }

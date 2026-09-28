@@ -2041,8 +2041,6 @@ interface BlockedUser {
   username: string | null;
   image: string | null;
   blockedAt: string;
-  hideBlockedWorlds: boolean;
-  hideOwnWorlds: boolean;
   hideBlockedActivity: boolean;
 }
 
@@ -2194,8 +2192,6 @@ function BlacklistManager() {
                       </div>
                       <div className="space-y-2.5">
                         {([
-                          ["hideBlockedWorlds", "hideTheirWorlds"],
-                          ["hideOwnWorlds", "hideMyWorlds"],
                           ["hideBlockedActivity", "hideTheirActivity"],
                         ] as const).map(([key, labelKey]) => (
                           <label key={key} className="flex items-center justify-between gap-3 text-sm text-sub/72">

@@ -35,6 +35,7 @@ interface PersonasState {
   personas: Persona[];
   loading: boolean;
   savingSelection: boolean;
+  selectionFailed: boolean;
   lastFetchedAt: number | null;
   /** worldId → pinned personaId (null = follow global). Missing key = not fetched yet. */
   worldBindings: Record<string, string | null>;
@@ -55,6 +56,7 @@ export const usePersonasStore = create<PersonasState>((set, get) => ({
   personas: [],
   loading: false,
   savingSelection: false,
+  selectionFailed: false,
   lastFetchedAt: null,
   worldBindings: {},
   savingWorldBindings: {},
@@ -197,40 +199,38 @@ export const usePersonasStore = create<PersonasState>((set, get) => ({
 
   activatePersona: async (id) => {
     if (get().savingSelection) return false;
-    set({ savingSelection: true });
+    set({ savingSelection: true, selectionFailed: false });
     try {
       const res = await fetch(`${apiBase}/api/personas/${id}/activate`, {
         method: "POST",
         credentials: "include",
       });
-      if (!res.ok) {
-        return false;
-      }
+      if (!res.ok) throw new Error("Persona selection failed");
       // Publish only committed choices; chat subscribers refresh from the server.
       personaRevision++;
       set((s) => ({ personas: s.personas.map((p) => ({ ...p, isActive: p.id === id })) }));
       return true;
     } catch {
+      set({ selectionFailed: true });
       return false;
     } finally { set({ savingSelection: false }); }
   },
 
   deactivatePersonas: async () => {
     if (get().savingSelection) return false;
-    set({ savingSelection: true });
+    set({ savingSelection: true, selectionFailed: false });
 
     try {
       const res = await fetch(`${apiBase}/api/personas/deactivate`, {
         method: "POST",
         credentials: "include",
       });
-      if (!res.ok) {
-        return false;
-      }
+      if (!res.ok) throw new Error("Persona selection failed");
       personaRevision++;
       set((s) => ({ personas: s.personas.map((p) => ({ ...p, isActive: false })) }));
       return true;
     } catch {
+      set({ selectionFailed: true });
       return false;
     } finally { set({ savingSelection: false }); }
   },

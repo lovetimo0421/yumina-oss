@@ -48,6 +48,7 @@ const APP_RELEASE = import.meta.env?.VITE_APP_RELEASE ?? "unknown";
  * `posthog.capture(arbitraryString, ...)` elsewhere.
  */
 export type HubEventMap = {
+  persona_selection: import("./refresh-chat-persona").PersonaSelectionEvent;
   /** Client elapsed time through fetch, body decoding and accepting a Discover page; excludes paint. */
   hub_feed_load: {
     mode: "initial" | "append" | "refresh";

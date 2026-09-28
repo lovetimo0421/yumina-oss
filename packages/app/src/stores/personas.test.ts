@@ -86,10 +86,12 @@ for (const action of ["activate", "deactivate"] as const) {
       };
       try {
         assert.equal(await select(), false);
+        assert.equal(store.getState().selectionFailed, true, "creation remains blocked after a failed selection");
         assert.equal(store.getState().personas.find((p) => p.isActive)?.id, "A");
         assert.equal(store.getState().savingSelection, false);
         globalThis.fetch = async () => Response.json({ data: {} });
         assert.equal(await select(), true);
+        assert.equal(store.getState().selectionFailed, false, "a committed retry unblocks creation");
         assert.equal(store.getState().personas.find((p) => p.isActive)?.id, action === "activate" ? "B" : undefined);
       } finally { globalThis.fetch = originalFetch; }
     });

@@ -115,7 +115,7 @@ test("selection and disabling are owner scoped; invalid selections preserve the 
   assert.deepEqual(await setSessionPersonaLock("tester", "A", true, "foreign"), { error: "Persona not found" });
   assert.deepEqual(await session("A"), originalSession, "invalid selections do not change the session binding");
   assert.equal((await resolvePersonaForSession(await session("A")))?.id, "A");
-  assert.deepEqual(await setSessionPersona("tester", "A", null), { data: { persona: null } });
+  assert.equal((await setSessionPersona("tester", "A", null)).data?.persona, null);
   assert.equal(await resolvePersonaForSession(await session("A")), null);
   assert.equal((await session("A")).personaLocked, true, "no-persona is an explicit session choice");
   assert.equal((await resolvePersonaForSession(await session("B")))?.id, "A", "disabling one session leaves other sessions following the profile");

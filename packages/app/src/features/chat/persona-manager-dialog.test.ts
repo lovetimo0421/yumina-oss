@@ -9,7 +9,7 @@ import { transform } from "sucrase";
 import { create } from "zustand";
 import type { SessionData } from "@/stores/chat";
 import type { Persona } from "@/stores/personas";
-import { createChatPersonaController } from "@/lib/refresh-chat-persona";
+import { createChatPersonaController, PersonaSaveUnconfirmedError } from "@/lib/refresh-chat-persona";
 import { readPersonaProfile } from "@/lib/persona-profile";
 
 // Exercise the actual manager's hooks and wiring while replacing only visual shells
@@ -40,11 +40,11 @@ test("manager follows global changes until a session selection locks it, queues 
     calls.push({ url: String(url), init });
     if (init?.method === "PUT") {
       assert.equal(String(url), "/api/sessions/chat/persona-lock");
-      assert.deepEqual(JSON.parse(String(init.body)), { locked: true, personaId: "A" });
+      assert.deepEqual(JSON.parse(String(init.body)), { locked: true, personaId: "A", expectedVersion: "" });
       return new Promise<Response>((resolve) => {
         finishSave = () => {
           lockedPersona = a;
-          resolve(Response.json({ data: { personaLocked: true, sessionPersona: { persona: a } } }));
+          resolve(Response.json({ data: { id: "chat", personaLocked: true, sessionPersona: { persona: a }, state: { metadata: { personaActive: true, personaName: a.name, personaImage: "", personaAppearance: "", personaPersonality: "", personaBackstory: a.backstory, personaEntries: [] } } } }));
         };
       });
     }
@@ -64,7 +64,7 @@ test("manager follows global changes until a session selection locks it, queues 
     "@/components/ui/field-error": { FieldError: () => null },
     "@/stores/chat": { useChatStore: chat },
     "@/stores/personas": { usePersonasStore: personas },
-    "@/lib/refresh-chat-persona": { createChatPersonaController },
+    "@/lib/refresh-chat-persona": { createChatPersonaController, PersonaSaveUnconfirmedError },
   };
   const require = createRequire(import.meta.url);
   const module = { exports: {} as { PersonaManagerDialog: ComponentType<{ open: boolean; onClose: () => void; sessionId: string }> } };
@@ -114,7 +114,9 @@ test("manager follows global changes until a session selection locks it, queues 
     await act(async () => { dom.window.document.querySelector("[data-persona]")!.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })); });
     assert.equal(calls.at(-1)?.url, "/api/sessions/chat/persona-lock");
     await act(async () => render(false));
+    const beforeReceipt = calls.length;
     await act(async () => finishSave());
+    assert.equal(calls.length, beforeReceipt, "committed receipt does not trigger a full session GET");
     assert.equal(chat.getState().session.sessionPersona?.persona?.id, "A");
     assert.equal(chat.getState().session.personaLocked, true, "selecting in chat locks this session");
     assert.deepEqual((chat.getState().session.state.metadata as Record<string, unknown>).personaEntries, [], "switching to a persona with no entries clears previous entries");

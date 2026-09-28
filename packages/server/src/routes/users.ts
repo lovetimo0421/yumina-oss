@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { env } from "../lib/env.js";
 import { profileStoryMemoryDefault } from "../lib/profile-story-memory.js";
-import { eq, and, ne, sql, desc, ilike, or, inArray, type SQL } from "drizzle-orm";
+import { eq, and, ne, sql, desc, ilike, or, inArray, notInArray, type SQL } from "drizzle-orm";
 import { db, readDb, readOwn, flagWrite } from "../db/index.js";
 import { posthog } from "../lib/posthog.js";
 import { user, worlds, bundles, follows, favorites, userLibrary, worldClickHistory, platformAchievements, profilePosts } from "../db/schema.js";
@@ -13,7 +13,7 @@ import { updateProfileSchema, getAgeFromBirthYear, aiConfigSchema, MAX_PROFILE_P
 import { resolveImageCdn } from "../lib/cdn-url.js";
 import { sanitizeDisplayName } from "../lib/sanitize.js";
 import { aggregatedCounters } from "../lib/world-aggregates.js";
-import { getBlockStatus } from "../lib/blocks.js";
+import { getBlockStatus, listBlockedUsersForHiding } from "../lib/blocks.js";
 import {
   canViewRestrictedProfile,
   readProfileFollowDirections,
@@ -255,6 +255,7 @@ users.delete("/me/history-clicks", authMiddleware, async (c) => {
 
 // GET /api/users/search - public player/author search for the hub search bar
 users.get("/search", optionalAuthMiddleware, async (c) => {
+  const viewer = c.get("user");
   const q = c.req.query("q")?.trim() ?? "";
   const limit = Math.min(Math.max(parseInt(c.req.query("limit") || "12", 10) || 12, 1), 24);
 
@@ -263,6 +264,8 @@ users.get("/search", optionalAuthMiddleware, async (c) => {
   }
 
   const rd = await readDb();
+  const blocks = viewer ? await listBlockedUsersForHiding(viewer.id) : null;
+  const hiddenUserIds = blocks ? [...new Set([...blocks.hideWorldCreatorIds, ...blocks.hiddenByCreatorIds])] : [];
   const pattern = `%${q}%`;
   const prefix = `${q}%`;
 
@@ -279,6 +282,7 @@ users.get("/search", optionalAuthMiddleware, async (c) => {
       and(
         eq(user.isBanned, false),
         eq(user.isSuspended, false),
+        ...(hiddenUserIds.length > 0 ? [notInArray(user.id, hiddenUserIds)] : []),
         or(
           ilike(user.username, pattern),
           and(
@@ -363,8 +367,12 @@ users.get("/search", optionalAuthMiddleware, async (c) => {
 
 // GET /api/users/:id (public profile — optional auth for privacy checks)
 users.get("/:id", optionalAuthMiddleware, async (c) => {
+  c.header("Cache-Control", "private, no-store");
   const userId = c.req.param("id");
   const viewer = c.get("user");
+  const viewerBlockStatus = viewer && viewer.id !== userId
+    ? await getBlockStatus(viewer.id, userId)
+    : { blocked: false, direction: null } as Awaited<ReturnType<typeof getBlockStatus>>;
   // Scope replica routing to the profile owner. Privacy-setting and follow
   // writes flag that owner, so viewers see the grant immediately from primary.
   const rd = await readDb(userId);
@@ -396,16 +404,49 @@ users.get("/:id", optionalAuthMiddleware, async (c) => {
   profile.image = resolveImageCdn(profile.image);
   profile.banner = resolveImageCdn(profile.banner);
 
+  if (viewerBlockStatus.blocked) {
+    return c.json({ data: {
+      id: profile.id,
+      name: profile.name,
+      username: profile.username,
+      image: profile.image,
+      banner: null,
+      bio: null,
+      location: null,
+      website: null,
+      featuredWorldId: null,
+      showcasedAchievement: null,
+      createdAt: profile.createdAt,
+      followersCount: 0,
+      followingCount: 0,
+      publishedWorldsCount: 0,
+      totalInteractions: null,
+      totalPlaytimeSeconds: null,
+      totalDownloads: null,
+      totalLikes: null,
+      allowDMs: false,
+      showRecentPlay: false,
+      showPlayHistory: false,
+      showStats: false,
+      showFavorites: false,
+      hiddenByPrivate: true,
+      hiddenStats: true,
+      hiddenByBlock: true,
+      viewerIsSelf: false,
+      viewerFollows: false,
+      viewerIsFollowedByUser: false,
+      viewerBlockStatus,
+    } });
+  }
+
   const privacy = readProfilePrivacy(profile.preferences);
   const isSelf = viewer?.id === userId;
   let viewerFollows = false;
   let ownerFollowsViewer = false;
-  let viewerBlockStatus: Awaited<ReturnType<typeof getBlockStatus>> = { blocked: false, direction: null };
   if (!isSelf && viewer) {
     const followDirections = await readProfileFollowDirections(rd, userId, viewer.id);
     viewerFollows = followDirections.viewerFollowsOwner;
     ownerFollowsViewer = followDirections.ownerFollowsViewer;
-    viewerBlockStatus = await getBlockStatus(viewer.id, userId);
   }
 
   // Compute counts
@@ -500,6 +541,9 @@ users.get("/:id", optionalAuthMiddleware, async (c) => {
 users.get("/:id/recent-played", optionalAuthMiddleware, async (c) => {
   const userId = c.req.param("id");
   const viewer = c.get("user");
+  if (viewer && viewer.id !== userId && (await getBlockStatus(viewer.id, userId)).blocked) {
+    return c.json({ data: [] });
+  }
   const rd = await readDb(userId);
   const isSelf = viewer?.id === userId;
 
@@ -564,6 +608,9 @@ users.get("/:id/library", optionalAuthMiddleware, async (c) => {
   const viewer = c.get("user");
   const limit = Math.min(Math.max(parseInt(c.req.query("limit") || "12") || 12, 1), 50);
   const offset = Math.max(parseInt(c.req.query("offset") || "0") || 0, 0);
+  if (viewer && viewer.id !== userId && (await getBlockStatus(viewer.id, userId)).blocked) {
+    return c.json({ data: [], total: 0, limit, offset });
+  }
   const rd = await readDb(userId);
   const isSelf = viewer?.id === userId;
 
@@ -642,6 +689,9 @@ users.get("/:id/library", optionalAuthMiddleware, async (c) => {
 users.get("/:id/wall", optionalAuthMiddleware, async (c) => {
   const userId = c.req.param("id");
   const viewer = c.get("user");
+  if (viewer && viewer.id !== userId && (await getBlockStatus(viewer.id, userId)).blocked) {
+    return c.json({ data: [], total: 0 });
+  }
   const isSelf = viewer?.id === userId;
   const rd = await readDb(userId);
 

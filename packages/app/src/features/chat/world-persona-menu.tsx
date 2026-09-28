@@ -24,7 +24,7 @@ export function WorldPersonaIconMenu({ className = "", disabled = false }: {
     if (authenticated) void fetchPersonas();
   }, [authenticated, open, fetchPersonas]);
 
-  if (!authenticated || personas.length === 0) return null;
+  if (!authenticated) return null;
   const select = async (id: string | null) => {
     setFailed(false);
     const saved = id === null ? await deactivatePersonas() : await activatePersona(id);

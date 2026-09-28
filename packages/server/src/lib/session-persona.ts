@@ -3,6 +3,8 @@ import { personaEntriesSchema } from "@yumina/shared";
 
 /** Stored outside game state so restoring a turn cannot change the player's identity. */
 export interface SessionPersona {
+  /** Optimistic write token; lives outside rewindable game state. */
+  selectionVersion?: string;
   persona: (ActivePersonaLike & { id?: string }) | null;
 }
 

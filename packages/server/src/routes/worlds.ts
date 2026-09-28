@@ -3,7 +3,7 @@ import { captureAutomaticVersion, capturePublishVersion, lockVersionDraft } from
 import { communityMuteMiddleware } from "../middleware/community-mute.js";
 import { Hono } from "hono";
 import { reviewPlaytimeQuery } from "../lib/review-playtime.js";
-import { eq, or, and, desc, ilike, sql, inArray, isNotNull } from "drizzle-orm";
+import { eq, or, and, desc, ilike, sql, inArray, notInArray, isNotNull } from "drizzle-orm";
 import { db, readDb, readOwn, flagWrite } from "../db/index.js";
 import { worlds, user, assetReferences, userLibrary, worldPendingEdits, worldUpdates, follows, reviews, worldRatings, contentTranslations, worldReviewSubmissions } from "../db/schema.js";
 import { estimateTokens } from "@yumina/engine";
@@ -511,7 +511,7 @@ worldRoutes.get("/hub/interests", async (c, next) => {
   try {
     const options = await withDatabaseQueryTimeout(2500, async () => {
       const lang = c.req.query('lang') || null;
-      const filters = await buildHubBaseFilters(rd, {
+      const filters = await buildHubBaseFilters(currentUser ? db : rd, {
         currentUserId: currentUser?.id, lang, feed: 'recommended',
         preferredLang: resolveHubLanguageScope(lang, c.req.query('includeOtherLanguages') === 'true'),
         contentLevelParam: parseContentLevelParam(c.req.query('contentLevel')),
@@ -629,7 +629,7 @@ worldRoutes.get("/hub/hero-worlds", optionalAuthMiddleware, async (c) => {
     return c.json({ data: [] });
   }
 
-  const baseFilters = await buildHubBaseFilters(rd, {
+  const baseFilters = await buildHubBaseFilters(currentUser ? db : rd, {
     currentUserId: currentUser?.id,
     contentLevelParam,
     preferredLang,
@@ -650,7 +650,7 @@ worldRoutes.get("/hub/hero-worlds", optionalAuthMiddleware, async (c) => {
   const mediaResolved = resolveHubMedia(result);
   const ordered = resolveHeroWorlds(slots, mediaResolved, preferredLang);
 
-  c.header("Cache-Control", currentUser ? "private, max-age=30, stale-while-revalidate=120" : "public, max-age=0, s-maxage=120, stale-while-revalidate=300");
+  c.header("Cache-Control", currentUser ? "private, no-store" : "public, max-age=0, s-maxage=120, stale-while-revalidate=300");
   c.header("Vary", "Cookie");
   return c.json({ data: ordered });
 });
@@ -658,6 +658,8 @@ worldRoutes.get("/hub/hero-worlds", optionalAuthMiddleware, async (c) => {
 // GET /api/worlds/batch - fetch multiple worlds by ID (for featured section, etc.)
 worldRoutes.get("/batch", optionalAuthMiddleware, async (c) => {
   const currentUser = getOptionalUser(c);
+  const blocks = currentUser ? await listBlockedUsersForHiding(currentUser.id) : null;
+  const hiddenCreatorIds = blocks ? [...new Set([...blocks.hideWorldCreatorIds, ...blocks.hiddenByCreatorIds])] : [];
   const idsParam = c.req.query("ids");
   if (!idsParam) return c.json({ data: [] });
   const ids = idsParam.split(",").slice(0, 20); // Max 20
@@ -671,6 +673,7 @@ worldRoutes.get("/batch", optionalAuthMiddleware, async (c) => {
     .where(and(
       inArray(worlds.id, ids),
       eq(worlds.isPublished, true),
+      ...(hiddenCreatorIds.length > 0 ? [notInArray(worlds.creatorId, hiddenCreatorIds)] : []),
       // Guests never receive Limitless rows, even by direct ID.
       ...(currentUser ? [] : [eq(worlds.ageRating, "all")]),
     ));
@@ -681,7 +684,8 @@ worldRoutes.get("/batch", optionalAuthMiddleware, async (c) => {
   const byId = new Map(mediaResolved.map((w) => [w.id, w]));
   const ordered = ids.map((id) => byId.get(id)).filter(Boolean);
 
-  c.header("Cache-Control", "public, max-age=0, s-maxage=120, stale-while-revalidate=300");
+  c.header("Cache-Control", currentUser ? "private, no-store" : "public, max-age=0, s-maxage=120, stale-while-revalidate=300");
+  c.header("Vary", "Cookie");
   return c.json({ data: ordered });
 });
 
@@ -795,7 +799,7 @@ worldRoutes.get("/hub", async (c, next) => {
             : "newest";
 
   const filtersStartedAt = performance.now();
-  const baseFilters = await buildHubBaseFilters(feed === "recommended" ? db : rd, {
+  const baseFilters = await buildHubBaseFilters(currentUser ? db : rd, {
     currentUserId: currentUser?.id,
     accountPreferences,
     q,
@@ -1162,8 +1166,8 @@ worldRoutes.get("/hub", async (c, next) => {
   }
 
   // Guest browsing: Cloudflare serves cached for 60s, stale-while-revalidate for 5min
-  // Authenticated: personalized → short private browser cache (instant re-nav), never CDN
-  if (feed !== "recommended") c.header("Cache-Control", currentUser ? "private, max-age=30, stale-while-revalidate=120" : "public, max-age=0, s-maxage=60, stale-while-revalidate=300");
+  // Block changes must take effect on the next authenticated request.
+  if (feed !== "recommended") c.header("Cache-Control", currentUser ? "private, no-store" : "public, max-age=0, s-maxage=60, stale-while-revalidate=300");
   c.header("Vary", "Cookie");
   return c.json({ data: mediaResolved, total: countResult[0]?.count ?? 0, feedRequestId });
   } catch (err) {
@@ -1177,6 +1181,8 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
   const preferredLang = normalizeHubLanguage(c.req.query("lang"));
   let currentUser: { id: string } | null = null;
   try { currentUser = c.get("user"); } catch { /* anonymous */ }
+  const blocks = currentUser ? await listBlockedUsersForHiding(currentUser.id) : null;
+  const hiddenCreatorIds = blocks ? [...new Set([...blocks.hideWorldCreatorIds, ...blocks.hiddenByCreatorIds])] : [];
   const rd = await readDb(currentUser?.id);
 
   const slots = await loadFeaturedSlots(rd);
@@ -1191,6 +1197,7 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
       eq(worlds.isPublished, true),
       eq(worlds.status, "published"),
       inArray(worlds.id, ids),
+      ...(hiddenCreatorIds.length > 0 ? [notInArray(worlds.creatorId, hiddenCreatorIds)] : []),
       // Guests never receive Limitless rows in the featured rail.
       ...(currentUser ? [] : [eq(worlds.ageRating, "all")]),
     ));
@@ -1211,6 +1218,7 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
       .leftJoin(user, eq(worlds.creatorId, user.id))
       .where(and(
         inArray(worlds.languageGroupId, groupIds),
+        ...(hiddenCreatorIds.length > 0 ? [notInArray(worlds.creatorId, hiddenCreatorIds)] : []),
         eq(worlds.isPublished, true),
         eq(worlds.status, "published"),
         // Featured slots are public surface — never swap in a followers-only
@@ -1248,7 +1256,8 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
 
   const mediaResolved = resolveHubMedia(ordered);
 
-  c.header("Cache-Control", "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
+  c.header("Cache-Control", currentUser ? "private, no-store" : "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
+  c.header("Vary", "Cookie");
   return c.json({ data: mediaResolved });
 });
 
@@ -1301,6 +1310,10 @@ worldRoutes.get("/:id/activity", optionalAuthMiddleware, async (c) => {
     .limit(1);
 
   if (!world) return c.json({ error: "World not found" }, 404);
+
+  if (currentUser && currentUser.id !== world.creatorId && (await getBlockStatus(currentUser.id, world.creatorId)).blocked) {
+    return c.json({ error: "World not found" }, 404);
+  }
 
   const worldStatus = world.status ?? (world.isPublished ? "published" : "draft");
   const isCreator = currentUser?.id === world.creatorId;
@@ -1391,6 +1404,10 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
   }
 
   const world = result[0]!;
+
+  if (currentUser && currentUser.id !== world.creatorId && (await getBlockStatus(currentUser.id, world.creatorId)).blocked) {
+    return c.json({ error: "World not found" }, 404);
+  }
 
   // Access control: status-based with library tombstone support
   const isCreator = currentUser && world.creatorId === currentUser.id;

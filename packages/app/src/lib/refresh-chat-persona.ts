@@ -1,149 +1,145 @@
 import type { SessionData } from "@/stores/chat";
 
 const identityKeys = ["personaActive", "personaName", "personaImage", "personaAppearance", "personaPersonality", "personaBackstory", "personaEntries"] as const;
-
-/** Refresh only identity, preserving loaded history, gameplay, and audio. */
-export async function refreshChatPersona(options: {
-  sessionId: string;
-  signal: AbortSignal;
-  apiBase: string;
+type Identity = Pick<SessionData, "id" | "sessionPersona" | "personaLocked"> & { state: { metadata?: Record<string, unknown> } };
+type Options = {
+  sessionId: string; apiBase: string;
   getState: () => { session: SessionData | null; isStreaming: boolean };
   apply: (session: SessionData) => void;
   request?: typeof fetch;
-}) {
-  const { sessionId, signal, apiBase, getState, apply, request = fetch } = options;
-  const response = await request(`${apiBase}/api/sessions/${sessionId}`, {
-    credentials: "include", cache: "no-store", signal,
-  });
-  if (!response.ok) throw new Error("Persona refresh failed");
-  const { data } = await response.json() as { data: SessionData };
-  const current = getState();
-  if (signal.aborted || current.isStreaming || current.session?.id !== sessionId || data.id !== sessionId) return false;
+};
+function applyIdentity(options: Options, data: Identity, signal?: AbortSignal) {
+  const current = options.getState();
+  if (signal?.aborted || current.isStreaming || current.session?.id !== options.sessionId || data.id !== options.sessionId) return false;
   const metadata = { ...(current.session.state.metadata as Record<string, unknown> | undefined) };
-  const received = data.state.metadata as Record<string, unknown> | undefined;
-  for (const key of identityKeys) metadata[key] = received?.[key];
-  apply({ ...current.session, sessionPersona: data.sessionPersona, personaLocked: data.personaLocked,
+  for (const key of identityKeys) metadata[key] = data.state.metadata?.[key];
+  options.apply({ ...current.session, sessionPersona: data.sessionPersona, personaLocked: data.personaLocked,
     state: { ...current.session.state, metadata } });
   return true;
 }
 
-/** Session-scoped requests survive closing the picker, but never navigation.
- * Streaming pauses only a requested refresh; finishing a normal turn does no work. */
-export function createChatPersonaController(options: Omit<Parameters<typeof refreshChatPersona>[0], "signal"> & {
+/** Refresh only identity, preserving loaded history, gameplay, and audio. */
+export async function refreshChatPersona(options: Options & { signal: AbortSignal }) {
+  const response = await (options.request ?? fetch)(`${options.apiBase}/api/sessions/${options.sessionId}`, {
+    credentials: "include", cache: "no-store", signal: options.signal,
+  });
+  if (!response.ok) throw new Error("Persona refresh failed");
+  const { data } = await response.json() as { data: Identity };
+  return applyIdentity(options, data, options.signal);
+}
+
+export type PersonaSelectionEvent = {
+  session_id: string; persona_id: string | null; locked: boolean;
+  phase: "intent" | "committed" | "applied" | "failed" | "unconfirmed";
+  duration_ms: number;
+};
+export class PersonaSaveUnconfirmedError extends Error {}
+
+/** Session-scoped requests survive closing the picker, but never navigation. */
+export function createChatPersonaController(options: Options & {
   onSaving: (saving: boolean) => void;
   onError: (error: Error | null) => void;
+  onEvent?: (event: PersonaSelectionEvent) => void;
+  timeoutMs?: number;
 }) {
-  let disposed = false;
-  let dirty = false;
-  let blocked = false;
-  let saving = false;
+  let disposed = false, dirty = false, blocked = false, saving = false, unconfirmed = false;
   let refreshing: AbortController | null = null;
   let selection: AbortController | null = null;
+  let pending: { data: Identity; applied: () => void } | null = null;
   const request = options.request ?? fetch;
-
   function pauseRefresh() {
-    if (refreshing) {
-      dirty = true;
-      refreshing.abort();
-      refreshing = null;
-    }
+    if (refreshing) { dirty = true; refreshing.abort(); refreshing = null; }
   }
-
   function flush() {
     const current = options.getState();
-    if (disposed || !dirty || blocked || saving || refreshing || current.isStreaming || current.session?.id !== options.sessionId) return;
+    if (disposed || blocked || saving || current.isStreaming || current.session?.id !== options.sessionId) return;
+    if (pending) {
+      const receipt = pending;
+      pending = null;
+      if (applyIdentity(options, receipt.data)) receipt.applied();
+    }
+    if (!dirty || refreshing) return;
     dirty = false;
     const controller = new AbortController();
     refreshing = controller;
+    const timer = setTimeout(() => {
+      controller.abort();
+      if (!disposed) { dirty = true; options.onError(unconfirmed ? new PersonaSaveUnconfirmedError("Persona save could not be confirmed") : new Error("Persona refresh timed out")); }
+    }, options.timeoutMs ?? 15000);
+    controller.signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
     void refreshChatPersona({ ...options, request, signal: controller.signal }).then((applied) => {
       if (!controller.signal.aborted && !disposed) {
-        if (applied) options.onError(null);
-        else dirty = true;
+        if (applied && !unconfirmed) options.onError(null);
+        else if (!applied) dirty = true;
       }
     }).catch((error: unknown) => {
-      if (!controller.signal.aborted && !disposed) options.onError(error instanceof Error ? error : new Error("Persona refresh failed"));
-    }).finally(() => {
-      if (refreshing === controller) refreshing = null;
-    });
+      if (!controller.signal.aborted && !disposed && !unconfirmed) options.onError(error instanceof Error ? error : new Error("Persona refresh failed"));
+    }).finally(() => { clearTimeout(timer); if (refreshing === controller) refreshing = null; });
   }
-
+  async function save(path: string, body: object, locked: boolean, personaId: string | null) {
+    if (disposed || saving || blocked || options.getState().isStreaming || options.getState().session?.id !== options.sessionId) return false;
+    saving = true;
+    pending = null;
+    pauseRefresh();
+    dirty = false;
+    unconfirmed = false;
+    options.onSaving(true);
+    options.onError(null);
+    const started = Date.now();
+    const emit = (phase: PersonaSelectionEvent["phase"]) => {
+      try { options.onEvent?.({ session_id: options.sessionId, persona_id: personaId, locked, phase, duration_ms: Date.now() - started }); } catch { /* Telemetry never blocks a save. */ }
+    };
+    emit("intent");
+    const controller = new AbortController();
+    selection = controller;
+    let rejected = false, conflict = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const data = await Promise.race([
+        (async () => {
+          const response = await request(`${options.apiBase}/api/sessions/${options.sessionId}/${path}`, {
+            method: "PUT", credentials: "include", signal: controller.signal,
+            headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, expectedVersion: options.getState().session?.sessionPersona?.selectionVersion ?? "" }),
+          });
+          if (!response.ok) { conflict = response.status === 409; rejected = response.status >= 400 && response.status < 500; throw new Error("Persona update failed"); }
+          return (await response.json()).data as Identity;
+        })(),
+        new Promise<never>((_, reject) => { timer = setTimeout(() => {
+          controller.abort(); reject(new PersonaSaveUnconfirmedError("Persona save could not be confirmed"));
+        }, options.timeoutMs ?? 15000); }),
+      ]);
+      if (disposed || controller.signal.aborted || options.getState().session?.id !== options.sessionId) return false;
+      emit("committed");
+      if (data?.id === options.sessionId && data.state?.metadata && typeof data.personaLocked === "boolean" && data.sessionPersona) {
+        if (applyIdentity(options, data)) emit("applied");
+        else pending = { data, applied: () => emit("applied") };
+      } else {
+        // Compatibility during a rolling deploy with an older server.
+        dirty = true;
+      }
+      return true;
+    } catch (error) {
+      if (!disposed && options.getState().session?.id === options.sessionId) {
+        unconfirmed = !rejected || conflict;
+        dirty = unconfirmed || conflict;
+        emit(unconfirmed ? "unconfirmed" : "failed");
+        options.onError(unconfirmed ? new PersonaSaveUnconfirmedError("Persona save could not be confirmed") : error instanceof Error ? error : new Error("Persona update failed"));
+      }
+      return false;
+    } finally {
+      clearTimeout(timer);
+      selection = null;
+      saving = false;
+      if (!disposed) { options.onSaving(false); flush(); }
+    }
+  }
   return {
-    refresh() {
-      dirty = true;
-      pauseRefresh();
-      flush();
+    refresh() { dirty = true; pauseRefresh(); flush(); },
+    setBlocked(value: boolean) { blocked = value; if (value) pauseRefresh(); else flush(); },
+    select(personaId: string | null) { return save("persona", { personaId }, true, personaId); },
+    setLock(locked: boolean, personaId?: string | null) {
+      return save("persona-lock", locked ? { locked: true, personaId: personaId ?? null } : { locked: false }, locked, personaId ?? null);
     },
-    setBlocked(value: boolean) {
-      blocked = value;
-      if (value) pauseRefresh();
-      else flush();
-    },
-    async select(personaId: string | null) {
-      if (disposed || saving || blocked || options.getState().isStreaming || options.getState().session?.id !== options.sessionId) return false;
-      saving = true;
-      pauseRefresh();
-      options.onSaving(true);
-      options.onError(null);
-      const controller = new AbortController();
-      selection = controller;
-      try {
-        const response = await request(`${options.apiBase}/api/sessions/${options.sessionId}/persona`, {
-          method: "PUT", credentials: "include", signal: controller.signal,
-          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personaId }),
-        });
-        if (!response.ok) throw new Error("Persona update failed");
-        if (disposed || controller.signal.aborted) return false;
-        // Read display metadata only after the write commits, never from an optimistic profile cache.
-        dirty = true;
-        return true;
-      } catch (error) {
-        dirty = false;
-        if (!disposed && !controller.signal.aborted) options.onError(error instanceof Error ? error : new Error("Persona update failed"));
-        return false;
-      } finally {
-        selection = null;
-        saving = false;
-        if (!disposed) {
-          options.onSaving(false);
-          flush();
-        }
-      }
-    },
-    async setLock(locked: boolean, personaId?: string | null) {
-      if (disposed || saving || blocked || options.getState().isStreaming || options.getState().session?.id !== options.sessionId) return false;
-      saving = true;
-      pauseRefresh();
-      options.onSaving(true);
-      options.onError(null);
-      const controller = new AbortController();
-      selection = controller;
-      try {
-        const response = await request(`${options.apiBase}/api/sessions/${options.sessionId}/persona-lock`, {
-          method: "PUT", credentials: "include", signal: controller.signal,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(locked ? { locked: true, personaId: personaId ?? null } : { locked: false }),
-        });
-        if (!response.ok) throw new Error("Persona lock update failed");
-        if (disposed || controller.signal.aborted) return false;
-        dirty = true;
-        return true;
-      } catch (error) {
-        dirty = false;
-        if (!disposed && !controller.signal.aborted) options.onError(error instanceof Error ? error : new Error("Persona lock update failed"));
-        return false;
-      } finally {
-        selection = null;
-        saving = false;
-        if (!disposed) {
-          options.onSaving(false);
-          flush();
-        }
-      }
-    },
-    dispose() {
-      disposed = true;
-      refreshing?.abort();
-      selection?.abort();
-    },
+    dispose() { disposed = true; pending = null; refreshing?.abort(); selection?.abort(); },
   };
 }

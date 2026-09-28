@@ -1,31 +1,21 @@
-import { deepEqual, preserveSetupScopedVariables } from "@yumina/engine";
+import { deepEqual } from "@yumina/engine";
 import type { GameState, WorldDefinition } from "@yumina/engine";
-import { normalizeGameState } from "./game-state.js";
+import { normalizeGameState, reconcileTurnState } from "./game-state.js";
 
-/** Include only concurrent writes the turn did not supersede. In particular,
- * an overlapping UI write must not become the next reroll's starting value
- * when the generated reply won that write under the normal turn policy. */
-export function generationBaseline(world: WorldDefinition, liveState: unknown, request: GameState, baseline: GameState, final: GameState): GameState {
-  const live = normalizeGameState(world, liveState);
-  const result = structuredClone(baseline);
-  for (const key of Object.keys(live.variables)) {
-    if (!deepEqual(live.variables[key], request.variables[key]) && deepEqual(final.variables[key], request.variables[key])) {
-      result.variables[key] = live.variables[key]!;
-    }
-  }
-  for (const key of new Set([...Object.keys(live.metadata), ...Object.keys(request.metadata)])) {
-    if (!deepEqual(live.metadata[key], request.metadata[key]) && deepEqual(final.metadata[key], request.metadata[key])) {
-      if (key in live.metadata) result.metadata[key] = live.metadata[key];
-      else delete result.metadata[key];
-    }
-  }
-  return result;
+/** A reply's starting state is immutable, even if UI writes arrive while it
+ * streams. Its alternatives must all describe outcomes of that same state. */
+export function generationBaseline(_world: WorldDefinition, _liveState: unknown, _request: GameState, baseline: GameState, _final: GameState): GameState {
+  return structuredClone(baseline);
 }
 
-/** Rewind only the replaced reply's writes, preserving subsequent UI edits.
- * New swipes carry the prompt-time baseline. Older swipes recover variable
- * values from their change ledger; the preceding snapshot restores rule state.
- */
+/** The first recoverable baseline belongs to the message, not its selected
+ * alternative. This also stops older, already-drifted swipes spreading drift. */
+export function messageGenerationState(swipes: ReadonlyArray<{ generationState?: Record<string, unknown> }> | null | undefined): Record<string, unknown> | undefined {
+  return swipes?.find(swipe => swipe.generationState)?.generationState;
+}
+
+/** Restore the entire pre-reply variable snapshot, including nested JSON.
+ * Historical replies rewind their stored outcome through the change ledger. */
 export function regenerationState(
   world: WorldDefinition,
   current: GameState,
@@ -62,18 +52,21 @@ export function regenerationState(
     }
   }
   const result = structuredClone(current);
-  for (const key of Object.keys(before.variables)) {
-    if (deepEqual(current.variables[key], after.variables[key])) {
-      result.variables[key] = before.variables[key]!;
-    }
-  }
+  result.variables = structuredClone(before.variables);
   for (const key of new Set([...Object.keys(before.metadata), ...Object.keys(after.metadata)])) {
     if (deepEqual(current.metadata[key], after.metadata[key])) {
       if (key in before.metadata) result.metadata[key] = before.metadata[key];
       else delete result.metadata[key];
     }
   }
-  if (deepEqual(current.ruleState, after.ruleState)) result.ruleState = before.ruleState;
+  result.ruleState = structuredClone(before.ruleState);
   // Regeneration replaces a reply within this turn, never advances/rewinds it.
-  return preserveSetupScopedVariables(world.variables, { ...current }, { ...result });
+  return result;
+}
+
+/** Ordinary sends preserve concurrent UI writes. A replacement reply instead
+ * owns its complete variable outcome, even when a value equals the old reply.
+ * Otherwise a concurrent patch can leak into a supposedly independent swipe. */
+export function reconcileRegenerationState(world: WorldDefinition, live: unknown, request: GameState, final: GameState): GameState {
+  return { ...reconcileTurnState(world, live, request, final), variables: structuredClone(final.variables) };
 }

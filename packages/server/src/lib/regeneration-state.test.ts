@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { GameStateManager, ReactionEvaluator, runReactionChain, buildTurnCompleteEvent } from "@yumina/engine";
 import type { GameState, WorldDefinition } from "@yumina/engine";
 import { normalizeGameState, reconcileTurnState } from "./game-state.js";
-import { generationBaseline, regenerationState } from "./regeneration-state.js";
+import { generationBaseline, regenerationState, reconcileRegenerationState } from "./regeneration-state.js";
 
 const world = { id: "w", variables: [
   { id: "meter", name: "meter", type: "number", defaultValue: 0 },
@@ -50,28 +50,29 @@ describe("regeneration replaces the prior reply", () => {
     assert.equal(base.metadata.pendingContext, undefined);
     assert.equal(after.ruleState!.fireCounts.once, 1);
   });
-  it("keeps subsequent UI edits and setup values", () => {
+  it("restores all variables to the reply baseline, including later UI and setup edits", () => {
     const baseline = initial(); const after = add(baseline, 10);
     after.variables.name = "chosen";
     const live = structuredClone(after); live.variables.meter = 50; live.variables.ui = true;
     const base = regenerationState(world, live, { generationState: json(baseline), stateSnapshot: json(after) });
-    assert.equal(base.variables.meter, 50);
-    assert.equal(base.variables.ui, true);
-    assert.equal(base.variables.name, "chosen");
+    assert.equal(base.variables.meter, 0);
+    assert.equal(base.variables.ui, false);
+    assert.equal(base.variables.name, "");
   });
-  it("keeps unrelated UI patches arriving while the original response streams", () => {
+  it("ordinary sends keep UI patches but replacement replies use the immutable baseline", () => {
     const baseline = initial(); const live = structuredClone(baseline); live.variables.ui = true;
     const after = reconcileTurnState(world, live, baseline, add(baseline, 10));
     const savedBase = generationBaseline(world, live, baseline, baseline, add(baseline, 10));
     const base = regenerationState(world, after, { generationState: json(savedBase), stateSnapshot: json(after) });
     assert.equal(base.variables.meter, 0);
-    assert.equal(base.variables.ui, true);
+    assert.equal(after.variables.ui, true);
+    assert.equal(base.variables.ui, false);
     const concurrent = structuredClone(after); concurrent.variables.name = "during regen";
-    const result = reconcileTurnState(world, concurrent, after, base);
-    assert.equal(result.variables.name, "during regen");
+    const result = reconcileRegenerationState(world, concurrent, after, base);
+    assert.equal(result.variables.name, "");
     assert.equal(result.variables.meter, 0);
   });
-  it("uses the selected swipe's own baseline after switching alternatives", () => {
+  it("uses the supplied message baseline instead of the current outcome", () => {
     const a = initial(); const b = add(a, 40); const after = add(b, 10);
     const base = regenerationState(world, after, { generationState: json(b), stateSnapshot: json(after) });
     assert.equal(add(base, 10).variables.meter, 50);
@@ -89,6 +90,23 @@ describe("regeneration replaces the prior reply", () => {
     assert.deepEqual(base.variables.inventory, { items: [] });
     assert.deepEqual(base.ruleState, previous.ruleState);
   });
+  it("legacy rollback retains setup and JSON edits made before the original reply", () => {
+    const previous = initial();
+    const after = add(previous, 3);
+    after.variables.name = "Alice";
+    after.variables.inventory = { items: ["chosen before sending"] };
+    const live = structuredClone(after);
+    live.variables.name = "edited after reply";
+    live.variables.inventory = { items: ["edited after reply"] };
+    const base = regenerationState(world, live, {
+      stateSnapshot: json(after),
+      stateChanges: [{ variableId: "meter", oldValue: 0, newValue: 3 }],
+    }, json(previous));
+    assert.equal(base.variables.meter, 0);
+    assert.equal(base.variables.name, "Alice");
+    assert.deepEqual(base.variables.inventory, { items: ["chosen before sending"] });
+    assert.deepEqual(previous.variables.inventory, { items: [] });
+  });
   it("does not reset an old reply with no recoverable baseline to world defaults", () => {
     const current = add(initial(), 30);
     assert.equal(regenerationState(world, current, {}).variables.meter, 30);
@@ -99,7 +117,7 @@ describe("regeneration replaces the prior reply", () => {
     assert.equal(saved.variables.meter, 0);
     assert.equal(add(regenerationState(world, final, { generationState: json(saved), stateSnapshot: json(final) }), 10).variables.meter, 10);
   });
-  it("continuation keeps prior effects reversible and unrelated UI patches permanent", () => {
+  it("continuation preserves the original reply baseline for the next reroll", () => {
     const baseline = initial(); const first = add(baseline, 10);
     const request = structuredClone(first); request.variables.name = "after reply";
     const live = structuredClone(request); live.variables.ui = true;
@@ -110,8 +128,8 @@ describe("regeneration replaces the prior reply", () => {
     const redo = regenerationState(world, after, { generationState: json(saved), stateSnapshot: json(after) });
     assert.equal(after.variables.meter, 15);
     assert.equal(redo.variables.meter, 0);
-    assert.equal(redo.variables.name, "after reply");
-    assert.equal(redo.variables.ui, true);
+    assert.equal(redo.variables.name, "");
+    assert.equal(redo.variables.ui, false);
   });
   it("restores the original queued context for each reroll without retaining discarded context", () => {
     const baseline = initial(); baseline.metadata.pendingContext = [{ message: "original instruction", role: "system" }];
