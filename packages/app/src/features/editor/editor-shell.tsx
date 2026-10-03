@@ -16,6 +16,7 @@ import {
   Variable,
   LayoutGrid,
   Music,
+  Images,
   FolderOpen,
   Play,
   Wand2,
@@ -51,6 +52,7 @@ import { VariablesSection } from "./sections/variables";
 import { BehaviorsSection } from "./sections/behaviors-section";
 import { ComponentsSection } from "./sections/components";
 import { AudioSection } from "./sections/audio";
+import { SceneImagesSection } from "./sections/scene-images";
 import { AssetsSection } from "./sections/assets";
 import { OverviewSection } from "./sections/overview";
 import { BundlesSection, GenerationEditorSection, WorldPublishModal } from "@/edition/slots";
@@ -73,6 +75,7 @@ const SECTION_KEYS: { id: EditorSection; labelKey: string; icon: typeof FileText
     { id: "rules", labelKey: "sections.behaviors", icon: Zap },
     { id: "components", labelKey: "sections.customUI", icon: LayoutGrid },
     { id: "audio", labelKey: "sections.audio", icon: Music },
+    { id: "scene-images", labelKey: "sections.sceneImages", icon: Images },
     { id: "generation", labelKey: "sections.aiGeneration", icon: Sparkles },
     { id: "assets", labelKey: "sections.assets", icon: FolderOpen },
     { id: "overview", labelKey: "sections.overview", icon: FileText },
@@ -85,7 +88,7 @@ const SECTION_KEYS: { id: EditorSection; labelKey: string; icon: typeof FileText
 const SECTION_GROUPS: { groupKey: string; ids: EditorSection[] }[] = [
   { groupKey: "content", ids: ["first-message", "entries", "variables", "rules"] },
   { groupKey: "creation", ids: ["generation"] },
-  { groupKey: "presentation", ids: ["components", "audio", "assets"] },
+  { groupKey: "presentation", ids: ["components", "audio", "scene-images", "assets"] },
   { groupKey: "publish", ids: ["overview"] },
 ];
 
@@ -95,7 +98,10 @@ const SECTION_COMPONENTS: Record<EditorSection, React.FC> = {
   variables: VariablesSection,
   rules: BehaviorsSection,
   components: ComponentsSection,
+  // In-story Apps are bundles now; an old saved "apps" section opens Bundles.
+  apps: BundlesSection,
   audio: AudioSection,
+  "scene-images": SceneImagesSection,
   assets: AssetsSection,
   generation: GenerationEditorSection,
   overview: OverviewSection,

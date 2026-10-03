@@ -60,16 +60,16 @@ export async function findVariantSiblings(
   creatorId: string,
   languageGroupId: string | null,
   worldId: string,
-): Promise<Array<{ id: string; status: string; language: string | null; name: string; thumbnailUrl: string | null }>> {
+): Promise<Array<{ id: string; status: string; language: string | null; name: string; thumbnailUrl: string | null; landscapeCoverUrl: string | null; coverCrop: unknown; landscapeCoverCrop: unknown }>> {
   if (!languageGroupId) {
     const [w] = await db
-      .select({ id: worlds.id, status: worlds.status, language: worlds.language, name: worlds.name, thumbnailUrl: worlds.thumbnailUrl })
+      .select({ id: worlds.id, status: worlds.status, language: worlds.language, name: worlds.name, thumbnailUrl: worlds.thumbnailUrl, landscapeCoverUrl: worlds.landscapeCoverUrl, coverCrop: worlds.coverCrop, landscapeCoverCrop: worlds.landscapeCoverCrop })
       .from(worlds)
       .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, creatorId)));
     return w ? [w] : [];
   }
   return db
-    .select({ id: worlds.id, status: worlds.status, language: worlds.language, name: worlds.name, thumbnailUrl: worlds.thumbnailUrl })
+    .select({ id: worlds.id, status: worlds.status, language: worlds.language, name: worlds.name, thumbnailUrl: worlds.thumbnailUrl, landscapeCoverUrl: worlds.landscapeCoverUrl, coverCrop: worlds.coverCrop, landscapeCoverCrop: worlds.landscapeCoverCrop })
     .from(worlds)
     .where(and(eq(worlds.languageGroupId, languageGroupId), eq(worlds.creatorId, creatorId)));
 }

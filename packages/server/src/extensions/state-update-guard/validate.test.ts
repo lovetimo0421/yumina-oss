@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { GameStateManager, ResponseParser, type WorldDefinition } from "@yumina/engine";
-import type { TurnOutputContext } from "../../lib/extension-hooks.js";
+import type { TurnOutputContext, ValidatedTurnOutput } from "../../lib/extension-hooks.js";
 import type { GenerateParams, StreamChunk } from "../../lib/llm/types.js";
 import { guardTurnOutput, StateGuardError, boundedCorrectionInputTokens, estimateCorrectionUsageTokens } from "./validate.js";
 
@@ -33,6 +33,16 @@ function fixture(raw = "The stranger waits.", chunks: StreamChunk[] = [{ type: "
   return { ctx, requests, usages, progress, controller };
 }
 const errorCode = (code: string) => (error: unknown) => error instanceof StateGuardError && error.code === code;
+/** A correction that cannot finish falls back to the guard-off result: the
+ * reply's own parsed text and commands, never the failed correction batch. */
+async function assertUnverified(ctx: TurnOutputContext, code: string): Promise<ValidatedTurnOutput> {
+  const out = await guardTurnOutput(ctx);
+  assert.equal(out.audit?.outcome, "unverified");
+  assert.deepEqual(out.parsed.effects, ctx.parsed.effects);
+  assert.ok(out.parsed.cleanText.trim() || out.parsed.effects.length, "the reply is still delivered");
+  assert.ok(out.audit?.diagnostics.includes(code), `expected diagnostic ${code}, got ${out.audit?.diagnostics.join(",")}`);
+  return out;
+}
 
 function readonlyFixture(stateChanges: unknown[], review?: unknown) {
   const output = JSON.stringify({ narrative: "", status: "updated", stateChanges, ...(review === undefined ? {} : { review }) });
@@ -101,7 +111,7 @@ for (const protection of [{ enabled: false }, { internal: true }, { activation: 
   test(`inactive/hidden read-only targets stay rejected ${JSON.stringify(protection)}`, async () => {
     const f = readonlyFixture([{ variableId: "game-day", operation: "add", value: 0 }, { variableId: "energy-id", operation: "add", value: 1 }]);
     Object.assign(f.ctx.world.variables[2]!, protection);
-    await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+    await assertUnverified(f.ctx, "invalid_correction");
     assert.equal(f.ctx.state.variables["game-day"], 1);
     assert.equal(f.ctx.state.variables["energy-id"], 100);
   });
@@ -109,7 +119,7 @@ for (const protection of [{ enabled: false }, { internal: true }, { activation: 
 
 test("read-only-only correction cannot stand in for a missing writable-variable review", async () => {
   const f = readonlyFixture([{ variableId: "game-day", operation: "add", value: 0 }]);
-  await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+  await assertUnverified(f.ctx, "invalid_correction");
   assert.ok(f.ctx.audit.diagnostics.includes("missing_no_update_review"));
   assert.equal(f.ctx.state.variables["game-day"], 1);
 });
@@ -131,7 +141,7 @@ for (const bad of [
 ]) {
   test(`read-only filtering does not hide invalid command ${bad.variableId}/${bad.operation}`, async () => {
     const f = readonlyFixture([{ variableId: "game-day", operation: "add", value: 0 }, bad]);
-    await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+    await assertUnverified(f.ctx, "invalid_correction");
     assert.equal(f.ctx.state.variables["game-day"], 1);
   });
 }
@@ -140,7 +150,7 @@ for (const protection of [{ aiAccess: "none" as const }, { enabled: false }, { i
   test(`read-only filtering does not bypass other access restrictions ${JSON.stringify(protection)}`, async () => {
     const f = readonlyFixture([{ variableId: "game-day", operation: "add", value: 0 }, { variableId: "energy-id", operation: "add", value: 1 }]);
     Object.assign(f.ctx.world.variables[1]!, protection);
-    await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+    await assertUnverified(f.ctx, "invalid_correction");
     assert.equal(f.ctx.state.variables["energy-id"], 100);
   });
 }
@@ -214,7 +224,7 @@ test("trailing recovery does not bypass no-update review or unsafe-batch validat
     const output = JSON.stringify(body) + '\n}]}';
     const f = fixture(undefined, [{ type: "text", content: output }, { type: "done", content: "", stopReason: "stop" }]);
     const before = structuredClone(f.ctx.state);
-    await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+    await assertUnverified(f.ctx, "invalid_correction");
     assert.ok(f.ctx.audit.diagnostics.includes(expected));
     assert.deepEqual(f.ctx.state, before);
   }
@@ -247,7 +257,7 @@ for (const emitted of ["text", "reasoning", "usage", "tool_call_start"] as const
       else yield { type: emitted, content: emitted === "text" ? '{"narrative":' : "" };
       yield { type: "error", content: "response_format not supported" };
     };
-    await assert.rejects(guardTurnOutput(f.ctx), errorCode("provider_unsupported_format"));
+    await assertUnverified(f.ctx, "provider_unsupported_format");
     assert.equal(f.requests.length, 1);
     assert.equal(f.usages.length, 1);
     assert.equal(f.ctx.state.variables["energy-id"], 100);
@@ -260,7 +270,7 @@ test("format negotiation cannot loop or switch model when both requests fail", a
     f.requests.push(params);
     yield { type: "error", content: "response_format is unsupported" };
   };
-  await assert.rejects(guardTurnOutput(f.ctx), errorCode("provider_unsupported_format"));
+  await assertUnverified(f.ctx, "provider_unsupported_format");
   assert.equal(f.requests.length, 2);
   assert.equal(f.usages.length, 1);
   assert.equal(f.requests[1]!.fallbackModels, undefined);
@@ -298,7 +308,7 @@ for (const [effect, code] of [
     const f = fixture(undefined, [{ type: "text", content: output }, { type: "done", content: "", stopReason: "stop" }]);
     f.ctx.world.variables.push({ id: "hidden", name: "Hidden", type: "number", defaultValue: 0, aiAccess: "none" });
     const before = structuredClone(f.ctx.state);
-    await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+    await assertUnverified(f.ctx, "invalid_correction");
     assert.ok(f.ctx.audit.diagnostics.includes(code));
     assert.deepEqual(f.ctx.state, before);
     assert.equal(f.usages.length, 1);
@@ -314,7 +324,7 @@ test("recovered explicit none still requires every writable variable's review", 
     const f = fixture(undefined, [{ type: "text", content: output }, { type: "done", content: "", stopReason: "stop" }]);
     if (complete) assert.equal((await guardTurnOutput(f.ctx)).audit?.outcome, "explicit-none");
     else {
-      await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+      await assertUnverified(f.ctx, "invalid_correction");
       assert.ok(f.ctx.audit.diagnostics.includes("missing_no_update_review"));
     }
     assert.equal(f.ctx.state.variables["energy-id"], 100);
@@ -325,7 +335,7 @@ for (const stopReason of ["max_tokens", "content_filter"]) {
   test(`syntax recovery never accepts ${stopReason} output`, async () => {
     const output = '{"narrative":"","status":"updated","stateChanges":[{"variableId":"energy-id","operation":"subtract","value":4}]}],"review":[]}';
     const f = fixture(undefined, [{ type: "text", content: output }, { type: "done", content: "", stopReason }]);
-    await assert.rejects(guardTurnOutput(f.ctx), errorCode("incomplete_correction"));
+    await assertUnverified(f.ctx, "incomplete_correction");
     assert.equal(f.ctx.state.variables["energy-id"], 100);
     assert.equal(f.requests.length, 1);
   });
@@ -398,14 +408,14 @@ test("the same model id on a separately resolved provider does not inherit story
 test("unavailable selected model fails closed with no fallback or fabricated usage", async () => {
   const f = fixture();
   f.ctx.resolveCorrection = async () => { throw new StateGuardError("correction_model_unavailable"); };
-  await assert.rejects(guardTurnOutput(f.ctx), errorCode("correction_model_unavailable"));
+  await assertUnverified(f.ctx, "correction_model_unavailable");
   assert.equal(f.requests.length, 0); assert.equal(f.usages.length, 0);
 });
 
 test("selected correction model's smaller context limit is enforced before calling it", async () => {
   const f = fixture();
   f.ctx.resolveCorrection = async () => ({ provider: f.ctx.provider, model: "small/model", maxContext: 4096, apiKeyTier: "byok" });
-  await assert.rejects(guardTurnOutput(f.ctx), errorCode("correction_context_limit"));
+  await assertUnverified(f.ctx, "correction_context_limit");
   assert.equal(f.requests.length, 0); assert.equal(f.usages.length, 0);
 });
 
@@ -475,7 +485,7 @@ for (const stateChanges of [[], {}]) {
       { type: "done", content: "", stopReason: "stop" },
     ]);
     const before = structuredClone(f.ctx.state);
-    await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+    await assertUnverified(f.ctx, "invalid_correction");
     assert.equal(f.requests.length, 1);
     assert.equal(f.usages.length, 1);
     assert.ok(f.ctx.audit.diagnostics.includes("missing_receipt"));
@@ -488,7 +498,7 @@ test("correction rejects none with commands instead of applying a contradictory 
     { type: "text", content: '{"narrative":"","status":"none","stateChanges":[{"variableId":"kills-id","operation":"add","value":1}]}' },
     { type: "done", content: "", stopReason: "stop" },
   ]);
-  await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+  await assertUnverified(f.ctx, "invalid_correction");
   assert.ok(f.ctx.audit.diagnostics.includes("contradictory_none"));
   assert.equal(f.ctx.state.variables["kills-id"], 0);
 });
@@ -595,12 +605,12 @@ test("disabled entitlement prevents correction", async () => {
 });
 test("expired turn deadline prevents correction", async () => {
   const f = fixture(); f.ctx.audit.startedAt = new Date(Date.now() - 180_000).toISOString();
-  await assert.rejects(guardTurnOutput(f.ctx), errorCode("deadline"));
+  await assertUnverified(f.ctx, "deadline");
   assert.equal(f.requests.length, 0);
 });
 test("insufficient context fails instead of dropping schema or original draft", async () => {
   const f = fixture(); f.ctx.maxContext = 4608;
-  await assert.rejects(guardTurnOutput(f.ctx), errorCode("correction_context_limit"));
+  await assertUnverified(f.ctx, "correction_context_limit");
   assert.equal(f.requests.length, 0);
 });
 
@@ -612,9 +622,9 @@ for (const [label, chunks, code] of [
   ["provider error chunk", [{ type: "error", content: "private upstream detail" }], "provider_error"],
   ["overlong correction", [{ type: "text", content: "x".repeat(65537) }], "correction_output_limit"],
 ] as Array<[string, StreamChunk[], string]>) {
-  test(`${label} fails closed after one request with usage accounted`, async () => {
+  test(`${label} delivers the story unverified after one request with usage accounted`, async () => {
     const f = fixture(undefined, chunks);
-    await assert.rejects(guardTurnOutput(f.ctx), errorCode(code));
+    await assertUnverified(f.ctx, code);
     assert.equal(f.requests.length, 1);
     assert.equal(f.usages.length, 1);
     assert.equal(f.ctx.audit.correctionCount, 1);
@@ -627,7 +637,8 @@ for (const [label, chunks, code] of [
 test("thrown upstream errors are sanitized and logged once", async () => {
   const f = fixture();
   f.ctx.provider.generateStream = async function* () { throw new Error("private provider body"); };
-  await assert.rejects(guardTurnOutput(f.ctx), (error: unknown) => errorCode("provider_error")(error) && !(error as Error).message.includes("private"));
+  const out = await assertUnverified(f.ctx, "provider_error");
+  assert.ok(!JSON.stringify(out.audit).includes("private"));
   assert.equal(f.usages.length, 1);
 });
 
@@ -675,7 +686,7 @@ test("remaining turn deadline bounds a non-cooperative provider", { timeout: 600
   f.ctx.audit.startedAt = new Date(Date.now() - 178_000).toISOString();
   f.ctx.provider.generateStream = async function* () { await new Promise(() => {}); };
   const start = Date.now();
-  await assert.rejects(guardTurnOutput(f.ctx), errorCode("correction_timeout"));
+  await assertUnverified(f.ctx, "correction_timeout");
   assert.ok(Date.now() - start < 5000);
   assert.equal(f.usages.length, 1);
 });
@@ -691,7 +702,7 @@ test("malformed structured output freezes only its complete narrative field", as
 test("giant unbroken correction input is rejected quickly before tokenization", { timeout: 3000 }, async () => {
   const f = fixture("x".repeat(100_000));
   const start = Date.now();
-  await assert.rejects(guardTurnOutput(f.ctx), errorCode("correction_context_limit"));
+  await assertUnverified(f.ctx, "correction_context_limit");
   assert.ok(Date.now() - start < 1000);
   assert.equal(f.requests.length, 0);
 });
@@ -704,7 +715,7 @@ test("bounded token estimate uses conservative UTF-8 bytes for pathological piec
 
 test("a bare none correction cannot silently discard missing state updates", async () => {
   const f = fixture("You sprint into the alley.", [{ type: "text", content: none }, { type: "done", content: "", stopReason: "stop" }]);
-  await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+  await assertUnverified(f.ctx, "invalid_correction");
   assert.ok(f.ctx.audit.diagnostics.includes("missing_no_update_review"));
   assert.equal(f.ctx.audit.correctedBatch, none);
 });
@@ -716,7 +727,7 @@ for (const review of [null, {}, [], [{ variableId: "kills-id", reason: "No kill.
   test(`none correction requires a complete nonempty variable review: ${JSON.stringify(review)}`, async () => {
     const output = JSON.stringify({ ...JSON.parse(reviewedNone), review });
     const f = fixture(undefined, [{ type: "text", content: output }, { type: "done", content: "" }]);
-    await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+    await assertUnverified(f.ctx, "invalid_correction");
     assert.equal(f.ctx.audit.correctedBatch, output);
   });
 }
@@ -724,7 +735,7 @@ for (const review of [null, {}, [], [{ variableId: "kills-id", reason: "No kill.
 test("invalid correction text is retained before validation, without applying state", async () => {
   const output = `${updated(2)}\n[kills: add 1]`;
   const f = fixture(undefined, [{ type: "text", content: output }, { type: "done", content: "", stopReason: "stop" }]);
-  await assert.rejects(guardTurnOutput(f.ctx), errorCode("invalid_correction"));
+  await assertUnverified(f.ctx, "invalid_correction");
   assert.equal(f.ctx.audit.correctedBatch, output);
   assert.equal(f.ctx.state.variables["kills-id"], 0);
 });
@@ -763,10 +774,10 @@ test("none review covers only currently writable variables; read-only values rem
 
 test("audit bounds truncated correction text and never retains provider error bodies", async () => {
   const f = fixture(undefined, [{ type: "text", content: "x".repeat(70000) }]);
-  await assert.rejects(guardTurnOutput(f.ctx), errorCode("correction_output_limit"));
+  await assertUnverified(f.ctx, "correction_output_limit");
   assert.equal(f.ctx.audit.correctedBatch?.length, 65536);
   const g = fixture(undefined, [{ type: "text", content: "partial" }, { type: "error", content: "private-provider-response" }]);
-  await assert.rejects(guardTurnOutput(g.ctx), errorCode("provider_error"));
+  await assertUnverified(g.ctx, "provider_error");
   assert.equal(g.ctx.audit.correctedBatch, "partial");
 });
 
@@ -798,3 +809,21 @@ for (const path of ["send", "regenerate", "continue"] as const) {
     assert.deepEqual(f.ctx.state, before);
   });
 }
+
+test("rate-limited free correction model still delivers the story", async () => {
+  const f = fixture("Mother hums while folding laundry.");
+  f.ctx.provider.generateStream = async function* () { throw new Error("429 Too Many Requests: rate limit exceeded for openrouter/free"); };
+  const out = await assertUnverified(f.ctx, "provider_rate_limit");
+  assert.equal(out.parsed.cleanText, "Mother hums while folding laundry.");
+  assert.equal(f.ctx.audit.correctionCount, 1);
+  assert.equal(f.usages.length, 1);
+});
+
+test("failed correction applies the reply's own commands, same as with the guard off", async () => {
+  const f = fixture("You fell the bandit. [kills-id: add 1]");
+  f.ctx.provider.generateStream = async function* () { throw new Error("429 rate limit"); };
+  const out = await assertUnverified(f.ctx, "provider_rate_limit");
+  assert.equal(out.parsed.effects.length, 1);
+  assert.equal(out.parsed.effects[0]!.variableId, "kills-id");
+  assert.equal(f.ctx.audit.parsedCount, 1);
+});

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appendRegenSwipe, type TurnSwipe } from "./turn-swipes";
+import { appendRegenSwipe, isRefusalReply, type TurnSwipe } from "./turn-swipes";
 
 const swipe = (over: Partial<TurnSwipe> = {}): TurnSwipe => ({
   content: "regen body",
@@ -64,4 +64,17 @@ test("appendRegenSwipe clamps a server index that points past the local array", 
   // Active index must always be addressable locally — an out-of-range index
   // is exactly the bug this module exists to prevent.
   assert.equal(activeSwipeIndex, swipes.length - 1);
+});
+
+test("isRefusalReply reads the active swipe only", () => {
+  const swipes = [swipe({ content: "a" }), swipe({ content: "b", refusal: true })];
+  assert.equal(isRefusalReply({ swipes, activeSwipeIndex: 1 }), true);
+  assert.equal(isRefusalReply({ swipes, activeSwipeIndex: 0 }), false);
+  assert.equal(isRefusalReply({ swipes }), false);
+  assert.equal(isRefusalReply({}), false);
+});
+
+test("appendRegenSwipe keeps the refusal flag on the new swipe", () => {
+  const { swipes, activeSwipeIndex } = appendRegenSwipe([swipe()], swipe({ refusal: true }), { padCreatedAt: "t" });
+  assert.equal(isRefusalReply({ swipes, activeSwipeIndex }), true);
 });

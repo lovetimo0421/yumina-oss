@@ -11,7 +11,7 @@ export interface StateValidationAudit {
   attemptId: string;
   targetMessageId?: string;
   path: "send" | "regenerate" | "continue";
-  outcome: "validating" | "repairing" | "valid-updates" | "explicit-none" | "not-required" | "failed" | "cancelled" | "stale";
+  outcome: "validating" | "repairing" | "valid-updates" | "explicit-none" | "not-required" | "unverified" | "failed" | "cancelled" | "stale";
   initialOutcome?: string;
   diagnostics: string[];
   declaredCount?: number;

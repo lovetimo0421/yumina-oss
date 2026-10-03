@@ -180,7 +180,7 @@ export interface WorldVersion {
   note: string | null;
   createdAt: Date;
   publishedAt?: Date | null;
-  source?: "manual" | "publish" | "live" | "backup";
+  source?: "manual" | "publish" | "live" | "backup" | "incoming";
   isLive?: boolean;
   canMakeLive?: boolean;
 }

@@ -1,4 +1,5 @@
 import "./utc-init.js"; // MUST be first — pins the process to UTC before any Date use
+import { discoverRoutes } from "./routes/discover.js";
 import fs from "node:fs";
 import { Hono } from "hono";
 import type { Context } from "hono";
@@ -45,6 +46,7 @@ import { health } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
 import { users } from "./routes/users.js";
 import { worldRoutes } from "./routes/worlds.js";
+import { worldChangeRoutes } from "./routes/world-changes.js";
 import { apiKeyRoutes } from "./routes/api-keys.js";
 import localBridgeRoutes from "./routes/local-bridge.js";
 import { localSetupRoutes } from "./routes/local-setup.js";
@@ -71,6 +73,8 @@ import { devRoutes } from "./routes/dev.js";
 import { extensionRoutes } from "./routes/extensions.js";
 import { localAuthRoutes } from "./routes/local-auth.js";
 import { completionRoutes } from "./routes/completions.js";
+import { ttsRoutes } from "./routes/tts.js";
+import { voiceInputRoutes } from "./routes/voice-input.js";
 import { socialSimulatorRoutes } from "./routes/social-simulator.js";
 import { combatRoutes } from "./routes/combat.js";
 import { BIND_HOST, IS_DEV } from "./lib/env.js";
@@ -78,7 +82,8 @@ import { isTestingRequest } from "./lib/testing-origin.js";
 import { connectRedis, disconnectRedis } from "./lib/redis.js";
 import { posthog, captureServerError } from "./lib/posthog.js";
 import { drainStreams, activeStreamCount } from "./lib/stream-registry.js";
-import { getMetaForPath, injectMeta } from "./lib/seo.js";
+import { getMetaForPath, injectMeta, injectContent } from "./lib/seo.js";
+import { renderPublicContent } from "./lib/prerender.js";
 import { registerSessionMemoryExtension } from "./extensions/session-memory/hooks.js";
 import { registerStateUpdateGuard } from "./extensions/state-update-guard/hooks.js";
 import { runWithRequestCache } from "./lib/request-cache.js";
@@ -239,7 +244,9 @@ app.route("/api/auth", authRoutes);
 app.route("/api/edition", editionRoutes);
 app.route("/api/local-auth", localAuthRoutes);
 app.route("/api/users", users);
+app.route("/api/discover", discoverRoutes);
 app.route("/api/worlds", worldRoutes);
+app.route("/api/world-changes", worldChangeRoutes);
 app.route("/api/keys", apiKeyRoutes);
 app.route("/api/local-bridge", localBridgeRoutes);
 app.route("/api/sessions", sessionRoutes);
@@ -257,6 +264,8 @@ edition.mountPublicApiRoutes(app);
 app.route("/api/extensions", extensionRoutes);
 app.route("/api", messageRoutes);
 app.route("/api", completionRoutes);
+app.route("/api", ttsRoutes);
+app.route("/api", voiceInputRoutes);
 app.route("/api/sessions", socialSimulatorRoutes);
 app.route("/api/studio", studioRoutes);
 app.route("/api/studio", agentRoutes);
@@ -302,6 +311,41 @@ if (process.env.NODE_ENV === "production") {
   const indexHtml = fs.existsSync("./public/index.html")
     ? fs.readFileSync("./public/index.html", "utf-8")
     : null;
+
+  // The app shell with the page's own meta tags and, for public pages, its
+  // real content in #root (for crawlers; the splash covers it for people).
+  // Used for "/" (which serveStatic would otherwise answer with the raw file,
+  // skipping meta and content) and as the SPA fallback for every other path.
+  const serveShell = async (c: Context) => {
+    if (!indexHtml) return c.notFound();
+    if (c.req.path.startsWith("/sandbox")) return c.notFound();
+    if (c.req.path.startsWith("/assets/")) return c.notFound();
+
+    let html = indexHtml;
+    try {
+      const meta = await getMetaForPath(c.req.path);
+      html = injectMeta(indexHtml, meta);
+      // A world or creator address that resolves to nothing is a real
+      // not-found: the shell still renders (the app shows its own message),
+      // but crawlers must not file it as a page.
+      if (meta.status === 404) c.status(404);
+      // Public pages carry their real content in the HTML (home grid, a
+      // world's description, a creator's worlds); the app replaces it on
+      // mount. Never for pages kept out of search, and not on the creator
+      // host, whose root is a different page.
+      const onCreatorHost = /^creator\./i.test(c.req.header("host") ?? "");
+      if (!meta.noindex && !meta.status && !onCreatorHost) {
+        html = injectContent(html, await renderPublicContent(c.req.path));
+      }
+    } catch {
+      // Meta injection failed — serve unmodified HTML
+    }
+
+    c.header("Cache-Control", "no-store, no-cache, must-revalidate");
+    c.header("CDN-Cache-Control", "no-store");
+    c.header("Surrogate-Control", "no-store");
+    return c.html(html);
+  };
 
   // Sandbox CSP — the iframe has an opaque origin (sandbox="allow-scripts"
   // without allow-same-origin), so 'self' = null. Use https: to allow loading
@@ -416,6 +460,9 @@ if (process.env.NODE_ENV === "production") {
       c.header("CDN-Cache-Control", "no-store");
     }
   });
+  // The home page is a real page (Discover), not the raw index.html file:
+  // register it ahead of serveStatic so it gets its meta and content.
+  if (indexHtml) app.get("/", serveShell);
   app.use("/*", serveStatic({
     root: "./public",
     // Set Cache-Control DURING serving (onFound) so it sticks. A post-next() header
@@ -456,23 +503,7 @@ if (process.env.NODE_ENV === "production") {
 
   // SPA fallback — serve index.html with route-specific meta tags for SEO
   if (indexHtml) {
-    app.get("*", async (c) => {
-      if (c.req.path.startsWith("/sandbox")) return c.notFound();
-      if (c.req.path.startsWith("/assets/")) return c.notFound();
-
-      let html = indexHtml;
-      try {
-        const meta = await getMetaForPath(c.req.path);
-        html = injectMeta(indexHtml, meta);
-      } catch {
-        // Meta injection failed — serve unmodified HTML
-      }
-
-      c.header("Cache-Control", "no-store, no-cache, must-revalidate");
-      c.header("CDN-Cache-Control", "no-store");
-      c.header("Surrogate-Control", "no-store");
-      return c.html(html);
-    });
+    app.get("*", serveShell);
   }
 } else {
   const proxyToVite = async (c: Context) => {

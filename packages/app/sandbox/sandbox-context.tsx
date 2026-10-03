@@ -1,3 +1,4 @@
+import { useLegacyGallery, type LegacyGalleryOptions } from './legacy-gallery';
 import { createContext, useContext } from "react";
 import type {
   SessionMemory,
@@ -8,10 +9,11 @@ import type {
   SessionSummaryMode,
   SessionSummaryPayload,
 } from "@yumina/shared";
-import type { SandboxCapabilities, SandboxEntry, SandboxLoreUiBinding, SandboxWorldbook, SandboxMode, SandboxState, LocalBridgeChannelData } from "./protocol";
+import type { SandboxCapabilities, SandboxEntry, SandboxLoreUiBinding, SandboxWorldbook, SandboxMode, SandboxState, LocalBridgeChannelData, TtsChannelData, VoiceInputChannelData } from "./protocol";
 import { wrapMessage, postToParentWindow, type ApiCallMessage } from "./protocol";
 import { renderMarkdown } from "./chat/markdown";
 import type { SessionImage } from "../src/lib/session-media";
+import type { SessionStoredValue, SessionStorageWriteOptions } from "../src/lib/session-storage";
 
 export type { SandboxEntry } from "./protocol";
 
@@ -59,6 +61,8 @@ export interface BranchContext {
  * Writes: fire-and-forget or async via postMessage to parent.
  */
 export interface SandboxedYuminaAPI {
+  /** Internal compatibility hook for recognized legacy gallery sources. */
+  __useLegacyGallery?: (options: LegacyGalleryOptions) => ReturnType<typeof useLegacyGallery>;
   // ── State reads (synchronous) ──
   variables: Record<string, unknown>;
   globalVariables: Record<string, unknown>;
@@ -261,7 +265,14 @@ export interface SandboxedYuminaAPI {
     pick: (options?: {entryId?:string;metadata?:Record<string,unknown>}) => Promise<{mediaId:string;entryId:string}|null>;
     remove: (entryId:string,version:number) => Promise<{removed:boolean}>;
   };
-  // ── Storage (async, parent-mediated, per-world scoped) ──
+  /** JSON data belonging to the save. Versions prevent silent cross-device overwrites.
+   * Included in checkpoints and shared snapshots. Store media entry IDs, not image bytes. */
+  sessionStorage: {
+    get: <T = unknown>(key: string) => Promise<SessionStoredValue<T>>;
+    set: <T = unknown>(key: string, value: T, options: SessionStorageWriteOptions) => Promise<SessionStoredValue<T>>;
+    remove: (key: string, options: SessionStorageWriteOptions) => Promise<SessionStoredValue>;
+  };
+  // ── Browser-local cache (does not sync or enter shared snapshots) ──
   // Replaces: localStorage.getItem/setItem
   storage: {
     get: (key: string) => Promise<string | null>;
@@ -274,6 +285,15 @@ export interface SandboxedYuminaAPI {
   editMessage: (messageId: string, content: string) => Promise<boolean>;
   /** Delete a message (async, with parent-side confirmation bypass) */
   deleteMessage: (messageId: string) => Promise<boolean>;
+  /** Draw (or redraw) the illustration for one assistant reply */
+  /** Draw (or redraw) a reply's picture; `note` is the player's ask for the redraw ("keep the black sweater"). */
+  illustrateMessage: (messageId: string, note?: string, fine?: boolean) => Promise<boolean>;
+  /** Whether per-turn illustration is available to this player (server flag + their experimental opt-in), and their auto switch */
+  getTurnImageSettings: () => Promise<{ available: boolean; auto: boolean; price?: number; freeLeft?: number; unlimited?: boolean; fine?: boolean } | null>;
+  /** Open the host's mushie top-up popup. */
+  openCreditTopUp: () => void;
+  /** Turn "illustrate every reply" on or off for this player */
+  setAutoTurnImages: (on: boolean) => Promise<boolean>;
   /** Regenerate the last assistant message */
   regenerateMessage: (messageId: string) => void;
   /** Continue generating from the last message */
@@ -307,6 +327,8 @@ export interface SandboxedYuminaAPI {
   /** Bumped by the host on every terminally-failed send — including toast-only
    *  failures that never set `error`. Watch it to restore swallowed input. */
   sendFailureNonce: number;
+  /** Machine code for `error` (e.g. "CONTENT_FILTER"); null when unknown. */
+  errorCode: string | null;
   streamingReasoning: string;
   readOnly: boolean;
   checkpoints: Array<{ id: string; name: string; messageCount: number; createdAt: string }>;
@@ -363,6 +385,14 @@ export interface SandboxedYuminaAPI {
   removeFromPool: (modelId: string) => void;
   setPoolWeight: (modelId: string, weight: number) => void;
   togglePoolLock: (modelId: string) => void;
+
+  // ─── Player prompts (platform chat UI) ───────────────────────────────────
+  /** The player's own prompt summary, pushed by the host. Null for guests or
+   *  before it loads. Used by the built-in 「提示词」 quick panel and the refusal
+   *  bar; carries the per-model prompt binding for the current model's family. */
+  playerPrompts: import("./protocol").PlayerPromptsChannelData | null;
+  /** Switch one of the player's own prompts on/off. */
+  togglePlayerPrompt: (promptId: string, enabled: boolean) => Promise<{ ok: boolean }>;
 
   // ─── Session memory ────────────────────────────────────────────────────
   getStateGuardSettings: () => Promise<import("@yumina/shared").StateGuardSettings>;
@@ -447,6 +477,61 @@ export interface SandboxedYuminaAPI {
     /** Subscribe to raw frames: snap | delta | event | presence | status. Returns unsubscribe. */
     onFrame: (cb: (frame: Record<string, unknown>) => void) => () => void;
   };
+
+  // ── Voice readout (TTS) ──
+  /** Speak a message (or arbitrary card text) aloud through the platform's
+   *  voice pipeline. Billed per character on the account's plan; replaying the
+   *  same text+voice is a free cache hit. One voice plays at a time — a new
+   *  speak replaces the current one. Track progress via `ttsState.playback`.
+   *
+   *  - `{ messageId }`: read a chat message (honors the player's reading-mode
+   *    setting — full text vs dialogue-only).
+   *  - `{ text, key? }`: read raw card text (e.g. an NPC line). Pass a stable
+   *    `key` if you want to track its playback state.
+   *  - `voice`: optional fish.audio marketplace voice id (32-hex) so cards can
+   *    voice their own characters; defaults to the player's chosen voice. */
+  tts: {
+    speak: (opts: { messageId?: string; text?: string; key?: string; voice?: string }) => Promise<{ ok: boolean; reason?: string }>;
+    stop: () => void;
+    /** Update the player's voice-readout preferences (in-chat voice panel).
+     *  Persists to the account; the new values flow back via `ttsState`. */
+    setPrefs: (prefs: {
+      enabled?: boolean;
+      autoPlay?: boolean;
+      mode?: "full" | "dialogue";
+      /** "" = auto (platform default for the UI language). Sets a pool of one. */
+      voice?: string;
+      /** The player's voice pool (voice ids AI casting may use; [] = all). */
+      voicePool?: string[];
+      /** 0–100. */
+      volume?: number;
+    }) => void;
+    /** Play a short sample of a voice ("" = the auto voice). Billed like any
+     *  synth on first listen, cached for everyone after. */
+    preview: (voice: string) => Promise<{ ok: boolean; reason?: string }>;
+  };
+  /** Voice readout prefs + live playback (pushed by the host). `enabled` is
+   *  false outside real sessions (guest preview, replay) — hide speaker UI. */
+  ttsState: TtsChannelData;
+
+  // ── Voice input (hold-to-talk) ──
+  /** Record the player's voice and get the words back. Free to the player.
+   *  Call `record()` when the talk button goes down and `stop()` when it comes
+   *  up; the promise then resolves with the transcript. `cancel()` throws the
+   *  clip away. Recording pauses any voice readout so the AI isn't recorded.
+   *
+   *  What you do with the text is up to the card — check
+   *  `voiceInputState.mode` ("auto" = send it as spoken, "confirm" = let the
+   *  player review it) if you want to honor the player's choice. */
+  voice: {
+    record: (opts?: { onLevel?: (level: number) => void }) => Promise<{ ok: boolean; text?: string; reason?: string }>;
+    stop: () => void;
+    cancel: () => void;
+    /** In-chat voice panel: `mode` "" = follow the card's default. */
+    setPrefs: (prefs: { enabled?: boolean; mode?: "" | "confirm" | "auto"; key?: string }) => void;
+  };
+  /** Voice-input availability and prefs (pushed by the host). */
+  voiceInputState: VoiceInputChannelData;
 
   // ── Context injection (one-shot context for next main chat turn) ──
   /** Inject a one-shot context message into the next main chat AI turn.
@@ -574,6 +659,10 @@ const guestPreviewCapabilities: SandboxCapabilities = {
   requiresAuth: true,
 };
 
+const NO_VOICE_INPUT: VoiceInputChannelData = {
+  available: false, enabled: false, mode: "confirm", cardMode: "confirm", playerMode: "", key: "Space",
+};
+
 const defaultAPI: SandboxedYuminaAPI = {
   variables: {},
   globalVariables: {},
@@ -644,6 +733,11 @@ const defaultAPI: SandboxedYuminaAPI = {
     pick: () => noopPromise(null),
     remove: () => Promise.reject(new Error("No active session")),
   },
+  sessionStorage: {
+    get: () => Promise.reject(new Error("No active session")),
+    set: () => Promise.reject(new Error("No active session")),
+    remove: () => Promise.reject(new Error("No active session")),
+  },
   storage: {
     get: () => noopPromise(null),
     set: () => noopPromise(undefined),
@@ -651,6 +745,10 @@ const defaultAPI: SandboxedYuminaAPI = {
   },
   editMessage: () => noopPromise(false),
   deleteMessage: () => noopPromise(false),
+  illustrateMessage: () => noopPromise(false),
+  getTurnImageSettings: () => noopPromise(null),
+  openCreditTopUp: () => {},
+  setAutoTurnImages: () => noopPromise(false),
   regenerateMessage: () => {},
   continueLastMessage: () => {},
   stopGeneration: () => {},
@@ -666,6 +764,7 @@ const defaultAPI: SandboxedYuminaAPI = {
   error: null,
   composerSendKey: "enter",
   sendFailureNonce: 0,
+  errorCode: null,
   streamingReasoning: "",
   // Start safe until the parent pushes UI state. This prevents the sandbox from
   // briefly exposing a playable composer before session/guest-preview state is known.
@@ -698,6 +797,8 @@ const defaultAPI: SandboxedYuminaAPI = {
   addToPool: () => {},
   removeFromPool: () => {},
   setPoolWeight: () => {},
+  playerPrompts: null,
+  togglePlayerPrompt: () => noopPromise({ ok: false }),
   getStateGuardSettings: () => Promise.reject(new Error("No active session")),
   setStateGuardSettings: () => Promise.reject(new Error("No active session")),
   getSessionMemory: () =>
@@ -759,6 +860,20 @@ const defaultAPI: SandboxedYuminaAPI = {
     sendCommand: () => noopPromise({ ok: false }),
     onFrame: () => () => {},
   },
+  tts: {
+    speak: () => noopPromise({ ok: false, reason: "unavailable" }),
+    stop: () => {},
+    setPrefs: () => {},
+    preview: () => noopPromise({ ok: false, reason: "unavailable" }),
+  },
+  ttsState: { available: false, enabled: false, voice: "", mode: "full", autoPlay: false, volume: 100, playback: null },
+  voice: {
+    record: () => noopPromise({ ok: false, reason: "unavailable" }),
+    stop: () => {},
+    cancel: () => {},
+    setPrefs: () => {},
+  },
+  voiceInputState: NO_VOICE_INPUT,
   injectContext: () => {},
   setComposerDraft: () => {},
 };
@@ -903,6 +1018,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
   };
 
   return {
+    __useLegacyGallery: (options) => useLegacyGallery(state.sessionId, !!state.readOnly || !capabilities.canPersistSession, options, callParent),
     // State reads
     variables: state.variables,
     globalVariables: state.globalVariables,
@@ -1040,7 +1156,12 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
       pick: (options) => callParent("media.pick", [options], 600_000),
       remove: (entryId, version) => callParent("media.remove", [entryId, version], 60_000),
     },
-    // Storage (async, per-world scoped)
+    sessionStorage: {
+      get: (key) => callParent("sessionStorage.get", [key], 60_000),
+      set: (key, value, options) => callParent("sessionStorage.set", [key, value, options], 60_000),
+      remove: (key, options) => callParent("sessionStorage.remove", [key, options], 60_000),
+    },
+    // Browser-local cache (not a cloud save).
     storage: {
       get: (key) => callParent("storage.get", [key], key.startsWith("oncin:gallery:v2:") ? 600_000 : 10_000),
       set: (key, value) => callParent("storage.set", [key, value], key.startsWith("oncin:gallery:v2:") ? 600_000 : 10_000),
@@ -1050,6 +1171,13 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     // Chat actions (universal canvas)
     editMessage: (messageId, content) => sessionApisAvailable ? callParent("editMessage", [messageId, content]) : guardedCall(false, true),
     deleteMessage: (messageId) => sessionApisAvailable ? callParent("deleteMessage", [messageId]) : guardedCall(false, true),
+    // Rendering + upload can take a while on a cold GPU.
+    illustrateMessage: (messageId, note, fine) => sessionApisAvailable
+      ? callParent("illustrateMessage", fine ? [messageId, note ?? "", true] : note ? [messageId, note] : [messageId], 120_000)
+      : guardedCall(false, true),
+    getTurnImageSettings: () => sessionApisAvailable ? callParent("getTurnImageSettings", []) : Promise.resolve(null),
+    openCreditTopUp: () => { if (sessionApisAvailable) void callParent("openCreditTopUp", []); },
+    setAutoTurnImages: (on) => sessionApisAvailable ? callParent("setAutoTurnImages", [on]) : guardedCall(false, true),
     regenerateMessage: (messageId) => { if (sessionApisAvailable) postToParent("regenerateMessage", [messageId]); else promptAuth(); },
     continueLastMessage: () => { if (sessionApisAvailable) postToParent("continueLastMessage", []); else promptAuth(); },
     stopGeneration: () => { if (sessionApisAvailable) postToParent("stopGeneration", []); },
@@ -1067,6 +1195,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     error: state.error ?? null,
     composerSendKey: state.composerSendKey ?? "enter",
     sendFailureNonce: state.sendFailureNonce ?? 0,
+    errorCode: state.errorCode ?? null,
     streamingReasoning: state.streamingReasoning ?? "",
     readOnly: state.readOnly ?? false,
     checkpoints: state.checkpoints ?? [],
@@ -1099,6 +1228,11 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     addToPool: (modelId) => postToParent("addToPool", [modelId]),
     removeFromPool: (modelId) => postToParent("removeFromPool", [modelId]),
     setPoolWeight: (modelId, weight) => postToParent("setPoolWeight", [modelId, weight]),
+    playerPrompts: state.playerPrompts ?? null,
+    togglePlayerPrompt: (promptId, enabled) =>
+      sessionApisAvailable
+        ? callParent<{ ok: boolean }>("togglePlayerPrompt", [promptId, enabled], 20_000).catch(() => ({ ok: false }))
+        : Promise.resolve({ ok: false }),
     getStateGuardSettings: () => sessionApisAvailable ? callParent("getStateGuardSettings", []) : Promise.reject(new Error("No active session")),
     setStateGuardSettings: (patch) => sessionApisAvailable ? callParent("setStateGuardSettings", [patch]) : Promise.reject(new Error("No active session")),
     getSessionMemory: () =>
@@ -1234,6 +1368,49 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
         return () => window.removeEventListener(ROOM_FRAME_EVENT, handler);
       },
     },
+
+    // Voice readout (TTS) — synthesis happens parent-side (sandbox can't
+    // fetch); playback runs on the parent audio store; state comes back via
+    // the UI channel's `tts` field.
+    tts: {
+      speak: (opts) =>
+        sessionApisAvailable
+          ? callParent<{ ok: boolean; reason?: string }>("tts.speak", [opts], 60_000)
+            .catch(() => ({ ok: false as const, reason: "timeout" }))
+          : guardedCall({ ok: false as const, reason: "unavailable" }, true),
+      stop: () => postToParent("tts.stop", []),
+      setPrefs: (prefs) => postToParent("tts.setPrefs", [prefs]),
+      preview: (voice) =>
+        sessionApisAvailable
+          ? callParent<{ ok: boolean; reason?: string }>("tts.preview", [voice], 60_000)
+            .catch(() => ({ ok: false as const, reason: "timeout" }))
+          : guardedCall({ ok: false as const, reason: "unavailable" }, true),
+    },
+    ttsState: state.tts ?? { available: false, enabled: false, voice: "", mode: "full", autoPlay: false, volume: 100, playback: null },
+
+    // Voice input — the parent records (the sandbox has no microphone) and
+    // streams the input level back while it does.
+    voice: {
+      record: (opts) => {
+        if (!sessionApisAvailable) return guardedCall({ ok: false as const, reason: "unavailable" }, true);
+        return callParentStreaming("voice.record", [], (delta) => {
+          const level = Number(delta);
+          if (Number.isFinite(level)) opts?.onLevel?.(level);
+        })
+          .then((raw) => {
+            try {
+              return JSON.parse(raw) as { ok: boolean; text?: string; reason?: string };
+            } catch {
+              return { ok: false, reason: "error" };
+            }
+          })
+          .catch(() => ({ ok: false, reason: "timeout" }));
+      },
+      stop: () => postToParent("voice.stop", []),
+      cancel: () => postToParent("voice.cancel", []),
+      setPrefs: (prefs) => postToParent("voice.setPrefs", [prefs]),
+    },
+    voiceInputState: state.voiceInput ?? NO_VOICE_INPUT,
 
     // Context injection (one-shot for next main chat turn)
     injectContext: (message, options) =>

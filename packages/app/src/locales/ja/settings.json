@@ -17,7 +17,8 @@
     "notifications": "通知",
     "display": "表示／言語",
     "wallpaper": "壁紙",
-    "about": "Yuminaについて"
+    "about": "Yuminaについて",
+    "prompts": "プロンプト"
   },
   "aiConfig": {
     "title": "AI設定"
@@ -246,6 +247,13 @@
     }
   },
   "display": {
+    "experimental": {
+      "title": "実験的機能",
+      "turnImages": {
+        "title": "ストーリー挿絵",
+        "description": "実験的機能：返信に挿絵を描きます。最初の5枚は無料、その後は1枚12 mushiesです。"
+      }
+    },
     "title": "表示",
     "language": {
       "title": "言語",
@@ -266,6 +274,83 @@
     "worldAudio": {
       "title": "ワールドの音楽・効果音",
       "description": "オフにすると、すべてのワールドで BGM や効果音が一切再生されず、完全に無音になります。アカウントに保存されます。"
+    },
+    "tts": {
+      "title": "音声読み上げ",
+      "description": "表現力豊かな AI 音声で返信を読み上げます。メッセージ横のスピーカーをタップするか、下の自動読み上げをオンにしてください。",
+      "offDescription": "初期状態はオフです。オンにすると返信を読み上げます。読み上げには mushies を使います。",
+      "autoPlay": {
+        "title": "自動読み上げ",
+        "description": "返信の生成中から声が話し始めます。新しい返信の合成ごとに mushies を消費します。"
+      },
+      "mode": {
+        "full": "すべて読む",
+        "fullHint": "地の文もセリフも読む",
+        "dialogue": "セリフのみ",
+        "dialogueHint": "かっこ内のセリフだけを読む"
+      },
+      "voice": {
+        "title": "ボイス",
+        "poolTitle": "マイボイス",
+        "poolHint": "好きなボイスにチェックを入れると、AI がその中からキャラごとに選びます。何も選ばなければ全ボイスから選びます。",
+        "poolAll": "すべてのボイス",
+        "poolCount": "{{count}} 件選択中",
+        "poolClear": "クリア",
+        "customGroup": "カスタム",
+        "rename": "名前を変更",
+        "remove": "削除",
+        "namePlaceholder": "この声の名前",
+        "auto": "自動（表示言語に合わせる）",
+        "preview": "試聴",
+        "customPlaceholder": "カスタムボイス ID（fish.audio の 32 桁 ID）",
+        "customHint": "fish.audio のボイスライブラリにある任意のボイス ID を貼り付けると、マイボイスに追加されます。",
+        "invalidId": "有効なボイス ID ではないようです — 32 桁の英数字が必要です。"
+      },
+      "volume": "音声の音量",
+      "previewFailed": "試聴に失敗しました。もう一度お試しください。",
+      "costHint": "音声合成は文字数課金（mushies）です。一度生成した内容の再生はいつでも無料です。",
+      "voices": {
+        "zhGentleFemale": "やさしい女性",
+        "zhMatureFemale": "大人の女性",
+        "zhSweetGirl": "少女",
+        "zhYoungMale": "若い男性",
+        "zhNarratorMale": "ナレーター",
+        "enFemale": "あたたかい女性",
+        "enYouthfulMale": "快活な男性",
+        "jaCalmFemale": "落ち着いた女性",
+        "jaEnergeticFemale": "元気な女性",
+        "jaCalmMale": "落ち着いた男性",
+        "zhLivelyFemale": "明るい女性",
+        "zhLightMatureFemale": "お姉さん系",
+        "zhBrightFemale": "はきはき女性",
+        "zhBroadcastMale": "アナウンサー男性",
+        "zhDeepMale": "重厚な男性",
+        "zhSteadyMale": "渋い男性",
+        "enNarratorFemale": "語りの女性",
+        "enSoftFemale": "ささやき系女子",
+        "enDeepMale": "低音の男性",
+        "enCalmMale": "穏やかな男性",
+        "jaBrightGirl": "ほがらか少女",
+        "jaDeepMale": "深みのある男性",
+        "esFemale": "心地よい女性",
+        "esGirl": "元気な女の子",
+        "esNarratorMale": "ナレーター男性"
+      }
+    },
+    "voiceInput": {
+      "title": "音声入力",
+      "description": "マイクを押しながら話すと、入力の代わりになります。入力欄が空のとき、送信ボタンがマイクになります。",
+      "release": "離したあと",
+      "followCard": "カードに従う",
+      "confirm": "確認してから",
+      "auto": "すぐ送信",
+      "followCardHint": "カードに従う：カードごとに決まります（多くは確認してから）。",
+      "key": "押して話すキー",
+      "keySpace": "スペース",
+      "keySpaceHint": "入力欄で入力中でないときに有効",
+      "keyAnyHint": "いつでも有効（入力中も）",
+      "keyPress": "キーを押してください…",
+      "free": "音声入力は無料です。"
     },
     "sendKey": {
       "title": "Enter キーで送信",

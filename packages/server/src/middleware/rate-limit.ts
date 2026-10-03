@@ -158,6 +158,73 @@ export async function checkSideCallRateLimit(
   return slidingWindowCheck(`rate:side:${userId}`, maxPerMinute, DEFAULT_WINDOW_MS);
 }
 
+// ─── Voice input (hold-to-talk transcription) ───────────────────────
+// Free to players, so the cap is what bounds the platform's spend: 20 clips
+// a minute is far above anyone actually talking (one clip is one utterance)
+// and, at ≤60 s a clip, caps a single account near $0.04/minute.
+
+export const VOICE_INPUT_MAX_PER_MINUTE = 20;
+
+export async function checkVoiceInputRateLimit(
+  userId: string,
+): Promise<{ error: string; code: string; retryAfter: number } | null> {
+  return slidingWindowCheck(`rate:voice-input:${userId}`, VOICE_INPUT_MAX_PER_MINUTE, DEFAULT_WINDOW_MS);
+}
+
+// ─── Voice readout byte budget ──────────────────────────────────────
+// TTS cost is linear in UTF-8 bytes, and card code can request synthesis of
+// arbitrary text, so the side-call count window (100/min) still admits ~16k
+// mushies a minute. This caps what one user can synthesize per minute. An
+// auto-read reply tops out near 12k bytes (4000 CJK chars) spread over the
+// time it takes to generate, so honest play never gets near it.
+
+/** Max synthesized UTF-8 bytes per user per minute (≈1080 mushies at 1.2×). */
+export const TTS_MAX_BYTES_PER_MINUTE = 60_000;
+
+const memTtsBytes = new Map<string, { bucket: number; bytes: number }>();
+
+export async function checkTtsByteBudget(
+  userId: string,
+  bytes: number,
+  maxPerMinute: number = TTS_MAX_BYTES_PER_MINUTE,
+): Promise<{ error: string; code: string; retryAfter: number } | null> {
+  const now = Date.now();
+  const bucket = Math.floor(now / DEFAULT_WINDOW_MS);
+  const retryAfter = Math.max(1, Math.ceil(((bucket + 1) * DEFAULT_WINDOW_MS - now) / 1000));
+  const over = {
+    error: `Voice readout limit reached. Please wait ${retryAfter} ${retryAfter === 1 ? "second" : "seconds"}.`,
+    code: "TTS_BYTE_BUDGET",
+    retryAfter,
+  };
+  const memCheck = (max: number) => {
+    const key = `tts-bytes:${userId}`;
+    const entry = memTtsBytes.get(key);
+    const used = entry && entry.bucket === bucket ? entry.bytes : 0;
+    if (used + bytes > max) return over;
+    memTtsBytes.set(key, { bucket, bytes: used + bytes });
+    return null;
+  };
+  if (redis) {
+    try {
+      const key = `rate:tts-bytes:${userId}:${bucket}`;
+      const results = await redis.multi().incrby(key, bytes).expire(key, 120).exec();
+      if (!results) throw new Error("pipeline returned null");
+      if (results[0]?.[0]) throw results[0][0];
+      const total = Number(results[0]![1] ?? 0);
+      if (total > maxPerMinute) {
+        // A rejected request must not eat budget it never used.
+        await redis.decrby(key, bytes);
+        return over;
+      }
+      return null;
+    } catch (err) {
+      alertRedisFallback("ttsByteBudget", err);
+      return memCheck(fallbackMax(maxPerMinute));
+    }
+  }
+  return memCheck(maxPerMinute);
+}
+
 // ─── krew.io identity-token limiter ────────────────────────────────
 // Per USER, not per IP (same NAT/VPN philosophy as everything else here). The
 // /krew page asks for one token per game load / reconnect; 30 a minute is far
@@ -165,6 +232,40 @@ export async function checkSideCallRateLimit(
 export const KREW_TOKEN_MAX_PER_MINUTE = 30;
 export async function checkKrewTokenRate(userId: string) {
   return slidingWindowCheck(`rate:krew-token:${userId}`, KREW_TOKEN_MAX_PER_MINUTE, DEFAULT_WINDOW_MS);
+}
+
+// ─── Per-turn picture limiters ─────────────────────────────────────
+// Every draw costs us a GPU run and a tagging call before the player pays or
+// is refunded, so the draw endpoint gets its own per-player window and a
+// site-wide daily ceiling on draws (the GPU bill's circuit breaker).
+
+export async function checkTurnImageRate(userId: string, maxPerMinute: number) {
+  return slidingWindowCheck(`rate:turn-image:${userId}`, maxPerMinute, DEFAULT_WINDOW_MS);
+}
+
+const memDaily = new Map<string, number>();
+
+/** Counts one draw against today's (UTC) site-wide ceiling. False once the
+ *  ceiling is reached; 0 means no ceiling. Without Redis each instance keeps
+ *  its own count. */
+export async function claimTurnImageDaily(max: number): Promise<boolean> {
+  if (max <= 0) return true;
+  const key = `turn-image:day:${new Date().toISOString().slice(0, 10)}`;
+  if (redis) {
+    try {
+      const results = await redis.multi().incr(key).expire(key, 2 * 86_400).exec();
+      if (!results) throw new Error("pipeline returned null");
+      if (results[0]?.[0]) throw results[0][0];
+      return ((results[0]![1] as number) ?? 1) <= max;
+    } catch (err) {
+      alertRedisFallback("turnImageDaily", err);
+      max = fallbackMax(max);
+    }
+  }
+  for (const k of memDaily.keys()) if (k !== key) memDaily.delete(k);
+  const next = (memDaily.get(key) ?? 0) + 1;
+  memDaily.set(key, next);
+  return next <= max;
 }
 
 // ─── Password-reset limiter (inbox-bombing defense, NAT-safe) ───────

@@ -5,11 +5,14 @@ import { PLAY_ENGAGEMENT_LUA } from "../lib/play-engagement.js";
 import { redis } from "../lib/redis.js";
 import { captureServerError } from "../lib/posthog.js";
 import { Hono } from "hono";
-import { eq, and, ne, desc, asc, sql, count, inArray } from "drizzle-orm";
+import { eq, and, ne, desc, asc, sql, count, inArray, isNotNull } from "drizzle-orm";
+import { loadMessagePage } from "../lib/message-page.js";
 import { db, readOwn } from "../db/index.js";
 import { createHash, randomUUID } from "node:crypto";
 import { playSessions, worlds, messages, apiKeys, worldMemories, checkpoints, userLibrary, user, summaryceptionSnippets } from "../db/schema.js";
 import { sessionMedia } from "../lib/session-media.js";
+import { restoreSessionStorage } from "../lib/session-storage-service.js";
+import { MediaError } from "../lib/session-media-service.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { decryptApiKey } from "../lib/crypto.js";
 import { extractMemories, loadWorldMemories } from "../lib/memory-extractor.js";
@@ -392,13 +395,8 @@ sessionRoutes.get("/:id", async (c) => {
   // 2026-08-11 502/524 outage). The client pages older history on demand via
   // GET /sessions/:id/messages?before=…. `messageTotal` below tells it whether
   // earlier pages exist.
-  const [sessionMessagesDesc, messageTotalRows, worldRows, parentRows, childBranchRows] = await Promise.all([
-    rd
-      .select()
-      .from(messages)
-      .where(eq(messages.sessionId, sessionId))
-      .orderBy(desc(messages.createdAt), desc(messages.id))
-      .limit(SESSION_MESSAGES_WINDOW),
+  const [messagePage, messageTotalRows, worldRows, parentRows, childBranchRows] = await Promise.all([
+    loadMessagePage(rd, sessionId, SESSION_MESSAGES_WINDOW),
     rd
       .select({ value: count() })
       .from(messages)
@@ -426,7 +424,7 @@ sessionRoutes.get("/:id", async (c) => {
       .orderBy(asc(playSessions.createdAt)),
   ]);
 
-  const sessionMessages = sessionMessagesDesc.slice().reverse();
+  const sessionMessages = messagePage.messages;
   const messageTotal = messageTotalRows[0]?.value ?? sessionMessages.length;
 
   const world = worldRows[0] ?? null;
@@ -849,7 +847,7 @@ export async function revertSession(args: {
 }): Promise<{
   status: number;
   body: {
-    data?: { state: Record<string, unknown>; messages: unknown[] };
+    data?: { state: Record<string, unknown>; messages: unknown[]; messageTotal: number };
     error?: string;
   };
 }> {
@@ -875,12 +873,13 @@ export async function revertSession(args: {
   const rawWorldDef = (await resolveSessionWorldSchema(worldRows[0]!, userId)) as unknown as WorldDefinition;
   const worldDef = migrateWorldDefinition(rawWorldDef);
 
-  // Get ALL messages (including compacted) ordered by time
+  // Timeline metadata only: do not load every stored swipe/state into Node.
   const allMessages = await db
-    .select()
+    .select({ id: messages.id, role: messages.role, createdAt: messages.createdAt,
+      compacted: messages.compacted, summaryceptionCompacted: messages.summaryceptionCompacted })
     .from(messages)
     .where(eq(messages.sessionId, sessionId))
-    .orderBy(asc(messages.createdAt));
+    .orderBy(asc(messages.createdAt), asc(messages.id));
 
   if (allMessages.length === 0) {
     return { status: 400, body: { error: "No messages to revert" } };
@@ -941,13 +940,17 @@ export async function revertSession(args: {
   // backward walk so revert and branch restore state identically.
   let restoredState: Record<string, unknown> | null = null;
   if (targetIdx >= 0) {
-    for (let i = targetIdx; i >= 0; i--) {
-      const snap = allMessages[i]!.stateSnapshot as Record<string, unknown> | null;
-      if (snap) {
-        restoredState = snap;
-        break;
-      }
-    }
+    // Main's rewind does not hold a session-row lock. Limit this read to the
+    // retained target, even if a concurrent writer has appended another turn.
+    // Resolve its timestamp in PostgreSQL to preserve microsecond precision.
+    const targetId = allMessages[targetIdx]!.id;
+    const [snapshot] = await db.select({ stateSnapshot: messages.stateSnapshot })
+      .from(messages)
+      .where(and(eq(messages.sessionId, sessionId), isNotNull(messages.stateSnapshot),
+        sql`(${messages.createdAt}, ${messages.id}) <= (SELECT created_at, id FROM messages
+          WHERE session_id = ${sessionId} AND id = ${targetId})`))
+      .orderBy(desc(messages.createdAt), desc(messages.id)).limit(1);
+    restoredState = snapshot?.stateSnapshot ?? null;
   }
 
   if (!restoredState) {
@@ -1017,14 +1020,13 @@ export async function revertSession(args: {
     .where(eq(playSessions.id, sessionId));
   await invalidation.runAfter();
 
-  // Return remaining messages
-  const updatedMessages = await db
-    .select()
-    .from(messages)
-    .where(eq(messages.sessionId, sessionId))
-    .orderBy(asc(messages.createdAt));
-
-  return { status: 200, body: { data: { state: restoredState, messages: updatedMessages } } };
+  // Rewinds return the same bounded display window as session loading.
+  const page = await loadMessagePage(db, sessionId, SESSION_MESSAGES_WINDOW);
+  const [total] = await db.select({ total: count() }).from(messages)
+    .where(eq(messages.sessionId, sessionId));
+  return { status: 200, body: { data: {
+    state: restoredState, messages: page.messages, messageTotal: total?.total ?? 0,
+  } } };
 }
 
 // POST /api/sessions/:id/revert — revert to a specific message (delete everything after it)
@@ -1780,8 +1782,10 @@ sessionRoutes.post("/:id/checkpoints/:checkpointId/restore", async (c) => {
   applyPersonaMetadataToState(restoredState, await resolvePersonaForSession(sessionRows[0]!), currentUser);
 
   const invalidation = collectExtensionInvalidation({ reason: "checkpoint-restore", sessionId });
+  try {
   await db.transaction(async (tx) => {
   await sessionMedia.restore(tx, currentUser.id, sessionId, checkpointId);
+  await restoreSessionStorage(tx, sessionId, checkpointId);
 
   // Delete all current messages
   await tx.delete(messages).where(eq(messages.sessionId, sessionId));
@@ -1837,6 +1841,10 @@ sessionRoutes.post("/:id/checkpoints/:checkpointId/restore", async (c) => {
     })
     .where(eq(playSessions.id, sessionId));
   });
+  } catch (error) {
+    if (error instanceof MediaError) return c.json({ error: error.code, code: error.code }, error.status);
+    throw error;
+  }
   await invalidation.runAfter();
 
   // Return restored messages + state

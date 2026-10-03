@@ -12,10 +12,10 @@ import { getEditionInfo } from "./edition";
  * exists in the current edition.
  */
 export const HOSTED_ROUTES: Record<
-  "hub" | "community" | "communityNew" | "admin" | "partner" | "plans" | "creator" | "generate",
+  "hub" | "community" | "communityNew" | "admin" | "partner" | "plans" | "creator" | "generate" | "prompts",
   string
 > = {
-  hub: "/app/hub",
+  hub: "/",
   community: "/app/community",
   communityNew: "/app/community/new",
   admin: "/app/admin",
@@ -23,9 +23,10 @@ export const HOSTED_ROUTES: Record<
   plans: "/app/plans",
   creator: "/creator",
   generate: "/app/generate",
+  prompts: "/app/prompts",
 };
 
-/** Where `/`, `/app` and post-login land: Discover when the hub exists, else the library. */
+/** Where `/app` and post-login land: Discover (the home address) when the hub exists, else the library. */
 export function getLandingRoute(): string {
   return getEditionInfo().features.hub ? HOSTED_ROUTES.hub : "/app/library";
 }

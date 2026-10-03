@@ -5,7 +5,6 @@ import { isKimiAntiRepetitionModel } from "@/lib/kimi-repetition";
 import { useConfigStore } from "@/stores/config";
 import { useUserProfileStore } from "@/stores/user-profile";
 import { useCreditStore } from "@/edition/slots.state";
-import { GlobalPrompts } from "@/features/configs/global-prompts";
 import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
 import { ModelFallbackSettings } from "@/features/settings/model-fallback-settings";
@@ -362,8 +361,6 @@ export function AiConfigTab() {
             </div>
           </div>
         </div>
-
-        <GlobalPrompts />
       </div>
     </div>
   );

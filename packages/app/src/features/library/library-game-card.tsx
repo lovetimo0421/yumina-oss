@@ -1,3 +1,5 @@
+import { useDiscoverAccess } from "@/hooks/use-discover-access";
+import { selectWorldArtwork } from "@/lib/discover-world-artwork";
 import { Play, Heart, Trash2, Download, Pencil, Check, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { WorldItem } from "@/stores/worlds";
@@ -44,6 +46,8 @@ export function LibraryGameCard({
   onSelectChange,
 }: LibraryGameCardProps) {
   const { t } = useTranslation("library");
+  const { enabled: discoverPreview } = useDiscoverAccess();
+  const portrait = selectWorldArtwork(item, "portrait");
   const handleCardClick = (e: React.MouseEvent) => {
     if (selectable) {
       e.stopPropagation();
@@ -65,7 +69,7 @@ export function LibraryGameCard({
       onClick={handleCardClick}
     >
       <div
-        className={`library-overview-surface library-overview-surface--interactive relative mb-2 aspect-[3/4] w-full overflow-hidden rounded-xl shadow-lg transition-all duration-200 ${
+        className={`library-overview-surface library-overview-surface--interactive relative mb-2 ${discoverPreview ? "aspect-[2/3]" : "aspect-[3/4]"} w-full overflow-hidden rounded-xl shadow-lg transition-all duration-200 ${
           !selectable ? "group-hover:shadow-[0_8px_25px_rgba(232,184,49,0.15)]" : ""
         } ${isFavorited ? "library-overview-surface--favorite" : ""} ${
           selectable && selected
@@ -81,7 +85,7 @@ export function LibraryGameCard({
               // the same edge/browser-cached variant is reused across surfaces.
               src={item.thumbnailUrl}
               alt={item.name}
-              crop={item.coverCrop}
+              crop={discoverPreview ? portrait.crop : item.coverCrop}
               className="h-full w-full transition-[transform,filter] duration-700 ease-out will-change-transform group-hover:scale-105 group-hover:blur-[2px]"
               decoding="async"
               width={480}

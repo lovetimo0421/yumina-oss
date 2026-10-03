@@ -44,7 +44,9 @@
     "assets": "Assets",
     "overview": "Overview",
     "bundles": "Bundles",
-    "aiGeneration": "AI Generation"
+    "aiGeneration": "AI Generation",
+    "apps": "In-story Apps",
+    "sceneImages": "Scene Images"
   },
   "kb": {
     "listTitle": "Knowledge bases",
@@ -164,6 +166,8 @@
     "all": "All",
     "filter": "Filter",
     "editEntry": "Edit Entry",
+    "isCharacter": "This is a character",
+    "isCharacterHint": "Characters can have a portrait and a voice. The portrait shows beside their lines in chat and is used for story illustrations.",
     "duplicate": "Duplicate",
     "copySuffix": "copy",
     "delete": "Delete",
@@ -375,12 +379,14 @@
     "aiAccessOptions": {
       "write": "AI can read & write",
       "read": "AI read-only",
-      "none": "Engine only (hidden from AI)"
+      "none": "Engine only (hidden from AI)",
+      "precise": "AI read-only (precise tracking writes it)"
     },
     "aiAccessHint": {
       "write": "Shown to the AI every turn and updatable via its directives — for state only the AI can judge (affinity, mood).",
       "read": "Shown to the AI with a read-only marker so it narrates the value, but AI directives targeting it are dropped — drive it from behaviors or your custom UI.",
-      "none": "Never sent to the AI. Still drives conditions, behaviors and your custom UI — for ledgers, counters and other bookkeeping."
+      "none": "Never sent to the AI. Still drives conditions, behaviors and your custom UI — for ledgers, counters and other bookkeeping.",
+      "precise": "Precise tracking is on: shown to the AI as read-only, and the storytelling AI's directives for it are dropped — the precise-tracking helper decides each turn how it changes. The setting here applies once precise tracking is off."
     },
     "activationLabel": "Active when",
     "activationModes": {
@@ -401,7 +407,8 @@
       "none": "engine",
       "manual": "manual",
       "conditions": "conditional",
-      "greeting": "openings"
+      "greeting": "openings",
+      "precise": "precise"
     },
     "invalidJson": "Invalid JSON: {{message}}",
     "jsonUndo": "Undo",
@@ -439,7 +446,21 @@
       "string": "String",
       "boolean": "Boolean",
       "json": "JSON (Object / Array)"
-    }
+    },
+    "optionsLabel": "Allowed values",
+    "optionsHint": "Pin the AI's output here: once filled in, this variable only ever takes one of these values. Leave it empty and the AI changes it freely, which can be less stable.",
+    "optionsAdd": "Add a value",
+    "optionsPlaceholder": "Type and press Enter",
+    "preciseLabel": "Precise tracking",
+    "preciseHint": "When on, a dedicated helper checks every turn whether this variable should change and by how much, which is more accurate and steadier than leaving it to the storytelling AI.",
+    "preciseStringHint": "When on, this variable changes more accurately and more steadily, and is always one of the allowed values",
+    "preciseDown": "Most it can fall per turn",
+    "preciseUp": "Most it can rise per turn",
+    "preciseRange": "Each turn it moves somewhere between −{{down}} and +{{up}}, as the story warrants",
+    "preciseUpOnly": "Each turn it can only rise, by at most +{{up}}, or stay",
+    "preciseDownOnly": "Each turn it can only fall, by at most −{{down}}, or stay",
+    "preciseZero": "Both are 0, so it will never change",
+    "preciseTooWide": "This range is too wide for precise tracking. The two numbers must add up to {{max}} or less"
   },
   "components": {
     "title": "Custom UI",
@@ -471,7 +492,7 @@
     "messageRendererDesc": "Custom per-message display",
     "alreadyAdded": "Already added (max 1)",
     "appComponent": "App Component",
-    "appDesc": "Full-screen app takeover",
+    "appDesc": "Full-screen custom interface",
     "cannotMix": "Cannot mix with other surface type",
     "learnMore": "Creator Guide →",
     "quickTemplates": "Quick Templates",
@@ -521,6 +542,17 @@
     "markdownCode": "Markdown",
     "markdownPlaceholder": "# Heading\n\nYour markdown content here..."
   },
+  "appPacks": {
+    "title": "In-story apps",
+    "blurb": "Apps the player opens from a dock beside the chat: messages, relationships, a feed, the clock… Each one keeps its data in one variable and the AI fills it in as the story goes — the preview above each card is the real app. You don't build anything.",
+    "add": "Add app",
+    "added": "Added — in the dock",
+    "footnote": "The app's words follow the card's language (Chinese, English or Spanish). Remove it from the Bundles page and its button, data and rules go with it.",
+    "sets": "Starter sets — what most cards of each kind track",
+    "addSet": "Add all four",
+    "setAdded": "All added",
+    "installed": "Added {{name}}"
+  },
   "audio": {
     "title": "Audio",
     "description": "Background music and sound effects triggered by events, keywords, or variables",
@@ -548,7 +580,7 @@
     "fadeOut": "Fade Out (s)",
     "bgmConfigTitle": "BGM Configuration",
     "bgmConfigSubtitle": "Playlist + trigger rules",
-    "bgmConfigDesc": "World-level configuration applied to every player session.",
+    "bgmConfigDesc": "Applies to every play session of this world.",
     "defaultPlaylist": "Default Playlist",
     "addBgmFirst": "Add BGM tracks to the library first to create a playlist.",
     "playMode": "Play Mode",
@@ -604,7 +636,25 @@
     "trackIdCopyFailed": "Copy failed. Select the ID and copy it manually.",
     "trackIdHelp": "Use this ID in scripts and audio directives. It is different from the asset ID.",
     "allowAiControl": "Allow AI control",
-    "allowAiControlHelp": "When off, AI cannot play, stop, or change this track. Scripts, behaviors, and playlists can still control it."
+    "allowAiControlHelp": "When off, AI cannot play, stop, or change this track. Scripts, behaviors, and playlists can still control it.",
+    "aiNoteLabel": "When to play",
+    "aiNoteSfxLabel": "Play once when this happens",
+    "aiNotePlaceholder": "e.g. lively and cheerful — festivals, markets, chasing around",
+    "aiPickTitle": "Let the AI play this track",
+    "aiPickHelp": "Write when it should play, and the AI switches to it when the story matches. Leave it empty and the track only follows the playlist and conditional rules.",
+    "aiPickSfxTitle": "Let the AI play this sound",
+    "aiPickSfxHelp": "Write what has to happen, and the AI plays it once when the story reaches that moment. Leave it empty and it only follows conditional rules.",
+    "aiNoteSfxPlaceholder": "e.g. someone draws a blade",
+    "aiPickOn": "On: the AI plays this when the story matches",
+    "aiPickOff": "Off until you write a cue",
+    "aiPickBadgeTitle": "The AI plays this when the story matches",
+    "musicRuleConflict": "When the AI wants to switch but a conditional rule is playing its own track",
+    "musicRuleConflictRules": "Rules first: the rule's track keeps playing, the AI waits this turn",
+    "musicRuleConflictAi": "AI first: switch to the AI's pick; rules stay out until it ends or the AI hands back",
+    "musicRuleAfter": "After an AI-picked track",
+    "musicRuleAfterLoop": "Keep looping until the AI switches or hands back to the playlist",
+    "musicRuleAfterOnce": "Play it once, then return to the default playlist",
+    "musicRuleDuck": "Dip the background music while an AI-picked sound plays, then restore it"
   },
   "overview": {
     "title": "Overview",
@@ -661,7 +711,9 @@
     "coverFromAssetFailed": "Couldn't set that as the cover",
     "galleryAddFailed": "Couldn't add that image",
     "imageRemoveFailed": "Couldn't remove the image",
-    "importCoverFailed": "Couldn't use the card image as the cover"
+    "importCoverFailed": "Couldn't use the card image as the cover",
+    "continuity": "Smart tracking",
+    "continuityDesc": "After the AI writes each reply, a dedicated helper checks it once more: should a variable change, which song should play, which scene image should show. Much more accurate than leaving it to the storytelling AI. Off: only the storytelling AI changes them."
   },
   "variantBar": {
     "primaryBadge": "Main",
@@ -751,7 +803,8 @@
     "source": {
       "publish": "Saved version",
       "live": "Saved version",
-      "backup": "Backup before restore"
+      "backup": "Backup before restore",
+      "incoming": "Before applying changes"
     },
     "previousPublished": "Previously published",
     "notPublished": "Not published"
@@ -827,7 +880,7 @@
   },
   "behaviors": {
     "title": "Behaviors",
-    "description": "WHEN/IF/DO rules that automate game behavior in response to events",
+    "description": "Rules that react to game events.",
     "addBehavior": "Add Behavior",
     "searchPlaceholder": "Search behaviors...",
     "noBehaviors": "No behaviors defined yet",
@@ -1162,7 +1215,8 @@
       "canvas": "Canvas",
       "aiAssistant": "AI Assistant",
       "playtest": "Playtest",
-      "marketplace": "Marketplace"
+      "marketplace": "Marketplace",
+      "sceneImages": "Scene Images"
     },
     "layouts": {
       "writing": "Writing",
@@ -1177,6 +1231,9 @@
         "count": "Images",
         "estimate": "About {{amount}} mushies",
         "estimateNote": "Charged on actual usage once delivered; nothing is charged if no image arrives.",
+        "price": "{{amount}} mushies",
+        "customNoteTags": "The prompt goes to the base model exactly as written (Danbooru tags); nothing rewrites it. This price is what is charged, and a failed image is refunded.",
+        "customNoteProse": "The prompt goes to the base model exactly as written (English prose); nothing rewrites it. This price is what is charged, and a failed image is refunded.",
         "confirm": "Generate",
         "decline": "No thanks",
         "generating": "Drawing, about 30 seconds",
@@ -1538,7 +1595,7 @@
       "title": "Character",
       "hintEmpty": "The character(s) the AI will play — add one or many",
       "hintSingle": "The character the AI plays",
-      "hintMulti": "Who lives in this world? The AI will let them each step on stage",
+      "hintMulti": "The characters the AI plays",
       "unnamed": "Character {{n}} · unnamed",
       "emptyHint": "No characters yet",
       "add": "Add character",
@@ -1558,20 +1615,20 @@
     },
     "worldview": {
       "title": "Worldview",
-      "hint": "The world this character lives in — era / setting / special rules / tone",
+      "hint": "Setting, era, tone, and world rules",
       "defaultName": "Worldview",
       "fallback": "[What does this world look like? The AI uses this to ground the whole story.]\n\n[Era / Setting]\n[Modern city? Medieval fantasy? Far-future space?]\n\n[Special rules]\n[Magic, superpowers, AI, political structure... what makes this world unique?]\n\n[Tone]\n[Slice-of-life chill? Cold suspense? Heroic adventure? Bittersweet healing?]"
     },
     "dialogueStyle": {
       "title": "Sample Dialogue & Style",
-      "hint": "How the character speaks + overall writing style — give the AI a concrete template",
+      "hint": "Describe the writing style or give an example.",
       "defaultName": "Sample Dialogue & Style",
       "fallback": "[Speech]\nNeutral: [default voice — a full example line]\nHappy: [change]\nAnnoyed: [change]\nNervous: [change]\nMannerisms: [fidgets, catchphrases]\n\n[Writing style]\nPOV: [First-person? Third-person limited?]\nFocus: [Inner monologue / setting / action]\nPacing: [Fast / slow / varied]\n\n[Sample scene — paste a chunk that reads like exactly what you want from the AI]"
     },
     "settings": {
       "title": "Settings",
-      "hintChat": "Other details the AI should know — key items, prior story, world rules. Mostly skippable",
-      "hintWorld": "All background info about this world / story — the AI sees everything. Can be one general description or broken into pieces (core setting / history / power system ...)",
+      "hintChat": "Optional background: past events, important items, or world rules.",
+      "hintWorld": "Background the AI needs: setting, history, or special rules. Use one entry or split it into topics.",
       "unnamed": "Setting {{n}} · unnamed",
       "emptyHint": "No settings yet",
       "add": "Add setting",
@@ -1596,7 +1653,7 @@
     },
     "greeting": {
       "title": "Greeting",
-      "hint": "The first message the player sees — sets the first impression",
+      "hint": "The first message the player sees",
       "macroUser": "is replaced with the player's name",
       "macroChar": "is replaced with the character's name",
       "lengthHint": "100–300 words recommended",
@@ -1686,6 +1743,7 @@
     "mergedConflictsToast": "Merged — your version was kept",
     "failed": "Couldn't save your changes",
     "agentMergedNotice": "Merged with agent changes",
+    "coverRefreshFailed": "Cover uploaded, but the editor could not refresh. Reopen the world before adjusting the crop.",
     "agentMergedConflictsNotice": "Merged — your version kept"
   },
   "review": {
@@ -1988,5 +2046,136 @@
     "library": "From assets",
     "uploading": "Uploading…",
     "failed": "Upload failed: {{name}}"
+  },
+  "sceneImages": {
+    "hintLabel": "Unlock hint",
+    "hintHelp": "What players see in the gallery before this picture is revealed. A tease, not a spoiler.",
+    "hintPlaceholder": "e.g. W-What the meow?!",
+    "learnMore": "Creator Guide →",
+    "uploadFiles": "Upload from computer",
+    "dropHint": "Drop images here to add several at once",
+    "uploading": "Uploading {{done}}/{{total}}…",
+    "uploadFailed": "Upload failed: {{name}}",
+    "title": "Scene Images",
+    "description": "Pictures sent into the story. Give each one a sentence saying when to send it and the AI follows it: every reply that meets the condition carries the image.",
+    "addImage": "Add Image",
+    "searchPlaceholder": "Search images...",
+    "noImages": "No scene images yet",
+    "noImagesDesc": "Upload a picture, describe the moment it belongs to, and the AI will show it when the story gets there.",
+    "noImagesMatch": "No images match \"{{query}}\"",
+    "back": "Back",
+    "unnamed": "Untitled image",
+    "nameLabel": "Title",
+    "namePlaceholder": "e.g. Minyu startled",
+    "delete": "Delete",
+    "idLabel": "Image ID",
+    "idHelp": "“Copy code” gives you the full tag. Paste it into a first message or an entry and the image appears there.",
+    "copyId": "Copy ID",
+    "copyCode": "Copy code",
+    "copyFailed": "Copy failed",
+    "imageSource": "Image",
+    "urlLabel": "URL or asset ID",
+    "urlPlaceholder": "https://... or @asset:id",
+    "browseAssets": "Browse Assets",
+    "sceneLabel": "When to show it",
+    "scenePlaceholder": "e.g. The cat Minyu gets startled and jumps",
+    "allowAi": "Let the AI show this image",
+    "scopeLabel": "Openings",
+    "scopeHelp": "Limit this image to certain first messages.",
+    "scopeAll": "Every opening",
+    "scopeNoGreetings": "Add first messages to scope images per opening.",
+    "greetingFallback": "Opening {{index}}",
+    "emptyNoImages": "Add an image to get started",
+    "emptySelect": "Select an image to edit",
+    "modeTitle": "Who places the images",
+    "modeJudge": "After each reply",
+    "modeJudgeHelp": "After every reply, each image's \"when to show it\" condition is checked and the image is placed at the end of that reply when it holds. A condition like \"after every reply\" sends it every turn. Works the same whichever model the player uses.",
+    "modeNarrator": "Story AI inserts them",
+    "modeNarratorHelp": "Images can land between paragraphs, but only if the model follows instructions. Some models almost never do.",
+    "modeRecommended": "Recommended",
+    "modeLocked": "Smart tracking is off in Overview, so the story AI inserts images itself.",
+    "autoCount": "{{on}} of {{total}} show automatically",
+    "autoHelpJudge": "Write the condition for sending it; it is followed literally. For example \"when the two sit across from each other in the café\" or \"after every reply\". Every reply that meets it ends with this image, even if it was shown before.",
+    "autoHelpNarrator": "Write the condition for sending it; it is followed literally. For example \"when the two sit across from each other in the café\" or \"after every reply\". When it holds, the story AI inserts the image into the text.",
+    "autoOn": "On: sent automatically when its condition is met",
+    "autoOff": "Off until you write a sentence. Without one, it only appears where you paste its code.",
+    "autoNoPicture": "Add a picture and it will show automatically.",
+    "autoHeld": "Automatic showing was turned off, so this image only appears where you paste its code.",
+    "autoReenable": "Turn back on",
+    "autoBadgeTitle": "Sent automatically when its condition is met"
+  },
+  "voiceField": {
+    "characterLabel": "Voice",
+    "characterHint": "The voice this character's lines are read in when the player turns on voice readout. Leave it unset and the AI picks one to fit the character.",
+    "custom": "Custom voice",
+    "customGroup": "Custom voices",
+    "useCustom": "Use",
+    "customHint": "Your custom voices from Settings › Voice, or paste any fish.audio voice ID. Players hear it when they turn voice readout on.",
+    "clear": "Clear",
+    "cardTitle": "Voice",
+    "cardDesc": "Voice readout and voice input on this card",
+    "narratorLabel": "Narrator voice",
+    "narratorHint": "Narration is read in this voice. Unset uses the player's own voice.",
+    "narrator": "Narrator voice",
+    "character": "Voice for {{name}}",
+    "follow": "Player's own setting",
+    "followHint": "This card does not decide; the player's choice in settings applies",
+    "preview": "Preview",
+    "hint": "Readout switches voice by speaker; a character without one reads in the narrator's, and if there is no narrator voice, in the player's own.",
+    "inputTitle": "Player voice input",
+    "inputHint": "When the player lets go of the mic. Werewolf, interrogation and the like suit sending right away",
+    "inputConfirm": "Review first",
+    "inputAuto": "Send right away",
+    "lang": {
+      "zh": "Chinese",
+      "en": "English",
+      "ja": "Japanese",
+      "es": "Spanish"
+    },
+    "gender": {
+      "female": "F",
+      "male": "M"
+    },
+    "close": "Close"
+  },
+  "bundleCounts": {
+    "entries_one": "{{count}} entry",
+    "entries_other": "{{count}} entries",
+    "variables_one": "{{count}} variable",
+    "variables_other": "{{count}} variables",
+    "behaviors_one": "{{count}} behavior",
+    "behaviors_other": "{{count}} behaviors",
+    "components_one": "{{count}} component",
+    "components_other": "{{count}} components",
+    "empty": "Empty"
+  },
+  "worldChanges": {
+    "title": "Update “{{name}}”?",
+    "fromFile": "From the file {{file}}",
+    "fromCopy": "From {{name}}’s edited copy of your card",
+    "pickTarget": "This file matches more than one of your cards. Update which one?",
+    "statusPublished": "Published",
+    "statusDraft": "Draft",
+    "exactOrigin": "downloaded from this one",
+    "comparing": "Comparing with your card…",
+    "diffFailed": "Couldn’t compare with your card. You can still update it — a backup is kept.",
+    "noChanges": "Nothing to update: this is the same as your card.",
+    "summary": "{{added}} added · {{modified}} changed · {{removed}} removed",
+    "more": "and {{count}} more",
+    "changedSinceCopy": "You’ve edited your card since they copied it. Updating replaces those edits too — they stay in the backup.",
+    "backupLine": "Your card is backed up first. Restore it any time from Version history.",
+    "publishedLine": "Your card is published, so this goes into its working copy. Submit it for review as usual to put it live.",
+    "apply": "Update “{{name}}”",
+    "saveAsNew": "Keep as a new project instead",
+    "applied": "Updated “{{name}}”",
+    "appliedHeld": "Updated the working copy of “{{name}}”. Submit it for review to put it live.",
+    "backupNoteFile": "Before applying {{file}}",
+    "backupNoteCopy": "Before applying {{name}}’s changes",
+    "error": {
+      "otherWorldUnsaved": "Another card has unsaved changes in the editor. Save it first, then try again.",
+      "backup": "Couldn’t back up your card, so nothing was changed. Try again.",
+      "load": "Couldn’t open your card. Nothing was changed.",
+      "save": "Couldn’t save the update. Your card is unchanged, and the backup is in Version history."
+    }
   }
 }

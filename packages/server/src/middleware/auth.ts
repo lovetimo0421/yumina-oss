@@ -136,6 +136,11 @@ async function loadUserFresh(userId: string): Promise<SessionUser | null> {
 }
 
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
+  // Several routers share the "/api" mount and some still guard it broadly
+  // (completions' "/*"), so a request can pass this middleware more than once.
+  // The first pass already proved the session and loaded the user for THIS
+  // request; repeating it only costs Redis reads and a primary lookup.
+  if (c.get("user") && c.get("session")) return next();
   const token = getSessionToken(c.req.raw.headers);
 
   // Fast path: validate session via Redis (cheap), then fetch user fresh from

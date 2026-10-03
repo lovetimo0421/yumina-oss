@@ -70,7 +70,11 @@
     "cardOverview": "卡片概覽",
     "openCardOverviewFailed": "開啟卡片概覽失敗",
     "showAllLanguages": "顯示所有語言",
-    "showCurrentLanguage": "僅顯示當前語言"
+    "showCurrentLanguage": "僅顯示當前語言",
+    "sceneGallery": "場景圖",
+    "sceneGalleryCount": "已出現 {{unlocked}} / {{total}}",
+    "sceneGalleryLocked": "還沒出現",
+    "sceneGalleryEmpty": "這個世界沒有場景圖。"
   },
   "branchPopover": {
     "current": "當前分支",
@@ -289,6 +293,9 @@
     "adjustZoom": "調整遊戲縮放",
     "zoomLabel": "遊戲縮放百分比"
   },
+  "stateGuard": {
+    "unverified": "狀態檢查沒能完成，已按原回覆更新數值"
+  },
   "errors": {
     "PROTECTED_WORLD": "創作者已保護此世界的提示詞，防止被竊取。只能使用夢塢官方 API 模型，不支援私有 API 金鑰。",
     "NO_CREDITS": "蘑菇幣用完了！完成每日任務可領取免費額度，或升級方案獲取更多。",
@@ -353,25 +360,42 @@
     "sessionCreateFailed": "無法建立會話"
   },
   "contextGate": {
-    "title": "上下文不足以完整遊玩此卡",
-    "body": "「{{world}}」完整載入全部內容約需 {{required}} tokens 上下文，而你當前設定為 {{current}}。直接開始遊玩會靜默丟失部分設定內容。",
-    "loreLabel": "世界書與條目",
-    "setupLabel": "世界設定與開場",
-    "storyRoomLabel": "劇情與摘要預留",
-    "requiredLabel": "建議最低上下文",
-    "currentLabel": "當前上下文設定",
-    "currentShort": "當前 {{value}}",
-    "recommendedShort": "建議 {{value}}",
-    "retainsLabel": "將完整保留",
-    "retainsValue": "角色設定、世界書與開場內容",
-    "impactLabel": "預計影響",
-    "impactValue": "每輪會使用更多 Mushies",
-    "usageDetails": "查看詳細用量",
-    "planCapNote": "此卡所需上下文超過了你的套餐上限（最高 {{cap}} tokens）。升級套餐可提升上限並完整體驗此卡。",
-    "ignore": "忽略",
-    "continueCurrent": "仍以 {{value}} 開始",
-    "raise": "上下文提升至 {{value}}",
+    "softTitle": "這張卡設定比較多",
+    "softBody": "設定都會帶上，可以直接玩。某一輪觸發的關鍵詞條目特別多時，那一輪 AI 能看到的最近聊天會少一些。",
+    "hardTitle": "上下文不夠玩這張卡",
+    "hardBody": "「{{world}}」每輪必帶的內容就要 {{floor}}，你現在是 {{current}}。設定會帶上，但幾乎沒位置留給聊天記錄，AI 會記不住剛聊過什麼。",
+    "markFloor": "每輪必帶",
+    "markFull": "全部同時觸發",
+    "yours": "你的上下文：{{value}}",
+    "rowAlways": "常駐條目",
+    "rowSetup": "系統提示和開場白",
+    "rowHistory": "聊天記錄和摘要",
+    "rowTriggered": "關鍵詞條目（觸發才發）",
+    "upTo": "最多",
+    "planCapNote": "你的方案最高 {{cap}}，升級方案才能調更高。",
+    "continueCurrent": "用 {{value}} 開始",
+    "raise": "調到 {{value}}",
     "close": "關閉",
-    "upgrade": "升級套餐"
-  }
+    "upgrade": "升級方案"
+  },
+  "voiceInput": {
+    "unsupported": "這個瀏覽器不支援錄音。",
+    "denied": "麥克風被瀏覽器擋了，在網址列左邊的圖示裡允許一下。",
+    "noMic": "沒有找到麥克風。",
+    "failed": "沒能轉成文字，再試一次。",
+    "rateLimited": "語音發得太快了，稍等一下。",
+    "heardNothing": "沒聽到聲音。按住麥克風說話。"
+  },
+  "tts": {
+    "failed": "語音生成失敗，請重試。",
+    "noCredits": "mushies 不足，無法朗讀這條訊息。",
+    "rateLimited": "語音請求太頻繁，稍等片刻再試。",
+    "nothingToRead": "這條訊息沒有可朗讀的內容。",
+    "keyInvalid": "你的 OpenRouter key 被拒絕了，請到設定裡檢查。",
+    "noKey": "語音朗讀需要 API key，請到設定裡新增。",
+    "voiceUnavailable": "這個音色已經無法使用了，請換一個。",
+    "needsKeyOrCredits": "語音朗讀需要 OpenRouter key 或蘑菇幣",
+    "byokNoBalance": "你的 API key 餘額不足"
+  },
+  "worldDisplayUnavailable": "無法載入這個世界的介面，請聯絡客服。"
 }

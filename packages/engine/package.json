@@ -21,7 +21,8 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:app-packs": "node scripts/gen-app-packs.mjs"
   },
   "dependencies": {
     "js-tiktoken": "^1.0.21",

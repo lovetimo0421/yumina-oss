@@ -22,6 +22,7 @@ test("the speaker tag wins outright and is stripped from the text", () => {
   assert.deepEqual(resolveSpeaker([mia, balder], "[speaker: Balder]\nMia sighs. Balder grins."), {
     name: "Balder",
     portrait: "https://cdn/balder.png",
+    voice: null,
   });
   assert.equal(stripLeadingSpeakerTag("[speaker: Balder]\nMia sighs."), "Mia sighs.");
   assert.equal(stripLeadingSpeakerTag("Mia sighs."), "Mia sighs.");
@@ -33,7 +34,7 @@ test("a narrator tag means no face even when names appear", () => {
 });
 
 test("a tagged character without a portrait still gets their name", () => {
-  assert.deepEqual(resolveSpeaker([mia, rex], "[speaker: Rex] Grr."), { name: "Rex", portrait: null });
+  assert.deepEqual(resolveSpeaker([mia, rex], "[speaker: Rex] Grr."), { name: "Rex", portrait: null, voice: null });
 });
 
 test("the tag matches the label-stripped name and is case-insensitive", () => {
@@ -56,6 +57,7 @@ test("a one-character world is that character's voice on every line", () => {
   assert.deepEqual(resolveSpeaker([mia, lore], "The rain kept falling."), {
     name: "Mia",
     portrait: "https://cdn/mia.png",
+    voice: null,
   });
 });
 
@@ -86,4 +88,13 @@ test("multi-character: without a marker, only the first sentence counts", () => 
 test("multi-character: prefers the longer name on a tied position", () => {
   const miaBelle = { ...mia, name: "Miabelle", portrait: "https://cdn/mb.png" };
   assert.equal(resolveSpeaker([mia, miaBelle], "Miabelle laughs.")?.name, "Miabelle");
+});
+
+test("a character's authored voice rides along with the face", () => {
+  const voiced = { ...mia, voice: "faccba1a8ac54016bcfc02761285e67f" };
+  assert.deepEqual(resolveSpeaker([voiced, balder], "[speaker: Mia] Hi."), {
+    name: "Mia",
+    portrait: "https://cdn/mia.png",
+    voice: "faccba1a8ac54016bcfc02761285e67f",
+  });
 });

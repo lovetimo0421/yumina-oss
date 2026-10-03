@@ -7,7 +7,7 @@ import {
   COMPOSED_MARKER,
   USER_ROOT_PATH,
   generateComposedIndex,
-} from "@/stores/editor";
+} from "@yumina/engine";
 
 export { BUNDLE_NS_RE, COMPOSED_MARKER, USER_ROOT_PATH, generateComposedIndex };
 

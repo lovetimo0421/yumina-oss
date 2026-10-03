@@ -3,6 +3,13 @@ import { ThinkingTagFilter } from "./thinking-tag-filter.js";
 import { parseLeadingSpeakerTag } from "../prompts/speaker-tag.js";
 import { stripStateReceipts } from "./state-receipt.js";
 
+/** `[image:…]` bodies the directive scanners must leave intact: the render
+ *  form (URL / asset ref / cdn path, optional `|key=value` options) and the
+ *  bare scene handle the AI writes. Anything else (e.g. `[image: set x]`) is
+ *  still a plain variable directive. */
+const IMAGE_EMBED_RE =
+  /\[\s*image:\s*(?:https?:\/\/[^\]\n]+|@asset:[^\]\n]+|\/cdn\/[^\]\n]+|[\p{L}\p{N}_-]+)\s*\]/giu;
+
 export interface ParseResult {
   cleanText: string;
   effects: Effect[];
@@ -37,7 +44,13 @@ export class ResponseParser {
     this.audioPattern = /\[\s*audio:\s*([\w\p{L}\p{N}-]+)\s+(play|stop|crossfade|volume)(?:\s+([\d.]+))?(?:\s+chain:([\w\p{L}\p{N}-]+))?\s*\]/gu;
   }
 
-  parse(responseText: string, jsonVarId?: string): ParseResult {
+  /**
+   * @param opts.shieldImages keep `[image:…]` embeds out of the directive
+   *   scanners (default true). Pass false for a world that has its own
+   *   variable called `image`: there `[image: …]` has always been a write to
+   *   that variable, and a card's custom UI may depend on it.
+   */
+  parse(responseText: string, jsonVarId?: string, opts?: { shieldImages?: boolean }): ParseResult {
     const effects: Effect[] = [];
     const audioEffects: AudioEffect[] = [];
     this.pattern.lastIndex = 0;
@@ -71,6 +84,18 @@ export class ResponseParser {
       return "";
     });
 
+    // Shield `[image:…]` embeds from the directive scanners below. Both the
+    // author-facing URL form and the AI's `[image: handle]` scene directive
+    // would otherwise match the standard pattern as `[image: set …]`, get
+    // recorded as a bogus effect and vanish from the visible text.
+    const imageEmbeds: string[] = [];
+    if (opts?.shieldImages !== false) {
+      text = text.replace(IMAGE_EMBED_RE, (match) => {
+        imageEmbeds.push(match);
+        return `\x00IMG${imageEmbeds.length - 1}\x00`;
+      });
+    }
+
     // Extract JSON directives with bracket balancing (must come before standard
     // pattern so the bare-word pattern never catches fragments of a JSON value).
     text = this.extractJsonDirectives(text, effects);
@@ -84,7 +109,9 @@ export class ResponseParser {
       // Strip structural XML tags only when they appear as standalone block-level tags on their own line
       // (safe: won't match words like "summarize" or "optional" in prose)
       .replace(/^\s*<\/?(maintext|option|sum|Analysis|UpdateVariable|JSONPatch|status_current_variable)\s*>\s*$/gim, "")
-      .replace(/[^\S\n]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+      .replace(/[^\S\n]+/g, " ").replace(/\n{3,}/g, "\n\n")
+      .replace(/\x00IMG(\d+)\x00/g, (_m, idx: string) => imageEmbeds[Number(idx)] ?? "")
+      .trim();
 
     return speakerTag.speaker
       ? { cleanText, effects, audioEffects, speaker: speakerTag.speaker }

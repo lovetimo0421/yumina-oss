@@ -654,6 +654,53 @@ test("apply_changes allows write_audio with @asset: URL", () => {
   assert.equal(result.success, true);
 });
 
+test("write_audio stores aiNote and allowAiControl; empty note clears it", () => {
+  const world = makeWorld();
+  const created = executeApplyChanges(world, [{
+    action: "create", entityType: "audio", id: "fight",
+    data: { name: "Fight", type: "bgm", url: "@asset:a1", aiNote: "  battle or chase  ", allowAiControl: false },
+  }]);
+  assert.equal(created.success, true);
+  assert.equal(created.world.audioTracks[0]!.aiNote, "battle or chase");
+  assert.equal(created.world.audioTracks[0]!.allowAiControl, false);
+
+  const cleared = executeApplyChanges(created.world, [{
+    action: "update", entityType: "audio", id: "fight", data: { aiNote: "", allowAiControl: true },
+  }]);
+  assert.equal(cleared.world.audioTracks[0]!.aiNote, undefined);
+  assert.equal(cleared.world.audioTracks[0]!.allowAiControl, undefined);
+});
+
+test("write_entry voice: valid id stored lowercase, empty clears, junk rejected", () => {
+  const world = makeWorld();
+  const id = "FACCBA1A8AC54016BCFC02761285E67F";
+  const ok = executeApplyChanges(world, [{
+    action: "create", entityType: "entry", id: "aria", data: { name: "Aria", role: "character", content: "x", voice: id },
+  }]);
+  assert.equal(ok.success, true);
+  assert.equal(ok.world.entries[0]!.voice, id.toLowerCase());
+
+  const cleared = executeApplyChanges(ok.world, [{ action: "update", entityType: "entry", id: "aria", data: { voice: "" } }]);
+  assert.equal(cleared.world.entries[0]!.voice, undefined);
+
+  const bad = executeApplyChanges(ok.world, [{ action: "update", entityType: "entry", id: "aria", data: { voice: "gentle-female" } }]);
+  assert.equal(bad.success, false);
+  assert.match(bad.results[0]!.error!, /fish\.audio voice id/);
+});
+
+test("update_settings writes narratorVoice, voiceInputMode and merges continuity", () => {
+  const world = makeWorld({ continuity: { bgm: false, music: { duck: false } } });
+  const result = executeApplyChanges(world, [{
+    action: "update", entityType: "settings", id: "settings",
+    data: { narratorVoice: "6fc59d2b56cf402eb572934114c8d8aa", voiceInputMode: "auto", continuity: { images: false, music: { once: true } } },
+  }]);
+  assert.equal(result.success, true);
+  assert.equal(result.world.settings.narratorVoice, "6fc59d2b56cf402eb572934114c8d8aa");
+  assert.equal(result.world.settings.voiceInputMode, "auto");
+  assert.deepEqual(result.world.continuity, { bgm: false, images: false, music: { duck: false, once: true } });
+  assert.equal(worldDefinitionSchema.safeParse(result.world).success, true);
+});
+
 test("apply_changes rejects invalid TSX", () => {
   const world = makeWorld();
   const changes: SchemaChange[] = [{
@@ -1522,4 +1569,48 @@ test("write_variable infers a missing type from the default instead of assuming 
   assert.equal(v("count").defaultValue, 12);
   assert.equal(v("bare").type, "number");   // nothing to go on — legacy default
   assert.equal(v("bare").defaultValue, 0);
+});
+
+test("write_variable: a new variable is precise-tracked by default; explicit choices and existing variables are kept", () => {
+  const world = makeWorld({
+    variables: [{ id: "old", name: "旧好感", type: "number" as const, defaultValue: 0 }],
+  });
+  const result = executeApplyChanges(world, [
+    { action: "create", entityType: "variable", id: "affinity", data: { name: "好感度", type: "number", defaultValue: 10, min: 0, max: 100 } },
+    { action: "create", entityType: "variable", id: "mood", data: { name: "心情", type: "string", defaultValue: "平静", options: ["平静", "开心", " ", "开心"] } },
+    { action: "create", entityType: "variable", id: "turns", data: { name: "回合", type: "number", defaultValue: 0, precise: false } },
+    { action: "create", entityType: "variable", id: "phase", data: { name: "阶段", type: "number", defaultValue: 0, aiAccess: "read" } },
+    { action: "update", entityType: "variable", id: "old", data: { max: 50 } },
+  ]);
+  assert.equal(result.success, true);
+  const byId = Object.fromEntries(result.world.variables.map((v) => [v.id, v]));
+  assert.deepEqual([byId.affinity!.precise, byId.affinity!.deltaDown, byId.affinity!.deltaUp], [true, 15, 15]);
+  assert.deepEqual(byId.mood!.options, ["平静", "开心"]);
+  assert.equal(byId.mood!.precise, true);
+  assert.equal(byId.turns!.precise, false);
+  assert.equal(byId.phase!.precise, undefined);
+  assert.equal(byId.old!.precise, undefined, "an existing variable is never switched on");
+});
+
+test("apply_changes creates and updates a scene image, and rejects a data: picture", () => {
+  const world = makeWorld();
+  const created = executeApplyChanges(world, [{
+    action: "create", entityType: "sceneImage", id: "img1",
+    data: { name: "Minyu startled", scene: "The cat jumps", url: "@asset:0f1e2d3c-4b5a-6978-8a9b-0c1d2e3f4a5b" },
+  }]);
+  assert.equal(created.success, true);
+  assert.equal(created.world!.sceneImages![0]!.scene, "The cat jumps");
+
+  const updated = executeApplyChanges(created.world!, [{
+    action: "update", entityType: "sceneImage", id: "img1", data: { scene: "The cat jumps straight up", allowAiControl: false },
+  }]);
+  assert.equal(updated.success, true);
+  assert.equal(updated.world!.sceneImages![0]!.scene, "The cat jumps straight up");
+  assert.equal(updated.world!.sceneImages![0]!.allowAiControl, false);
+
+  const rejected = executeApplyChanges(updated.world!, [{
+    action: "update", entityType: "sceneImage", id: "img1", data: { url: "data:image/png;base64,AAAA" },
+  }]);
+  assert.equal(rejected.success, false);
+  assert.ok(rejected.results[0]!.error!.includes("@asset:"));
 });

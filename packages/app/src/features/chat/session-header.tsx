@@ -4,6 +4,7 @@ import { useChatStore } from "@/stores/chat";
 import {
   ArrowLeft,
   BookOpen,
+  Images,
   PanelRight,
   Undo2,
   MoreHorizontal,
@@ -13,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { PlayZoomControl } from "./play-zoom-control";
+import { useSceneGallery } from "./scene-gallery";
 import { TipButton } from "@/edition/slots";
 import { useFeature } from "@/edition/edition";
 import { BranchPopover } from "./branch-popover";
@@ -59,6 +61,9 @@ export function SessionHeader({
   const hubEnabled = useFeature("hub");
   const branchRequestInFlightRef = useRef(false);
   const [branching, setBranching] = useState(false);
+  const openSceneGallery = useUiStore((s) => s.openSceneGallery);
+  const gallery = useSceneGallery();
+  const galleryUnlocked = gallery.images.filter((img) => gallery.revealed.has(img.id)).length;
 
   const { isImmersive, toggle: toggleImmersive } = useImmersiveMode();
 
@@ -150,6 +155,19 @@ export function SessionHeader({
           />
           )}
 
+          {gallery.images.length > 0 && (
+            <button
+              onClick={openSceneGallery}
+              className="play-header-action-button relative rounded-md text-muted-foreground transition-colors hover:text-foreground"
+              title={t("header.sceneGallery")}
+            >
+              <Images className="h-4 w-4" />
+              <span className="absolute -right-1 -top-1 rounded-full bg-muted px-1 text-[9px] font-semibold tabular-nums leading-[14px] text-foreground/80">
+                {galleryUnlocked}/{gallery.images.length}
+              </span>
+            </button>
+          )}
+
           {hubEnabled && (
           <button
             onClick={handleOpenCardOverview}
@@ -218,6 +236,12 @@ export function SessionHeader({
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {gallery.images.length > 0 && (
+                <DropdownMenuItem onClick={openSceneGallery}>
+                  <Images className="mr-2 h-4 w-4" />
+                  {t("header.sceneGallery")} · {galleryUnlocked}/{gallery.images.length}
+                </DropdownMenuItem>
+              )}
               {hubEnabled && (
               <DropdownMenuItem
                 onClick={handleOpenCardOverview}

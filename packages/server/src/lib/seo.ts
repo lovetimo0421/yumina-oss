@@ -1,17 +1,35 @@
 import { eq, or, and, isNull, desc } from "drizzle-orm";
-import { KREW_PREVIEW_IMAGE } from "@yumina/shared";
+import { KREW_PREVIEW_IMAGE, parseProfileAddress, parseWorldAddress, profileAddressPath } from "@yumina/shared";
 import { readPublic } from "../db/index.js";
 import { PUBLIC_ORIGIN } from "./env.js";
-import { worlds } from "../db/schema.js";
-import { user } from "../db/schema.js";
+import { resolveImageCdn } from "./cdn-url.js";
+import { summarizeText, stripLeadingTitle } from "./seo-text.js";
+import {
+  canonicalProfilePath,
+  canonicalWorldPath,
+  findUserByHandle,
+  findUserById,
+  findWorldById,
+  findWorldByPublicId,
+  isPubliclyVisible,
+  type AddressedUser,
+  type AddressedWorld,
+} from "./world-address.js";
+import { worlds, user, threads, forums, bundles, communityEvents } from "../db/schema.js";
 
 const SITE_URL = PUBLIC_ORIGIN;
+
+// Titles and descriptions for the site pages were written by the owner
+// (2026-09-30). They are quoted here as given; do not rewrite them.
+// Rule: the home page is titled "Yumina", every other page is just its own
+// name. Google shows the site name on its own line and the tab shows the
+// icon, so the brand is never appended.
+const DEFAULT_TITLE = "Yumina";
 const DEFAULT_DESCRIPTION =
-  "Play and create AI-powered interactive worlds on Yumina. Open-source platform for AI-native games, interactive fiction, and roleplay. Browse thousands of worlds or build your own with Studio AI.";
-const DEFAULT_TITLE = "Yumina - AI Interactive Fiction Platform";
+  "Open-source world engine and community turning entertainment interactive.";
 // krew.io (the pirate .io game) redirects permanently to /krew, so this page is
 // what search engines index for the game. Keep its identity, not Yumina's.
-const KREW_TITLE = "Krew.io - Free Multiplayer Pirate Ship Battle Game";
+const KREW_TITLE = "Krew.io";
 const KREW_DESCRIPTION =
   "Krew.io is a free online 3D pirate game. Captain a ship or join a krew, fire cannons, fish, trade and sink rivals to rule the seven seas. Play now, no download.";
 // The same real game scene is visible in the public About section.
@@ -27,19 +45,18 @@ export interface PageMeta {
   imageWidth?: number;
   imageHeight?: number;
   type?: string;
-  /**
-   * Serve this page's own title in <title>. Yumina pages keep the brand as the
-   * tab title; a page that is its own product (krew.io) needs its real title,
-   * because <title> is what search engines rank and display.
-   */
-  ownTitle?: boolean;
+  /** BCP-47 language of the page's main content, written to <html lang>. */
+  lang?: string;
   noindex?: boolean;
+  /** HTTP status the shell should answer with (404 for an address that resolves to nothing). */
+  status?: number;
   /** Structured data emitted as a JSON-LD script in <head>. */
   jsonLd?: Record<string, unknown>;
 }
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const LANG_RE = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/;
 
 const STATIC_META: Record<string, PageMeta> = {
   "/": {
@@ -47,33 +64,31 @@ const STATIC_META: Record<string, PageMeta> = {
     description: DEFAULT_DESCRIPTION,
     url: SITE_URL,
   },
+  // Discover lives at the home address; this entry only serves a request that
+  // reached the shell without being forwarded, so it points at the root.
   "/app/hub": {
-    title: "Yumina - Browse AI Worlds",
-    description:
-      "Discover thousands of AI-powered interactive worlds. RPGs, visual novels, horror, romance, strategy games and more — play for free or build your own.",
-    url: `${SITE_URL}/app/hub`,
+    title: "Discover",
+    description: "Find your favorite stories and become part of what happens.",
+    url: SITE_URL,
   },
   "/app/community": {
-    title: "Community - Yumina",
-    description:
-      "Join the Yumina community. Share your creations, get feedback, discuss AI interactive fiction, and connect with creators and players.",
+    title: "Community",
+    description: "Make friends here and share whatever you want.",
     url: `${SITE_URL}/app/community`,
   },
   "/app/bundles": {
-    title: "World Bundles - Yumina",
+    title: "Bundles",
     description:
-      "Browse curated bundles of AI interactive worlds on Yumina. Themed collections assembled by creators and the community.",
+      "Download or share community made resource packs to help you build your worlds easier!",
     url: `${SITE_URL}/app/bundles`,
   },
   "/app/worlds": {
-    title: "Create a World - Yumina",
-    description:
-      "Build AI-powered interactive worlds with Yumina Studio. No coding required — Studio AI writes the code for you. Earn 80% revenue share as a creator.",
+    title: "Create",
+    description: "Turn your story into a playable world, and invite us in.",
     url: `${SITE_URL}/app/worlds`,
   },
   "/krew": {
     title: KREW_TITLE,
-    ownTitle: true,
     description: KREW_DESCRIPTION,
     url: `${SITE_URL}/krew`,
     image: KREW_IMAGE,
@@ -98,7 +113,6 @@ const STATIC_META: Record<string, PageMeta> = {
       },
       sameAs: ["https://krew.io", "https://play.krew.io"],
       image: KREW_IMAGE,
-      screenshot: KREW_IMAGE,
       description: KREW_DESCRIPTION,
       keywords: "krew.io, krew, pirate game, .io game, multiplayer, ship battle, browser game, free online game",
       genre: ["Action", "Multiplayer", ".io game", "Pirate"],
@@ -113,15 +127,14 @@ const STATIC_META: Record<string, PageMeta> = {
     },
   },
   "/login": {
-    title: "Sign In - Yumina",
-    description:
-      "Sign in to Yumina to play, create, and share AI interactive worlds.",
+    title: "Sign in",
+    description: "Welcome back to Yumina - hope to make you happy today.",
     url: `${SITE_URL}/login`,
   },
   "/register": {
-    title: "Create Account - Yumina",
+    title: "Create account",
     description:
-      "Join Yumina — the open-source AI interactive fiction platform. Play worlds, build worlds, earn revenue from your creations.",
+      "Join Yumina and find a world you feel at home in, or make the one you've been looking for.",
     url: `${SITE_URL}/register`,
   },
 };
@@ -137,7 +150,219 @@ const NOINDEX_PREFIXES = [
   "/app/plans",
   "/app/onboarding",
   "/app/preview/",
+  "/app/prompts",
 ];
+
+function hiddenMeta(path: string, status?: number): PageMeta {
+  return {
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    url: `${SITE_URL}${path}`,
+    noindex: true,
+    ...(status ? { status } : {}),
+  };
+}
+
+function defaultMeta(path: string): PageMeta {
+  return {
+    title: DEFAULT_TITLE,
+    description: DEFAULT_DESCRIPTION,
+    url: `${SITE_URL}${path}`,
+  };
+}
+
+function pageLang(lang: string | null | undefined): string | undefined {
+  if (!lang) return undefined;
+  const trimmed = lang.trim();
+  return LANG_RE.test(trimmed) ? trimmed : undefined;
+}
+
+function isPublishedWorld(world: { status: string | null; isPublished: boolean | null }): boolean {
+  return world.status === "published" || Boolean(world.isPublished);
+}
+
+/** Absolute URL for a site path, with non-ASCII (CJK names) percent-encoded. */
+function absolute(path: string): string {
+  return `${SITE_URL}${encodeURI(path)}`;
+}
+
+/**
+ * A world card's page: its own name, the creator's own words, its cover.
+ * `path` is the address being served; the canonical URL is the world's
+ * current address when it has one, so old and stale links consolidate.
+ */
+function buildWorldMeta(world: AddressedWorld, path: string): PageMeta {
+  // Limitless (non-all-ages) cards must never leak their real name,
+  // description, or cover into crawler-visible HTML — payment-network
+  // content monitors (and ad-platform crawlers) fetch these pages
+  // logged-out. Serve the generic site meta + noindex instead.
+  if ((world.ageRating ?? "all") !== "all") return hiddenMeta(path);
+
+  const canonicalPath = canonicalWorldPath(world) ?? `/app/hub/${world.id}`;
+  const url = absolute(canonicalPath);
+  let description = summarizeText(stripLeadingTitle(world.description, world.name));
+  const byline = world.creatorName ? `By ${world.creatorName}.` : "";
+  if (!description) description = byline || DEFAULT_DESCRIPTION;
+  else if (description.length < 60 && byline) description = `${description} ${byline}`;
+
+  const image = resolveImageCdn(world.thumbnailUrl) ?? undefined;
+  const lang = pageLang(world.language);
+  const tags = Array.isArray(world.tags)
+    ? (world.tags as unknown[]).filter((t): t is string => typeof t === "string" && t.trim().length > 0)
+    : [];
+
+  return {
+    title: world.name,
+    description,
+    url,
+    image,
+    imageAlt: image ? `${world.name} cover` : undefined,
+    lang,
+    jsonLd: {
+      "@context": "https://schema.org",
+      "@type": "CreativeWork",
+      name: world.name,
+      url,
+      ...(image ? { image } : {}),
+      description,
+      ...(lang ? { inLanguage: lang } : {}),
+      ...(tags.length ? { keywords: tags.join(", ") } : {}),
+      ...(world.creatorName
+        ? {
+            author: {
+              "@type": "Person",
+              name: world.creatorName,
+              ...(profileAddressPath(world.creatorUsername)
+                ? { url: absolute(profileAddressPath(world.creatorUsername)!) }
+                : {}),
+            },
+          }
+        : {}),
+      publisher: { "@type": "Organization", name: "Yumina", url: SITE_URL },
+    },
+  };
+}
+
+/** A member's public page: their name, their bio, their banner or avatar. */
+function buildProfileMeta(person: AddressedUser, fallbackPath: string): PageMeta {
+  if (person.isBanned || person.isSuspended) return hiddenMeta(fallbackPath);
+  const name = person.name?.trim() || "Yumina member";
+  const image = resolveImageCdn(person.banner || person.image) ?? undefined;
+  const canonicalPath = canonicalProfilePath(person) ?? `/app/users/${person.id}`;
+  return {
+    title: name,
+    description: summarizeText(person.bio) || `${name}'s worlds, reviews and followers.`,
+    url: absolute(canonicalPath),
+    image,
+    imageAlt: image ? name : undefined,
+  };
+}
+
+/** A community thread: its title, the opening of the post, its first image. */
+async function threadMeta(path: string, threadId: string): Promise<PageMeta | null> {
+  const [thread] = await readPublic()
+    .select({
+      title: threads.title,
+      content: threads.content,
+      images: threads.images,
+      lang: threads.lang,
+      ageRating: threads.ageRating,
+    })
+    .from(threads)
+    .where(eq(threads.id, threadId))
+    .limit(1);
+  if (!thread) return null;
+  if ((thread.ageRating ?? "all") !== "all") return hiddenMeta(path);
+
+  const firstImage = Array.isArray(thread.images)
+    ? thread.images.find((i) => i && typeof i.url === "string")?.url
+    : undefined;
+  const image = resolveImageCdn(firstImage) ?? undefined;
+  const description = summarizeText(stripLeadingTitle(thread.content, thread.title)) || thread.title;
+  return {
+    title: thread.title,
+    description,
+    url: `${SITE_URL}${path}`,
+    image,
+    imageAlt: image ? thread.title : undefined,
+    lang: pageLang(thread.lang),
+  };
+}
+
+/** A forum board: its name and its own description. */
+async function forumMeta(path: string, slug: string): Promise<PageMeta | null> {
+  const [forum] = await readPublic()
+    .select({ name: forums.name, description: forums.description })
+    .from(forums)
+    .where(eq(forums.slug, slug))
+    .limit(1);
+  if (!forum) return null;
+  return {
+    title: forum.name,
+    description: summarizeText(forum.description) || `${forum.name} threads on the Yumina community.`,
+    url: `${SITE_URL}${path}`,
+  };
+}
+
+/** A resource pack: its name, the author's words, its cover. */
+async function bundleMeta(path: string, bundleId: string): Promise<PageMeta | null> {
+  const [bundle] = await readPublic()
+    .select({
+      name: bundles.name,
+      description: bundles.description,
+      coverImage: bundles.coverImage,
+      isPublic: bundles.isPublic,
+      language: bundles.language,
+      creatorName: user.name,
+    })
+    .from(bundles)
+    .leftJoin(user, eq(bundles.userId, user.id))
+    .where(eq(bundles.id, bundleId))
+    .limit(1);
+  if (!bundle) return null;
+  if (!bundle.isPublic) return hiddenMeta(path);
+
+  const image = resolveImageCdn(bundle.coverImage) ?? undefined;
+  const fallback = bundle.creatorName
+    ? `A resource pack by ${bundle.creatorName}.`
+    : "A resource pack on Yumina.";
+  return {
+    title: bundle.name,
+    description: summarizeText(stripLeadingTitle(bundle.description, bundle.name)) || fallback,
+    url: `${SITE_URL}${path}`,
+    image,
+    imageAlt: image ? `${bundle.name} cover` : undefined,
+    lang: pageLang(bundle.language),
+  };
+}
+
+/** A community event: its title, its introduction, its poster. */
+async function eventMeta(path: string, eventId: string): Promise<PageMeta | null> {
+  const [event] = await readPublic()
+    .select({
+      title: communityEvents.title,
+      introduction: communityEvents.introduction,
+      posterImageUrl: communityEvents.posterImageUrl,
+      bannerImageUrl: communityEvents.bannerImageUrl,
+      status: communityEvents.status,
+      lang: communityEvents.lang,
+    })
+    .from(communityEvents)
+    .where(eq(communityEvents.id, eventId))
+    .limit(1);
+  if (!event) return null;
+  if (event.status === "draft") return hiddenMeta(path);
+
+  const image = resolveImageCdn(event.posterImageUrl || event.bannerImageUrl) ?? undefined;
+  return {
+    title: event.title,
+    description: summarizeText(stripLeadingTitle(event.introduction, event.title)) || event.title,
+    url: `${SITE_URL}/app/community/events/${eventId}`,
+    image,
+    imageAlt: image ? event.title : undefined,
+    lang: pageLang(event.lang),
+  };
+}
 
 export async function getMetaForPath(rawPath: string): Promise<PageMeta> {
   // "/krew/" and "/krew" are one page: strip trailing slashes so both get the
@@ -147,107 +372,80 @@ export async function getMetaForPath(rawPath: string): Promise<PageMeta> {
   if (staticMeta) return staticMeta;
 
   if (NOINDEX_PREFIXES.some((prefix) => path.startsWith(prefix))) {
-    return {
-      title: "Yumina",
-      description: DEFAULT_DESCRIPTION,
-      url: `${SITE_URL}${path}`,
-      noindex: true,
-    };
+    return hiddenMeta(path);
   }
 
-  // World detail: /app/hub/:worldId
-  const worldMatch = path.match(/^\/app\/hub\/([^/]+)$/);
-  if (worldMatch && UUID_RE.test(worldMatch[1]!)) {
-    try {
-      const [world] = await readPublic()
-        .select({
-          name: worlds.name,
-          description: worlds.description,
-          thumbnailUrl: worlds.thumbnailUrl,
-          isPublished: worlds.isPublished,
-          status: worlds.status,
-          ageRating: worlds.ageRating,
-          visibility: worlds.visibility,
-          creatorName: user.name,
-        })
-        .from(worlds)
-        .leftJoin(user, eq(worlds.creatorId, user.id))
-        .where(eq(worlds.id, worldMatch[1]!))
-        .limit(1);
-
-      // Limitless (non-all-ages) cards must never leak their real name,
-      // description, or cover into crawler-visible HTML — payment-network
-      // content monitors (and ad-platform crawlers) fetch these pages
-      // logged-out. Serve the generic site meta + noindex instead.
-      if (
-        world &&
-        (world.status === "published" || world.isPublished) &&
-        (world.ageRating ?? "all") !== "all"
-      ) {
-        return {
-          title: DEFAULT_TITLE,
-          description: DEFAULT_DESCRIPTION,
-          url: `${SITE_URL}/app/hub/${worldMatch[1]}`,
-          noindex: true,
-        };
-      }
-
-      if (
-        world &&
-        (world.status === "published" || world.isPublished) &&
-        world.visibility === "public"
-      ) {
-        const desc = world.description
-          ? world.description.slice(0, 155).replace(/[\n\r]+/g, " ").trim() +
-            (world.description.length > 155 ? "..." : "")
-          : DEFAULT_DESCRIPTION;
-        return {
-          title: `${world.name}${world.creatorName ? ` by ${world.creatorName}` : ""} - Yumina`,
-          description: desc,
-          url: `${SITE_URL}/app/hub/${worldMatch[1]}`,
-          image: world.thumbnailUrl || undefined,
-        };
-      }
-    } catch {
-      // DB error — fall through to default
+  try {
+    // World address: /@username/world-name-<publicId>. Resolves by the id;
+    // an address that resolves to nothing is a real 404 for crawlers.
+    const worldAddress = parseWorldAddress(path);
+    if (worldAddress) {
+      const world = await findWorldByPublicId(worldAddress.publicId);
+      if (!world || !isPublishedWorld(world) || !isPubliclyVisible(world)) return hiddenMeta(path, 404);
+      return buildWorldMeta(world, path);
     }
+
+    // Creator address: /@username
+    const handle = parseProfileAddress(path);
+    if (handle) {
+      const person = await findUserByHandle(handle);
+      if (!person) return hiddenMeta(path, 404);
+      return buildProfileMeta(person, path);
+    }
+
+    // Resource pack: /app/hub/bundles/:bundleId
+    const bundleMatch = path.match(/^\/app\/hub\/bundles\/([^/]+)$/);
+    if (bundleMatch && UUID_RE.test(bundleMatch[1]!)) {
+      return (await bundleMeta(path, bundleMatch[1]!)) ?? defaultMeta(path);
+    }
+
+    // Old world link: /app/hub/:worldId (normally forwarded before reaching here)
+    const worldMatch = path.match(/^\/app\/hub\/([^/]+)$/);
+    if (worldMatch && UUID_RE.test(worldMatch[1]!)) {
+      const world = await findWorldById(worldMatch[1]!);
+      if (!world || !isPublishedWorld(world) || !isPubliclyVisible(world)) return defaultMeta(path);
+      return buildWorldMeta(world, path);
+    }
+
+    // Community thread: /app/community/thread/:threadId
+    const threadMatch = path.match(/^\/app\/community\/thread\/([^/]+)$/);
+    if (threadMatch && UUID_RE.test(threadMatch[1]!)) {
+      return (await threadMeta(path, threadMatch[1]!)) ?? defaultMeta(path);
+    }
+
+    // Community event: /app/community/events/:eventId(/submit)
+    const eventMatch = path.match(/^\/app\/community\/events\/([^/]+)(?:\/.*)?$/);
+    if (eventMatch && UUID_RE.test(eventMatch[1]!)) {
+      return (await eventMeta(path, eventMatch[1]!)) ?? defaultMeta(path);
+    }
+
+    // Community forum: /app/community/:forumSlug (not new/tag/events/thread)
+    const forumMatch = path.match(/^\/app\/community\/([a-z0-9-]+)$/);
+    if (forumMatch && !["new", "tag", "events", "thread"].includes(forumMatch[1]!)) {
+      return (await forumMeta(path, forumMatch[1]!)) ?? { ...STATIC_META["/app/community"]!, url: `${SITE_URL}${path}` };
+    }
+
+    // Old profile link: /app/users/:userId(/followers|/following|/reviews|/achievements)
+    const userMatch = path.match(/^\/app\/users\/([^/]+)(?:\/.*)?$/);
+    if (userMatch) {
+      const person = await findUserById(userMatch[1]!);
+      return person ? buildProfileMeta(person, path) : defaultMeta(path);
+    }
+  } catch {
+    // DB error — fall through to default
   }
 
-  // Community thread: /app/community/thread/:threadId
-  if (path.startsWith("/app/community/thread/")) {
-    return {
-      title: "Community Discussion - Yumina",
-      description:
-        "Read and join the conversation in the Yumina community. Discuss AI interactive fiction, share tips, and connect with other players and creators.",
-      url: `${SITE_URL}${path}`,
-    };
-  }
-
-  // Community forum: /app/community/:forumSlug
   if (path.startsWith("/app/community/")) {
-    return {
-      title: "Community - Yumina",
-      description:
-        "Browse discussions in the Yumina community. Share your creations, get feedback, and connect with creators and players.",
-      url: `${SITE_URL}${path}`,
-    };
+    return { ...STATIC_META["/app/community"]!, url: `${SITE_URL}${path}` };
   }
 
-  // User profile: /app/users/:userId
-  if (path.startsWith("/app/users/")) {
-    return {
-      title: "Creator Profile - Yumina",
-      description:
-        "View this creator's profile and published worlds on Yumina, the open-source AI interactive fiction platform.",
-      url: `${SITE_URL}${path}`,
-    };
-  }
+  return defaultMeta(path);
+}
 
-  return {
-    title: DEFAULT_TITLE,
-    description: DEFAULT_DESCRIPTION,
-    url: `${SITE_URL}${path}`,
-  };
+/** Put a page's real content into the otherwise empty app root. */
+export function injectContent(baseHtml: string, fragment: string | null | undefined): string {
+  if (!fragment) return baseHtml;
+  return baseHtml.replace('<div id="root"></div>', `<div id="root">${fragment}</div>`);
 }
 
 function escapeText(str: string): string {
@@ -265,11 +463,12 @@ function escapeAttr(str: string): string {
 export function injectMeta(baseHtml: string, meta: PageMeta): string {
   let html = baseHtml;
 
-  // Yumina pages keep the brand as the tab title (owner decision); a page that
-  // is its own product serves its real title, since <title> is what search
-  // engines rank and display. Social previews always get the specific title.
-  const tabTitle = meta.ownTitle ? meta.title : "Yumina";
-  html = html.replace(/<title>[^<]*<\/title>/, `<title>${escapeText(tabTitle)}</title>`);
+  // Every page is titled with its own name; the home page is "Yumina".
+  html = html.replace(/<title>[^<]*<\/title>/, `<title>${escapeText(meta.title)}</title>`);
+
+  if (meta.lang) {
+    html = html.replace(/<html lang="[^"]*"/, `<html lang="${meta.lang}"`);
+  }
 
   html = html.replace(
     /(<meta name="description" content=")[^"]*(" \/>)/,
@@ -305,11 +504,11 @@ export function injectMeta(baseHtml: string, meta: PageMeta): string {
     }
     html = html.replace(
       /(<meta property="og:image" content=")[^"]*(" \/>)/,
-      `$1${meta.image}$2`,
+      `$1${escapeAttr(meta.image)}$2`,
     );
     html = html.replace(
       /(<meta name="twitter:image" content=")[^"]*(" \/>)/,
-      `$1${meta.image}$2`,
+      `$1${escapeAttr(meta.image)}$2`,
     );
     if (meta.imageAlt) {
       html = html.replace(
@@ -341,7 +540,7 @@ export function injectMeta(baseHtml: string, meta: PageMeta): string {
 
   if (meta.jsonLd) {
     // "<" escaped so a "</script>" inside a string can never close the tag.
-    const json = JSON.stringify(meta.jsonLd).replace(/</g, "\u003c");
+    const json = JSON.stringify(meta.jsonLd).replace(/</g, "<");
     html = html.replace("</head>", `    <script type="application/ld+json">${json}</script>
   </head>`);
   }
@@ -359,7 +558,7 @@ export async function generateSitemap(): Promise<string> {
   if (cachedSitemap && now - cacheTime < CACHE_TTL) return cachedSitemap;
 
   const staticPages = [
-    { url: "/app/hub", changefreq: "daily", priority: "1.0" },
+    { url: "/", changefreq: "daily", priority: "1.0" },
     { url: "/app/community", changefreq: "daily", priority: "0.7" },
     { url: "/app/bundles", changefreq: "weekly", priority: "0.6" },
     { url: "/app/worlds", changefreq: "weekly", priority: "0.5" },
@@ -367,11 +566,18 @@ export async function generateSitemap(): Promise<string> {
     { url: "/register", changefreq: "monthly", priority: "0.3" },
   ];
 
-  let worldRows: { id: string; updatedAt: Date | null }[] = [];
+  let worldRows: { id: string; publicId: string | null; name: string; creatorUsername: string | null; updatedAt: Date | null }[] = [];
   try {
     worldRows = await readPublic()
-      .select({ id: worlds.id, updatedAt: worlds.updatedAt })
+      .select({
+        id: worlds.id,
+        publicId: worlds.publicId,
+        name: worlds.name,
+        creatorUsername: user.username,
+        updatedAt: worlds.updatedAt,
+      })
       .from(worlds)
+      .leftJoin(user, eq(worlds.creatorId, user.id))
       .where(
         and(
           or(
@@ -396,11 +602,22 @@ export async function generateSitemap(): Promise<string> {
     xml += `  <url>\n    <loc>${SITE_URL}${page.url}</loc>\n    <changefreq>${page.changefreq}</changefreq>\n    <priority>${page.priority}</priority>\n  </url>\n`;
   }
 
+  // Creator pages: one per creator with at least one public world. They are
+  // the pages that link to the worlds, which is how crawlers reach them.
+  const creators = new Set<string>();
+  for (const w of worldRows) {
+    if (w.creatorUsername) creators.add(w.creatorUsername.toLowerCase());
+  }
+  for (const username of creators) {
+    xml += `  <url>\n    <loc>${escapeXml(absolute(`/@${username}`))}</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.5</priority>\n  </url>\n`;
+  }
+
   for (const w of worldRows) {
     const lastmod = w.updatedAt
       ? new Date(w.updatedAt).toISOString().split("T")[0]
       : undefined;
-    xml += `  <url>\n    <loc>${SITE_URL}/app/hub/${w.id}</loc>\n${lastmod ? `    <lastmod>${lastmod}</lastmod>\n` : ""}    <changefreq>weekly</changefreq>\n    <priority>0.6</priority>\n  </url>\n`;
+    const path = canonicalWorldPath(w) ?? `/app/hub/${w.id}`;
+    xml += `  <url>\n    <loc>${escapeXml(absolute(path))}</loc>\n${lastmod ? `    <lastmod>${lastmod}</lastmod>\n` : ""}    <changefreq>weekly</changefreq>\n    <priority>0.6</priority>\n  </url>\n`;
   }
 
   xml += `</urlset>`;
@@ -408,4 +625,8 @@ export async function generateSitemap(): Promise<string> {
   cachedSitemap = xml;
   cacheTime = now;
   return xml;
+}
+
+function escapeXml(value: string): string {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }

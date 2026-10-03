@@ -28,6 +28,19 @@ export interface TurnSwipe {
   tokenCount?: number;
   creditCost?: number;
   creditBalanceAfter?: number;
+  /** Policy refusal flag from the server's refusal-detector. */
+  refusal?: boolean;
+}
+
+/**
+ * Whether the reply currently shown for `message` is a detected model policy
+ * refusal. Reads the ACTIVE swipe, so switching swipes updates it for free.
+ */
+export function isRefusalReply(message: {
+  swipes?: ReadonlyArray<{ refusal?: boolean } | null | undefined>;
+  activeSwipeIndex?: number;
+}): boolean {
+  return message.swipes?.[message.activeSwipeIndex ?? 0]?.refusal === true;
 }
 
 /**

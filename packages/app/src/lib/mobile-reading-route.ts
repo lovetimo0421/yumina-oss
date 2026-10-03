@@ -1,7 +1,9 @@
 /** Mobile pages share Discover's document scrollport; games/editors keep panes.
  * Create starts at the picker, but can mount its editor at the same URL. */
 export function getMobileReadingPageId(pathname: string, search: { worldId?: unknown; view?: unknown } = {}, createPickerActive = true) {
-  if (/^\/app\/hub(?:\/|$)/.test(pathname)) return "hub-main";
+  if (pathname === "/" || /^\/app\/hub(?:\/|$)/.test(pathname)) return "hub-main";
+  // A world address (/@user/name-id) renders Discover with the preview open.
+  if (/^\/@[^/]+\/[^/]+\/?$/.test(pathname)) return "hub-main";
   if (/^\/app\/community(?:\/|$)/.test(pathname)) return "community-main";
   if (/^\/app\/messages\/?$/.test(pathname)) return "dm-page-conversation-list";
   if (/^\/app\/library\/?$/.test(pathname)) {
@@ -13,6 +15,7 @@ export function getMobileReadingPageId(pathname: string, search: { worldId?: unk
   if (/^\/app\/admin(?:\/|$)/.test(pathname) && !/^\/app\/admin\/world-inspect(?:\/|$)/.test(pathname)) return "admin-main";
   if (/^\/app\/worlds\/create\/?$/.test(pathname) && createPickerActive) return "create-picker";
   if (/^\/app\/users\/[^/]+\/?$/.test(pathname)) return "public-profile-main";
+  if (/^\/@[^/]+\/?$/.test(pathname)) return "public-profile-main";
   return undefined;
 }
 

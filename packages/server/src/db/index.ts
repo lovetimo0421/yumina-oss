@@ -21,8 +21,10 @@ import { redis } from "../lib/redis.js";
 import { posthog, captureServerError } from "../lib/posthog.js";
 import { armConnectionErrorHandling, armReadOnlyEviction, makeReadOnlyVerify } from "./pool-guards.js";
 import { armQueryDeadlines } from "./query-deadline.js";
+import { observePoolQueryTimings } from "./query-timing.js";
 import { runtimeIdentity } from "../lib/runtime-identity.js";
 import { runExclusive } from "../lib/leader.js";
+import { startClockAlignedInterval } from "../lib/clock-aligned-interval.js";
 import { setReadAfterWriteFlag } from "../lib/read-after-write.js";
 import { invalidateEngagementStatsCache } from "../lib/engagement.js";
 
@@ -48,33 +50,19 @@ const INSTANCE_REGION = process.env.RAILWAY_REPLICA_REGION ?? process.env.RAILWA
  * promise, never alters results or errors.
  */
 function instrumentPool(pool: pg.Pool, label: string): void {
-  const orig = pool.query.bind(pool);
-  (pool as unknown as { query: (...args: unknown[]) => unknown }).query = (...args: unknown[]) => {
-    if (typeof args[args.length - 1] === "function") return (orig as (...a: unknown[]) => unknown)(...args);
-    const start = Date.now();
-    const result = (orig as (...a: unknown[]) => unknown)(...args);
-    if (result && typeof (result as Promise<unknown>).then === "function") {
-      (result as Promise<unknown>).then(
-        () => {
-          const ms = Date.now() - start;
-          if (ms > SLOW_QUERY_MS) {
-            const first = args[0] as string | { text?: string } | undefined;
-            const text = String(typeof first === "string" ? first : first?.text ?? "").slice(0, 200);
-            console.warn(`[DB] Slow query (${ms}ms, ${label}): ${text}`);
-            posthog.capture({
-              distinctId: "server",
-              event: "slow_query",
-              properties: { ...runtimeIdentity, pool: label, duration_ms: ms, query: text },
-            });
-          }
-        },
-        () => {
-          /* errors are the caller's to handle; this observer must never interfere */
-        },
-      );
+  observePoolQueryTimings(pool, (args, timing) => {
+    const ms = timing.duration_ms;
+    if (ms > SLOW_QUERY_MS) {
+      const first = args[0] as string | { text?: string } | undefined;
+      const text = String(typeof first === "string" ? first : first?.text ?? "").slice(0, 200);
+      console.warn(`[DB] Slow query (${Math.round(ms)}ms, ${label}): ${text}`);
+      posthog.capture({
+        distinctId: "server",
+        event: "slow_query",
+        properties: { ...runtimeIdentity, pool: label, ...timing, query: text },
+      });
     }
-    return result;
-  };
+  });
 }
 
 /**
@@ -278,6 +266,15 @@ export async function ensureSessionPersonaColumn() {
 }
 
 const TABLE_DDLS = [
+  `CREATE TABLE IF NOT EXISTS featured_collections (
+  channel TEXT NOT NULL CHECK (channel IN ('all','games','literature','roleplays','anime','screen')),
+  language TEXT NOT NULL CHECK (language IN ('default','en','zh','es','ja')),
+  content_mode TEXT NOT NULL CHECK (content_mode IN ('default','safe','sensitive')),
+  slots JSONB NOT NULL DEFAULT '[]'::jsonb CHECK (jsonb_typeof(slots) = 'array' AND jsonb_array_length(slots) <= 8),
+  revision UUID NOT NULL DEFAULT gen_random_uuid(),
+  updated_at TIMESTAMP NOT NULL DEFAULT now(),
+  PRIMARY KEY (channel, language, content_mode)
+)`,
   `CREATE TABLE IF NOT EXISTS "user" (
     id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE,
     email_verified BOOLEAN NOT NULL DEFAULT false, image TEXT, banner TEXT,
@@ -312,6 +309,8 @@ const TABLE_DDLS = [
   `CREATE TABLE IF NOT EXISTS deleted_account_tombstones (
     identity_hash TEXT PRIMARY KEY,
     was_banned BOOLEAN NOT NULL DEFAULT false,
+    was_suspended BOOLEAN NOT NULL DEFAULT false,
+    referral_claims JSONB NOT NULL DEFAULT '{"epoch":"","milestones":[]}',
     block_welcome_rewards BOOLEAN NOT NULL DEFAULT true,
     block_invite_redemption BOOLEAN NOT NULL DEFAULT true,
     last_checkin_day TEXT,
@@ -352,7 +351,7 @@ const TABLE_DDLS = [
     tags JSONB NOT NULL DEFAULT '[]', gallery_images JSONB DEFAULT '[]',
     announcement TEXT, total_tokens INTEGER DEFAULT 0, approx_time TEXT,
     source_world_id TEXT,
-    custom_ui_loc INTEGER, has_audio BOOLEAN, cover_crop JSONB, gallery_cover_crop JSONB,
+    custom_ui_loc INTEGER, has_audio BOOLEAN, cover_crop JSONB, gallery_cover_crop JSONB, landscape_cover_url TEXT, landscape_cover_crop JSONB,
     created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW(),
     CONSTRAINT worlds_tags_max CHECK (jsonb_array_length(tags) <= 10)
   )`,
@@ -748,6 +747,10 @@ const TABLE_DDLS = [
     granted_at TIMESTAMP NOT NULL DEFAULT NOW(),
     CONSTRAINT referral_milestones_user_milestone UNIQUE (user_id, milestone)
   )`,
+  `CREATE TABLE IF NOT EXISTS referral_redemptions (
+    invitee_id TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
+    redeemed_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )`,
   `CREATE TABLE IF NOT EXISTS daily_checkins (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
@@ -815,6 +818,20 @@ const TABLE_DDLS = [
     updated_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(user_id, metric_key)
   )`,
+  `CREATE TABLE IF NOT EXISTS discover_editorial (
+  id text PRIMARY KEY DEFAULT 'published',
+  config jsonb NOT NULL,
+  revision uuid NOT NULL DEFAULT gen_random_uuid(),
+  updated_at timestamp NOT NULL DEFAULT now(),
+  CONSTRAINT discover_editorial_singleton CHECK (id = 'published')
+)`,
+  `CREATE TABLE IF NOT EXISTS discover_artwork_overrides (
+  world_id TEXT PRIMARY KEY REFERENCES worlds(id) ON DELETE CASCADE,
+  baseline_revision TEXT NOT NULL,
+  revision UUID NOT NULL DEFAULT gen_random_uuid(),
+  artwork JSONB NOT NULL,
+  updated_at TIMESTAMP NOT NULL DEFAULT now()
+)`,
 ];
 
 const INDEX_DDLS = [
@@ -886,6 +903,7 @@ const INDEX_DDLS = [
   `CREATE INDEX IF NOT EXISTS user_achievement_progress_user_id_idx ON user_achievement_progress(user_id)`,
   `CREATE INDEX IF NOT EXISTS user_personas_user_id_idx ON user_personas(user_id)`,
   `CREATE INDEX IF NOT EXISTS user_last_active_at_idx ON "user"(last_active_at DESC NULLS LAST)`,
+
 ];
 
 const COLUMN_ALTERS = [
@@ -897,6 +915,8 @@ const COLUMN_ALTERS = [
   `ALTER TABLE notifications ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
   `ALTER TABLE account_deletion_cleanup_jobs ADD COLUMN IF NOT EXISTS verification_identifiers JSONB NOT NULL DEFAULT '[]'`,
   `ALTER TABLE account_deletion_cleanup_jobs ADD COLUMN IF NOT EXISTS stripe_connect_id TEXT`,
+  `ALTER TABLE deleted_account_tombstones ADD COLUMN IF NOT EXISTS was_suspended BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE deleted_account_tombstones ADD COLUMN IF NOT EXISTS referral_claims JSONB NOT NULL DEFAULT '{"epoch":"","milestones":[]}'`,
   `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS display_username TEXT`,
   `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP`,
   `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`,
@@ -921,6 +941,8 @@ const COLUMN_ALTERS = [
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS has_audio BOOLEAN`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS cover_crop JSONB`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS gallery_cover_crop JSONB`,
+  `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS landscape_cover_url TEXT`,
+  `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS landscape_cover_crop JSONB`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS playtime_lease_id TEXT`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS playtime_last_seen_at TIMESTAMP`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS name TEXT`,
@@ -1480,6 +1502,14 @@ export async function ensureTables() {
   for (const ddl of COLUMN_ALTERS) {
     await db.execute(sql.raw(ddl));
   }
+  await db.execute(sql.raw(`INSERT INTO referral_redemptions (invitee_id, redeemed_at)
+    SELECT id, COALESCE(referred_at, created_at) FROM "user" WHERE referred_by IS NOT NULL
+    ON CONFLICT (invitee_id) DO NOTHING`));
+  await db.execute(sql.raw(`INSERT INTO referral_redemptions (invitee_id, redeemed_at)
+    SELECT qualification.invitee_id, qualification.joined_at
+    FROM referral_qualifications qualification
+    JOIN "user" invitee ON invitee.id = qualification.invitee_id
+    ON CONFLICT (invitee_id) DO NOTHING`));
   for (const ddl of INDEX_DDLS) {
     await db.execute(sql.raw(ddl));
   }
@@ -1560,6 +1590,8 @@ export async function ensureWorldsSchemaDerived() {
       END;
       NEW.cover_crop := NEW.schema->'coverCrop';
       NEW.gallery_cover_crop := NEW.schema->'galleryCoverCrop';
+      NEW.landscape_cover_url := NULLIF(NEW.schema->>'landscapeCover', '');
+      NEW.landscape_cover_crop := NEW.schema->'landscapeCoverCrop';
       NEW.game_path := NEW.schema->'game'->>'path';
       RETURN NEW;
     EXCEPTION WHEN OTHERS THEN
@@ -1966,12 +1998,28 @@ export async function ensureAccountDeletionForeignKeys() {
   notificationActorSchemaReady = true;
 
   await db.execute(sql.raw(`ALTER TABLE deleted_account_tombstones ADD COLUMN IF NOT EXISTS was_banned BOOLEAN NOT NULL DEFAULT false`));
+  await db.execute(sql.raw(`ALTER TABLE deleted_account_tombstones ADD COLUMN IF NOT EXISTS was_suspended BOOLEAN NOT NULL DEFAULT false`));
+  await db.execute(sql.raw(`ALTER TABLE deleted_account_tombstones ADD COLUMN IF NOT EXISTS referral_claims JSONB NOT NULL DEFAULT '{"epoch":"","milestones":[]}'`));
   await db.execute(sql.raw(`ALTER TABLE deleted_account_tombstones ADD COLUMN IF NOT EXISTS block_welcome_rewards BOOLEAN NOT NULL DEFAULT true`));
   await db.execute(sql.raw(`ALTER TABLE deleted_account_tombstones ADD COLUMN IF NOT EXISTS block_invite_redemption BOOLEAN NOT NULL DEFAULT true`));
   await db.execute(sql.raw(`ALTER TABLE deleted_account_tombstones ADD COLUMN IF NOT EXISTS last_checkin_day TEXT`));
   await db.execute(sql.raw(`ALTER TABLE deleted_account_tombstones ADD COLUMN IF NOT EXISTS reward_blocked_until TIMESTAMP`));
   await db.execute(sql.raw(`ALTER TABLE deleted_account_tombstones ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()`));
   await db.execute(sql.raw(`ALTER TABLE deleted_account_tombstones ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()`));
+  await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS referral_redemptions (
+    invitee_id TEXT PRIMARY KEY REFERENCES "user"(id) ON DELETE CASCADE,
+    redeemed_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )`));
+  // An earlier additive-schema pass may already have created the table.
+  // These backfills must still run once it exists; conflicts make repeat boots safe.
+  await db.execute(sql.raw(`INSERT INTO referral_redemptions (invitee_id, redeemed_at)
+    SELECT id, COALESCE(referred_at, created_at) FROM "user" WHERE referred_by IS NOT NULL
+    ON CONFLICT (invitee_id) DO NOTHING`));
+  await db.execute(sql.raw(`INSERT INTO referral_redemptions (invitee_id, redeemed_at)
+    SELECT qualification.invitee_id, qualification.joined_at
+    FROM referral_qualifications qualification
+    JOIN "user" invitee ON invitee.id = qualification.invitee_id
+    ON CONFLICT (invitee_id) DO NOTHING`));
 
   // Remove legacy orphans before validating the new snapshot/self-reference
   // constraints. These statements are idempotent and run only while account
@@ -2786,6 +2834,13 @@ export async function ensureBillingV2Schema() {
  * Fallback safety net only — scripts/quest-board-v2.sql is the apply path.
  */
 export async function ensureQuestBoardSchema() {
+  await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS quest_community_visits (
+    user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    day_key TEXT NOT NULL,
+    visited_at TIMESTAMP NOT NULL,
+    PRIMARY KEY (user_id, day_key)
+  )`));
+  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS quest_community_visits_visited_idx ON quest_community_visits(visited_at)`));
   await db.execute(sql.raw(`ALTER TABLE quest_claims ADD COLUMN IF NOT EXISTS period_kind TEXT NOT NULL DEFAULT 'day'`));
   await db.execute(sql.raw(`ALTER TABLE quest_claims ADD COLUMN IF NOT EXISTS period_key TEXT`));
   await db.execute(sql.raw(`UPDATE quest_claims SET period_key = day_key WHERE period_key IS NULL`));
@@ -2895,11 +2950,11 @@ export async function ensureScheduledFunctions(): Promise<void> {
  * 49m — anyone whose local 04:00 fell inside that gap saw their daily supply
  * arrive late.
  *
- * This setInterval is a redundant safety net that runs the same idempotent
+ * This clock-aligned timer is a redundant safety net that runs the same idempotent
  * Postgres function from inside the Railway server. It does NOT replace the
  * GitHub Actions cron — that's still the authoritative scheduler. This just
- * fills in gaps when GH Actions skips. Worst-case combined delay drops from
- * ~3h to ~30min (the interval period).
+ * fills in gaps when GH Actions skips. Runs at UTC :00/:30 include the global
+ * 20:00 reset; a missed run retries at the next half-hour boundary.
  *
  * Safety properties:
  * - The Postgres function itself is idempotent (UPDATE WHERE includes the
@@ -2908,11 +2963,10 @@ export async function ensureScheduledFunctions(): Promise<void> {
  * - We skip in PGlite (the function isn't installed there).
  * - Logs are quiet by design: only fail / non-zero affected counts surface,
  *   so the 48 successful no-op runs/day don't drown out real errors.
- * - Returns the interval handle so the SIGTERM handler can clearInterval()
- *   and let the process exit cleanly.
+ * - stopDailyRecoveryInterval cancels the pending timer on SIGTERM.
  */
 const DAILY_RECOVERY_INTERVAL_MS = 30 * 60 * 1000;
-let dailyRecoveryIntervalHandle: ReturnType<typeof setInterval> | null = null;
+let stopDailyRecovery: (() => void) | null = null;
 
 async function runDailyRecoveryQuiet(): Promise<void> {
   try {
@@ -2930,21 +2984,17 @@ async function runDailyRecoveryQuiet(): Promise<void> {
 
 export function startDailyRecoveryInterval(): void {
   if (IS_PGLITE) return;
-  if (dailyRecoveryIntervalHandle) return;
-  // Leader-locked: one run per ~30-min window across the whole fleet (the
-  // function is idempotent, so duplicates were safe — just wasted DB work).
-  // TTL sits under the interval so each tick elects exactly one runner.
-  void runExclusive("daily-recovery", 25 * 60, runDailyRecoveryQuiet);
-  dailyRecoveryIntervalHandle = setInterval(() => {
-    void runExclusive("daily-recovery", 25 * 60, runDailyRecoveryQuiet);
-  }, DAILY_RECOVERY_INTERVAL_MS);
+  if (stopDailyRecovery) return;
+  // 00/30 UTC includes the global 20:00 reset. A boot at 19:59 must neither
+  // shift the next run to 20:29 nor retain a leader lease across the boundary.
+  stopDailyRecovery = startClockAlignedInterval(DAILY_RECOVERY_INTERVAL_MS, async now => {
+    await runExclusive(`daily-recovery:${Math.floor(now.getTime() / DAILY_RECOVERY_INTERVAL_MS)}`, 35 * 60, runDailyRecoveryQuiet);
+  }, error => console.error("[Cron] daily-recovery scheduling failed", error));
 }
 
 export function stopDailyRecoveryInterval(): void {
-  if (dailyRecoveryIntervalHandle) {
-    clearInterval(dailyRecoveryIntervalHandle);
-    dailyRecoveryIntervalHandle = null;
-  }
+  stopDailyRecovery?.();
+  stopDailyRecovery = null;
 }
 
 // ─── Daily user-activity rollup (analytics pre-aggregation) ──────────────────

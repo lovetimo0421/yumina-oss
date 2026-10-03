@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useOpenWorldPreview } from "@/edition/slots";
 import { useFavoritesStore } from "@/edition/slots.state";
 import type { WorldItem } from "@/stores/worlds";
+import { thumbnailImageUrl, fallbackToOriginalOnError } from "@/lib/asset-url";
 
 const CASTLE_ICON = "\u{1F3F0}";
 
@@ -62,7 +63,8 @@ export function LibraryFavoritesView({
                 <div className="relative mb-3 aspect-[3/4] w-full overflow-hidden rounded-xl border border-white/5 shadow-lg transition-all group-hover:border-gold/50 group-hover:shadow-[0_8px_25px_rgba(201,162,94,0.15)]">
                   {fav.worldThumbnailUrl ? (
                     <img
-                      src={fav.worldThumbnailUrl}
+                      src={thumbnailImageUrl(fav.worldThumbnailUrl)}
+                      onError={fallbackToOriginalOnError}
                       alt={fav.worldName ?? ""}
                       className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
                     />

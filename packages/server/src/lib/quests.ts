@@ -48,8 +48,9 @@
  */
 import { and, eq, gt, gte, lt, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
+import { getCheckInWindow } from "./check-ins.js";
 import {
-  analyticsActivity, creditTransactions, creditWallets, favorites, messages, playSessions, posts, questClaims,
+  analyticsActivity, creditTransactions, creditWallets, favorites, messages, playSessions, posts, questClaims, questCommunityVisits,
   referralQualifications, threadLikes, threads, usageLogs,
 } from "../db/schema.js";
 import { planMeetsMinimum, type PlanId } from "./plan-config.js";
@@ -92,7 +93,7 @@ export type DailyQuestKey =
 
 export type WeeklyQuestKey =
   | "week_messages"        // 100 turns across the week
-  | "week_depth"           // 50 turns inside one world
+  | "week_depth"           // 50 turns; across all worlds from the 2026-10-05 reward week
   | "week_days"            // played on five separate days
   | "week_dailies"         // claimed twelve daily quests
   | "week_active_friends"; // three friends qualified as active this week (fixed)
@@ -203,8 +204,24 @@ export function unlockPlanFor(plan: PlanId, quest: QuestDef): PlanId | null {
   return "go";
 }
 
+// Monday 2026-10-05 at 04:00 Asia/Shanghai. Use the reward window's start,
+// not the request clock, so a week always keeps one rule and one set of copy.
+const WEEKLY_ALL_WORLD_TURNS_START = Date.parse("2026-10-04T20:00:00Z");
+
+function weeklyDepthCountsAcrossWorlds(windowStart: Date): boolean {
+  return windowStart.getTime() >= WEEKLY_ALL_WORLD_TURNS_START;
+}
+
+/** Scheduled wording changes without changing the quest's claim identity. */
+export function questCopyKey(key: QuestKey, windowStart: Date): string {
+  return key === "week_depth" && weeklyDepthCountsAcrossWorlds(windowStart)
+    ? "week_depth_any_world"
+    : key;
+}
+
 export interface QuestProgress {
   key: QuestKey;
+  copyKey: string;
   period: QuestPeriod;
   target: number;
   progress: number;
@@ -285,6 +302,15 @@ export async function cycleSpent(userId: string, from: Date, to: Date, database:
   return Math.max(0, Math.floor(Number(r?.total ?? 0)));
 }
 
+/** Called after an authenticated user successfully opens a community post. */
+export async function recordCommunityQuestVisit(
+  userId: string, database: LedgerDatabase = db, now: Date = new Date(),
+): Promise<void> {
+  await database.insert(questCommunityVisits).values({
+    userId, dayKey: getCheckInWindow(now).dayKey, visitedAt: now,
+  }).onConflictDoNothing();
+}
+
 /** Verify one quest. Never throws; a failed read comes back `verified: false`. */
 export async function questProgress(
   userId: string,
@@ -294,8 +320,12 @@ export async function questProgress(
   database: LedgerDatabase = db,
   cache?: WorldTurnCache,
 ): Promise<QuestProgress> {
-  const finish = (progress: number): QuestProgress => ({
+  const identity = {
     key: quest.key, period: quest.period, target: quest.target,
+    copyKey: questCopyKey(quest.key, windowStart),
+  };
+  const finish = (progress: number): QuestProgress => ({
+    ...identity,
     progress: Math.min(progress, quest.target), done: progress >= quest.target, verified: true,
   });
   const chatTurns = and(
@@ -341,7 +371,10 @@ export async function questProgress(
           .where(and(eq(favorites.userId, userId), gte(favorites.createdAt, windowStart), lt(favorites.createdAt, windowEnd)))));
 
       case "community": {
-        // Visiting counts (owner 2026-09-21): about a minute of real activity on
+        const visits = await first(database.select({ n: sql<number>`COUNT(*)` }).from(questCommunityVisits)
+          .where(and(eq(questCommunityVisits.userId, userId), gte(questCommunityVisits.visitedAt, windowStart), lt(questCommunityVisits.visitedAt, windowEnd))));
+        if (visits > 0) return finish(visits);
+        // Keep previously qualifying activity: about a minute of real activity on
         // the community pages writes one 'browse-engaged-60s' row per five-minute
         // bucket (routes/browse-engagement.ts). Posting, replying or liking still
         // count too, so an active poster never has to go and scroll as well.
@@ -359,11 +392,14 @@ export async function questProgress(
         return finish(v + t + p + l);
       }
 
-      // Deepest single world in the window — the RP shape. Progress is the best
-      // world's turn count, so the bar tracks the story the player is actually in.
+      // Daily depth keeps the best single world. From the October 5 reward
+      // week, weekly depth combines the same eligible turns across all worlds.
       case "world_depth":
       case "week_depth": {
         const worlds = await turnsPerWorld(userId, windowStart, windowEnd, database, cache);
+        if (quest.key === "week_depth" && weeklyDepthCountsAcrossWorlds(windowStart)) {
+          return finish(worlds.reduce((total, world) => total + world.turns, 0));
+        }
         return finish(worlds[0]?.turns ?? 0);
       }
 
@@ -371,8 +407,9 @@ export async function questProgress(
         return finish(await first(database.select({ n: sql<number>`COUNT(*)` }).from(playSessions)
           .where(and(
             eq(playSessions.userId, userId),
+            eq(playSessions.ephemeral, false),
             gte(playSessions.createdAt, windowStart), lt(playSessions.createdAt, windowEnd),
-            sql`NOT EXISTS (SELECT 1 FROM play_sessions p2 WHERE p2.user_id = ${userId} AND p2.world_id = ${playSessions.worldId} AND p2.created_at < ${windowStart})`,
+            sql`NOT EXISTS (SELECT 1 FROM play_sessions p2 WHERE p2.user_id = ${userId} AND p2.world_id = ${playSessions.worldId} AND p2.ephemeral = false AND p2.created_at < ${windowStart})`,
           ))));
 
       case "week_dailies":
@@ -403,11 +440,11 @@ export async function questProgress(
         // new quest key out in full to every player the moment someone added it
         // to a board and forgot the case — and the compiler said nothing,
         // because the switch is exhaustive only as long as nobody extends it.
-        return { key: quest.key, period: quest.period, target: quest.target, progress: 0, done: false, verified: false };
+        return { ...identity, progress: 0, done: false, verified: false };
     }
   } catch (err) {
     console.error(`[Quests] ${quest.key} check failed:`, err instanceof Error ? err.message : err);
-    return { key: quest.key, period: quest.period, target: quest.target, progress: 0, done: false, verified: false };
+    return { ...identity, progress: 0, done: false, verified: false };
   }
 }
 

@@ -406,6 +406,7 @@
     "monthlyExpiryPlanEnded": "方案结束时未使用的月度蘑菇币已过期",
     "bonusExpired": "未使用的奖励蘑菇币已按到期日过期",
     "ledgerReconciliation": "账本校正：余额已确认，此前有一笔变动未被记录",
+    "voiceReadoutDescription": "语音朗读 · {{bytes}} 字节",
     "ledgerOpeningBalance": "期初余额（账本从这里开始）",
     "pilePerMonth": "每月 {{amount}}"
   },
@@ -1002,35 +1003,39 @@
     "quests": {
       "play_3": {
         "title": "打 3 个回合",
-        "hint": "今天在任意世界里发三条消息。"
+        "hint": "今天完成三个对话回合，发送消息、重新生成或续写回复都算。"
       },
       "favorite": {
         "title": "收藏一张卡",
-        "hint": "把任意世界加入收藏。"
+        "hint": "今天把任意世界加入收藏。"
       },
       "community": {
         "title": "逛逛社区",
-        "hint": "在社区页停留一分钟。"
+        "hint": "今天点开任意一篇社区帖子即可完成。发帖、回帖或点赞也算。"
       },
       "world_depth": {
-        "title": "在一个世界里打 {{n}} 个回合",
-        "hint": "同一个世界内累计，换存档也接着算。"
+        "title": "今天在一个世界里打 {{n}} 个回合",
+        "hint": "只统计今天在同一个世界内发送的消息，所有存档合并计算。之前几天的回合不计入。"
       },
       "new_world": {
         "title": "开一张没玩过的卡",
-        "hint": "开始一个你从没玩过的世界。"
+        "hint": "今天开始一个你从没玩过的世界。"
       },
       "two_models": {
         "title": "今天用过 2 个不同模型",
         "hint": "今天用两个不同的模型各完成一个回合。"
       },
       "week_messages": {
-        "title": "本周发 {{n}} 条消息",
-        "hint": "本周累计发出的消息数。"
+        "title": "本周打 {{n}} 个回合",
+        "hint": "本周完成的对话回合都会计入，发送消息、重新生成或续写回复都算。"
       },
       "week_depth": {
-        "title": "在同一个世界里打 {{n}} 个回合",
-        "hint": "本周在同一个世界内累计，换存档也接着算。"
+        "title": "本周在一个世界里打 {{n}} 个回合",
+        "hint": "只统计本周在同一个世界内发送的消息，所有存档合并计算。之前几周的回合不计入。"
+      },
+      "week_depth_any_world": {
+        "title": "本周在任意世界累计玩 {{n}} 个回合",
+        "hint": "本周在所有世界和存档中发送的消息合并计算。之前几周的回合不计入。"
       },
       "week_days": {
         "title": "本周玩满 {{n}} 天",
@@ -1094,6 +1099,11 @@
     "protected": "已有储存蘑菇和购买的蘑菇保持原有规则。付费会员权益不变。",
     "claimBonus": "奖励蘑菇 · {{date}}到期",
     "nextDrop": "下一批 +{{amount}} 将于 {{date}} 到账",
+    "nextDropInHours": "下一批 +{{amount}} 约 {{hours}} 小时后到账",
+    "nextDropInMinutes": "下一批 +{{amount}} 将于 {{minutes}} 分钟后到账",
+    "nextDropDue": "下一批 +{{amount}} · 正在更新…",
+    "monthlyInfoDrops": "方案配额按计划分批发放，离线时也会自动入账。未使用的周期蘑菇会在下方所示时间清零。",
+    "resetSchedule": "分批发放和免费月度重置统一在 UTC 20:00（北京时间 04:00）。购买和付费续订的首批配额在付款成功后立即到账。下方日期以你的本地时间显示。",
     "referralBonus": "邀请奖励：{{amount}} 奖励蘑菇 · {{date}} 到期。领取前请确认。",
     "claimReferral": "领取邀请奖励",
     "loading": "正在更新余额…",
@@ -1408,7 +1418,7 @@
     "chooseFailed": "保存失败，请再试一次。",
     "rules": "完整规则",
     "rBand": "{{from}}–{{to}} 蘑菇：每 {{per}} 蘑菇 1 张（共 {{n}} 张）",
-    "estimateNote": "页面每 2 分钟更新一次，显示的是预计金额；最终金额以 7 天审核后为准。",
+    "estimateNote": "比赛结束前的金额均为预估。比赛结束后奖励会自动开放领取。",
     "unit": {
       "d": "天",
       "h": "时",
@@ -1480,9 +1490,10 @@
     },
     "payout": {
       "title": "奖品能换成什么",
-      "small": "不满 {{cash}}：直接发蘑菇（$1 = {{rate}} 蘑菇）。",
-      "large": "{{cash}} 及以上：可选蘑菇，或通过 Tremendous 邮件领取。打开邮件后，按你所在地区选择：PayPal、Venmo、Starbucks、Cash App、Amazon、Target、Walmart、Google Play、Visa 虚拟卡、Roblox、Xbox 等（选项因地区而异）。",
-      "catalog": "查看全部可选奖品"
+      "small": "低于 {{cash}}：可选择蘑菇，奖励足够时也可兑换一个月会员。含加成，每 $1 可换 {{rate}} 蘑菇。",
+      "large": "{{cash}} 及以上：可选择蘑菇、可兑换的一个月会员或 Tango 礼品卡。兑换会员后的剩余金额会换成蘑菇。",
+      "catalog": "查看 Tango 礼品卡目录",
+      "catalogNote": "目录仅供参考。可选品牌和礼品卡面额取决于你所在的国家或地区，以及我们发送的奖励链接。"
     },
     "friendsTitle": "我邀请的好友",
     "friendsCount": "共 {{n}} 位",
@@ -1530,8 +1541,8 @@
     "tag": "邀请赛进行中 · 预计 {{usd}}",
     "claim": {
       "title": "领取奖金",
-      "giftCard": "{{usd}} 礼品卡或现金",
-      "giftCardPlus": "{{usd}} 礼品卡或现金 + {{m}} 蘑菇",
+      "giftCard": "{{usd}} Tango 奖励",
+      "giftCardPlus": "{{usd}} Tango 奖励 + {{m}} 蘑菇",
       "allMushies": "全部换成 {{m}} 蘑菇"
     },
     "full": {
@@ -1548,16 +1559,16 @@
       "splitTitle": "奖池怎么分",
       "s1": "本期奖池 $1,000。",
       "s2": "券数前 5 名另得 {{ranks}}；券数相同时，先达到的人排名靠前。",
-      "s3": "其余 {{pot}} 按每个人的券数分配；不满 $1 的份额不发放，重新分给其他人。",
+      "s3": "{{pot}} 共享奖池按票数分配。原先因不足 $1 被排除的小额份额会获得额外奖励，不减少其他人的原有分配。每张有效票都有奖励。",
       "payTitle": "奖金怎么发",
-      "p1": "不满 {{cash}}：自动以蘑菇发放到你的钱包（$1 = {{rate}} 蘑菇）。",
-      "p2": "{{cash}} 及以上：可选蘑菇，或通过 Tremendous 邮件领取。",
-      "p3": "奖品由奖励合作方 Tremendous 通过邮件发送到你的注册邮箱。打开邮件后按你所在地区选择，例如 PayPal、Venmo、Starbucks、Cash App、Amazon、Target、Walmart、Google Play、Visa 虚拟卡、Roblox、Xbox 等；可选项因地区而异。",
-      "p4": "礼品卡或现金按整数美元发放，零头以蘑菇发放。例如 $23.47 = $23 + 470 蘑菇。",
+      "p1": "低于 {{cash}}：可选择蘑菇，奖励足够时也可兑换一个月会员。含加成，每 $1 可换 {{rate}} 蘑菇。",
+      "p2": "{{cash}} 及以上：可选择蘑菇、可兑换的一个月会员或 Tango 礼品卡。兑换会员后的剩余金额会换成蘑菇。",
+      "p3": "领取礼品卡时请确认收件人姓名和邮箱。我们通过 Tango 发送奖励，礼品卡不会立即送达。",
+      "p4": "礼品卡按整数美元发放，零钱按基础汇率兑换为蘑菇。例如 $23.47 可获得 $23 礼品卡和 470 蘑菇。",
       "p5": "结果确定后 {{choose}} 天内未选择的，将自动以蘑菇发放。",
       "whenTitle": "什么时候确定",
       "w1": "活动页面每 2 分钟更新一次，显示的是预计金额。",
-      "w2": "活动结束后有 7 天审核期，审核完成后公布最终结果并发放奖金。",
+      "w2": "比赛结束即可领取奖励，无需管理员审核。",
       "fairTitle": "公平规则",
       "f1": "退款或申诉的付款所对应的券，会在结算前剔除。",
       "f2": "批量注册、只为刷券的虚假账号会被剔除；情节严重的，取消该邀请人本次活动的全部资格。",
@@ -1580,7 +1591,7 @@
       "subtitle": "奖池 1,000 美元，好友玩得越多，你分得越多 · 还剩 {{days}} 天",
       "cta": "查看我的券"
     },
-    "giftCardHow": "我们的奖励合作方 Tremendous 会发邮件到你的注册邮箱，打开后按你所在地区选择 PayPal、礼品卡、Visa 虚拟卡等（选项因地区而异）。",
+    "giftCardHow": "领取礼品卡时请确认收件人姓名和邮箱。我们通过 Tango 发送奖励，礼品卡不会立即送达。",
     "eventCard": {
       "status": "进行中",
       "title": "邀请好友，一起赢奖励"
@@ -1588,6 +1599,49 @@
     "rankPrize": {
       "won": "含排名奖 {{usd}}"
     },
-    "worldLinkHint": "分享任意作品的链接，也会带上你的邀请码。"
+    "worldLinkHint": "分享任意作品的链接，也会带上你的邀请码。",
+    "reward": {
+      "title": "你的邀请赛奖励",
+      "finished": "比赛已结束，选择你想领取的奖励。",
+      "tickets": "{{count}} 张票",
+      "bonus": "选择蘑菇或会员，奖励价值增加 50%。",
+      "choose": "选择奖励",
+      "plan": "一个月会员",
+      "planDays": "{{name}} · {{days}} 天",
+      "planIncludes": "会员包含 {{m}} 蘑菇，奖励剩余金额另换得 {{change}} 蘑菇。",
+      "planQueue": "如果你当前的套餐等级相同或更高，奖励时长会保留到可使用时再开始。包含的蘑菇会立即到账。",
+      "name": "收件人姓名",
+      "email": "接收邮箱",
+      "delivery": "我们会通过邮件发送 Tango 奖励链接，你打开后再选择礼品卡。邮件由工作人员手动发送，不会立即发出。",
+      "change": "不足一美元的部分将兑换为 {{m}} 蘑菇。",
+      "confirm": "确认领取",
+      "alreadyClaimed": "这份奖励已经领取过了。",
+      "sent": "Tango 奖励链接已发送至邮箱",
+      "queued": "Tango 奖励链接等待邮件发送",
+      "savedPlan": "已保留，稍后使用",
+      "usedPlan": "套餐时长已用完",
+      "activePlan": "套餐时长已生效",
+      "credited": "{{m}} 蘑菇已到账",
+      "estimateMushies": "或兑换约 {{m}} 蘑菇（含加成）",
+      "planMonth": "{{name}} 会员 1 个月",
+      "membershipTerms": "{{days}} 天。不会自动续费。",
+      "mushiesAmount": "{{m}} 蘑菇",
+      "review": "核对奖励",
+      "confirmTitle": "确认领取奖励",
+      "finalChoice": "领取后无法更改选择。",
+      "back": "返回修改",
+      "confirmCash": "申请 Tango 奖励",
+      "confirmPlan": "领取会员",
+      "confirmMushies": "领取 {{m}} 蘑菇",
+      "claimed": "已领取奖励",
+      "changed": "奖励已更新，请重新核对。",
+      "expired": "选择期限已过，奖励将以蘑菇发放。",
+      "addedImmediately": "立即加入你的余额。",
+      "claimAction": "领取奖励"
+    },
+    "support": {
+      "question": "有疑问或顾虑？",
+      "message": "私信 {{username}}"
+    }
   }
 }

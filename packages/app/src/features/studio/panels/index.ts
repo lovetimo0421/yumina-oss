@@ -3,6 +3,7 @@ export { CanvasPanel } from "./canvas-panel";
 export { LorebookPanel } from "./lorebook-panel";
 export { VariablesPanel } from "./variables-panel";
 export { AudioPanel } from "./audio-panel";
+export { SceneImagesPanel } from "./scene-images-panel";
 export { OverviewPanel } from "./overview-panel";
 export { CodeViewPanel } from "./code-view-panel";
 export { PlaytestPanel } from "./playtest-panel";

@@ -10,7 +10,7 @@ import { useSession } from "@/lib/auth-client";
 import { useSyncLanguage } from "@/hooks/use-sync-language";
 import { useCreatePageStore } from "@/stores/create-page";
 import { useUiStore, FONT_SIZE_SCALE } from "@/stores/ui";
-import { setWorldAudioEnabled } from "@/stores/audio";
+import { setWorldAudioEnabled, useAudioStore } from "@/stores/audio";
 import { getAssetCdnUrl } from "@/lib/asset-url";
 import { PlaySessionPickerHost } from "@/hooks/use-play-with-language";
 import { PersistentChat } from "./persistent-chat";
@@ -123,7 +123,7 @@ function getWallpaperBaseOpacity(page: WallpaperPage) {
 }
 
 function getAtmosphereClass(pathname: string) {
-  if (pathname.startsWith("/app/hub") || pathname.startsWith("/app/profile") || pathname.startsWith("/app/users") || pathname.startsWith("/app/settings") || pathname.startsWith("/app/extensions")) return "atmosphere-vibrant";
+  if (pathname === "/" || pathname.startsWith("/app/hub") || pathname.startsWith("/@") || pathname.startsWith("/app/profile") || pathname.startsWith("/app/users") || pathname.startsWith("/app/settings") || pathname.startsWith("/app/extensions")) return "atmosphere-vibrant";
   if (pathname.match(/\/app\/worlds\/[^/]+\/edit/) || pathname.startsWith("/app/studio") || pathname === "/app/worlds/create")
     return "atmosphere-none";
   return "atmosphere-subtle";
@@ -182,6 +182,15 @@ export function AppShell({ children }: AppShellProps) {
     setWorldAudioEnabled(worldAudioEnabled);
   }, [worldAudioEnabled]);
 
+  // Voice readout volume (Settings → Display → Voice readout), absent = 100%.
+  const ttsVolumePref = useUserProfileStore((s) => {
+    const v = s.profile?.preferences?.ttsVolume;
+    return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(100, v)) : 100;
+  });
+  useEffect(() => {
+    useAudioStore.getState().setVoiceVolume(ttsVolumePref / 100);
+  }, [ttsVolumePref]);
+
   // Reset app-shell-root scroll when theater mode changes — entering/exiting
   // fullscreen can leave a stale scrollTop that shifts the entire layout
   useEffect(() => {
@@ -198,8 +207,9 @@ export function AppShell({ children }: AppShellProps) {
     prefetchShellModals();
   }, []);
 
-  const isDiscover = location.pathname.startsWith("/app/hub");
-  const isProfile = location.pathname.startsWith("/app/profile") || location.pathname.startsWith("/app/users");
+  // A world address (/@user/name-id) is Discover with a preview open; a bare /@user is a profile.
+  const isDiscover = location.pathname === "/" || location.pathname.startsWith("/app/hub") || /^\/@[^/]+\/.+/.test(location.pathname);
+  const isProfile = location.pathname.startsWith("/app/profile") || location.pathname.startsWith("/app/users") || /^\/@[^/]+\/?$/.test(location.pathname);
   const isSettings = location.pathname.startsWith("/app/settings");
   const isHubOrProfile = isDiscover || isProfile || isSettings;
   const isLibrary = location.pathname.startsWith("/app/library") || isCreatePagePicker;

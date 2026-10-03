@@ -53,6 +53,8 @@ Three parts inside the brackets: **which variable**, **what to do**, and **with 
 | **Push** | `[var: push {...}]` | `[inventory: push {"name": "Sword"}]` | Appends an element to a JSON array |
 | **Delete** | `[var: delete "key"]` or `[var: delete N]` | `[config: delete "old-field"]`, `[inventory: delete 0]` | Removes a key from a JSON object (quoted string) or an element by index from a JSON array (number). The value after `delete` is required — bare `[var: delete]` silently degrades into an implicit-set. |
 
+**Paths into JSON variables.** `[relations.chars.lin: merge {...}]` writes inside a JSON variable. If the key does not exist yet, the write creates it: `merge` starts the object, `push` starts a one-item list, `add`/`subtract` count from 0. A path that runs through a plain value (`hp.max` while `hp` is a number) is skipped rather than overwritten. Array elements are addressed as `list.0.hp` or `list[0].hp`.
+
 ### Value syntax rules
 
 - **Numbers**: bare digits — `10`, `3.5`, `-7`

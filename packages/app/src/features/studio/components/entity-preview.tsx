@@ -51,7 +51,7 @@ export function EntityPreview({ toolCall }: { toolCall: ToolCall }) {
             <span className="text-xs font-medium text-foreground truncate">
               {(args.name as string) || (args.id as string) || t(info.category as any)}
             </span>
-            {info.badge && (
+            {info.badge?.(args) && (
               <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] text-muted-foreground">
                 {info.badge(args)}
               </span>
@@ -202,6 +202,8 @@ function useDiffInfo(toolName: string, args: Record<string, unknown>): DiffLine[
       : null;
   } else if (toolName === "write_audio") {
     existing = (draft.audioTracks ?? []).find((a) => a.id === id) as unknown as Record<string, unknown> ?? null;
+  } else if (toolName === "write_scene_image") {
+    existing = (draft.sceneImages ?? []).find((img) => img.id === id) as unknown as Record<string, unknown> ?? null;
   }
 
   // write_* tools are upserts — no diff for new entities
@@ -288,7 +290,8 @@ function getToolInfo(name: string): ToolInfo {
       verbColor: "text-emerald-400",
       category: "studio.entity.entry",
       icon: Plus,
-      badge: (a) => `${a.role ?? a.section ?? "custom"}`,
+      // A partial update carries no role — show nothing rather than a guess.
+      badge: (a) => `${a.role ?? a.section ?? ""}`,
       detail: (a) => truncate(a.content as string, 80),
     };
   if (name === "write_variable")
@@ -344,7 +347,7 @@ function getToolInfo(name: string): ToolInfo {
       verbColor: "text-emerald-400",
       category: "studio.entity.audio",
       icon: Music,
-      badge: (a) => `${a.type ?? "bgm"}`,
+      badge: (a) => `${a.type ?? ""}`,
     };
   if (name === "delete_entities")
     return {

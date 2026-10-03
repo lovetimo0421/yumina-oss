@@ -56,7 +56,7 @@ export class StructuredResponseParser {
       parsed = repaired;
     }
 
-    const cleanText = typeof parsed.narrative === "string" ? parsed.narrative : "";
+    let cleanText = typeof parsed.narrative === "string" ? parsed.narrative : "";
 
     // Convert stateChanges to Effect[]
     const effects: Effect[] = [];
@@ -107,6 +107,16 @@ export class StructuredResponseParser {
           if (typeof ae.fadeDuration === "number") effect.fadeDuration = ae.fadeDuration;
           audioEffects.push(effect);
         }
+      }
+    }
+
+    // Structured replies name scene images by handle; hand them to the same
+    // `[image: handle]` path the regex parser yields so one resolver serves both.
+    if (Array.isArray(parsed.sceneImages)) {
+      const handles = (parsed.sceneImages as unknown[])
+        .filter((h): h is string => typeof h === "string" && h.trim().length > 0);
+      if (handles.length > 0) {
+        cleanText = `${cleanText}\n\n${handles.map((h) => `[image: ${h.trim()}]`).join("\n")}`;
       }
     }
 

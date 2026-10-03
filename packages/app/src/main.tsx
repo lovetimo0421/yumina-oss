@@ -376,9 +376,15 @@ declare module "@tanstack/react-router" {
   }
 }
 
+// Public pages arrive with their content already in #root (server prerender,
+// lib/prerender.ts on the server) so visitors and crawlers see text at once.
+// React owns the root from here: clear that content right before mounting.
+const rootElement = document.getElementById("root")!;
+if (rootElement.firstElementChild) rootElement.replaceChildren();
+
 // PostHog only wraps the tree when a project token is configured; the
 // open-source edition ships without one and renders the router directly.
-createRoot(document.getElementById("root")!).render(
+createRoot(rootElement).render(
   <StrictMode>
     {isAnalyticsEnabled() ? (
       <PostHogProvider

@@ -25,6 +25,10 @@ import {
 } from "./i18n";
 import type { SandboxMessage } from "./types";
 import { resolveSpeaker, stripLeadingSpeakerTag, isPartialLeadingSpeakerTag } from "./speaker";
+import { RefusalBar, isRefusedReply } from "./player-prompts";
+import { TurnImageState } from "./turn-image-state";
+import { TurnImageCard } from "./turn-image-card";
+import { splitTurnImages } from "./turn-image-embeds";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -114,6 +118,9 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
   const api = useYumina();
   const t = useMemo(() => makeChatT(api.language), [api.language]);
   const isUser = message.role === "user";
+  // Voice readout: this message is the one currently being spoken aloud.
+  const ttsPlayback = api.ttsState?.playback ?? null;
+  const isBeingSpoken = ttsPlayback?.key === message.id && ttsPlayback.status === "playing";
   const isSystem = message.role === "system";
   const rawContent = isStreaming ? (streamingContent ?? "") : message.content;
   // The leading speaker tag is stripped server-side for stored content, but
@@ -125,6 +132,12 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
   const displayContent = isStreaming
     ? holdingSpeakerTag ? "" : stripDirectives(stripLeadingSpeakerTag(rawContent))
     : rawContent;
+  // A card's own renderer gets the reply without per-turn pictures; the host
+  // draws them under its bubble (see turn-image-embeds.ts).
+  const rendererText = useMemo(() => {
+    const shown = splitTurnImages(displayContent);
+    return { content: shown.text, rawContent: splitTurnImages(rawContent).text, embeds: shown.embeds };
+  }, [displayContent, rawContent]);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [rawExpanded, setRawExpanded] = useState(false);
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -153,6 +166,11 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
   // Retrying only reaches the server for the trailing turn, and firing it
   // mid-stream would stack a second generation on the same message.
   const canRetryTurn = generationFailed && !!isLastMessage && !api.isStreaming && !api.modelFallback;
+  // Provider-side block on the trailing turn: the dedicated bar (switch model /
+  // retry / — for eligible players — turn on 解除限制) replaces the red box.
+  const blockedTurn = generationFailed && failure.code === "CONTENT_FILTER" && !!isLastMessage && !api.modelFallback;
+  // The model answered with a policy refusal instead of story text.
+  const refusedReply = !isUser && !isSystem && !isStreaming && !!isLastMessage && isRefusedReply(message);
 
   // Raw LLM output for the active swipe. Persisted server-side starting 2026-05
   // so older messages may not have it — hide the toggle when missing rather
@@ -241,6 +259,21 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
       : null,
   ].filter(Boolean).join(" · ") || undefined;
 
+  /** Live "speaking" equalizer — shown beside whichever label this message
+   *  carries while TTS is reading it. */
+  const speakingBars = isBeingSpoken ? (
+    <span className="ml-2 inline-flex items-end gap-[2px]" aria-hidden="true">
+      <style>{"@keyframes yum-eq{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}"}</style>
+      {[0, 1, 2].map((i) => (
+        <span
+          key={i}
+          className="inline-block h-3 w-[2.5px] rounded-full bg-primary/80"
+          style={{ animation: `yum-eq 0.9s ease-in-out ${i * 0.18}s infinite`, transformOrigin: "bottom" }}
+        />
+      ))}
+    </span>
+  ) : null;
+
   // ── Render ───────────────────────────────────────────────────────
 
   return (
@@ -264,19 +297,21 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                 className="h-8 w-8 shrink-0 rounded-full border border-border object-cover"
               />
             )}
-            <p className="play-message-role text-xs font-medium text-primary/70">
+            <p className="play-message-role flex items-center text-xs font-medium text-primary/70">
               {speaker.name}
+              {speakingBars}
             </p>
           </div>
         ) : (
           showRoleLabel && !holdingSpeakerTag && (
             <p
               className={cn(
-                "play-message-role mb-1 text-xs font-medium",
+                "play-message-role mb-1 flex items-center text-xs font-medium",
                 isUser ? "text-emerald-300/60" : "text-primary/70",
               )}
             >
               {isUser ? userLabel : t("narrator")}
+              {speakingBars}
             </p>
           )
         )}
@@ -433,8 +468,8 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                 }}
               >
                 <RendererComp
-                  content={displayContent}
-                  rawContent={rawContent}
+                  content={rendererText.content}
+                  rawContent={rendererText.rawContent}
                   stateSnapshot={message.stateSnapshot ?? null}
                   role={message.role}
                   messageIndex={messageIndex}
@@ -443,14 +478,26 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                   variables={variables ?? {}}
                 />
               </MessageRendererBoundary>
+              {rendererText.embeds.length > 0 && (
+                <div className="play-turn-images">
+                  {rendererText.embeds.map((embed) => <TurnImageCard key={embed} embed={embed} message={message} api={api} t={t} />)}
+                </div>
+              )}
             </div>
           ) : (
-            <div
-              onClick={handleClick}
-              dangerouslySetInnerHTML={{
-                __html: renderMessage(displayContent),
-              }}
-            />
+            <>
+              <div
+                onClick={handleClick}
+                dangerouslySetInnerHTML={{
+                  __html: renderMessage(rendererText.content),
+                }}
+              />
+              {rendererText.embeds.length > 0 && (
+                <div className="play-turn-images">
+                  {rendererText.embeds.map((embed) => <TurnImageCard key={embed} embed={embed} message={message} api={api} t={t} />)}
+                </div>
+              )}
+            </>
           )}
           {isStreaming && (
             <span className="streaming-cursor ml-0.5 inline-block text-primary">
@@ -459,7 +506,20 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
           )}
         </div>
 
-        {generationFailed && (
+        {/* A redraw shows on the picture itself; the placeholder is for a reply without one yet. */}
+        {!isUser && !isStreaming && !(rendererText.embeds.length > 0 && message.turnImage?.status === "drawing") && (
+          <TurnImageState message={message} api={api} t={t} />
+        )}
+
+        {blockedTurn && (
+          <RefusalBar kind="blocked" onRetry={() => api.continueLastMessage()} />
+        )}
+
+        {refusedReply && (
+          <RefusalBar kind="refused" dismissKey={message.id} onRetry={() => api.regenerateMessage(message.id)} />
+        )}
+
+        {generationFailed && !blockedTurn && (
           <div className="play-turn-error mt-2 w-full min-w-0 self-stretch rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
             <div className="play-turn-error__text">{failureText}</div>
             {(canRetryTurn || failure.code === "FREE_POOL_EXHAUSTED") && (
@@ -578,6 +638,7 @@ export const MessageBubble = React.memo(MessageBubbleInner, (prev, next) => {
   // Swipe: check by active swipe index (content changes on swipe)
   if (prev.message.activeSwipeIndex !== next.message.activeSwipeIndex) return false;
   if (prev.message.modelFallback !== next.message.modelFallback) return false;
+  if (prev.message.turnImage !== next.message.turnImage) return false;
   if (prev.message.swipes !== next.message.swipes) return false;
   // Action-row dependencies (isLast flags, swipe count, status) live inside the
   // children/swipeControls elements, which this comparator can't diff.

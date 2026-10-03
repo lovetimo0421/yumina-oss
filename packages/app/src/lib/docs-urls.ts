@@ -23,6 +23,7 @@ export const DOCS_URLS = {
   get rulesEngine() { return url("/creator/automation"); },
   get components() { return url("/creator/advanced/custom-ui-deep"); },
   get audio() { return url("/creator/advanced/audio-deep"); },
+  get sceneImages() { return url("/creator/visuals-audio"); },
   get termsOfUse() { return url("/legal/terms-of-use"); },
   get privacyPolicy() { return url("/legal/privacy-policy"); },
   get communityGuidelines() { return url("/legal/community-guidelines"); },

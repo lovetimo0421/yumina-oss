@@ -1,7 +1,7 @@
 import type { WorldDefinition } from "../types/index.js";
 
 export type WorldChangeKind =
-  | "entry" | "variable" | "rule" | "reaction" | "audio" | "customUI" | "meta";
+  | "entry" | "variable" | "rule" | "reaction" | "audio" | "sceneImage" | "customUI" | "meta";
 
 export interface WorldFieldChange {
   field: string;
@@ -46,9 +46,10 @@ const COLLECTIONS: CollectionSpec[] = [
   { kind: "rule",     get: (w) => (w.rules as unknown as Row[]) ?? [],       fields: ["name", "enabled"] },
   { kind: "reaction", get: (w) => (w.reactions as unknown as Row[]) ?? [],   fields: ["name"] },
   { kind: "audio",    get: (w) => (w.audioTracks as unknown as Row[]) ?? [], fields: ["name", "url"] },
+  { kind: "sceneImage", get: (w) => (w.sceneImages as unknown as Row[]) ?? [], fields: ["name", "url", "scene", "hint", "greetingIds", "allowAiControl"] },
 ];
 
-const META_FIELDS = ["name", "description"] as const;
+const META_FIELDS = ["name", "description", "landscapeCover"] as const;
 
 function asText(v: unknown): string {
   if (v === undefined || v === null) return "";

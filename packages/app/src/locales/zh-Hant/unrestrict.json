@@ -1,0 +1,227 @@
+{
+  "name": "解除限制",
+  "switchLabel": "解除限制開關",
+  "loading": "載入中…",
+  "cancel": "取消",
+  "tokensApprox": "約 {{n}} token",
+  "status": {
+    "off": "已關閉",
+    "on": "已開啟 · {{variant}} · 強度{{strength}}",
+    "autoVariant": "自動（{{variant}}）"
+  },
+  "variants": {
+    "gemini": "Gemini 版",
+    "claude": "Claude 版",
+    "deepseek": "DeepSeek 版",
+    "general": "通用版"
+  },
+  "strength": {
+    "title": "強度",
+    "light": "輕",
+    "standard": "標準",
+    "strong": "強",
+    "hint": {
+      "light": "只做敘事框架，最不影響文風。",
+      "standard": "框架加常用約束，大多數情況夠用。",
+      "strong": "額外加一段回覆前的自檢提醒，token 多一些。"
+    }
+  },
+  "card": {
+    "adjust": "調整"
+  },
+  "age": {
+    "title": "先確認年齡",
+    "body": "確認出生年份後就能開啟。",
+    "placeholder": "出生年份，如 1998",
+    "confirm": "確認",
+    "invalid": "請輸入四位數的年份。",
+    "under18": "未滿 18 歲不能開啟解除限制。"
+  },
+  "errors": {
+    "notEligible": "這個賬號現在不能開啟解除限制",
+    "saveFailed": "沒能儲存，請重試",
+    "copyFailed": "沒能複製，請重試"
+  },
+  "prompts": {
+    "title": "提示詞",
+    "newFolder": "新資料夾",
+    "mine": "我的提示詞",
+    "mineCount": "· {{total}} 條，開著 {{on}} 條",
+    "mineCountLong": "共 {{total}} 條，開著 {{on}} 條",
+    "new": "新建",
+    "none": "還沒有提示詞。",
+    "hubRow": "去提示詞廣場找更多",
+    "manageInSettings": "在 設定 › 提示詞 裡管理",
+    "pos": "位置 {{n}}",
+    "section": {
+      "system": "System",
+      "inChat": "In-Chat",
+      "final": "Final"
+    },
+    "sectionFull": {
+      "system": "System（系統提示）",
+      "inChat": "In-Chat（對話中）",
+      "final": "Final（最後）"
+    }
+  },
+  "conflict": {
+    "paused": "「{{name}}」和官方的同時開著，已先暫停你的那條。",
+    "pausedLong": "你自己的「{{name}}」和官方預設同時開著，已自動暫停你的那條。",
+    "undo": "撤銷",
+    "restored": "已恢復「{{name}}」，現在兩條同時生效，可能會互相打架。",
+    "repause": "重新暫停"
+  },
+  "chips": {
+    "officialCopy": "官方副本",
+    "fromHub": "來自廣場",
+    "paused": "已暫停"
+  },
+  "page": {
+    "breadcrumb": "位置",
+    "crumbSettings": "設定"
+  },
+  "gone": {
+    "title": "這個頁面不存在",
+    "body": "這個連結在目前帳號下打不開。",
+    "cta": "去 設定 › 提示詞"
+  },
+  "master": {
+    "currentModel": "當前模型",
+    "noModel": "未選擇",
+    "autoUses": "自動使用「{{variant}}」",
+    "manualUses": "使用「{{variant}}」（手動指定）",
+    "off": "已關閉"
+  },
+  "variantsCard": {
+    "title": "官方預設",
+    "auto": "自動",
+    "autoPicked": "自動選中",
+    "verified": "最後驗證 {{date}}"
+  },
+  "what": {
+    "title": "它做了什麼",
+    "one": "預設放在所有提示詞的最前面，每次發訊息都會帶上。位置和內容可以在下面自己調。",
+    "two": "會暫時關掉你自己開著的同類提示詞，避免兩段說明打架。關掉解除限制後自動恢復。"
+  },
+  "honest": "有些內容是模型服務商那邊直接攔的，開了也寫不出來，這時候換個模型更有用。",
+  "adjust": {
+    "title": "你的調整",
+    "autoPicked": "（自動選中）",
+    "copyLocked": "副本請直接改正文"
+  },
+  "join": {
+    "title": "加入方式",
+    "follow": "跟隨官方",
+    "default": "預設",
+    "followHint": "官方改進後自動更新，下面的選項照樣能調。",
+    "copy": "複製一份自己改",
+    "copyHint": "存進「我的提示詞」隨便改，不再自動更新。",
+    "copyNote": "已存到「我的提示詞」",
+    "backTitle": "改回跟隨官方？",
+    "backBody": "正文會恢復成官方版並自動更新。你的「{{variant}}（我的副本）」會從「我的提示詞」裡刪掉。",
+    "backOk": "改回跟隨官方"
+  },
+  "update": {
+    "banner": "官方有更新",
+    "compare": "對比",
+    "title": "官方「{{variant}}」有新版",
+    "subtitle": "你用的是自己的副本，所以先問你",
+    "legend": "官方這次改了（高亮是新加的，劃線是刪掉的）：",
+    "note": "用新版會用官方最新正文重新複製一份，你改過的地方會被替換。",
+    "keepMine": "保留我的",
+    "useNew": "用新版"
+  },
+  "position": {
+    "title": "放在哪",
+    "first": {
+      "label": "最前（推薦）",
+      "hint": "模型最先讀到，效果最穩。"
+    },
+    "after-char": {
+      "label": "角色設定之後",
+      "hint": "先讀卡的設定再讀這段，適合設定很長的卡。"
+    },
+    "last": {
+      "label": "對話最後",
+      "hint": "離回覆最近，效果強，但可能帶偏文風。"
+    }
+  },
+  "modules": {
+    "title": "包含哪些部分",
+    "coreLocked": "核心，不能關",
+    "core": {
+      "name": "敘事框架",
+      "desc": "把對話定成虛構創作，是其餘幾項的基礎。"
+    },
+    "antiApology": {
+      "name": "防道歉",
+      "desc": "被拒後自動換個說法再寫"
+    },
+    "antiEmpty": {
+      "name": "防空回",
+      "desc": "避免只回一兩句或回一片空白"
+    },
+    "noLecture": {
+      "name": "去說教",
+      "desc": "不在結尾加安全提示或勸誡"
+    },
+    "adultWriting": {
+      "name": "成人內容寫法",
+      "desc": "控制成人內容寫得多直白"
+    },
+    "strongReminder": {
+      "name": "回覆前自檢"
+    }
+  },
+  "explicitness": {
+    "subtle": "含蓄",
+    "normal": "正常",
+    "explicit": "直白"
+  },
+  "fullText": {
+    "open": "檢視/編輯全文",
+    "title": "{{variant}} · 全文",
+    "followHint": "跟隨官方中，正文只讀。點正文或「編輯」開始改。",
+    "copyHint": "這是你的副本，可以隨便改。",
+    "strengthChip": "強度：{{value}}",
+    "positionChip": "位置：{{value}}",
+    "copyMissing": "副本里還沒有內容。",
+    "restore": "恢復官方版",
+    "edit": "編輯",
+    "done": "完成",
+    "saveDone": "儲存",
+    "confirmTitle": "編輯全文",
+    "confirmBody": "編輯後會變成你自己的副本，不再自動更新。副本會出現在「我的提示詞」裡，官方更新時會提醒你。",
+    "confirmOk": "繼續編輯"
+  },
+  "scope": {
+    "title": "用在哪些卡",
+    "all": "所有卡都用",
+    "some": "只在這些卡里用",
+    "none": "還沒選卡，現在哪張卡都不會用。",
+    "unknownWorld": "（不在庫裡的卡）",
+    "remove": "移除",
+    "add": "新增卡",
+    "pickTitle": "選卡",
+    "search": "搜尋卡名",
+    "empty": "庫裡沒有卡。",
+    "pickSave": "完成（{{n}}）"
+  },
+  "footer": {
+    "withCost": "共約 {{n}} token · 預計每回合多花約 {{cost}} 蘑菇幣",
+    "tokensOnly": "共約 {{n}} token"
+  },
+  "community": {
+    "title": "別人寫的提示詞",
+    "myUploads": "我上傳的",
+    "toHub": "去提示詞廣場"
+  },
+  "bindings": {
+    "title": "按模型自動啟用",
+    "hint": "為每類模型選一條自動啟用的提示詞。",
+    "none": "不啟用",
+    "families": {
+      "other": "其他"
+    }
+  }
+}

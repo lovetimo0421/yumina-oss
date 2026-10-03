@@ -1,7 +1,9 @@
+import { useDiscoverAccess } from "@/hooks/use-discover-access";
+import { selectWorldArtwork } from "@/lib/discover-world-artwork";
 import { useOpenWorldPreview } from "@/edition/slots";
 import { useEdition } from "@/edition/edition";
 import { getUserProfileHref } from "@/edition/routes";
-import { getWorldShareUrl } from "@/edition/slots.state";
+import { useWorldShareUrl } from "@/edition/slots.state";
 import { useStoryNavigation } from "@/hooks/use-story-navigation";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -28,7 +30,6 @@ import {
   History,
 } from "lucide-react";
 import { feedback } from "@/lib/feedback";
-import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import type { WorldItem } from "@/stores/worlds";
 import { useWorldsStore } from "@/stores/worlds";
 import { useFavoritesStore } from "@/edition/slots.state";
@@ -68,6 +69,8 @@ import { SupportBadge } from "@/edition/slots";
 import { WorldReviewsSection } from "@/edition/slots";
 import { LibraryDetailActivityCard } from "./library-detail-activity-card";
 import { WorldUpdateHistory } from "./world-update-history";
+import { ShareLinkDialog } from "@/components/share-link-dialog";
+import { getLibraryShareUrl } from "./library-share-link";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
@@ -89,14 +92,27 @@ export function LibraryDetailPanelMobile({
   userId,
 }: LibraryDetailPanelProps) {
   const { t } = useTranslation("library");
+  const { enabled: discoverPreview } = useDiscoverAccess();
+  const previewArtwork = selectWorldArtwork(selectedItem, "landscape");
+  const artworkSrc = discoverPreview ? previewArtwork.src : selectedItem.thumbnailUrl;
   const { t: tCommon } = useTranslation("common");
-  const { copy: copyShareLink } = useCopyFeedback();
   const navigate = useNavigate();
   const rootRef = useRef<HTMLDivElement>(null);
   const [confirmCopy, setConfirmCopy] = useState(false);
   const [copying, setCopying] = useState(false);
   const copyingRef = useRef(false);
   const [showReport, setShowReport] = useState(false);
+  const [shareWorldId, setShareWorldId] = useState<string | null>(null);
+  // Published cards share their public address (/@creator/world-name-id),
+  // looked up once if the library data does not carry it yet.
+  const publicShareUrl = useWorldShareUrl(
+    selectedItem.isPublished
+      ? { id: selectedItem.id, gamePath: (selectedItem.schema?.game as { path?: unknown } | undefined)?.path }
+      : null,
+  );
+  const shareUrl = typeof window !== "undefined"
+    ? getLibraryShareUrl(selectedItem, window.location.origin, () => publicShareUrl)
+    : "";
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [downloadPickerOpen, setDownloadPickerOpen] = useState(false);
@@ -337,31 +353,6 @@ export function LibraryDetailPanelMobile({
     }
   }
 
-  async function handleShare() {
-    const hubWorldId = selectedItem.sourceWorldId ?? selectedItem.id;
-    const shareUrl = selectedItem.isPublished
-      ? getWorldShareUrl(window.location.origin, hubWorldId, (selectedItem.schema.game as { path?: unknown } | undefined)?.path)
-      : `${window.location.origin}/app/library?worldId=${encodeURIComponent(selectedItem.id)}`;
-
-    try {
-      if (navigator.share) {
-        await navigator.share({
-          title: selectedItem.name,
-          text: `Check out ${selectedItem.name} on Yumina`,
-          url: shareUrl,
-        });
-        return;
-      }
-      // Share lives in the "…" dropdown, which closes on select — nothing on
-      // screen changes, so this one copy still gets a word (a plain notice).
-      if (!(await copyShareLink(shareUrl))) throw new Error("clipboard");
-      feedback.notice(t("toast.linkCopied"));
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") return;
-      feedback.error(t("toast.failedToShare"));
-    }
-  }
-
   // R1: the heart fills the moment it's tapped and never locks — tap again and
   // it flips again, like any like button. The store syncs in the background
   // and, if the server refuses, puts the heart back and shows the Retry pill.
@@ -456,9 +447,10 @@ export function LibraryDetailPanelMobile({
       >
           <div>
           <div className="relative aspect-[4/3] w-full shrink-0 overflow-hidden bg-muted sm:aspect-[3/2]">
-          {selectedItem.thumbnailUrl && !heroImageFailed ? (
+          {artworkSrc && !heroImageFailed ? (
             <CroppedImage
-              src={selectedItem.thumbnailUrl}
+              src={artworkSrc!}
+              crop={discoverPreview ? previewArtwork.crop : undefined}
               alt={selectedItem.name}
               width={1280}
               placeholder
@@ -543,9 +535,10 @@ export function LibraryDetailPanelMobile({
         <div className="flex flex-col">
         {/* A taller mobile gallery reveals more of the original cover while reserving space before load. */}
         <div className="relative z-10 aspect-[4/3] w-full shrink-0 overflow-hidden bg-muted sm:aspect-[3/2]">
-        {selectedItem.thumbnailUrl && !heroImageFailed ? (
+        {artworkSrc && !heroImageFailed ? (
           <CroppedImage
-            src={selectedItem.thumbnailUrl}
+            src={artworkSrc!}
+              crop={discoverPreview ? previewArtwork.crop : undefined}
             alt={selectedItem.name}
             width={1280}
             placeholder
@@ -638,7 +631,7 @@ export function LibraryDetailPanelMobile({
                     className="library-detail-actions-dropdown w-64 rounded-2xl border-white/12 p-2 shadow-2xl motion-reduce:animate-none"
                   >
                     {features.hub && (
-                    <DropdownMenuItem onSelect={() => void handleShare()} className={mobileDropdownItemClass}>
+                    <DropdownMenuItem onSelect={() => setShareWorldId(selectedItem.id)} className={mobileDropdownItemClass}>
                       <Share2 aria-hidden="true" />
                       <span>{t("detail.share")}</span>
                     </DropdownMenuItem>
@@ -926,6 +919,15 @@ export function LibraryDetailPanelMobile({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ShareLinkDialog
+        title={selectedItem.name}
+        url={shareUrl}
+        open={shareWorldId === selectedItem.id}
+        onOpenChange={(open) => setShareWorldId(open ? selectedItem.id : null)}
+        copiedLabel={t("toast.linkCopied")}
+        failedLabel={t("toast.failedToShare")}
+      />
 
       {showReport && (
         <ReportDialog

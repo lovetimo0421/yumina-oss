@@ -16,6 +16,8 @@ import {
   ListTree,
   Loader2,
   Check,
+  Image as ImageIcon,
+  ScrollText,
 } from "lucide-react";
 import {
   useYumina,
@@ -24,9 +26,14 @@ import {
   type BranchNode,
 } from "../sandbox-context";
 import { ModelTrigger } from "./model-picker-modal";
+import { VoicePanelButton } from "./voice-panel";
+import { ComposerPopover } from "./composer-popover";
+import { MicButton, VoiceRecordingOverlay, useHoldToTalkKey, useVoiceInput } from "./voice-input";
 import { makeChatT } from "./i18n";
+import { useTurnImageSettings } from "./turn-images";
 import { SlotOutlet, useToolMenuCount } from "../extensions/registry";
 import { ComposerToolMenu, useIsNarrow } from "./composer-tool-menu";
+import { PromptsQuickSheet, openPromptsPanel, usePromptsAvailable, usePromptsStatus } from "./player-prompts";
 import { postToParentWindow, wrapMessage } from "../protocol";
 import {
   clampComposerMessage,
@@ -112,6 +119,8 @@ export function MessageInput() {
   const messageLimitState = getComposerMessageLimitState(content);
   const [confirmRestart, setConfirmRestart] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const { settings: turnImages, setAuto: setAutoTurnImages, refresh: refreshTurnImages } = useTurnImageSettings(api);
+  useEffect(() => { if (actionsOpen) refreshTurnImages(); }, [actionsOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const [branchOpen, setBranchOpen] = useState(false);
   const [branchCtx, setBranchCtx] = useState<BranchContext | null>(null);
   const [branchLoading, setBranchLoading] = useState(false);
@@ -123,6 +132,7 @@ export function MessageInput() {
   // shared composer-submit hook, so the guard is inlined here.)
   const composingRef = useRef(false);
   const actionsRef = useRef<HTMLDivElement>(null);
+  const actionsMenuRef = useRef<HTMLDivElement>(null);
   const branchRef = useRef<HTMLDivElement>(null);
   // On a narrow toolbar (mobile / split desktop) collapse the model pill and
   // the extension buttons into one menu so they don't crowd the send button.
@@ -131,7 +141,18 @@ export function MessageInput() {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const isNarrow = useIsNarrow(toolbarRef, 520);
   const toolMenuCount = useToolMenuCount();
+  // 「发送图片」 and 「提示词」 live in the "+" menu, so the toolbar is just
+  // [+] [model pill + balance] … [voice] [mic/send] at every width.
+  const promptsAvailable = usePromptsAvailable();
+  const promptsStatus = usePromptsStatus();
+  // A prompt auto-applies on this model: gold dot on "+" (and on the menu row)
+  // so it stays visible with the menu closed.
+  const promptBound = promptsAvailable && !!api.playerPrompts?.boundPromptName;
   const collapseTools = isNarrow && toolMenuCount > 0;
+  // Small phones / narrow custom-UI columns (<400px): the mushie balance
+  // NEVER hides (it once did, and players read it as "my balance is gone").
+  // It switches to its short form and the model name truncates instead.
+  const isTight = useIsNarrow(toolbarRef, 400);
   // Stash of the text we just sent, so a failed send can restore it to the
   // composer (creator feedback 2026-05-31: "don't swallow my message").
   const lastSentRef = useRef<string | null>(null);
@@ -141,7 +162,8 @@ export function MessageInput() {
   useEffect(() => {
     if (!actionsOpen) return;
     const handler = (e: MouseEvent) => {
-      if (actionsRef.current && !actionsRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (actionsRef.current && !actionsRef.current.contains(target) && !actionsMenuRef.current?.contains(target)) {
         setActionsOpen(false);
       }
     };
@@ -200,6 +222,38 @@ export function MessageInput() {
     // Height resets itself: the CSS auto-grow wrapper shrinks to one line once
     // `content` is empty (no manual style write, so no forced reflow).
   }, [content, images, readingImages, incompatibleImages, generationBlocked, sendMessage]);
+
+  // ── Voice input (hold-to-talk) ─────────────────────────────────────
+  const voiceInput = api.voiceInputState;
+  const voiceReady = voiceInput.available && voiceInput.enabled && canSendMessage && !readOnly;
+  const contentRef = useRef(content);
+  contentRef.current = content;
+  const handleTranscript = useCallback((text: string) => {
+    const current = contentRef.current;
+    // "Send as spoken" only when nothing else is waiting in the box; words
+    // spoken on top of a half-typed message join it instead.
+    if (voiceInput.mode === "auto" && !current.trim() && !imagesRef.current.length && !generationBlocked) {
+      lastSentRef.current = text;
+      lastImagesRef.current = [];
+      sendMessage(text);
+      return;
+    }
+    setContent(clampComposerMessage(current.trim() ? `${current.trimEnd()} ${text}` : text));
+    // Desktop: caret at the end, ready to edit. Phones: leave the keyboard shut.
+    const touch = typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
+    if (!touch) {
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus({ preventScroll: true });
+        const end = el.value.length;
+        try { el.setSelectionRange(end, end); } catch { /* noop */ }
+      });
+    }
+  }, [voiceInput.mode, generationBlocked, sendMessage]);
+  const voice = useVoiceInput(handleTranscript);
+  useHoldToTalkKey(voiceInput.key, voiceReady && !isStreaming, voice);
+  const showMic = voiceReady && !content.trim() && !images.length;
 
   const handleChoiceClick = useCallback(
     (choice: string) => {
@@ -427,6 +481,7 @@ export function MessageInput() {
 
   return (
     <div className="play-composer-shell shrink-0">
+      <PromptsQuickSheet />
       <div className="play-composer-inner w-full min-w-0">
         {/* Choice buttons */}
         {pendingChoices.length > 0 && !isStreaming && (
@@ -455,7 +510,8 @@ export function MessageInput() {
             bottom-full) and must escape the card bounds, or it gets clipped by
             the composer. The only child whose background reaches a rounded
             corner is the restart-confirm banner, which rounds its own top. */}
-        <div className="play-composer-card glass rounded-2xl">
+        <div className="play-composer-card glass relative rounded-2xl">
+          <VoiceRecordingOverlay voice={voice} autoSend={voiceInput.mode === "auto" && !content.trim()} />
           {/* Restart confirmation banner */}
           {confirmRestart && (
             <div className="flex items-center justify-between rounded-t-2xl border-b border-border/50 bg-destructive/5 px-4 py-2">
@@ -508,6 +564,14 @@ export function MessageInput() {
                 e.preventDefault();
                 void addImages(files);
               }}
+              onDrop={e => {
+                // Dropped image files attach like a paste; dropped text keeps
+                // the native insert.
+                const files = pastedImageFiles(e.dataTransfer?.items ?? []);
+                if (!files.length) return;
+                e.preventDefault();
+                void addImages(files);
+              }}
               onCompositionStart={() => { composingRef.current = true; }}
               onCompositionEnd={() => { composingRef.current = false; }}
               placeholder={
@@ -535,16 +599,58 @@ export function MessageInput() {
               <div ref={actionsRef} className="relative">
                 <button
                   onClick={() => setActionsOpen((v) => !v)}
-                  className="play-composer-icon-button hover-surface rounded-lg text-foreground/70 hover:text-foreground transition-colors"
+                  className="play-composer-icon-button hover-surface relative rounded-lg text-foreground/70 hover:text-foreground transition-colors"
                   title={t("actions")}
+                  aria-expanded={actionsOpen}
                 >
-                  <Plus className="h-4 w-4" />
+                  {readingImages ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                  {promptBound && (
+                    <span data-prompt-bound-dot="" className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full border border-background bg-primary" aria-hidden="true" />
+                  )}
                 </button>
                 {actionsOpen && (
                   /* Row padding + icon size are em-based so Android textZoom
                      (which inflates text but not rem/px boxes) scales the whole
                      row with the text. ~45px rows at 16px type. */
-                  <div className="absolute bottom-full left-0 z-50 mb-1 min-w-[230px] overflow-hidden rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-md">
+                  <ComposerPopover
+                    anchorRef={actionsRef}
+                    popoverRef={actionsMenuRef}
+                    align="left"
+                    gap={4}
+                    className="min-w-[230px] overflow-y-auto rounded-lg border border-border bg-popover p-1.5 text-popover-foreground shadow-md"
+                  >
+                    {/* Composer inputs first: attach an image (paste / drop
+                        into the textbox still work too) and the prompts panel. */}
+                    <button
+                      onClick={() => {
+                        setActionsOpen(false);
+                        void pickImage();
+                      }}
+                      disabled={readingImages}
+                      className="flex w-full items-center gap-3 rounded-md px-3.5 py-[0.65em] text-base text-foreground/80 transition-colors hover:bg-accent disabled:opacity-40"
+                    >
+                      <ImagePlus className="h-[1.15em] w-[1.15em]" />
+                      {t("sendImage")}
+                    </button>
+                    {promptsAvailable && (
+                      <button
+                        onClick={() => {
+                          setActionsOpen(false);
+                          openPromptsPanel();
+                        }}
+                        className="flex w-full items-center gap-3 rounded-md px-3.5 py-[0.65em] text-base text-foreground/80 transition-colors hover:bg-accent"
+                      >
+                        <ScrollText className={`h-[1.15em] w-[1.15em] ${promptBound ? "text-primary" : ""}`} />
+                        <span className="flex min-w-0 flex-1 flex-col text-left">
+                          <span>{t("prompts")}</span>
+                          {promptsStatus && (
+                            <span className="max-w-[16rem] truncate text-xs text-muted-foreground">{promptsStatus}</span>
+                          )}
+                        </span>
+                        {promptBound && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" aria-hidden="true" />}
+                      </button>
+                    )}
+                    <div className="my-1 h-px bg-border" />
                     <button
                       onClick={handleContinue}
                       className="flex w-full items-center gap-3 rounded-md px-3.5 py-[0.65em] text-base text-foreground/80 transition-colors hover:bg-accent"
@@ -586,106 +692,132 @@ export function MessageInput() {
                       <GitBranch className="h-[1.15em] w-[1.15em]" />
                       {t("branches")}
                     </button>
-                  </div>
+                    {turnImages?.available && (
+                      <>
+                        <div className="my-1 h-px bg-border" />
+                        <button
+                          role="menuitemcheckbox"
+                          aria-checked={turnImages.auto}
+                          onClick={() => {
+                            void setAutoTurnImages(!turnImages.auto).then((ok) => { if (!ok) api.showToast(t("illustrateFailed"), "error"); });
+                          }}
+                          className="flex w-full items-center gap-3 rounded-md px-3.5 py-[0.65em] text-base text-foreground/80 transition-colors hover:bg-accent"
+                        >
+                          <ImageIcon className="h-[1.15em] w-[1.15em]" />
+                          <span className="flex min-w-0 flex-1 flex-col text-left">
+                            <span>{t("autoIllustrate")}</span>
+                            {!turnImages.unlimited && turnImages.price != null && (
+                              <span className="text-xs text-muted-foreground">
+                                {(turnImages.freeLeft ?? 0) > 0
+                                  ? t("autoIllustrateFree", { count: turnImages.freeLeft ?? 0, price: turnImages.price })
+                                  : t("autoIllustratePrice", { price: turnImages.price })}
+                              </span>
+                            )}
+                          </span>
+                          <span
+                            aria-hidden
+                            className={`relative inline-flex h-[1.15em] w-[2.1em] shrink-0 items-center rounded-full transition-colors ${turnImages.auto ? "bg-primary" : "bg-muted-foreground/30"}`}
+                          >
+                            <span className={`absolute h-[0.85em] w-[0.85em] rounded-full bg-background shadow transition-all ${turnImages.auto ? "left-[1.1em]" : "left-[0.15em]"}`} />
+                          </span>
+                        </button>
+                      </>
+                    )}
+                  </ComposerPopover>
                 )}
               </div>
 
-              <button type="button" onClick={() => void pickImage()} disabled={readingImages}
-                className="play-composer-icon-button hover-surface rounded-lg text-foreground/70 transition-colors hover:text-foreground disabled:opacity-40"
-                aria-label={imageText("add")} title={imageText("add")}>
-                {readingImages ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
-              </button>
-              {/* Branch panel — opens upward from the "+" area. Rendered only
-                  while open so the wrapper doesn't add a stray flex gap when
-                  closed; click-outside is scoped to the panel, not the "+" menu
-                  that triggers it. */}
+              {/* Branch panel — opens upward from the "+" button. Portaled, so
+                  it adds no flex gap here; click-outside is scoped to the
+                  panel, not the "+" menu that triggers it. */}
               {branchOpen && (
-                <div ref={branchRef} className="relative">
-                  <div
-                    role="dialog"
-                    aria-label={t("branches")}
-                    className="absolute bottom-full left-0 z-50 mb-2 w-80 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-md"
-                  >
-                    <div className="max-h-[60vh] overflow-y-auto">
-                      {branchLoading && !branchCtx && (
-                        <div className="flex items-center justify-center gap-2 p-6 text-xs text-muted-foreground/60">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          {t("branchLoading")}
-                        </div>
-                      )}
+                <ComposerPopover
+                  anchorRef={actionsRef}
+                  popoverRef={branchRef}
+                  align="left"
+                  role="dialog"
+                  ariaLabel={t("branches")}
+                  className="flex w-80 max-w-[calc(100vw-1rem)] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-md"
+                >
+                  <div className="min-h-0 max-h-[60vh] overflow-y-auto">
+                    {branchLoading && !branchCtx && (
+                      <div className="flex items-center justify-center gap-2 p-6 text-xs text-muted-foreground/60">
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                        {t("branchLoading")}
+                      </div>
+                    )}
 
-                      {branchError && !branchLoading && (
-                        <div className="p-4 text-xs text-destructive/80">{t("branchFailed")}</div>
-                      )}
+                    {branchError && !branchLoading && (
+                      <div className="p-4 text-xs text-destructive/80">{t("branchFailed")}</div>
+                    )}
 
-                      {branchCtx && !branchError && (
-                        <>
-                          <BranchSection label={t("branchCurrent")}>
-                            <BranchRow node={branchCtx.current} isCurrent t={t} timeAgo={timeAgo} />
+                    {branchCtx && !branchError && (
+                      <>
+                        <BranchSection label={t("branchCurrent")}>
+                          <BranchRow node={branchCtx.current} isCurrent t={t} timeAgo={timeAgo} />
+                        </BranchSection>
+
+                        {branchCtx.parent && (
+                          <BranchSection label={t("branchParent")}>
+                            <BranchRow
+                              node={branchCtx.parent}
+                              onSelect={() => goToBranch(branchCtx.parent!.id)}
+                              leadingIcon={<ArrowUp className="h-3 w-3" />}
+                              t={t}
+                              timeAgo={timeAgo}
+                            />
                           </BranchSection>
-
-                          {branchCtx.parent && (
-                            <BranchSection label={t("branchParent")}>
-                              <BranchRow
-                                node={branchCtx.parent}
-                                onSelect={() => goToBranch(branchCtx.parent!.id)}
-                                leadingIcon={<ArrowUp className="h-3 w-3" />}
-                                t={t}
-                                timeAgo={timeAgo}
-                              />
-                            </BranchSection>
-                          )}
-
-                          {branchCtx.siblings.length > 0 && (
-                            <BranchSection label={`${t("branchSiblings")} (${branchCtx.siblings.length})`}>
-                              {branchCtx.siblings.map((s) => (
-                                <BranchRow key={s.id} node={s} onSelect={() => goToBranch(s.id)} t={t} timeAgo={timeAgo} />
-                              ))}
-                            </BranchSection>
-                          )}
-
-                          {branchCtx.children.length > 0 && (
-                            <BranchSection label={`${t("branchChildren")} (${branchCtx.children.length})`}>
-                              {branchCtx.children.map((c) => (
-                                <BranchRow key={c.id} node={c} onSelect={() => goToBranch(c.id)} t={t} timeAgo={timeAgo} />
-                              ))}
-                            </BranchSection>
-                          )}
-
-                          {!branchCtx.parent &&
-                            branchCtx.siblings.length === 0 &&
-                            branchCtx.children.length === 0 && (
-                              <p className="px-4 py-3 text-[11px] text-muted-foreground/50">{t("branchEmpty")}</p>
-                            )}
-                        </>
-                      )}
-                    </div>
-
-                    <div className="border-t border-border p-1.5">
-                      <button
-                        type="button"
-                        onClick={() => void handleBranchFromLatest()}
-                        disabled={!canBranchFromLatest || branching}
-                        className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
-                      >
-                        {branching ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-                        ) : (
-                          <Plus className="h-3.5 w-3.5 text-primary" />
                         )}
-                        {t("branchFromLatest")}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleOpenManager}
-                        className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                      >
-                        <ListTree className="h-3.5 w-3.5" />
-                        {t("openManager")}
-                      </button>
-                    </div>
+
+                        {branchCtx.siblings.length > 0 && (
+                          <BranchSection label={`${t("branchSiblings")} (${branchCtx.siblings.length})`}>
+                            {branchCtx.siblings.map((s) => (
+                              <BranchRow key={s.id} node={s} onSelect={() => goToBranch(s.id)} t={t} timeAgo={timeAgo} />
+                            ))}
+                          </BranchSection>
+                        )}
+
+                        {branchCtx.children.length > 0 && (
+                          <BranchSection label={`${t("branchChildren")} (${branchCtx.children.length})`}>
+                            {branchCtx.children.map((c) => (
+                              <BranchRow key={c.id} node={c} onSelect={() => goToBranch(c.id)} t={t} timeAgo={timeAgo} />
+                            ))}
+                          </BranchSection>
+                        )}
+
+                        {!branchCtx.parent &&
+                          branchCtx.siblings.length === 0 &&
+                          branchCtx.children.length === 0 && (
+                            <p className="px-4 py-3 text-[11px] text-muted-foreground/50">{t("branchEmpty")}</p>
+                          )}
+                      </>
+                    )}
                   </div>
-                </div>
+
+                  <div className="shrink-0 border-t border-border p-1.5">
+                    <button
+                      type="button"
+                      onClick={() => void handleBranchFromLatest()}
+                      disabled={!canBranchFromLatest || branching}
+                      className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+                    >
+                      {branching ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                      ) : (
+                        <Plus className="h-3.5 w-3.5 text-primary" />
+                      )}
+                      {t("branchFromLatest")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenManager}
+                      className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-[12px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                    >
+                      <ListTree className="h-3.5 w-3.5" />
+                      {t("openManager")}
+                    </button>
+                  </div>
+                </ComposerPopover>
               )}
 
               {/* Narrow toolbar + at least one extension → collapse the model
@@ -693,10 +825,10 @@ export function MessageInput() {
                   with the model row + every extension's own settings button).
                   Wider toolbars keep the inline pills. */}
               {collapseTools ? (
-                <ComposerToolMenu onOpenModelPicker={openModelPicker} />
+                <ComposerToolMenu onOpenModelPicker={openModelPicker} compactBalance={isTight} />
               ) : (
                 <>
-                  <ModelTrigger onClick={openModelPicker} />
+                  <ModelTrigger onClick={openModelPicker} compactBalance={isTight} />
                   {/* Installed extensions' composer contributions (e.g. the
                       session-memory Context button) — see sandbox/extensions/. */}
                   <SlotOutlet point="chat.composer.toolbar" />
@@ -704,7 +836,7 @@ export function MessageInput() {
               )}
             </div>
 
-            {/* Right: send/stop */}
+            {/* Right: voice panel + send/stop */}
             <div className="play-composer-send-row flex shrink-0 items-center gap-2">
               {messageLimitState !== "hidden" && (
                 <span
@@ -718,6 +850,7 @@ export function MessageInput() {
                   {content.length.toLocaleString()} / {MAX_USER_MESSAGE_CHARS.toLocaleString()}
                 </span>
               )}
+              <VoicePanelButton />
               {isStreaming ? (
                 <button
                   onClick={stopGeneration}
@@ -726,6 +859,8 @@ export function MessageInput() {
                 >
                   <Square className="h-4 w-4" />
                 </button>
+              ) : showMic ? (
+                <MicButton voice={voice} disabled={!!api.modelFallback} />
               ) : (
                 <button
                   onClick={handleSend}

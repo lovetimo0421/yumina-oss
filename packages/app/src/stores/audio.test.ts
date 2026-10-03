@@ -63,7 +63,7 @@ async function flush() {
 
 function resetStore() {
   useAudioStore.getState().stopAll();
-  useAudioStore.setState({ activeTracks: new Map(), tracks: [], playlist: null, conditionalRules: [], activeConditionalId: null });
+  useAudioStore.setState({ activeTracks: new Map(), tracks: [], playlist: null, conditionalRules: [], activeConditionalId: null, judgeHoldsMusic: null });
   created.length = 0;
   playOutcomes.length = 0;
   preloadHints.length = 0;
@@ -106,6 +106,85 @@ test("AI effects cannot interrupt protected music but scripts and playlists can 
   state.processAudioEffects([{ trackId: "script", action: "play", fadeDuration: 0 }]);
   await flush();
   assert.equal(useAudioStore.getState().activeTracks.get("script")!.audio.paused, false, "behavior/script effects remain permitted");
+  resetStore();
+});
+
+// ── Continuity judge: the lowest-priority music source ──
+// Rules keep the channel while active; the judge only displaces BGM the AI
+// may control; a hand-back stop resumes the default playlist where it stood.
+test("the judge's crossfade is ignored while a conditional-BGM rule owns the music", async () => {
+  resetStore();
+  const state = useAudioStore.getState();
+  state.setTracks([bgmTrack("rule"), bgmTrack("judge")]);
+  state.playTrack("rule", { fadeDuration: 0 });
+  await flush();
+  useAudioStore.setState({ activeConditionalId: "rule-1" });
+  state.processAudioEffects([{ trackId: "judge", action: "crossfade", fadeDuration: 0, source: "continuity" }]);
+  await flush();
+  assert.equal(useAudioStore.getState().activeTracks.get("rule")!.audio.paused, false, "rule music keeps playing");
+  assert.equal(useAudioStore.getState().activeTracks.has("judge"), false, "judge pick never started");
+  resetStore();
+});
+
+test("the judge's crossfade displaces AI-controllable BGM only, never a script-only track", async () => {
+  resetStore();
+  const state = useAudioStore.getState();
+  state.setTracks([{ ...bgmTrack("script"), allowAiControl: false }, bgmTrack("playlist"), bgmTrack("judge")]);
+  state.playTrack("script", { fadeDuration: 0 });
+  state.playTrack("playlist", { fadeDuration: 0 });
+  await flush();
+  state.processAudioEffects([{ trackId: "judge", action: "crossfade", fadeDuration: 0, source: "continuity" }]);
+  await flush();
+  const s = useAudioStore.getState();
+  assert.equal(s.activeTracks.get("script")!.audio.paused, false, "script-only music untouched");
+  assert.equal(s.activeTracks.has("playlist"), false, "the playlist's track stepped aside");
+  assert.equal(s.activeTracks.get("judge")!.audio.paused, false, "judge pick is sounding");
+  resetStore();
+});
+
+test("'AI over rules': the judge's pick takes the channel and rules stay out until it ends", async () => {
+  resetStore();
+  const state = useAudioStore.getState();
+  state.setTracks([bgmTrack("rule"), bgmTrack("judge")]);
+  state.setConditionalRules([{ id: "r1", name: "tense", triggerType: "keyword", keywords: ["fight"], conditions: [], conditionLogic: "all", targetTrackId: "rule", priority: 0, fadeInDuration: 0, fadeOutDuration: 0, stopPreviousBGM: true, fallback: "default" }]);
+  state.playTrack("rule", { fadeDuration: 0 });
+  await flush();
+  useAudioStore.setState({ activeConditionalId: "r1" });
+  state.processAudioEffects([{ trackId: "judge", action: "crossfade", fadeDuration: 0, source: "continuity", overRules: true }]);
+  await flush();
+  let s = useAudioStore.getState();
+  assert.equal(s.activeTracks.has("rule"), false, "the rule's track stepped aside");
+  assert.equal(s.activeTracks.get("judge")!.audio.paused, false);
+  // The rule still matches on the next turn — but the judge holds the channel.
+  s.evaluateConditionalBGM({ worldId: "w", variables: {}, turnCount: 2, metadata: {}, playerMessage: "fight", aiMessage: "" });
+  await flush();
+  s = useAudioStore.getState();
+  assert.equal(s.activeTracks.has("rule"), false, "rule did not retake the channel");
+  assert.equal(s.activeTracks.get("judge")!.audio.paused, false);
+  // Hand-back releases the hold; the rule may retake on the next evaluation.
+  s.processAudioEffects([{ trackId: "judge", action: "stop", fadeDuration: 0, source: "continuity" }]);
+  await flush();
+  useAudioStore.getState().evaluateConditionalBGM({ worldId: "w", variables: {}, turnCount: 3, metadata: {}, playerMessage: "fight", aiMessage: "" });
+  await flush();
+  assert.equal(useAudioStore.getState().activeTracks.get("rule")!.audio.paused, false, "rule retook the channel after hand-back");
+  resetStore();
+});
+
+test("a judge hand-back stops its pick and resumes the playlist where it stood", async () => {
+  resetStore();
+  const state = useAudioStore.getState();
+  state.setTracks([bgmTrack("a"), bgmTrack("b"), bgmTrack("judge")]);
+  state.setPlaylist({ tracks: ["a", "b"], playMode: "sequential", autoPlay: true, waitForFirstMessage: false, gapSeconds: 0 });
+  state.startPlaylist();
+  await flush();
+  state.processAudioEffects([{ trackId: "judge", action: "crossfade", fadeDuration: 0, source: "continuity" }]);
+  await flush();
+  assert.equal(useAudioStore.getState().activeTracks.has("a"), false);
+  state.processAudioEffects([{ trackId: "judge", action: "stop", fadeDuration: 0, source: "continuity" }]);
+  await flush();
+  const s = useAudioStore.getState();
+  assert.equal(s.activeTracks.has("judge"), false, "judge pick stopped");
+  assert.equal(s.activeTracks.get("a")!.audio.paused, false, "playlist resumed at its current index");
   resetStore();
 });
 

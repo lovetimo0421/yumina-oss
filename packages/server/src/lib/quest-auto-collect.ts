@@ -176,6 +176,7 @@ export async function questSweepCandidates(window: CheckInWindow, database: { ex
       SELECT user_id FROM usage_logs WHERE created_at >= ${from} AND created_at < ${to}
         AND endpoint IN ('send','regenerate','continue') AND completion_tokens > 0
       UNION SELECT user_id FROM favorites WHERE created_at >= ${from} AND created_at < ${to}
+      UNION SELECT user_id FROM quest_community_visits WHERE visited_at >= ${from} AND visited_at < ${to}
       UNION SELECT user_id FROM analytics_activity WHERE surface = 'community' AND occurred_at >= ${from} AND occurred_at < ${to}
       UNION SELECT user_id FROM play_sessions WHERE created_at >= ${from} AND created_at < ${to}
       UNION SELECT author_id AS user_id FROM threads WHERE created_at >= ${from} AND created_at < ${to}

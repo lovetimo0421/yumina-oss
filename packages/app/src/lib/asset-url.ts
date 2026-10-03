@@ -13,6 +13,17 @@ function cdnBase(): string {
   return apiBase || (typeof window !== "undefined" ? window.location.origin : "");
 }
 
+const NO_CF_IMAGES_HOST_RE = /(^localhost$|^127\.|\.up\.railway\.app$)/i;
+
+/** Whether `base` sits behind Cloudflare, i.e. `/cdn-cgi/image` resizes. */
+function servesCloudflareImages(base: string): boolean {
+  try {
+    return !NO_CF_IMAGES_HOST_RE.test(new URL(base).hostname);
+  } catch {
+    return true;
+  }
+}
+
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ASSET_REF_RE =
@@ -96,6 +107,10 @@ export function cardImageUrl(
   const url = resolveImageUrl(ref);
   if (!url) return undefined;
   const base = cdnBase();
+  // /cdn-cgi/image is Cloudflare's resizer; hosts that are not behind
+  // Cloudflare (Railway preview domains, localhost) answer it with the SPA
+  // page, so every cover there rendered broken. Use the plain URL instead.
+  if (!servesCloudflareImages(base)) return url;
   let path: string | null = null;
   if (url.startsWith("/cdn/")) path = url;
   else if (base && url.startsWith(`${base}/cdn/`)) path = url.slice(base.length);
@@ -126,6 +141,13 @@ export function isAnimatedImageRef(ref: string | null | undefined): boolean {
   } catch {
     return false;
   }
+}
+
+/** Static list previews use the approved 800px variant. Keep known animations
+ * on their original URL; downloads, viewers and creator crop rendering do not
+ * use this helper. `width` is physical pixels, including the retina allowance. */
+export function thumbnailImageUrl(ref: string | null | undefined, width = 800): string | undefined {
+  return isAnimatedImageRef(ref) ? resolveImageUrl(ref) : cardImageUrl(ref, width);
 }
 
 /**

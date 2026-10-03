@@ -202,6 +202,8 @@ export const jwks = pgTable("jwks", {
 export const deletedAccountTombstones = pgTable("deleted_account_tombstones", {
   identityHash: text("identity_hash").primaryKey(),
   wasBanned: boolean("was_banned").notNull().default(false),
+  wasSuspended: boolean("was_suspended").notNull().default(false),
+  referralClaims: jsonb("referral_claims").$type<{ epoch: string; milestones: number[] }>().notNull().default({ epoch: "", milestones: [] }),
   blockWelcomeRewards: boolean("block_welcome_rewards").notNull().default(true),
   blockInviteRedemption: boolean("block_invite_redemption").notNull().default(true),
   lastCheckinDay: text("last_checkin_day"),
@@ -243,6 +245,8 @@ export const worlds = pgTable("worlds", {
     .notNull()
     .references(() => user.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
+  /** Permanent short id used in public addresses (/@user/name-<publicId>). DB default covers inserts that skip it. */
+  publicId: text("public_id"),
   description: text("description").default(""),
   extendedDescription: text("extended_description"),
   schema: jsonb("schema").notNull().$type<Record<string, unknown>>().default({}),
@@ -294,6 +298,8 @@ export const worlds = pgTable("worlds", {
   gamePath: text("game_path"),
   coverCrop: jsonb("cover_crop"),
   galleryCoverCrop: jsonb("gallery_cover_crop"),
+  landscapeCoverUrl: text("landscape_cover_url"),
+  landscapeCoverCrop: jsonb("landscape_cover_crop"),
   moderationNote: text("moderation_note"),
   moderationAction: text("moderation_action"),
   reviewStatus: text("review_status"),
@@ -530,6 +536,10 @@ export const messages = pgTable("messages", {
         tokenCount?: number;
         creditCost?: number;
         creditBalanceAfter?: number;
+        /** The model answered with a policy refusal instead of story text
+         *  (lib/llm/refusal-detector.ts). The reply is kept and billed as-is;
+         *  the flag only lets the client offer a "switch model / unrestrict" bar. */
+        refusal?: boolean;
       }>
     >()
     .default([]),
@@ -694,6 +704,8 @@ export const promptFolders = pgTable("prompt_folders", {
     .references(() => user.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   enabled: boolean("enabled").notNull().default(true),
+  // Set when the folder was created by installing a community prompt pack.
+  sourcePackId: text("source_pack_id"),
   createdAt: timestamp("created_at").defaultNow(),
 }, (t) => [
   index("prompt_folders_user_id_idx").on(t.userId),
@@ -740,6 +752,18 @@ export const userPrompts = pgTable("user_prompts", {
   enabled: boolean("enabled").notNull().default(true),
   depth: integer("depth"),
   position: real("position"),
+  // "unrestrict" marks a 解除限制-type prompt: never sent for safe-mode / minor
+  // accounts (the age gate). Otherwise it is an ordinary editable/toggleable prompt.
+  kind: text("kind"),
+  // Provenance: an official-preset copy ("official", sourceId = preset id) or an
+  // installed community pack ("pack", sourceId = prompt_packs.id).
+  sourceType: text("source_type"),
+  sourceId: text("source_id"),
+  sourceVersion: integer("source_version"),
+  apiRole: text("api_role", { enum: ["system", "user", "assistant"] }),
+  // Per-model binding: the model families (see @yumina/engine MODEL_FAMILIES) this
+  // prompt auto-applies for. null/empty = no binding = always-on (防抢话, 字数…).
+  autoModels: jsonb("auto_models").$type<string[]>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (t) => [
@@ -760,10 +784,120 @@ export const userPresetOverrides = pgTable("user_preset_overrides", {
   apiRole: text("api_role", {
     enum: ["system", "user", "assistant"],
   }),
+  // Reserved for future per-preset overrides. The old 解除限制 preset settings
+  // that lived here are gone (replaced by per-model prompt binding on user_prompts).
+  options: jsonb("options").$type<Record<string, unknown>>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 }, (table) => [
   unique().on(table.userId, table.presetId),
+]);
+
+// ─── 提示词广场: community prompt packs ─────────────────────────────
+// A pack is reviewed before it is public. Every upload or edit is a
+// prompt_pack_versions row; approving one copies its snapshot onto the pack.
+export type PromptPackEntry = {
+  name: string;
+  content: string;
+  position: "first" | "after-char" | "chat" | "last";
+  depth?: number;
+};
+export type PromptPackSnapshot = {
+  title: string;
+  description: string;
+  usageTips: string;
+  type: string;
+  models: string[];
+  entries: PromptPackEntry[];
+  allowRemix: boolean;
+  /** Author-chosen (or detected at submit) language: zh | en | es | ja. Absent on pre-language snapshots. */
+  language?: string;
+};
+
+export const promptPacks = pgTable("prompt_packs", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  authorId: text("author_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description").notNull().default(""),
+  usageTips: text("usage_tips").notNull().default(""),
+  type: text("type").notNull(),
+  models: jsonb("models").$type<string[]>().notNull().default([]),
+  entries: jsonb("entries").$type<PromptPackEntry[]>().notNull().default([]),
+  language: text("language"),
+  status: text("status", { enum: ["pending", "approved", "rejected", "removed"] }).notNull().default("pending"),
+  currentVersion: integer("current_version").notNull().default(0),
+  // Official packs are authored by the platform and pinned to the top of the plaza.
+  isOfficial: boolean("is_official").notNull().default(false),
+  allowRemix: boolean("allow_remix").notNull().default(false),
+  likeCount: integer("like_count").notNull().default(0),
+  installCount: integer("install_count").notNull().default(0),
+  worksCount: integer("works_count").notNull().default(0),
+  brokenCount: integer("broken_count").notNull().default(0),
+  commentCount: integer("comment_count").notNull().default(0),
+  lastVerifiedAt: timestamp("last_verified_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  index("prompt_packs_status_type_idx").on(t.status, t.type),
+  index("prompt_packs_author_idx").on(t.authorId),
+  index("prompt_packs_official_idx").on(t.isOfficial).where(sql`${t.isOfficial}`),
+]);
+
+export const promptPackVersions = pgTable("prompt_pack_versions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  packId: text("pack_id").notNull().references(() => promptPacks.id, { onDelete: "cascade" }),
+  version: integer("version").notNull(),
+  snapshot: jsonb("snapshot").$type<PromptPackSnapshot>().notNull(),
+  changelog: text("changelog").notNull().default(""),
+  status: text("status", { enum: ["pending", "approved", "rejected", "withdrawn"] }).notNull().default("pending"),
+  rejectReason: text("reject_reason"),
+  reviewedBy: text("reviewed_by").references(() => user.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  unique("prompt_pack_versions_uniq").on(t.packId, t.version),
+  index("prompt_pack_versions_status_idx").on(t.status, t.createdAt),
+]);
+
+export const promptPackLikes = pgTable("prompt_pack_likes", {
+  packId: text("pack_id").notNull().references(() => promptPacks.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  unique("prompt_pack_likes_uniq").on(t.packId, t.userId),
+]);
+
+export const promptPackFeedback = pgTable("prompt_pack_feedback", {
+  packId: text("pack_id").notNull().references(() => promptPacks.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  works: boolean("works").notNull(),
+  model: text("model"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  unique("prompt_pack_feedback_uniq").on(t.packId, t.userId),
+]);
+
+export const promptPackInstalls = pgTable("prompt_pack_installs", {
+  packId: text("pack_id").notNull().references(() => promptPacks.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  folderId: text("folder_id").references(() => promptFolders.id, { onDelete: "set null" }),
+  installedVersion: integer("installed_version").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (t) => [
+  unique("prompt_pack_installs_uniq").on(t.packId, t.userId),
+  index("prompt_pack_installs_user_idx").on(t.userId),
+]);
+
+export const promptPackComments = pgTable("prompt_pack_comments", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  packId: text("pack_id").notNull().references(() => promptPacks.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  replyToId: text("reply_to_id").references((): AnyPgColumn => promptPackComments.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at").defaultNow(),
+}, (t) => [
+  index("prompt_pack_comments_pack_idx").on(t.packId, t.createdAt),
 ]);
 
 // ─── Global Asset tables ────────────────────────────────────────────
@@ -847,6 +981,27 @@ export const sessionMediaDocuments = pgTable("session_media_documents", {
   checkpointId:text("checkpoint_id").references(()=>checkpoints.id,{onDelete:"cascade"}),shareId:text("share_id").references(()=>sharedPlaythroughs.id,{onDelete:"cascade"}),
   value:jsonb("value").notNull().default({}),version:integer("version").notNull(),addedAt:timestamp("added_at",{withTimezone:true}).notNull().default(sql`clock_timestamp()`),removedAt:timestamp("removed_at",{withTimezone:true}),
 },t=>[uniqueIndex("session_media_document_live_uq").on(t.sessionId).where(sql`${t.removedAt} IS NULL AND ${t.sessionId} IS NOT NULL`),index("session_media_document_share_idx").on(t.shareId),index("session_media_document_checkpoint_idx").on(t.checkpointId),check("session_media_documents_check",sql`num_nonnulls(${t.sessionId},${t.checkpointId},${t.shareId})=1`)]);
+
+export const sessionStorageEntries = pgTable("session_storage", {
+  id: text("id").primaryKey(),
+  sessionId: text("session_id").references(() => playSessions.id, { onDelete: "cascade" }),
+  checkpointId: text("checkpoint_id").references(() => checkpoints.id, { onDelete: "cascade" }),
+  shareId: text("share_id").references(() => sharedPlaythroughs.id, { onDelete: "cascade" }),
+  key: text("key").notNull(), value: jsonb("value").notNull().default(sql`'null'::jsonb`),
+  version: integer("version").notNull(), deleted: boolean("deleted").notNull().default(false),
+  sizeBytes: integer("size_bytes").notNull(),
+  addedAt: timestamp("added_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  removedAt: timestamp("removed_at", { withTimezone: true }),
+}, t => [
+  uniqueIndex("session_storage_live_key_uq").on(t.sessionId, t.key).where(sql`${t.sessionId} IS NOT NULL AND ${t.removedAt} IS NULL`),
+  uniqueIndex("session_storage_checkpoint_key_uq").on(t.checkpointId, t.key).where(sql`${t.checkpointId} IS NOT NULL`),
+  uniqueIndex("session_storage_share_key_uq").on(t.shareId, t.key).where(sql`${t.shareId} IS NOT NULL`),
+  index("session_storage_history_idx").on(t.sessionId, t.key, t.version),
+  index("session_storage_rate_idx").on(t.sessionId, t.addedAt),
+  check("session_storage_check", sql`num_nonnulls(${t.sessionId},${t.checkpointId},${t.shareId})=1`),
+  check("session_storage_version_check", sql`${t.version} > 0`),
+  check("session_storage_size_bytes_check", sql`${t.sizeBytes} >= 0 AND ${t.sizeBytes} <= 32768`),
+]);
 
 // Binds a user's asset folder to one of their worlds. Purely an organizational
 // convenience for the editor (surface "this card's folders" first) — it does NOT
@@ -1599,7 +1754,7 @@ export const worldVersions = pgTable("world_versions", {
   note: text("note"),
   schema: jsonb("schema").notNull().$type<Record<string, unknown>>(),
   publishedAt: timestamp("published_at"),
-  source: text("source").notNull().default("manual").$type<"manual" | "publish" | "live" | "backup">(),
+  source: text("source").notNull().default("manual").$type<"manual" | "publish" | "live" | "backup" | "incoming">(),
   thumbnailUrl: text("thumbnail_url"),
   // Null identifies legacy schema-only snapshots; restore keeps the current cover/rating.
   ageRating: text("age_rating"),
@@ -1808,6 +1963,16 @@ export const walletPlanDrops = pgTable("wallet_plan_drops", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 }, t => [
   foreignKey({ name: "wallet_plan_drops_wallet_id_fkey", columns: [t.walletId], foreignColumns: [creditWallets.id] }).onDelete("cascade"),
+]);
+
+/** One community post visit per reward day, including evidence for delayed collection. */
+export const questCommunityVisits = pgTable("quest_community_visits", {
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  dayKey: text("day_key").notNull(),
+  visitedAt: timestamp("visited_at").notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.userId, t.dayKey] }),
+  index("quest_community_visits_visited_idx").on(t.visitedAt),
 ]);
 
 /** Billing lineup v2: one quest claim per user per reward day; rewards land in wallet_bonus_lots. */
@@ -2166,6 +2331,13 @@ export const referralRewardCampaigns = pgTable("referral_reward_campaigns", {
   qualificationDays: integer("qualification_days").notNull().default(14),
   rewardSlots: integer("reward_slots").notNull().default(1000),
   paused: boolean("paused").notNull().default(false),
+});
+
+// One redemption per live invitee. This survives deletion of the referrer,
+// whose user.referred_by FK is deliberately cleared for privacy.
+export const referralRedemptions = pgTable("referral_redemptions", {
+  inviteeId: text("invitee_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  redeemedAt: timestamp("redeemed_at").notNull().defaultNow(),
 });
 
 export const referralQualifications = pgTable("referral_qualifications", {
@@ -3175,6 +3347,28 @@ export const worldEngagementStats = pgTable("world_engagement_stats", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const discoverEditorial = pgTable("discover_editorial", {
+  id: text("id").primaryKey().default("published"),
+  config: jsonb("config").$type<import("@yumina/shared").DiscoverEditorialConfig>().notNull(),
+  revision: uuid("revision").notNull().defaultRandom(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, t => [check("discover_editorial_singleton", sql`${t.id} = 'published'`)]);
+
+export const featuredCollections = pgTable("featured_collections", {
+  channel: text("channel").notNull(),
+  language: text("language").notNull(),
+  contentMode: text("content_mode").notNull(),
+  slots: jsonb("slots").$type<import("@yumina/shared").FeaturedSlot[]>().notNull().default([]),
+  revision: uuid("revision").notNull().defaultRandom(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, t => [
+  primaryKey({ columns: [t.channel, t.language, t.contentMode] }),
+  check("featured_collections_channel_check", sql`${t.channel} IN ('all','games','literature','roleplays','anime','screen')`),
+  check("featured_collections_language_check", sql`${t.language} IN ('default','en','zh','es','ja')`),
+  check("featured_collections_content_mode_check", sql`${t.contentMode} IN ('default','safe','sensitive')`),
+  check("featured_collections_slots_check", sql`jsonb_typeof(${t.slots}) = 'array' AND jsonb_array_length(${t.slots}) <= 8`),
+]);
+
 /** Published-content representations. Installed explicitly by discovery-personalization.sql. */
 export const worldRecommendationProfiles = pgTable("world_recommendation_profiles", {
   worldId: text("world_id").primaryKey().references(() => worlds.id, { onDelete: "cascade" }),
@@ -3478,6 +3672,7 @@ export const inviteRaceEvents = pgTable("invite_race_events", {
   rules: jsonb("rules").$type<Record<string, unknown>>().notNull(),
   rulesLockedAt: timestamp("rules_locked_at", tz),
   endedAt: timestamp("ended_at", tz),
+  lastRollupAt: timestamp("last_rollup_at", tz),
   createdAt: timestamp("created_at", tz).notNull().defaultNow(),
 });
 
@@ -3564,6 +3759,12 @@ export const inviteRacePayouts = pgTable("invite_race_payouts", {
   chooseBy: timestamp("choose_by", tz),
   providerOrderId: text("provider_order_id"),
   providerError: text("provider_error"),
+  rewardOptions: jsonb("reward_options"),
+  recipientEmail: text("recipient_email"),
+  recipientName: text("recipient_name"),
+  planEntitlementId: text("plan_entitlement_id"),
+  planReward: jsonb("plan_reward"),
+  resultSeenAt: timestamp("result_seen_at", tz),
   createdAt: timestamp("created_at", tz).notNull().defaultNow(),
 }, (t) => [primaryKey({ columns: [t.eventId, t.roundNo, t.userId] })]);
 
@@ -3575,3 +3776,12 @@ export const inviteRaceUserHistory = pgTable("invite_race_user_history", {
   tickets: integer("tickets").notNull(),
   estimateUsd: numeric("estimate_usd", { precision: 10, scale: 2 }).notNull(),
 }, (t) => [primaryKey({ columns: [t.eventId, t.roundNo, t.userId, t.at] })]);
+
+/** Admin preview only: never mutate creator or public artwork. */
+export const discoverArtworkOverrides = pgTable("discover_artwork_overrides", {
+  worldId: text("world_id").primaryKey().references(() => worlds.id, { onDelete: "cascade" }),
+  baselineRevision: text("baseline_revision").notNull(),
+  revision: uuid("revision").notNull().defaultRandom(),
+  artwork: jsonb("artwork").$type<Record<string, unknown>>().notNull(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});

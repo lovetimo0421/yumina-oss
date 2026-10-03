@@ -21,7 +21,25 @@
     "help": "帮助",
     "partner": "推广数据",
     "messages": "私信",
-    "installApp": "添加到主屏幕"
+    "installApp": "添加到主屏幕",
+    "prompts": "提示词"
+  },
+  "tabTitle": {
+    "home": "Yumina梦坞",
+    "discover": "发现",
+    "community": "社区",
+    "bundles": "资源包",
+    "create": "创建",
+    "library": "库",
+    "quests": "任务",
+    "messages": "私信",
+    "profile": "个人资料",
+    "settings": "设置",
+    "plans": "套餐",
+    "creator": "创作者",
+    "signIn": "登录",
+    "createAccount": "创建账户",
+    "krew": "Krew.io"
   },
   "mobile": {
     "menu": "菜单",
@@ -276,7 +294,9 @@
         "many": "{{name}} 和另外 {{count}} 人回复了你的评价"
       }
     },
-    "giftBonusExpires": "{{amount}} 奖励蘑菇于 {{date}} 到期"
+    "giftBonusExpires": "{{amount}} 奖励蘑菇于 {{date}} 到期",
+    "promptPackApproved": "你的提示词「{{packTitle}}」审核通过，已出现在提示词广场",
+    "promptPackRejected": "你的提示词「{{packTitle}}」没通过审核，原因见 库 › 提示词"
   },
   "time": {
     "justNow": "刚刚",
@@ -392,6 +412,7 @@
     "imageTooLarge": "图片太大（最大10MB）",
     "sendImage": "发送图片",
     "shareWorld": "分享世界",
+    "shareWorldHint": "对方能游玩，也能复制一份帮你改",
     "sharePlaythrough": "分享游玩记录",
     "playthroughShared": "游玩记录",
     "playthroughBy": "{{name}} 的游玩",
@@ -418,7 +439,11 @@
     "blockedDialogOk": "知道了",
     "youBlockedUser": "你已拉黑该玩家。",
     "image": "图片",
-    "selectConversation": "选择一个对话"
+    "selectConversation": "选择一个对话",
+    "reviewChanges": "查看对你卡的改动",
+    "changesToYourCard": "你的卡的修改版",
+    "copyThenSendBack": "已复制。改完后用「分享世界」把你这份发回来，对方一键就能应用。",
+    "reviewChangesFailed": "没能打开这些改动，对方可能删掉了副本。"
   },
   "planName": {
     "free": "免费",

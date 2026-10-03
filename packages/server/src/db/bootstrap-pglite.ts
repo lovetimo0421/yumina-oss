@@ -1,6 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { PgDatabase } from "drizzle-orm/pg-core";
-import { db } from "./index.js";
+import { db, executeSqlScript } from "./index.js";
 import { env, IS_LOCAL_EDITION } from "../lib/env.js";
 
 /**
@@ -25,7 +25,13 @@ export async function bootstrapPgliteSchema(): Promise<void> {
 
   const probe = await db.execute(sql`SELECT to_regclass('public.worlds') AS t`);
   const exists = (probe.rows?.[0] as { t: unknown } | undefined)?.t;
-  if (exists) return;
+  if (exists) {
+    // Upgrades must install additive tables and snapshot triggers too; a schema
+    // push on first boot alone cannot create PostgreSQL trigger functions.
+    const { SESSION_MEDIA_DDL } = await import("./session-media-ddl.js");
+    await executeSqlScript(SESSION_MEDIA_DDL);
+    return;
+  }
 
   console.log(`[DEV] Fresh ${env.DATABASE_URL ? "Postgres" : "PGlite"} database - creating the schema from schema.ts`);
   const t0 = Date.now();
@@ -42,5 +48,7 @@ export async function bootstrapPgliteSchema(): Promise<void> {
   );
   for (const w of warnings) console.warn("[DEV] schema push warning:", w);
   await apply();
+  const { SESSION_MEDIA_DDL } = await import("./session-media-ddl.js");
+  await executeSqlScript(SESSION_MEDIA_DDL);
   console.log(`[DEV] schema created: ${statementsToExecute.length} statements in ${Date.now() - t0}ms`);
 }

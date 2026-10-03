@@ -22,6 +22,9 @@ export interface SandboxSwipe {
   tokenCount?: number | null;
   creditCost?: number | null;
   creditBalanceAfter?: number | null;
+  /** Server refusal-detector flag: this reply is a model policy refusal, not
+   *  story text. The UI reads `message.swipes[message.activeSwipeIndex ?? 0].refusal`. */
+  refusal?: boolean;
 }
 
 export interface SandboxMessage {
@@ -44,6 +47,8 @@ export interface SandboxMessage {
   compacted?: boolean;
   attachments?: SandboxMessageAttachment[] | null;
   createdAt: string;
+  /** Host-side, not persisted: the per-turn picture is drawing, or why it wasn't drawn. */
+  turnImage?: { status: "drawing" } | { status: "failed"; reason: "busy" | "timeout" | "unavailable" | "credits" };
 }
 
 export interface SandboxCheckpoint {

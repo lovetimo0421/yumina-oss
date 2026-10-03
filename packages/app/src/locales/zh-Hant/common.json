@@ -21,7 +21,8 @@
     "help": "幫助",
     "partner": "推廣數據",
     "messages": "私信",
-    "installApp": "新增到主螢幕"
+    "installApp": "新增到主螢幕",
+    "prompts": "提示詞"
   },
   "mobile": {
     "menu": "選單",
@@ -275,7 +276,10 @@
         "many": "{{name}} 和另外 {{count}} 人回覆了你的評價"
       }
     },
-    "giftBonusExpires": "{{amount}} 獎勵蘑菇於 {{date}} 到期"
+    "giftBonusExpires": "{{amount}} 獎勵蘑菇於 {{date}} 到期",
+    "promptPackApproved": "你的提示詞「{{packTitle}}」審核通過，已出現在提示詞廣場",
+    "promptPackRejected": "你的提示詞「{{packTitle}}」沒通過審核，原因見 庫 › 提示詞",
+    "worldUnpublishedDefaultName": "「{{worldName}}」因仍使用預設名字已被下架。請改成一個真正的名字後重新發布。"
   },
   "time": {
     "justNow": "剛剛",
@@ -391,6 +395,7 @@
     "imageTooLarge": "圖片太大（最大10MB）",
     "sendImage": "傳送圖片",
     "shareWorld": "分享世界",
+    "shareWorldHint": "對方能遊玩，也能複製一份幫你改",
     "sharePlaythrough": "分享遊玩記錄",
     "playthroughShared": "遊玩記錄",
     "playthroughBy": "{{name}} 的遊玩",
@@ -417,7 +422,11 @@
     "blockedDialogOk": "知道了",
     "youBlockedUser": "你已拉黑該玩家。",
     "image": "圖片",
-    "selectConversation": "選擇一個對話"
+    "selectConversation": "選擇一個對話",
+    "reviewChanges": "查看對你卡的改動",
+    "changesToYourCard": "你的卡的修改版",
+    "copyThenSendBack": "已複製。改完後用「分享世界」把你這份發回來，對方一鍵就能套用。",
+    "reviewChangesFailed": "沒能打開這些改動，對方可能刪掉了副本。"
   },
   "planName": {
     "free": "免費",
@@ -492,5 +501,22 @@
       "popupFailed": "登入未完成。請關閉此視窗再試一次。",
       "backToGame": "返回 Krew.io"
     }
+  },
+  "tabTitle": {
+    "home": "Yumina夢塢",
+    "discover": "發現",
+    "community": "社群",
+    "bundles": "資源包",
+    "create": "建立",
+    "library": "庫",
+    "quests": "任務",
+    "messages": "私信",
+    "profile": "個人資料",
+    "settings": "設定",
+    "plans": "套餐",
+    "creator": "創作者",
+    "signIn": "登入",
+    "createAccount": "建立帳戶",
+    "krew": "Krew.io"
   }
 }

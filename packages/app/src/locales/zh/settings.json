@@ -17,7 +17,8 @@
     "notifications": "通知",
     "display": "显示 / 语言",
     "wallpaper": "壁纸",
-    "about": "关于"
+    "about": "关于",
+    "prompts": "提示词"
   },
   "aiConfig": {
     "title": "AI 配置"
@@ -246,6 +247,13 @@
     }
   },
   "display": {
+    "experimental": {
+      "title": "实验性功能",
+      "turnImages": {
+        "title": "剧情插图",
+        "description": "实验性功能：给回复配插图。前 5 张免费，之后每张 12 蘑菇币。"
+      }
+    },
     "title": "显示",
     "language": {
       "title": "语言",
@@ -266,6 +274,83 @@
     "worldAudio": {
       "title": "开启世界音乐 / 音效",
       "description": "关闭后，所有世界都不会播放背景音乐和音效，完全静音。此设置会保存到你的账号。"
+    },
+    "tts": {
+      "title": "语音朗读",
+      "description": "用富有表现力的 AI 语音朗读回复。点击消息旁的小喇叭即可朗读，也可以打开下方的自动朗读。",
+      "offDescription": "默认关闭。打开后可以让回复念出声，朗读会消耗蘑菇币。",
+      "autoPlay": {
+        "title": "自动朗读",
+        "description": "回复还在生成时就开始出声，边写边念。每条新回复的合成都会消耗 mushies。"
+      },
+      "mode": {
+        "full": "全部朗读",
+        "fullHint": "旁白和对白都念",
+        "dialogue": "只念对白",
+        "dialogueHint": "只朗读引号里的台词"
+      },
+      "voice": {
+        "title": "音色",
+        "poolTitle": "我的声音池",
+        "poolHint": "勾选你喜欢的声音，AI 会在里面按角色挑；不选就从全部里挑。",
+        "poolAll": "全部声音",
+        "poolCount": "已选 {{count}} 个",
+        "poolClear": "清空",
+        "customGroup": "自定义",
+        "rename": "重命名",
+        "remove": "移除",
+        "namePlaceholder": "给这个声音起个名字",
+        "auto": "自动（跟随界面语言）",
+        "preview": "试听",
+        "customPlaceholder": "自定义音色 ID（fish.audio 的 32 位 ID）",
+        "customHint": "粘贴 fish.audio 音色库中任意音色的 ID，把它加进你的声音池。",
+        "invalidId": "这不是有效的音色 ID——应为 32 位字母数字。"
+      },
+      "volume": "语音音量",
+      "previewFailed": "试听失败，请重试。",
+      "costHint": "语音合成按字数计费（mushies）；已生成过的内容重复播放永远免费。",
+      "voices": {
+        "zhGentleFemale": "温柔女声",
+        "zhMatureFemale": "御姐音",
+        "zhSweetGirl": "少女音",
+        "zhYoungMale": "青年男声",
+        "zhNarratorMale": "旁白男声",
+        "enFemale": "温暖女声",
+        "enYouthfulMale": "活力男声",
+        "jaCalmFemale": "沉静女声",
+        "jaEnergeticFemale": "元气少女",
+        "jaCalmMale": "沉静男声",
+        "zhLivelyFemale": "活泼女声",
+        "zhLightMatureFemale": "轻熟女声",
+        "zhBrightFemale": "明快女声",
+        "zhBroadcastMale": "播音男声",
+        "zhDeepMale": "浑厚男声",
+        "zhSteadyMale": "沉稳男声",
+        "enNarratorFemale": "叙事女声",
+        "enSoftFemale": "软萌女声",
+        "enDeepMale": "低音男声",
+        "enCalmMale": "平稳男声",
+        "jaBrightGirl": "明朗少女",
+        "jaDeepMale": "醇厚男声",
+        "esFemale": "悦耳女声",
+        "esGirl": "活力少女",
+        "esNarratorMale": "叙事男声"
+      }
+    },
+    "voiceInput": {
+      "title": "语音输入",
+      "description": "按住麦克风说话代替打字。输入框空着时，发送键会变成麦克风。",
+      "release": "松开之后",
+      "followCard": "跟随卡片",
+      "confirm": "先确认",
+      "auto": "直接发",
+      "followCardHint": "跟随卡片：由每张卡决定（大多是先确认）。",
+      "key": "按住说话快捷键",
+      "keySpace": "空格",
+      "keySpaceHint": "光标不在输入框时生效",
+      "keyAnyHint": "任何时候都生效，打字时也行",
+      "keyPress": "请按一个键…",
+      "free": "语音输入免费。"
     },
     "sendKey": {
       "title": "按 Enter 发送",

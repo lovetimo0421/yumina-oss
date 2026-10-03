@@ -1,4 +1,4 @@
-import { ArrowLeft, Brain, Cpu, Maximize, MoreHorizontal, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Brain, Cpu, Images, Maximize, MoreHorizontal, ShieldCheck } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,6 +13,9 @@ interface FullscreenFloatingControlsProps {
   memoryLabel?: string;
   stateGuardLabel?: string;
   onStateGuard?: () => void;
+  /** Scene-image gallery entry ("Gallery · 2/5"); omitted when the card has none. */
+  galleryLabel?: string;
+  onGallery?: () => void;
   fullscreenLabel: string;
   showActions: boolean;
   onBack: () => void;
@@ -34,6 +37,8 @@ export function FullscreenFloatingControls({
   memoryLabel,
   stateGuardLabel,
   onStateGuard,
+  galleryLabel,
+  onGallery,
   fullscreenLabel,
   showActions,
   onBack,
@@ -79,6 +84,15 @@ export function FullscreenFloatingControls({
                 <Cpu className="h-4 w-4 text-gold" />
                 {modelLabel}
               </DropdownMenuItem>
+              {galleryLabel && onGallery && (
+                <DropdownMenuItem
+                  onSelect={onGallery}
+                  className="min-h-11 gap-2.5 rounded-lg px-3 focus:bg-gold/[0.10] focus:text-foreground"
+                >
+                  <Images className="h-4 w-4 text-gold" />
+                  {galleryLabel}
+                </DropdownMenuItem>
+              )}
               {memoryLabel && (
                 <DropdownMenuItem
                   onSelect={onMemory}

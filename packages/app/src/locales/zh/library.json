@@ -14,7 +14,8 @@
     "games": "游戏",
     "myProjects": "我的项目",
     "assets": "资源",
-    "bundles": "资源包"
+    "bundles": "资源包",
+    "prompts": "提示词"
   },
   "sort": {
     "sortBy": "排序：",
@@ -466,7 +467,7 @@
     "template": {
       "image-anime": {
         "name": "自定义生图",
-        "desc": "选择模型、LoRA 和参数"
+        "desc": "选择模型和参数"
       },
       "video-text": {
         "name": "文生视频",
@@ -636,7 +637,10 @@
     "loadMore": "加载更多",
     "makeImage": "以图生图",
     "enhanceToggle": "AI 优化提示词",
-    "enhanceHint": "自动把描述翻译成模型最懂的写法；关闭则原样发送。",
+    "enhanceHint": "把描述改写成模型最懂的写法，结果填回输入框，你检查修改后再生成；不点则原样发送。",
+    "enhancing": "优化中…",
+    "enhanceDone": "已替换为优化后的提示词，生成前可以随意修改。",
+    "enhanceUndo": "撤销",
     "useBase": "参考图",
     "clearReference": "移除图片",
     "uploadReference": "上传图片",
@@ -692,7 +696,8 @@
         "name": "欧美",
         "desc": "欧美奇幻/漫画风（ZavyChroma XL）",
         "detail": "用句子描述；戏剧光影和奇幻厚涂场景最强。"
-      }
+      },
+      "surchargeChip": "+{{count}} 蘑菇币"
     },
     "videoStyleFromReference": "视频会沿用参考图的画风。",
     "makeReference": "先生成一张",
@@ -737,7 +742,9 @@
       "PROVIDER_REQUEST": "模型未接受这组设置，请更换模型或调整图片设置。",
       "PROVIDER_TIMEOUT": "模型出图超时了，本次未扣款。可以换个更快的模型，或调低清晰度再试。",
       "PROVIDER_REJECTED": "模型方拒绝了这次请求，本次未扣款。可以换个模型再试。",
-      "CONTENT_FILTERED": "这张图被模型方拒绝了，不是 Yumina 的限制。未扣款，可以换个模型或调整描述再试。"
+      "CONTENT_FILTERED": "这张图被模型方拒绝了，不是 Yumina 的限制。未扣款，可以换个模型或调整描述再试。",
+      "ENHANCE_REFUSED": "AI 没能优化这段描述，原文没有改动。可以换个说法再试，或直接用原文生成。",
+      "ENHANCE_FAILED": "AI 优化暂时不可用，原文没有改动，请稍后再试。"
     },
     "queue": {
       "waiting": "排队中…",
@@ -813,7 +820,11 @@
       "baseImage": "重绘底图",
       "editResult": "修改这张图",
       "chooseEditImage": "选择图片修改",
-      "reuseParameters": "复用参数"
+      "reuseParameters": "复用参数",
+      "baseModelHint": "决定画风，也决定提示词的写法",
+      "paramSummary": "{{steps}} 步 · CFG {{cfg}} · {{seed}}",
+      "seedRandomSummary": "随机种子",
+      "seedFixedSummary": "种子 {{seed}}"
     },
     "atelier": {
       "title": "AI 生图",
@@ -831,7 +842,8 @@
       "tabImage": "图片",
       "tabAudio": "音频",
       "audioTitle": "AI 生成 BGM",
-      "audioLead": "音乐会保存到素材库。"
+      "audioLead": "音乐会保存到素材库。",
+      "sectionOutput": "画面规格"
     },
     "music": {
       "workshopTitle": "AI 生成 BGM",
@@ -862,6 +874,27 @@
       "estimating": "估价中…",
       "estimate": "约 {{count}} 蘑菇币",
       "go": "生成"
+    },
+    "format": {
+      "tags": {
+        "title": "标签写法",
+        "body": "用英文逗号分隔的 Danbooru 标签",
+        "short": "标签"
+      },
+      "prose": {
+        "title": "自然语言",
+        "body": "用英文句子描述画面",
+        "short": "自然语言"
+      },
+      "example": "示例",
+      "exampleHint": "把示例填进输入框"
+    },
+    "live": {
+      "waiting": "等待 GPU",
+      "waitingHint": "排队或机器启动中",
+      "generating": "生成中",
+      "generatingSteps": "生成中 约 {{step}}/{{steps}} 步",
+      "saving": "保存中"
     }
   },
   "media": {

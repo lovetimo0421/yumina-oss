@@ -131,7 +131,11 @@
     "cardOverview": "Vista general de la tarjeta",
     "openCardOverviewFailed": "No se pudo abrir la vista general de la tarjeta",
     "showAllLanguages": "Mostrar todos los idiomas",
-    "showCurrentLanguage": "Mostrar solo el idioma actual"
+    "showCurrentLanguage": "Mostrar solo el idioma actual",
+    "sceneGallery": "Imágenes de escena",
+    "sceneGalleryCount": "{{unlocked}} de {{total}} reveladas",
+    "sceneGalleryLocked": "Aún no ha aparecido",
+    "sceneGalleryEmpty": "Este mundo no tiene imágenes de escena."
   },
   "branchPopover": {
     "current": "Actual",
@@ -345,6 +349,9 @@
     "adjustZoom": "Ajustar zoom de juego",
     "zoomLabel": "Porcentaje de zoom de juego"
   },
+  "stateGuard": {
+    "unverified": "Estado sin comprobar. Valores actualizados según la respuesta"
+  },
   "errors": {
     "PROTECTED_WORLD": "El creador de este mundo lo ha protegido contra la extracción de prompts. Solo están disponibles los modelos oficiales de la API de Yumina — no se pueden usar claves API privadas.",
     "NO_CREDITS": "¡Te has quedado sin mushies! Completa las misiones diarias para conseguir mushies gratis, o actualiza tu plan.",
@@ -368,25 +375,42 @@
   "unknownWorld": "Mundo desconocido",
   "failedLoadGeneric": "Error al cargar",
   "contextGate": {
-    "title": "Contexto insuficiente para esta carta",
-    "body": "«{{world}}» necesita unos {{required}} tokens de contexto para incluir todo su contenido, pero tu ajuste actual es {{current}}. Si juegas ahora, parte del lore se omitirá silenciosamente.",
-    "loreLabel": "Lorebook y entradas",
-    "setupLabel": "Configuración y apertura",
-    "storyRoomLabel": "Espacio para historia y resumen",
-    "requiredLabel": "Mínimo recomendado",
-    "currentLabel": "Tu ajuste de contexto",
-    "currentShort": "Actual {{value}}",
-    "recommendedShort": "Recomendado {{value}}",
-    "retainsLabel": "Conserva",
-    "retainsValue": "Configuración, lorebook y apertura",
-    "impactLabel": "Impacto estimado",
-    "impactValue": "Usa más Mushies en cada turno",
-    "usageDetails": "Ver desglose del contexto",
-    "planCapNote": "Esta carta necesita más contexto del que permite tu plan (máx. {{cap}} tokens). Mejora tu plan para subir el límite y disfrutar la carta completa.",
-    "ignore": "Ignorar",
+    "softTitle": "Esta carta tiene mucho lore",
+    "softBody": "Todo el lore se incluye, así que puedes jugar así. En un turno que active muchas entradas por palabra clave, la IA verá algo menos del chat reciente.",
+    "hardTitle": "Contexto insuficiente para esta carta",
+    "hardBody": "«{{world}}» necesita {{floor}} solo para lo que envía en cada turno, y tienes {{current}}. El lore se incluye, pero casi no queda espacio para el historial, así que la IA no recordará lo que acaba de pasar.",
+    "markFloor": "Cada turno",
+    "markFull": "Todo a la vez",
+    "yours": "Tu contexto: {{value}}",
+    "rowAlways": "Entradas fijas",
+    "rowSetup": "Prompt de sistema y apertura",
+    "rowHistory": "Historial y resumen",
+    "rowTriggered": "Entradas por palabra clave (al activarse)",
+    "upTo": "hasta",
+    "planCapNote": "Tu plan llega hasta {{cap}}. Mejóralo para subir más.",
     "continueCurrent": "Empezar con {{value}}",
-    "raise": "Subir contexto a {{value}}",
+    "raise": "Subir a {{value}}",
     "close": "Cerrar",
     "upgrade": "Mejorar plan"
-  }
+  },
+  "voiceInput": {
+    "unsupported": "Este navegador no puede grabar audio.",
+    "denied": "El navegador bloqueó el micrófono. Permítelo desde el icono a la izquierda de la barra de direcciones.",
+    "noMic": "No se encontró ningún micrófono.",
+    "failed": "No se pudo pasar a texto. Inténtalo de nuevo.",
+    "rateLimited": "Demasiados mensajes de voz seguidos. Espera un momento.",
+    "heardNothing": "No se oyó nada. Mantén pulsado el micrófono y habla."
+  },
+  "tts": {
+    "failed": "No se pudo generar la voz. Inténtalo de nuevo.",
+    "noCredits": "No tienes suficientes mushies para esta lectura.",
+    "rateLimited": "Demasiadas solicitudes de voz: espera un momento.",
+    "nothingToRead": "No hay nada legible en este mensaje.",
+    "keyInvalid": "Tu clave de OpenRouter fue rechazada. Revísala en Ajustes.",
+    "noKey": "La lectura por voz necesita una clave de API. Añade una en Ajustes.",
+    "voiceUnavailable": "Esta voz ya no está disponible. Elige otra.",
+    "needsKeyOrCredits": "La lectura por voz necesita una clave de OpenRouter o mushies.",
+    "byokNoBalance": "Tu clave de API no tiene saldo suficiente."
+  },
+  "worldDisplayUnavailable": "No se pudo cargar la interfaz de este mundo. Contacta con soporte."
 }

@@ -34,7 +34,10 @@
  * toward a more positive tone", where this model gives "drags the plot toward
  * wholesome territory".
  *
- * It is a reasoning model: expect ~150-250 hidden reasoning tokens per call.
+ * It is a reasoning model whose reasoning cannot be disabled (effort "none" is
+ * a 400). At default effort expect ~150-250 hidden tokens on a short call and
+ * 1,000+ on a detailed one; short single-shot rewrites should pass
+ * `reasoning: { effort: "low" }` (see generation/enhance.ts).
  * That is priced in (~$4/month at current volume) but it is NOT free headroom --
  * every caller's max_tokens has to clear reasoning plus the real answer. See the
  * budget note in generation/enhance.ts.

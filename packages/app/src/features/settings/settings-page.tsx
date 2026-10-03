@@ -19,9 +19,11 @@ import {
   Bell,
   Info,
   Globe,
+  FlaskConical,
   Lock,
   LogOut,
   ArrowLeft,
+  ChevronDown,
   ChevronRight,
   Settings as SettingsIcon,
   Image as ImageIcon,
@@ -39,7 +41,16 @@ import {
   CheckCircle2,
   Check,
   Search,
+  ScrollText,
+  Volume2,
+  Play,
+  Square,
+  Mic,
+  Keyboard,
+  Pencil,
 } from "lucide-react";
+import { TTS_VOICES, TTS_VOICE_POOL_MAX, TTS_CUSTOM_VOICE_NAME_MAX, defaultTtsVoiceForLang, isTtsOptedIn, readTtsCustomVoices, readTtsVoicePool, ttsCustomVoiceLabel, type TtsCustomVoice } from "@yumina/shared";
+import { useAudioStore } from "@/stores/audio";
 import { feedback } from "@/lib/feedback";
 import { FieldError } from "@/components/ui/field-error";
 import { useTransientFlag } from "@/hooks/use-transient-flag";
@@ -88,6 +99,7 @@ import {
 import { normalizeVisualStrength } from "@/lib/visual-settings";
 import { AiProviderTab } from "./ai-provider-tab";
 import { AiConfigTab } from "./ai-config-tab";
+import { GlobalPrompts } from "@/features/configs/global-prompts";
 import {
   OFFICIAL_SUPPORT_EMAIL,
   OFFICIAL_USER_ID,
@@ -160,6 +172,27 @@ interface ProfileSettings {
   cloudedGlassTexture: CloudedGlassTexture;
   autoFullscreenOnPlay: boolean;
   worldAudioEnabled: boolean;
+  ttsEnabled: boolean;
+  ttsAutoPlay: boolean;
+  ttsMode: "full" | "dialogue";
+  /** Legacy single voice (fish.audio id, "" = auto). Read only as the
+   *  migration source of ttsVoicePool. */
+  ttsVoice: string;
+  /** The voices AI casting may give characters ([] = every voice). */
+  ttsVoicePool: string[];
+  /** Custom fish.audio voices the player saved, named. Unticking one only
+   *  drops it from the pool; it stays here until removed. */
+  ttsCustomVoices: TtsCustomVoice[];
+  /** 0–100. */
+  ttsVolume: number;
+  /** Hold-to-talk voice input (free; independent of voice readout). */
+  voiceInputEnabled: boolean;
+  /** After letting go: "" = the card's default, "confirm" = review first, "auto" = send. */
+  voiceInputMode: "" | "confirm" | "auto";
+  /** KeyboardEvent.code of the hold-to-talk key. */
+  voiceInputKey: string;
+  /** Experimental: per-turn pictures (preferences.experimentalTurnImages). Off unless turned on. */
+  experimentalTurnImages: boolean;
   discoverWallpaper: WallpaperChoice;
   profileWallpaper: WallpaperChoice;
   settingsWallpaper: WallpaperChoice;
@@ -178,6 +211,18 @@ const DEFAULTS: ProfileSettings = {
   cloudedGlassTexture: "cloudy",
   autoFullscreenOnPlay: true,
   worldAudioEnabled: true,
+  // Voice readout is opt-in (isTtsOptedIn): off until the player turns it on.
+  ttsEnabled: false,
+  ttsAutoPlay: false,
+  ttsMode: "full",
+  ttsVoice: "",
+  ttsVoicePool: [],
+  ttsCustomVoices: [],
+  ttsVolume: 100,
+  voiceInputEnabled: true,
+  voiceInputMode: "",
+  voiceInputKey: "Space",
+  experimentalTurnImages: false,
   discoverWallpaper: "starry-night",
   profileWallpaper: "starry-night",
   settingsWallpaper: "starry-night",
@@ -281,6 +326,27 @@ function loadSettings(preferences?: Record<string, unknown>): ProfileSettings {
     base.privacy = loadPrivacySettings(preferences.privacy);
     base.autoFullscreenOnPlay = preferences.autoFullscreenOnPlay !== false;
     base.worldAudioEnabled = preferences.worldAudioEnabled !== false;
+    base.ttsEnabled = isTtsOptedIn(preferences);
+    base.ttsAutoPlay = preferences.ttsAutoPlay === true;
+    base.experimentalTurnImages = preferences.experimentalTurnImages === true;
+    base.ttsMode = preferences.ttsMode === "dialogue" ? "dialogue" : "full";
+    base.ttsVoice =
+      typeof preferences.ttsVoice === "string" && /^[a-f0-9]{32}$/.test(preferences.ttsVoice)
+        ? preferences.ttsVoice
+        : "";
+    base.ttsVoicePool = readTtsVoicePool(preferences);
+    base.ttsCustomVoices = readTtsCustomVoices(preferences);
+    base.voiceInputEnabled = preferences.voiceInputEnabled !== false;
+    base.voiceInputMode =
+      preferences.voiceInputMode === "confirm" || preferences.voiceInputMode === "auto" ? preferences.voiceInputMode : "";
+    base.voiceInputKey =
+      typeof preferences.voiceInputKey === "string" && preferences.voiceInputKey && preferences.voiceInputKey.length <= 32
+        ? preferences.voiceInputKey
+        : "Space";
+    base.ttsVolume =
+      typeof preferences.ttsVolume === "number" && Number.isFinite(preferences.ttsVolume)
+        ? Math.max(0, Math.min(100, Math.round(preferences.ttsVolume)))
+        : 100;
     base.wallpaperOpacity = normalizeVisualStrength(preferences.wallpaperOpacity);
     base.wallpaperGradientStrength = normalizeVisualStrength(preferences.wallpaperGradientStrength);
     base.cloudyGlassStrength = normalizeVisualStrength(preferences.cloudyGlassStrength);
@@ -367,6 +433,7 @@ function SectionHeader({
 const SECTIONS = [
   { id: "account", labelKey: "nav.account" as const, icon: User },
   { id: "ai-config", labelKey: "nav.aiConfig" as const, icon: Bot },
+  { id: "prompts", labelKey: "nav.prompts" as const, icon: ScrollText },
   { id: "content-safety", labelKey: "nav.contentSafety" as const, icon: Eye },
   { id: "privacy", labelKey: "nav.privacy" as const, icon: Lock },
   { id: "notifications", labelKey: "nav.notifications" as const, icon: Bell },
@@ -400,6 +467,7 @@ function createSettingsSearchItems(
   const category = {
     account: t("nav.account"),
     aiConfig: t("nav.aiConfig"),
+    prompts: t("nav.prompts"),
     contentSafety: t("nav.contentSafety"),
     privacy: t("nav.privacy"),
     notifications: t("nav.notifications"),
@@ -420,6 +488,8 @@ function createSettingsSearchItems(
 
     { id: "ai-config", sectionId: "ai-config", targetId: "settings-target-ai-config", title: category.aiConfig, description: t("search.aiConfigDescription"), category: category.aiConfig, keywords: ["API", "OpenRouter"] },
     { id: "model-fallback", sectionId: "ai-config", targetId: "model-fallback", title: modelFallbackText(language, "settingsTitle"), description: modelFallbackText(language, "settingsBody"), category: category.aiConfig, keywords: ["fallback", modelFallbackText(language, "auto"), modelFallbackText(language, "ask")] },
+
+    { id: "prompts", sectionId: "prompts", targetId: "settings-target-prompts", title: category.prompts, category: category.prompts, keywords: ["prompt", "prompts", "preset", "system prompt", "提示词", "提示詞", "预设", "プロンプト"] },
 
     { id: "content-safety", sectionId: "content-safety", targetId: "settings-target-content-safety", title: category.contentSafety, description: t("contentSafety.description"), category: category.contentSafety },
     { id: "content-level", sectionId: "content-safety", targetId: "settings-target-content-level", title: t("contentSafety.contentLevel"), description: t("contentSafety.description"), category: category.contentSafety },
@@ -445,6 +515,8 @@ function createSettingsSearchItems(
     { id: "send-key", sectionId: "display", targetId: "settings-target-send-key", title: t("display.sendKey.title"), description: t("display.sendKey.description"), category: category.display },
     { id: "auto-fullscreen", sectionId: "display", targetId: "settings-target-auto-fullscreen", title: t("display.autoFullscreenOnPlay.title"), description: t("display.autoFullscreenOnPlay.description"), category: category.display },
     { id: "world-audio", sectionId: "display", targetId: "settings-target-world-audio", title: t("display.worldAudio.title"), description: t("display.worldAudio.description"), category: category.display },
+    { id: "tts", sectionId: "display", targetId: "settings-target-tts", title: t("display.tts.title"), description: t("display.tts.offDescription"), category: category.display },
+    { id: "voice-input", sectionId: "display", targetId: "settings-target-voice-input", title: t("display.voiceInput.title"), description: t("display.voiceInput.description"), category: category.display },
     { id: "language", sectionId: "display", targetId: "settings-target-language", title: t("display.language.title"), category: category.display, keywords: LANGUAGE_OPTIONS.flatMap((language) => [language.label, language.native]) },
 
     { id: "wallpaper", sectionId: "wallpaper", targetId: "settings-target-wallpaper", title: category.wallpaper, description: t("wallpaper.description"), category: category.wallpaper },
@@ -867,6 +939,8 @@ export function SettingsPage() {
         />;
       case "ai-config":
         return <AiConfigSection />;
+      case "prompts":
+        return <PromptsSection />;
       case "content-safety":
         return <ContentSafetySection settings={settings} updateSetting={updateSetting} isMinor={isMinor} />;
       case "privacy":
@@ -1088,6 +1162,17 @@ function AiConfigSection() {
 
       <AiProviderTab />
       <AiConfigTab />
+    </div>
+  );
+}
+
+function PromptsSection() {
+  const { t } = useTranslation("settings");
+
+  return (
+    <div className="max-w-3xl">
+      <SectionHeader id="settings-target-prompts" title={t("nav.prompts")} />
+      <GlobalPrompts embedded />
     </div>
   );
 }
@@ -2288,6 +2373,7 @@ function DisplaySection({
   const composerSendKey = useUiStore((s) => s.composerSendKey ?? "enter");
   const setComposerSendKey = useUiStore((s) => s.setComposerSendKey);
   const forceFetchProfile = useUserProfileStore((s) => s.forceFetchProfile);
+  const turnImagesOffered = useUserProfileStore((s) => s.profile?.turnImagesOffered === true);
   const languageTitle = t("display.language.title", { defaultValue: "Language" });
   const languageCurrent = t("display.language.current", { defaultValue: "Current" });
 
@@ -2382,6 +2468,10 @@ function DisplaySection({
         onChange={(value) => updateSetting("worldAudioEnabled", value)}
       />
 
+      <TtsSettingsCard settings={settings} updateSetting={updateSetting} />
+
+      <VoiceInputSettingsCard settings={settings} updateSetting={updateSetting} />
+
       <Card id="settings-target-language">
         <div className="flex-1 space-y-4">
           <DisplaySubsectionHeader icon={Globe} title={languageTitle} />
@@ -2412,7 +2502,542 @@ function DisplaySection({
           </div>
         </div>
       </Card>
+
+      {turnImagesOffered && (
+        <Card id="settings-target-experimental">
+          <div className="flex-1 space-y-4">
+            <DisplaySubsectionHeader icon={FlaskConical} title={t("display.experimental.title")} />
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.02] px-4 py-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-main">{t("display.experimental.turnImages.title")}</div>
+                <div className="mt-0.5 text-xs text-sub">{t("display.experimental.turnImages.description")}</div>
+              </div>
+              <ToggleSwitch
+                checked={settings.experimentalTurnImages}
+                label={t("display.experimental.turnImages.title")}
+                onChange={(v) => {
+                  void updateSetting("experimentalTurnImages", v);
+                  // The chat reads this once per visit; make the next turn read it fresh.
+                  void import("@/features/chat/turn-image-drawing").then((m) => m.forgetTurnImageSettings());
+                }}
+              />
+            </div>
+          </div>
+        </Card>
+      )}
     </div>
+  );
+}
+
+/** Pretty label for a KeyboardEvent.code. */
+function voiceKeyLabel(code: string, spaceLabel: string): string {
+  if (code === "Space") return spaceLabel;
+  if (code.startsWith("Key")) return code.slice(3);
+  if (code.startsWith("Digit")) return code.slice(5);
+  if (code === "Backquote") return "`";
+  return code;
+}
+
+/** Hold-to-talk voice input: on/off, what happens on release, and the
+ *  hold-to-talk key. Free, and independent of voice readout. */
+function VoiceInputSettingsCard({
+  settings,
+  updateSetting,
+}: {
+  settings: ProfileSettings;
+  updateSetting: <K extends keyof ProfileSettings>(key: K, value: ProfileSettings[K]) => void;
+}) {
+  const { t } = useTranslation("settings");
+  const [capturing, setCapturing] = useState(false);
+  useEffect(() => {
+    if (!capturing) return;
+    const onKey = (e: KeyboardEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.key !== "Escape" && !["Enter", "Tab"].includes(e.code)) updateSetting("voiceInputKey", e.code);
+      setCapturing(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [capturing, updateSetting]);
+
+  const modes = [
+    { id: "" as const, label: t("display.voiceInput.followCard") },
+    { id: "confirm" as const, label: t("display.voiceInput.confirm") },
+    { id: "auto" as const, label: t("display.voiceInput.auto") },
+  ];
+
+  return (
+    <Card id="settings-target-voice-input">
+      <div className="flex-1 space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <DisplaySubsectionHeader icon={Mic} title={t("display.voiceInput.title")} className="min-w-0 flex-1" />
+          <ToggleSwitch
+            checked={settings.voiceInputEnabled}
+            label={t("display.voiceInput.title")}
+            onChange={(v) => updateSetting("voiceInputEnabled", v)}
+          />
+        </div>
+        <p className="text-xs text-sub">{t("display.voiceInput.description")}</p>
+
+        {settings.voiceInputEnabled && (
+          <>
+            <div className="space-y-2">
+              <div className="text-sm font-semibold text-main">{t("display.voiceInput.release")}</div>
+              <div className="grid grid-cols-3 gap-2">
+                {modes.map((m) => {
+                  const isActive = settings.voiceInputMode === m.id;
+                  return (
+                    <button
+                      key={m.id || "card"}
+                      type="button"
+                      onClick={() => updateSetting("voiceInputMode", m.id)}
+                      className={`rounded-xl border px-3 py-2.5 text-sm font-semibold transition-all ${
+                        isActive
+                          ? "border-gold/40 bg-gold/10 text-gold"
+                          : "border-white/8 bg-white/[0.02] text-main hover:border-white/15"
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-sub">{t("display.voiceInput.followCardHint")}</p>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.02] px-4 py-3">
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-main">{t("display.voiceInput.key")}</div>
+                <div className="mt-0.5 text-xs text-sub">
+                  {settings.voiceInputKey === "Space" ? t("display.voiceInput.keySpaceHint") : t("display.voiceInput.keyAnyHint")}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCapturing((v) => !v)}
+                className={`flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                  capturing ? "border-gold/60 text-gold" : "border-white/10 text-main hover:border-white/20"
+                }`}
+              >
+                <Keyboard className="h-4 w-4" aria-hidden="true" />
+                {capturing ? t("display.voiceInput.keyPress") : voiceKeyLabel(settings.voiceInputKey, t("display.voiceInput.keySpace"))}
+              </button>
+            </div>
+
+            <p className="text-[11px] text-sub/50">{t("display.voiceInput.free")}</p>
+          </>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+/** Voice readout (TTS) settings — enable, auto-play, reading mode, voice
+ *  picker with live preview, custom marketplace voice id, and volume. */
+function TtsSettingsCard({
+  settings,
+  updateSetting,
+}: {
+  settings: ProfileSettings;
+  updateSetting: <K extends keyof ProfileSettings>(key: K, value: ProfileSettings[K]) => void;
+}) {
+  const { t, i18n } = useTranslation("settings");
+  const [previewing, setPreviewing] = useState<string | null>(null);
+  // Live playback state — lets the ▶ that started a sample turn into a stop
+  // control while its audio is actually playing.
+  const voicePlayback = useAudioStore((s) => s.voicePlayback);
+
+  // Volume: local echo + debounce so dragging doesn't spam PATCHes; applied
+  // to the audio store immediately so a playing preview reflects the drag.
+  const [localVolume, setLocalVolume] = useState(settings.ttsVolume);
+  useEffect(() => setLocalVolume(settings.ttsVolume), [settings.ttsVolume]);
+  useEffect(() => {
+    useAudioStore.getState().setVoiceVolume(localVolume / 100);
+    if (localVolume === settings.ttsVolume) return;
+    const tmo = window.setTimeout(() => updateSetting("ttsVolume", localVolume), 300);
+    return () => window.clearTimeout(tmo);
+  }, [localVolume, settings.ttsVolume, updateSetting]);
+
+  // The voice pool: AI casting picks each character's voice from these.
+  const pool = settings.ttsVoicePool;
+  const togglePoolVoice = (id: string) => {
+    const next = pool.includes(id) ? pool.filter((v) => v !== id) : [...pool, id].slice(0, TTS_VOICE_POOL_MAX);
+    updateSetting("ttsVoicePool", next);
+  };
+  const customVoices = settings.ttsCustomVoices;
+  const removeCustomVoice = (id: string) => {
+    updateSetting("ttsCustomVoices", customVoices.filter((v) => v.id !== id));
+    if (pool.includes(id)) updateSetting("ttsVoicePool", pool.filter((v) => v !== id));
+  };
+  const [renamingVoice, setRenamingVoice] = useState<string | null>(null);
+  const [voiceNameDraft, setVoiceNameDraft] = useState("");
+  const commitVoiceName = () => {
+    const id = renamingVoice;
+    setRenamingVoice(null);
+    if (!id) return;
+    const name = voiceNameDraft.replace(/\s+/g, " ").trim().slice(0, TTS_CUSTOM_VOICE_NAME_MAX);
+    if (customVoices.find((v) => v.id === id)?.name === name) return;
+    updateSetting("ttsCustomVoices", customVoices.map((v) => (v.id === id ? { ...v, name } : v)));
+  };
+
+  // Custom marketplace voice id (32-hex from any fish.audio voice page URL),
+  // added to the pool.
+  const [customVoice, setCustomVoice] = useState("");
+  const commitCustomVoice = () => {
+    const v = customVoice.trim().toLowerCase();
+    if (v === "") return;
+    if (/^[a-f0-9]{32}$/.test(v)) {
+      if (!customVoices.some((c) => c.id === v) && !TTS_VOICES.some((c) => c.id === v)) {
+        updateSetting("ttsCustomVoices", [...customVoices, { id: v, name: "" }].slice(0, TTS_VOICE_POOL_MAX));
+      }
+      if (!pool.includes(v)) updateSetting("ttsVoicePool", [...pool, v].slice(0, TTS_VOICE_POOL_MAX));
+      setCustomVoice("");
+    } else {
+      feedback.error(t("display.tts.voice.invalidId"));
+    }
+  };
+
+  const previewVoice = async (voiceId: string) => {
+    if (previewing) return;
+    setPreviewing(voiceId || "auto");
+    try {
+      const res = await fetch(`${apiBase}/api/tts/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          voice: voiceId || defaultTtsVoiceForLang(i18n.language),
+          lang: i18n.language,
+        }),
+      });
+      if (!res.ok) {
+        let code = "";
+        try {
+          code = ((await res.json()) as { code?: string }).code ?? "";
+        } catch { /* non-JSON error body */ }
+        feedback.error(res.status === 402
+          ? (await import("@/lib/tts-playback")).ttsPaymentMessage(code)
+          : t("display.tts.previewFailed"));
+        return;
+      }
+      const body = (await res.json()) as { url?: string; credits?: number };
+      if (body.url) {
+        // Per-voice key so the grid knows WHICH sample is playing.
+        useAudioStore.getState().playVoice(`preview:${voiceId || "auto"}`, `${apiBase}${body.url}`);
+      }
+      // First-ever preview of a voice is a paid synth — keep the header's
+      // mushie count honest. Cache hits report credits: 0 and skip this.
+      if (typeof body.credits === "number" && body.credits > 0) {
+        void import("@/stores/credits")
+          .then((m) => m.useCreditStore.getState().fetchCredits())
+          .catch(() => {});
+      }
+    } catch {
+      feedback.error(t("display.tts.previewFailed"));
+    } finally {
+      setPreviewing(null);
+    }
+  };
+
+  // The catalog is big enough now that it folds away: a single summary row
+  // shows how many voices are in the pool, and expanding reveals the voices
+  // grouped by language — the player's UI language group first.
+  const [voicePickerOpen, setVoicePickerOpen] = useState(false);
+  const lower = i18n.language?.toLowerCase() ?? "en";
+  const uiLangGroup = lower.startsWith("zh")
+    ? "zh"
+    : lower.startsWith("ja")
+      ? "ja"
+      : lower.startsWith("es")
+        ? "es"
+        : "en";
+  const VOICE_LANG_LABELS: Record<string, string> = { zh: "中文", en: "English", ja: "日本語", es: "Español" };
+  const voiceGroups = [...(["zh", "en", "ja", "es"] as const)]
+    .sort((a, b) => Number(b === uiLangGroup) - Number(a === uiLangGroup))
+    .map((lang) => ({
+      lang,
+      label: VOICE_LANG_LABELS[lang]!,
+      voices: TTS_VOICES.filter((v) => v.lang === lang).map((v) => ({
+        id: v.id as string,
+        label: t(`display.tts.voices.${v.labelKey}`),
+        langTag: v.lang as string,
+      })),
+    }));
+  const poolSummary = pool.length === 0 ? t("display.tts.voice.poolAll") : t("display.tts.voice.poolCount", { count: pool.length });
+  const customGroup = customVoices.map((v) => ({ id: v.id, label: ttsCustomVoiceLabel(v), langTag: null as string | null }));
+
+  return (
+    <Card id="settings-target-tts">
+      <div className="flex-1 space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          {/* flex-1 keeps the header's icon+title grid from shrink-wrapping
+              (which stacked the title under the icon). */}
+          <DisplaySubsectionHeader icon={Volume2} title={t("display.tts.title")} className="min-w-0 flex-1" />
+          <ToggleSwitch
+            checked={settings.ttsEnabled}
+            label={t("display.tts.title")}
+            onChange={(v) => {
+              updateSetting("ttsEnabled", v);
+              // Off means silent now, not after the next reply.
+              if (!v) void import("@/lib/tts-playback").then((m) => m.stopSpeaking()).catch(() => {});
+            }}
+          />
+        </div>
+        <p className="text-xs text-sub">
+          {settings.ttsEnabled ? t("display.tts.description") : t("display.tts.offDescription")}
+        </p>
+
+        {settings.ttsEnabled && (
+          <>
+            {/* Auto-play toggle */}
+            <div className="flex items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.02] px-4 py-3">
+              <div>
+                <div className="text-sm font-semibold text-main">{t("display.tts.autoPlay.title")}</div>
+                <div className="mt-0.5 text-xs text-sub">{t("display.tts.autoPlay.description")}</div>
+              </div>
+              <ToggleSwitch
+                checked={settings.ttsAutoPlay}
+                onChange={(v) => updateSetting("ttsAutoPlay", v)}
+              />
+            </div>
+
+            {/* Reading mode */}
+            <div className="grid grid-cols-2 gap-2">
+              {(["full", "dialogue"] as const).map((m) => {
+                const isActive = settings.ttsMode === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => updateSetting("ttsMode", m)}
+                    className={`rounded-xl border px-4 py-3 text-left transition-all ${
+                      isActive
+                        ? "border-gold/40 bg-gold/10"
+                        : "border-white/8 bg-white/[0.02] hover:border-white/15"
+                    }`}
+                  >
+                    <div className={`text-sm font-semibold ${isActive ? "text-gold" : "text-main"}`}>
+                      {t(`display.tts.mode.${m}`)}
+                    </div>
+                    <div className="mt-0.5 text-xs text-sub">{t(`display.tts.mode.${m}Hint`)}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Voice pool — a summary row that folds the whole catalog away.
+                Collapsed: how many voices are picked + chevron. Expanded: the
+                curated voices as checkboxes grouped by language (UI language
+                first), each with a preview, plus custom marketplace ids. */}
+            <div className="space-y-2">
+              <div
+                role="button"
+                tabIndex={0}
+                aria-expanded={voicePickerOpen}
+                onClick={() => setVoicePickerOpen((v) => !v)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") setVoicePickerOpen((v) => !v);
+                }}
+                className="flex cursor-pointer items-center justify-between gap-3 rounded-xl border border-white/8 bg-white/[0.02] px-4 py-3 transition-all hover:border-white/15"
+              >
+                <div className="flex min-w-0 items-center gap-2.5">
+                  <span className="shrink-0 text-sm font-semibold text-main">{t("display.tts.voice.poolTitle")}</span>
+                  <span className={`truncate text-sm font-medium ${pool.length === 0 ? "text-sub" : "text-gold"}`}>
+                    {poolSummary}
+                  </span>
+                </div>
+                <ChevronDown
+                  aria-hidden="true"
+                  className={`h-4 w-4 shrink-0 text-sub transition-transform ${voicePickerOpen ? "rotate-180" : ""}`}
+                />
+              </div>
+
+              {voicePickerOpen && (
+                <div className="space-y-3 rounded-xl border border-white/8 bg-white/[0.015] p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-xs text-sub">{t("display.tts.voice.poolHint")}</p>
+                    {pool.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => updateSetting("ttsVoicePool", [])}
+                        className="shrink-0 text-xs text-sub underline-offset-2 hover:text-main hover:underline"
+                      >
+                        {t("display.tts.voice.poolClear")}
+                      </button>
+                    )}
+                  </div>
+                  {[...voiceGroups.map((g) => ({ label: g.label as string | null, voices: g.voices })), { label: t("display.tts.voice.customGroup") as string | null, voices: customGroup }]
+                    .filter((g) => g.voices.length > 0)
+                    .map((group, gi) => (
+                      <div key={group.label ?? `g${gi}`} className="space-y-1.5">
+                        {group.label && (
+                          <div className="text-[10px] font-semibold uppercase tracking-wider text-sub/60">
+                            {group.label}
+                          </div>
+                        )}
+                        <div className={`grid grid-cols-1 gap-2 ${group.voices === customGroup ? "" : "sm:grid-cols-2"}`}>
+                          {group.voices.map((v) => {
+                            const isActive = pool.includes(v.id);
+                            const isPreviewing = previewing === v.id;
+                            const isPlayingSample =
+                              voicePlayback?.key === `preview:${v.id}` &&
+                              voicePlayback.status === "playing";
+                            return (
+                              <div
+                                key={v.id}
+                                role="checkbox"
+                                aria-checked={isActive}
+                                tabIndex={0}
+                                onClick={() => togglePoolVoice(v.id)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") {
+                                    e.preventDefault();
+                                    togglePoolVoice(v.id);
+                                  }
+                                }}
+                                className={`flex cursor-pointer items-center justify-between gap-2 rounded-xl border px-3 py-2.5 transition-all ${
+                                  isActive
+                                    ? "border-gold/40 bg-gold/10"
+                                    : "border-white/8 bg-white/[0.02] hover:border-white/15"
+                                }`}
+                              >
+                                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                                  <span
+                                    aria-hidden="true"
+                                    className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                                      isActive ? "border-gold bg-gold text-black" : "border-white/25"
+                                    }`}
+                                  >
+                                    {isActive && <Check className="h-3 w-3" strokeWidth={3} />}
+                                  </span>
+                                  {renamingVoice === v.id ? (
+                                    <input
+                                      autoFocus
+                                      value={voiceNameDraft}
+                                      maxLength={TTS_CUSTOM_VOICE_NAME_MAX}
+                                      onChange={(e) => setVoiceNameDraft(e.target.value)}
+                                      onClick={(e) => e.stopPropagation()}
+                                      onBlur={commitVoiceName}
+                                      onKeyDown={(e) => {
+                                        e.stopPropagation();
+                                        if (e.key === "Enter") commitVoiceName();
+                                        if (e.key === "Escape") setRenamingVoice(null);
+                                      }}
+                                      placeholder={t("display.tts.voice.namePlaceholder")}
+                                      aria-label={t("display.tts.voice.rename")}
+                                      className="h-7 min-w-0 flex-1 rounded-md border border-gold/40 bg-black/30 px-2 text-sm text-main focus:outline-none"
+                                    />
+                                  ) : (
+                                    <span className={`truncate text-sm font-medium ${isActive ? "text-gold" : "text-main"}`}>
+                                      {v.label}
+                                    </span>
+                                  )}
+                                </div>
+                                {v.langTag === null && renamingVoice !== v.id && (
+                                  <div className="ml-auto flex shrink-0 items-center">
+                                    <button
+                                      type="button"
+                                      aria-label={t("display.tts.voice.rename")}
+                                      title={t("display.tts.voice.rename")}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setVoiceNameDraft(customVoices.find((c) => c.id === v.id)?.name ?? "");
+                                        setRenamingVoice(v.id);
+                                      }}
+                                      className="flex h-7 w-7 items-center justify-center rounded-full text-sub hover:text-main"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      aria-label={t("display.tts.voice.remove")}
+                                      title={t("display.tts.voice.remove")}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        removeCustomVoice(v.id);
+                                      }}
+                                      className="flex h-7 w-7 items-center justify-center rounded-full text-sub hover:text-red-300"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  </div>
+                                )}
+                                <button
+                                  type="button"
+                                  aria-label={t("display.tts.voice.preview")}
+                                  title={t("display.tts.voice.preview")}
+                                  disabled={previewing !== null && !isPlayingSample}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (isPlayingSample) {
+                                      useAudioStore.getState().stopVoice();
+                                      return;
+                                    }
+                                    void previewVoice(v.id);
+                                  }}
+                                  className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border transition-colors disabled:opacity-40 ${
+                                    isPlayingSample
+                                      ? "border-gold/60 text-gold"
+                                      : "border-white/10 text-sub hover:border-gold/40 hover:text-gold"
+                                  }`}
+                                >
+                                  {isPreviewing ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : isPlayingSample ? (
+                                    <Square className="h-3 w-3 fill-current" />
+                                  ) : (
+                                    <Play className="h-3.5 w-3.5" />
+                                  )}
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+
+                  {/* Custom fish.audio marketplace voice id → added to the pool */}
+                  <input
+                    type="text"
+                    value={customVoice}
+                    onChange={(e) => setCustomVoice(e.target.value)}
+                    onBlur={commitCustomVoice}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitCustomVoice();
+                    }}
+                    placeholder={t("display.tts.voice.customPlaceholder")}
+                    spellCheck={false}
+                    className="h-9 w-full rounded-lg border border-white/10 bg-white/[0.03] px-3 font-mono text-xs text-main placeholder:text-sub/40 focus:border-gold/40 focus:outline-none"
+                  />
+                  <p className="text-[11px] text-sub/50">{t("display.tts.voice.customHint")}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Voice volume */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-semibold text-main">{t("display.tts.volume")}</span>
+                <span className="text-sub">{localVolume}%</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={localVolume}
+                onChange={(e) => setLocalVolume(Number(e.target.value))}
+                className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/10 accent-[#C9A25E]"
+                aria-label={t("display.tts.volume")}
+              />
+            </div>
+
+            <p className="text-[11px] text-sub/50">{t("display.tts.costHint")}</p>
+          </>
+        )}
+      </div>
+    </Card>
   );
 }
 

@@ -4,12 +4,14 @@ import type common from "../locales/en/common.json";
 import type auth from "../locales/en/auth.json";
 import type settings from "../locales/en/settings.json";
 import type editor from "../locales/en/editor.json";
+import type coverEditor from "../locales/en/coverEditor.json";
 import type chat from "../locales/en/chat.json";
 import type library from "../locales/en/library.json";
 import type profile from "../locales/en/profile.json";
 import type toasts from "../locales/en/toasts.json";
 import type templatesContent from "../locales/en/templates-content.json";
 import type extensions from "../locales/en/extensions.json";
+import type unrestrict from "../locales/en/unrestrict.json";
 
 declare global {
   /**
@@ -23,12 +25,14 @@ declare global {
     auth: typeof auth;
     settings: typeof settings;
     editor: typeof editor;
+    coverEditor: typeof coverEditor;
     chat: typeof chat;
     library: typeof library;
     profile: typeof profile;
     toasts: typeof toasts;
     "templates-content": typeof templatesContent;
     extensions: typeof extensions;
+    unrestrict: typeof unrestrict;
   }
 }
 

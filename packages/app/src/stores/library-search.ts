@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-export type LibraryTab = "games" | "projects" | "assets" | "bundle";
+export type LibraryTab = "games" | "projects" | "assets" | "bundle" | "prompts";
 export type LibraryGameSort = "title" | "recent" | "added";
 export type LibraryProjectSort = "title" | "recent" | "releaseDate";
 

@@ -11,3 +11,20 @@
 export function hasPublishableCover(thumbnailUrl: string | null | undefined): boolean {
   return typeof thumbnailUrl === "string" && thumbnailUrl.trim().length > 0;
 }
+
+/** New publications need explicitly composed artwork for both Discover frames. */
+export function hasDiscoverCoverArt(world: {
+  thumbnailUrl?: string | null;
+  landscapeCoverUrl?: string | null;
+  coverCrop?: unknown;
+  landscapeCoverCrop?: unknown;
+}): boolean {
+  const confirmed = (value: unknown) => {
+    if (!value || typeof value !== "object") return false;
+    const crop = value as { x?: unknown; y?: unknown; zoom?: unknown; fit?: unknown };
+    return crop.fit !== "contain" && [crop.x, crop.y, crop.zoom].every(v => typeof v === "number" && Number.isFinite(v))
+      && typeof crop.zoom === "number" && crop.zoom >= .25 && crop.zoom <= 1;
+  };
+  return hasPublishableCover(world.thumbnailUrl) && hasPublishableCover(world.landscapeCoverUrl)
+    && confirmed(world.coverCrop) && confirmed(world.landscapeCoverCrop);
+}

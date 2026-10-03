@@ -5,6 +5,7 @@ import type {
   CustomUIComponent,
 } from "@yumina/engine";
 import type { Reaction } from "@yumina/engine";
+import { isContinuityEnabled, isContinuityOwned, isSceneImageJudgeOn } from "@yumina/engine";
 import { loadAssetCatalog, formatAssetCatalog } from "./asset-catalog.js";
 
 // ── Types ──
@@ -259,6 +260,8 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
       if (e.depth) flags.push(`depth=${e.depth}`);
       if (e.worldbookId) flags.push(`book=${e.worldbookId}`);
       if (e.audience && e.audience !== "both") flags.push(`audience=${e.audience}`);
+      if (e.role === "character" && e.portrait) flags.push("portrait");
+      if (e.role === "character" && e.voice) flags.push(`voice=${e.voice}`);
 
       const kw = toStringArray(e.keywords);
       const kwStr = kw.length > 0
@@ -333,7 +336,13 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
       // Surface setup-scope so the AI can tell a pre-game choice variable is
       // protected from the opening-switch reset (or spot that it's missing).
       const scope = v.scope === "setup" ? " scope:setup" : "";
-      parts.push(`  ${v.id}: "${v.name}" (${v.type}${scope}, default: ${JSON.stringify(v.defaultValue)})${range}${desc}${rules}`);
+      // Precise = smart tracking writes it after each reply, not the story
+      // model — the assistant must know which writer it is tuning.
+      const precise = isContinuityOwned(world, v)
+        ? ` precise${v.type === "number" ? `(−${v.deltaDown ?? 0}/+${v.deltaUp ?? 0} per turn)` : ""}`
+        : "";
+      const options = v.type === "string" && v.options?.length ? ` options=[${v.options.join(", ")}]` : "";
+      parts.push(`  ${v.id}: "${v.name}" (${v.type}${scope}, default: ${JSON.stringify(v.defaultValue)})${range}${precise}${options}${desc}${rules}`);
     }
   }
 
@@ -382,7 +391,19 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
   if (world.audioTracks.length > 0) {
     parts.push(`\nAUDIO (${world.audioTracks.length}):`);
     for (const a of world.audioTracks) {
-      parts.push(`  ${a.id}: "${a.name}" (${a.type})`);
+      const note = a.aiNote?.trim() ? ` aiNote: "${a.aiNote.trim().slice(0, 80)}"` : "";
+      const manual = a.allowAiControl === false ? " [rules/scripts only]" : "";
+      parts.push(`  ${a.id}: "${a.name}" (${a.type})${manual}${note}`);
+    }
+  }
+
+  // Scene images — what the gameplay AI can show mid-story
+  if ((world.sceneImages ?? []).length > 0) {
+    parts.push(isSceneImageJudgeOn(world)
+      ? `\nSCENE IMAGES (${world.sceneImages!.length}) — after each reply smart tracking checks each image's condition and shows the ones that hold:`
+      : `\nSCENE IMAGES (${world.sceneImages!.length}) — smart tracking is off for images; the story model places them with [image: id]:`);
+    for (const img of world.sceneImages!) {
+      parts.push(`  ${img.id}: "${img.name}" — ${img.scene || "(no scene text yet)"}${img.url ? "" : " [no picture yet]"}${img.allowAiControl === false ? " [manual only]" : ""}`);
     }
   }
 
@@ -401,9 +422,22 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
     if (s.maxTokens) settingParts.push(`maxTokens=${s.maxTokens}`);
     if (s.temperature != null) settingParts.push(`temp=${s.temperature}`);
     if (s.playerName) settingParts.push(`playerName="${s.playerName}"`);
+    if (s.narratorVoice) settingParts.push(`narratorVoice=${s.narratorVoice}`);
+    if (s.voiceInputMode) settingParts.push(`voiceInputMode=${s.voiceInputMode}`);
     if (settingParts.length > 0) {
       parts.push(`\nSETTINGS: ${settingParts.join(", ")}`);
     }
+  }
+
+  // Smart tracking — only worth a line when the author changed a default.
+  const c = world.continuity;
+  if (c && Object.keys(c).length > 0) {
+    const cParts = [`enabled=${isContinuityEnabled(world)}`];
+    for (const key of ["bgm", "sfx", "images"] as const) if (c[key] === false) cParts.push(`${key}=false`);
+    if (c.music?.overRules) cParts.push("music.overRules");
+    if (c.music?.once) cParts.push("music.once");
+    if (c.music?.duck === false) cParts.push("music.duck=false");
+    parts.push(`\nSMART TRACKING: ${cParts.join(", ")}`);
   }
 
   return parts.join("\n");

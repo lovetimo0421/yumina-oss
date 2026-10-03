@@ -303,6 +303,10 @@ function assembleState(channels: ChannelState): SandboxState {
     balance: channels.ui?.balance ?? null,
     composerSendKey: channels.ui?.composerSendKey ?? "enter",
     sendFailureNonce: channels.ui?.sendFailureNonce ?? 0,
+    errorCode: channels.ui?.errorCode ?? null,
+    playerPrompts: channels.ui?.playerPrompts ?? null,
+    tts: channels.ui?.tts ?? { available: false, enabled: false, voice: "", mode: "full", autoPlay: false, volume: 100, playback: null },
+    voiceInput: channels.ui?.voiceInput,
   };
 }
 
@@ -1598,6 +1602,7 @@ export function ComponentHost() {
       </div>
       <MemoryPanelHostMount />
       <ModelFallbackHost />
+      <RefusalHost />
     </YuminaContext.Provider>
   );
 }
@@ -1726,3 +1731,4 @@ async function resolveStyleAssetRefsInDOM(root: ParentNode): Promise<void> {
   eachMatchEls(root, "[style]", (el) => void resolveAssetOnStyledEl(el));
 }
 import { ModelFallbackHost } from "./chat/model-fallback-card";
+import { RefusalHost } from "./chat/player-prompts";

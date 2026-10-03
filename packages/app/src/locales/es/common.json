@@ -21,7 +21,25 @@
     "help": "Ayuda",
     "partner": "Analíticas de promoción",
     "messages": "Mensajes",
-    "installApp": "Instalar app"
+    "installApp": "Instalar app",
+    "prompts": "Prompts"
+  },
+  "tabTitle": {
+    "home": "Yumina",
+    "discover": "Descubrir",
+    "community": "Comunidad",
+    "bundles": "Paquetes",
+    "create": "Crear",
+    "library": "Biblioteca",
+    "quests": "Misiones",
+    "messages": "Mensajes",
+    "profile": "Perfil",
+    "settings": "Ajustes",
+    "plans": "Planes",
+    "creator": "Creador",
+    "signIn": "Iniciar sesión",
+    "createAccount": "Crear cuenta",
+    "krew": "Krew.io"
   },
   "mobile": {
     "menu": "Menú",
@@ -268,7 +286,9 @@
         "many": "{{name}} y {{count}} más respondieron a tu reseña"
       }
     },
-    "giftBonusExpires": "{{amount}} de bonificación caducan el {{date}}"
+    "giftBonusExpires": "{{amount}} de bonificación caducan el {{date}}",
+    "promptPackApproved": "Tu prompt «{{packTitle}}» fue aprobado y ya está en la Plaza de prompts",
+    "promptPackRejected": "Tu prompt «{{packTitle}}» no fue aprobado. Mira el motivo en Biblioteca › Prompts"
   },
   "time": {
     "justNow": "ahora mismo",
@@ -366,6 +386,7 @@
     "imageTooLarge": "La imagen es demasiado grande (máx. 10MB)",
     "sendImage": "Enviar imagen",
     "shareWorld": "Compartir mundo",
+    "shareWorldHint": "Pueden jugarlo o copiarlo para ayudarte a editarlo",
     "sharePlaythrough": "Compartir una partida",
     "playthroughShared": "Partida",
     "playthroughBy": "por {{name}}",
@@ -413,7 +434,11 @@
     "plays": "{{count}} partidas",
     "players": "Jugadores",
     "image": "Imagen",
-    "selectConversation": "Selecciona una conversación"
+    "selectConversation": "Selecciona una conversación",
+    "reviewChanges": "Revisar cambios a tu carta",
+    "changesToYourCard": "Copia editada de tu carta",
+    "copyThenSendBack": "Copiada. Cuando termines, comparte tu copia aquí y podrán aplicarla con un clic.",
+    "reviewChangesFailed": "No se pudieron abrir los cambios. Puede que hayan borrado su copia."
   },
   "planName": {
     "free": "Free",

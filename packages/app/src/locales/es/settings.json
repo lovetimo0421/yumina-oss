@@ -17,7 +17,8 @@
     "notifications": "Notificaciones",
     "display": "Pantalla / Idioma",
     "wallpaper": "Fondo de pantalla",
-    "about": "Acerca de"
+    "about": "Acerca de",
+    "prompts": "Prompts"
   },
   "aiConfig": {
     "title": "Configuración de IA"
@@ -246,6 +247,13 @@
     }
   },
   "display": {
+    "experimental": {
+      "title": "Experimental",
+      "turnImages": {
+        "title": "Ilustraciones de la historia",
+        "description": "Experimental: dibuja una imagen para las respuestas. Las primeras 5 son gratis; después, 12 mushies cada una."
+      }
+    },
     "title": "Pantalla",
     "language": {
       "title": "Idioma",
@@ -266,6 +274,83 @@
     "worldAudio": {
       "title": "Música y efectos de sonido",
       "description": "Si está desactivado, los mundos no reproducen música de fondo ni efectos de sonido: silencio total. Se guarda en tu cuenta."
+    },
+    "tts": {
+      "title": "Lectura por voz",
+      "description": "Lee las respuestas de la IA en voz alta con una voz expresiva. Toca el altavoz junto a cualquier mensaje o activa la lectura automática.",
+      "offDescription": "Desactivada por defecto. Actívala para escuchar las respuestas en voz alta; cada lectura cuesta mushies.",
+      "autoPlay": {
+        "title": "Lectura automática",
+        "description": "La voz empieza a hablar mientras la respuesta aún se está escribiendo. Sintetizar cada respuesta nueva consume mushies."
+      },
+      "mode": {
+        "full": "Leer todo",
+        "fullHint": "Narración y diálogo",
+        "dialogue": "Solo diálogo",
+        "dialogueHint": "Solo las líneas entre comillas"
+      },
+      "voice": {
+        "title": "Voz",
+        "poolTitle": "Mis voces",
+        "poolHint": "Marca las voces que te gusten y la IA elegirá entre ellas para cada personaje. Si no marcas ninguna, elige entre todas.",
+        "poolAll": "Todas las voces",
+        "poolCount": "{{count}} seleccionadas",
+        "poolClear": "Borrar",
+        "customGroup": "Personalizadas",
+        "rename": "Renombrar",
+        "remove": "Quitar",
+        "namePlaceholder": "Ponle nombre a esta voz",
+        "auto": "Automática (según mi idioma)",
+        "preview": "Escuchar muestra",
+        "customPlaceholder": "ID de voz personalizada (32 caracteres, de fish.audio)",
+        "customHint": "Pega el ID de cualquier voz de la biblioteca de fish.audio para añadirla a tus voces.",
+        "invalidId": "Eso no parece un ID de voz: deben ser 32 letras y números."
+      },
+      "volume": "Volumen de la voz",
+      "previewFailed": "No se pudo reproducir la muestra. Inténtalo de nuevo.",
+      "costHint": "La síntesis de voz se cobra por carácter (mushies). Repetir una línea ya generada siempre es gratis.",
+      "voices": {
+        "zhGentleFemale": "Femenina dulce",
+        "zhMatureFemale": "Femenina madura",
+        "zhSweetGirl": "Chica dulce",
+        "zhYoungMale": "Masculina joven",
+        "zhNarratorMale": "Narrador",
+        "enFemale": "Femenina cálida",
+        "enYouthfulMale": "Masculina juvenil",
+        "jaCalmFemale": "Femenina serena",
+        "jaEnergeticFemale": "Chica enérgica",
+        "jaCalmMale": "Masculina serena",
+        "zhLivelyFemale": "Femenina animada",
+        "zhLightMatureFemale": "Femenina madura suave",
+        "zhBrightFemale": "Femenina vivaz",
+        "zhBroadcastMale": "Locutor de radio",
+        "zhDeepMale": "Masculina profunda",
+        "zhSteadyMale": "Masculina firme",
+        "enNarratorFemale": "Narradora",
+        "enSoftFemale": "Chica e-girl",
+        "enDeepMale": "Masculina grave",
+        "enCalmMale": "Masculina calmada",
+        "jaBrightGirl": "Chica alegre",
+        "jaDeepMale": "Narrador cálido",
+        "esFemale": "Femenina melodiosa",
+        "esGirl": "Chica enérgica",
+        "esNarratorMale": "Narrador"
+      }
+    },
+    "voiceInput": {
+      "title": "Entrada por voz",
+      "description": "Mantén pulsado el micrófono y habla en lugar de escribir. Con la caja vacía, el botón de enviar se vuelve micrófono.",
+      "release": "Al soltar",
+      "followCard": "Lo que diga la tarjeta",
+      "confirm": "Revisar antes",
+      "auto": "Enviar ya",
+      "followCardHint": "Lo que diga la tarjeta: cada tarjeta decide (la mayoría te deja revisar antes).",
+      "key": "Tecla para hablar",
+      "keySpace": "Espacio",
+      "keySpaceHint": "Funciona cuando no estás escribiendo en la caja",
+      "keyAnyHint": "Funciona siempre, incluso escribiendo",
+      "keyPress": "Pulsa una tecla…",
+      "free": "La entrada por voz es gratis."
     },
     "sendKey": {
       "title": "Pulsa Enter para enviar",

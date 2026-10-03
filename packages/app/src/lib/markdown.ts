@@ -398,7 +398,7 @@ const TABLE_CELL_STYLE = "padding:0.5rem 0.65rem;vertical-align:top;text-align:l
 const MARKDOWN_THEME_STYLES: Record<MarkdownTheme, MarkdownThemeStyles> = {
   light: {
     h1: "font-size:1.5rem;font-weight:700;color:#000;margin-top:1.5rem;margin-bottom:0.5rem;",
-    h2: "font-size:1.125rem;font-weight:700;color:#000;",
+    h2: "font-size:1.125rem;font-weight:700;color:#2a6a74;",
     h3: "font-size:1rem;font-weight:600;color:#2a6a74;",
     blockquote: "border-left:3px solid #C9A25E;background:rgba(201,162,94,0.08);padding:0.75rem 1rem;border-radius:0.5rem;margin:0.75rem 0;color:#333;",
     table: TABLE_LAYOUT_STYLE,
@@ -407,7 +407,7 @@ const MARKDOWN_THEME_STYLES: Record<MarkdownTheme, MarkdownThemeStyles> = {
   },
   dark: {
     h1: "font-size:1.5rem;font-weight:700;color:rgba(255,255,255,0.95);margin-top:1.5rem;margin-bottom:0.5rem;",
-    h2: "font-size:1.125rem;font-weight:700;color:rgba(255,255,255,0.9);",
+    h2: "font-size:1.125rem;font-weight:700;color:#C9A25E;",
     h3: "font-size:1rem;font-weight:600;color:#C9A25E;",
     blockquote: "border-left:3px solid #C9A25E;background:rgba(201,162,94,0.06);padding:0.75rem 1rem;border-radius:0.5rem;margin:0.75rem 0;color:rgba(255,255,255,0.75);",
     table: TABLE_LAYOUT_STYLE,

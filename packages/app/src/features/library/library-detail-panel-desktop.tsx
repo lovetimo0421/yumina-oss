@@ -1,7 +1,9 @@
+import { useDiscoverAccess } from "@/hooks/use-discover-access";
+import { selectWorldArtwork } from "@/lib/discover-world-artwork";
 import { useOpenWorldPreview } from "@/edition/slots";
 import { useEdition } from "@/edition/edition";
 import { getUserProfileHref } from "@/edition/routes";
-import { getWorldShareUrl } from "@/edition/slots.state";
+import { useWorldShareUrl } from "@/edition/slots.state";
 import { useStoryNavigation } from "@/hooks/use-story-navigation";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -21,11 +23,9 @@ import {
   Trash2,
   GitFork,
   Lock,
-  Check,
   History,
 } from "lucide-react";
 import { feedback } from "@/lib/feedback";
-import { useCopyFeedback } from "@/hooks/use-copy-feedback";
 import type { WorldItem } from "@/stores/worlds";
 import { useWorldsStore } from "@/stores/worlds";
 import { useFavoritesStore } from "@/edition/slots.state";
@@ -58,6 +58,8 @@ import { SupportBadge } from "@/edition/slots";
 import { WorldReviewsSection } from "@/edition/slots";
 import { LibraryDetailActivityCard } from "./library-detail-activity-card";
 import { WorldUpdateHistory } from "./world-update-history";
+import { ShareLinkDialog } from "@/components/share-link-dialog";
+import { getLibraryShareUrl } from "./library-share-link";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
@@ -80,13 +82,26 @@ export function LibraryDetailPanelDesktop({
   userId,
 }: LibraryDetailPanelProps) {
   const { t } = useTranslation("library");
-  const { copied: shareCopied, copy: copyShareLink } = useCopyFeedback();
+  const { enabled: discoverPreview } = useDiscoverAccess();
+  const previewArtwork = selectWorldArtwork(selectedItem, "landscape");
+  const artworkSrc = discoverPreview ? previewArtwork.src : selectedItem.thumbnailUrl;
   const navigate = useNavigate();
   const rootRef = useRef<HTMLDivElement>(null);
   const [confirmCopy, setConfirmCopy] = useState(false);
   const [copying, setCopying] = useState(false);
   const copyingRef = useRef(false);
   const [showReport, setShowReport] = useState(false);
+  const [shareWorldId, setShareWorldId] = useState<string | null>(null);
+  // Published cards share their public address (/@creator/world-name-id),
+  // looked up once if the library data does not carry it yet.
+  const publicShareUrl = useWorldShareUrl(
+    selectedItem.isPublished
+      ? { id: selectedItem.id, gamePath: (selectedItem.schema?.game as { path?: unknown } | undefined)?.path }
+      : null,
+  );
+  const shareUrl = typeof window !== "undefined"
+    ? getLibraryShareUrl(selectedItem, window.location.origin, () => publicShareUrl)
+    : "";
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [downloadPickerOpen, setDownloadPickerOpen] = useState(false);
@@ -304,28 +319,6 @@ export function LibraryDetailPanelDesktop({
     setDownloadPickerOpen(true);
   }
 
-  async function handleShare() {
-    const hubWorldId = selectedItem.sourceWorldId ?? selectedItem.id;
-    const shareUrl = selectedItem.isPublished
-      ? getWorldShareUrl(window.location.origin, hubWorldId, (selectedItem.schema.game as { path?: unknown } | undefined)?.path)
-      : `${window.location.origin}/app/library?worldId=${encodeURIComponent(selectedItem.id)}`;
-
-    try {
-      if (navigator.share) {
-        await navigator.share({
-          title: selectedItem.name,
-          text: `Check out ${selectedItem.name} on Yumina`,
-          url: shareUrl,
-        });
-        return;
-      }
-      // R2: the share icon becomes a check for a beat instead of a pill.
-      if (!(await copyShareLink(shareUrl))) throw new Error("clipboard");
-    } catch {
-      feedback.error(t("toast.failedToShare"));
-    }
-  }
-
   const tags = selectedItem.tags ?? (selectedItem.schema as Record<string, unknown>)?.tags as string[] | undefined;
   const lastActivityAt = !isProject ? libraryLastPlayedAt ?? selectedItem.updatedAt : selectedItem.updatedAt;
   const selectedItemCrop = normalizeWorldCoverCrop(selectedItem);
@@ -348,11 +341,11 @@ export function LibraryDetailPanelDesktop({
               <ArrowLeft size={18} className="group-hover:-translate-x-0.5 transition-transform" />
             </button>
 
-            {selectedItem.thumbnailUrl ? (
+            {artworkSrc ? (
               <CroppedImage
-                src={selectedItem.thumbnailUrl}
+                src={artworkSrc!}
                 alt={selectedItem.name}
-                crop={selectedItemCrop.gallery}
+                crop={discoverPreview ? previewArtwork.crop : selectedItemCrop.gallery}
                 className="h-full w-full opacity-30 grayscale"
               />
             ) : (
@@ -443,11 +436,11 @@ export function LibraryDetailPanelDesktop({
             <ArrowLeft size={18} className="group-hover:-translate-x-0.5 transition-transform" />
           </button>
 
-          {selectedItem.thumbnailUrl ? (
+          {artworkSrc ? (
             <CroppedImage
-              src={selectedItem.thumbnailUrl}
+              src={artworkSrc!}
               alt={selectedItem.name}
-              crop={selectedItemCrop.gallery}
+              crop={discoverPreview ? previewArtwork.crop : selectedItemCrop.gallery}
               className="h-full w-full"
             />
           ) : (
@@ -604,11 +597,13 @@ export function LibraryDetailPanelDesktop({
               <div className="library-detail-hero-icons flex items-center gap-2">
                 {features.hub && (
                 <button
-                  onClick={() => void handleShare()}
+                  type="button"
+                  onClick={() => setShareWorldId(selectedItem.id)}
                   className="text-muted-foreground hover:text-primary hover:bg-white/10 rounded-full p-2 transition-colors"
-                  title={shareCopied ? t("toast.linkCopied") : t("detail.share")}
+                  aria-label={t("detail.share")}
+                  title={t("detail.share")}
                 >
-                  {shareCopied ? <Check size={20} className="text-primary" /> : <Share2 size={20} />}
+                  <Share2 size={20} />
                 </button>
                 )}
                 {(canEditDirectly || selectedItem.allowEdit !== false) && (
@@ -858,6 +853,15 @@ export function LibraryDetailPanelDesktop({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ShareLinkDialog
+        title={selectedItem.name}
+        url={shareUrl}
+        open={shareWorldId === selectedItem.id}
+        onOpenChange={(open) => setShareWorldId(open ? selectedItem.id : null)}
+        copiedLabel={t("toast.linkCopied")}
+        failedLabel={t("toast.failedToShare")}
+      />
 
       {showReport && (
         <ReportDialog

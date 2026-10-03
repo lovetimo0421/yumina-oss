@@ -70,7 +70,7 @@
   },
   "config": {
     "title": "Generation Config",
-    "subtitle": "Global defaults for AI generation",
+    "subtitle": "Defaults for all chats",
     "resetDefaults": "Reset to defaults",
     "contextSizeTokens_one": "{{count}} token",
     "contextSizeTokens": "{{count}} tokens",
@@ -82,7 +82,7 @@
     "precise": "Precise (0.50)",
     "creative": "Creative",
     "reasoningEffort": "Reasoning Effort",
-    "reasoningDesc": "Controls how much the AI \"thinks\" before responding. None is fastest, higher levels may improve complex reasoning but slow generation.",
+    "reasoningDesc": "How much reasoning the model uses before replying. Higher settings can take longer and cost more.",
     "streaming": "Streaming",
     "streamingDesc": "Show AI responses as they generate",
     "streamingBypass": "Disable to bypass filters",
@@ -107,19 +107,19 @@
       "minimal": "Minimal (fastest)",
       "minimalDesc": "Lightest reasoning, fastest replies.",
       "low": "Low",
-      "lowDesc": "A balanced fast default for simple tasks.",
+      "lowDesc": "Less reasoning, faster replies.",
       "medium": "Medium",
-      "mediumDesc": "More deliberate reasoning for most sessions.",
+      "mediumDesc": "Moderate reasoning.",
       "high": "High",
-      "highDesc": "Deepest reasoning, slower but more thoughtful."
+      "highDesc": "More reasoning, slower replies."
     },
     "storyMemory": "Story memory",
     "storyMemorySuggested": "suggested",
     "storyMemoryDesc": "How much past conversation is kept. Older scenes become a recap. The world's lorebook does not count against this.",
     "overallLimit": "Overall limit",
-    "overallUncapped": "As high as it goes",
-    "overallLimitDesc": "Total per request, world included. Leave it uncapped.",
-    "overallLimitCapped": "The biggest world your plan carries. Anything over is trimmed; story memory is untouched.",
+    "overallUncapped": "Maximum available",
+    "overallLimitDesc": "Total request size, including the world and conversation.",
+    "overallLimitCapped": "Your plan's limit for world content. Extra world text is trimmed; story memory is kept.",
     "storyMemoryShort": "Past conversation kept"
   },
   "aiProvider": {
@@ -279,7 +279,7 @@
     "viewDetails": "View details",
     "hideDetails": "Hide details",
     "ledger": "Transaction Ledger",
-    "ledgerDesc": "Immutable record of all mushie activity",
+    "ledgerDesc": "Mushie transaction history",
     "ledgerTokensNote": "Tokens shown for AI calls are the model's actual usage (prompt + generation), not the same as the per-turn context cap.",
     "referralRewardDescription": "Friend-invite reward: {{reward}}",
     "referralWelcomeBonus": "Friend-invite welcome bonus",
@@ -308,6 +308,7 @@
       "reconciliation": "Ledger Correction"
     },
     "ledgerReconciliation": "Ledger correction: balance confirmed; an earlier movement had not been written down",
+    "voiceReadoutDescription": "Voice readout · {{bytes}} bytes",
     "ledgerOpeningBalance": "Opening balance (ledger starts here)",
     "monthlyExpiryRenewal": "Unused monthly Mushies expired at renewal",
     "monthlyExpiryPlanChange": "Unused monthly Mushies expired at plan change",
@@ -329,7 +330,7 @@
     "avgCostPerChat": "avg. {{amount}} mushies / chat",
     "avgCostPerChatByPeriod": "Peak ~{{peak}} · Off-peak ~{{offPeak}} mushies / chat",
     "privateApiMode": "Private API Mode",
-    "privateApiDesc": "No rate limits, no usage tracking — billed directly to your provider",
+    "privateApiDesc": "Billed directly by your provider",
     "confirmSwitchPrivate": "Switch to Private Key? You'll need your own API key and be billed by your provider.",
     "confirmSwitchOfficial": "Switch to Yumina API? Your usage will be deducted from your mushie credits.",
     "tiers": {
@@ -354,12 +355,12 @@
       "kimiK26": "Image support; reasoning on by default",
       "gpt56Luna": "Low-cost GPT with optional reasoning",
       "minimaxM3": "Low-cost long context with optional reasoning",
-      "gpt56Sol": "Optional reasoning; one of the cheaper flagships",
+      "gpt56Sol": "Lower cost; optional reasoning",
       "yuminaFree": "Provided by OpenRouter; may be rate-limited and lower quality",
       "geminiFlashLite": "Low cost and fairly quick for everyday chat",
       "deepseekV4Flash": "Very cheap; users report inconsistent replies",
       "deepseek": "Cheap and moves the story along; may act for you",
-      "mistralNemo": "Very low cost; worth trying on a tight budget",
+      "mistralNemo": "Very low cost",
       "mistralSmall32": "Low-cost image support without reasoning",
       "hermes4": "Low censorship, naturally concise",
       "qwen3Vl": "Low-cost image support without extra reasoning",
@@ -368,7 +369,7 @@
       "glm46": "200K context with optional reasoning",
       "gemini31FlashLite": "Low-cost long context with adjustable reasoning",
       "gemini35Flash": "Long context with reasoning; costs more",
-      "gemini25Pro": "An option for long settings; reasoning adds waiting",
+      "gemini25Pro": "Long context; reasoning takes extra time",
       "gemini3Flash": "Moderate price with adjustable reasoning",
       "deepseekV4Pro": "Long context with optional reasoning",
       "claudeHaiku": "Fairly quick; cheaper than Sonnet",
@@ -378,12 +379,12 @@
       "claudeSonnet": "Fluent prose; may repeat phrasing in long chats",
       "claudeSonnet5": "Newer Sonnet with adjustable reasoning",
       "claudeOpus": "Older Opus; same price as 4.8",
-      "claudeOpus5": "Newer Opus; default reasoning can raise costs",
+      "claudeOpus5": "Reasoning on by default; higher cost",
       "z_ai_glm_5_2": "Good writing value for longer stories",
       "xiaomi_mimo_v2_5_pro": "Lower-cost option for long-form writing",
       "xiaomi_mimo_v2_5": "Low cost for everyday multi-turn chat",
       "nvidia_nemotron_3_ultra_550b_a55b": "Long context; roleplay still needs evaluation",
-      "google_gemma_4_31b_it": "Detailed descriptions; may repeat words or overact",
+      "google_gemma_4_31b_it": "Detailed replies; can be repetitive or melodramatic",
       "deepseek_deepseek_v4_1_flash": "Low cost with peak and off-peak rates",
       "aion_labs_aion_2_0": "For mature themes and dramatic stories; includes reasoning",
       "thedrummer_cydonia_24b_v4_1": "Open-ended roleplay; reliability needs checking",
@@ -400,16 +401,16 @@
       "deepseek_deepseek_v4_pro_0813": "Later V4 Pro release with adjustable reasoning",
       "aion_labs_aion_3_0": "Storytelling and detailed prose at a higher cost",
       "x_ai_grok_4_6": "Newer Grok with reasoning; few roleplay reviews",
-      "openai_gpt_5_6_terra": "Strong writing benchmark results; optional reasoning",
+      "openai_gpt_5_6_terra": "Optional reasoning",
       "qwen_qwen3_8_max_0902": "1M context; substantial reasoning by default",
-      "moonshotai_kimi_k3": "Strong writing and emotional understanding; default reasoning",
-      "anthropic_claude_fable_5_1": "High long-form scores; expensive, with reasoning",
+      "moonshotai_kimi_k3": "Reasoning on by default",
+      "anthropic_claude_fable_5_1": "Higher cost; reasoning enabled",
       "anthropic_claude_opus_4_8": "An option for long prose and emotional dialogue; expensive",
-      "openai_gpt_5_5": "Good multi-turn benchmark results, but expensive",
-      "openai_gpt_6_astra": "High writing scores; expensive, with reasoning",
+      "openai_gpt_5_5": "Higher cost",
+      "openai_gpt_6_astra": "Higher cost; reasoning enabled",
       "thinkingmachines_inkling": "Optional reasoning; few roleplay reviews so far",
       "openai_gpt_4_1": "Follows detailed settings without extra reasoning",
-      "anthropic_claude_opus_4_5": "Older Opus for a different writing style"
+      "anthropic_claude_opus_4_5": "Earlier Opus release"
     },
     "avgCostPerChatRange": "typically {{typical}} · up to {{heavy}} mushies / reply",
     "pilePerMonth": "{{amount}} a month"
@@ -488,7 +489,7 @@
     "save": "Save",
     "deleteProfile": "Delete profile",
     "linkedToChat": "Linked to chat model.",
-    "linkedToChatDesc": "The model you pick below is what the chat will actually send. Currently:",
+    "linkedToChatDesc": "Current chat model:",
     "noneSelected": "(none)",
     "notActive": "This profile is not active.",
     "notActiveDescBefore": "Click ",
@@ -496,8 +497,8 @@
     "availableModels": "Available models",
     "selectFromList": "Select a model from the list…",
     "clickConnectToFetch": "Click Connect to fetch the model list",
-    "modelsListEmptyHint": "After Connect succeeds the list fills with models this key can access.",
-    "modelsListFilledHint": "Picking one fills the field below. Or override with a custom id.",
+    "modelsListEmptyHint": "Connect to load the models available with this key.",
+    "modelsListFilledHint": "Choose a model or enter its ID below.",
     "modelId": "Model id",
     "modelIdOverride": "(override / manual entry)",
     "modelIdPlaceholder": "auto-filled when you pick a model above",
@@ -1015,35 +1016,39 @@
     "quests": {
       "play_3": {
         "title": "Play 3 turns",
-        "hint": "Send three messages in any world today."
+        "hint": "Complete three chat turns today. Sending, regenerating or continuing a response counts."
       },
       "favorite": {
         "title": "Heart a world",
-        "hint": "Add any world to your favorites."
+        "hint": "Add any world to your favorites today."
       },
       "community": {
         "title": "Visit the community",
-        "hint": "Spend a minute in the Community tab."
+        "hint": "Open any community post today to complete this quest. Posting, replying or liking also counts."
       },
       "world_depth": {
-        "title": "Play {{n}} turns in one world",
-        "hint": "Counted across every save in that world."
+        "title": "Play {{n}} turns in one world today",
+        "hint": "Only messages you send today count, across all saves in that world. Messages from previous days do not count."
       },
       "new_world": {
         "title": "Open a new world",
-        "hint": "Start a world you have never played."
+        "hint": "Today, start a world you have never played before."
       },
       "two_models": {
         "title": "Use two models today",
         "hint": "Finish a turn on two different models."
       },
       "week_messages": {
-        "title": "Send {{n}} messages this week",
-        "hint": "Every message you send this week counts."
+        "title": "Play {{n}} turns this week",
+        "hint": "Complete chat turns this week. Sending, regenerating or continuing a response counts."
       },
       "week_depth": {
         "title": "Play {{n}} turns in one world this week",
-        "hint": "Counted across every save in that world."
+        "hint": "Only messages you send this week count, across all saves in that world. Messages from previous weeks do not count."
+      },
+      "week_depth_any_world": {
+        "title": "Play {{n}} turns across any worlds this week",
+        "hint": "Messages you send this week count across all worlds and saves. Messages from previous weeks do not count."
       },
       "week_days": {
         "title": "Play on {{n}} days this week",
@@ -1107,6 +1112,11 @@
     "protected": "Your existing saved and purchased Mushies keep their terms. Paid membership benefits are unchanged.",
     "claimBonus": "Bonus · expires {{date}}",
     "nextDrop": "Next drop +{{amount}} on {{date}}",
+    "nextDropInHours": "Next drop +{{amount}} in ~{{hours}} h",
+    "nextDropInMinutes": "Next drop +{{amount}} in {{minutes}} min",
+    "nextDropDue": "Next drop +{{amount}} · updating…",
+    "monthlyInfoDrops": "Your plan allowance arrives in scheduled drops, credited automatically even when you are offline. Unused cycle Mushies reset at the time below.",
+    "resetSchedule": "Scheduled drops and Free monthly resets use 20:00 UTC (04:00 UTC+8). Purchase and paid renewal grants arrive immediately after payment. Dates below use your local time.",
     "referralBonus": "Referral reward: {{amount}} Bonus Mushies · expires {{date}}. Review before claiming.",
     "claimReferral": "Claim referral reward",
     "loading": "Updating balance…",
@@ -1421,7 +1431,7 @@
     "chooseFailed": "Couldn't save your choice. Try again.",
     "rules": "Full rules",
     "rBand": "{{from}} → {{to}} mushies: 1 ticket per {{per}} ({{n}} tickets)",
-    "estimateNote": "The board updates every 2 minutes and shows estimates. Final amounts come after a 7-day review.",
+    "estimateNote": "Amounts are estimates until the race ends. Rewards unlock automatically at the finish.",
     "unit": {
       "d": "d",
       "h": "h",
@@ -1493,9 +1503,10 @@
     },
     "payout": {
       "title": "What you can get",
-      "small": "Under {{cash}}: paid in mushies ($1 = {{rate}} mushies).",
-      "large": "{{cash}} and up: take mushies, or claim it by email through Tremendous. Open the email and pick what's offered where you live: PayPal, Venmo, Starbucks, Cash App, Amazon, Target, Walmart, Google Play, virtual Visa, Roblox, Xbox and more (options vary by country).",
-      "catalog": "See every reward option"
+      "small": "Under {{cash}}: choose mushies, or one month of a membership if your reward covers it. $1 buys {{rate}} mushies with the bonus.",
+      "large": "{{cash}} and up: choose mushies, an eligible one-month membership, or a gift card through Tango. Any membership remainder becomes mushies.",
+      "catalog": "Browse Tango’s catalog",
+      "catalogNote": "Catalog preview only. Available brands and gift-card amounts depend on your country and the reward link we send."
     },
     "friendsTitle": "Friends you invited",
     "friendsCount": "{{n}} total",
@@ -1543,8 +1554,8 @@
     "tag": "Invite Race is on · est. {{usd}}",
     "claim": {
       "title": "Claim your prize",
-      "giftCard": "{{usd}} gift card or cash",
-      "giftCardPlus": "{{usd}} gift card or cash + {{m}} mushies",
+      "giftCard": "{{usd}} Tango reward",
+      "giftCardPlus": "{{usd}} Tango reward + {{m}} mushies",
       "allMushies": "All as {{m}} mushies"
     },
     "full": {
@@ -1561,16 +1572,16 @@
       "splitTitle": "How the pool is split",
       "s1": "This period's pool is $1,000.",
       "s2": "The top 5 by tickets also win {{ranks}}. Ties go to whoever got there first.",
-      "s3": "The other {{pot}} is split by everyone's tickets. Shares under $1 aren't paid and are re-split among everyone else.",
+      "s3": "The {{pot}} shared pool follows the ticket split. Small shares excluded by the original $1 cutoff receive an extra reward, without reducing existing allocations. Every valid ticket earns a reward.",
       "payTitle": "How prizes are paid",
-      "p1": "Under {{cash}}: paid automatically as mushies to your wallet ($1 = {{rate}} mushies).",
-      "p2": "{{cash}} and up: take mushies, or claim it by email through Tremendous.",
-      "p3": "Prizes are sent by our rewards partner Tremendous to your account email. Open it and pick what's offered where you live, e.g. PayPal, Venmo, Starbucks, Cash App, Amazon, Target, Walmart, Google Play, virtual Visa, Roblox, Xbox; options vary by country.",
-      "p4": "Gift cards and cash are paid in whole dollars; the cents come as mushies. For example, $23.47 = $23 + 470 mushies.",
+      "p1": "Under {{cash}}: choose mushies, or one month of a membership if your reward covers it. $1 buys {{rate}} mushies with the bonus.",
+      "p2": "{{cash}} and up: choose mushies, an eligible one-month membership, or a gift card through Tango. Any membership remainder becomes mushies.",
+      "p3": "Confirm the recipient name and email when claiming a gift card. We send the reward through Tango; delivery is not instant.",
+      "p4": "Gift cards use whole dollars. Remaining cents become mushies at the base rate: $23.47 becomes a $23 card and 470 mushies.",
       "p5": "If you don't choose within {{choose}} days of the result, it's paid as mushies.",
       "whenTitle": "When results are final",
       "w1": "The page updates every 2 minutes and shows estimates.",
-      "w2": "There is a 7-day review after the event ends. Final results and prizes come after that review.",
+      "w2": "Rewards become available when the race finishes. No admin approval is required.",
       "fairTitle": "Fair play",
       "f1": "Tickets from refunded or disputed payments are removed before the split.",
       "f2": "Batches of fake accounts made to farm tickets are removed; in serious cases the inviter loses everything for the event.",
@@ -1593,7 +1604,7 @@
       "subtitle": "A $1,000 pool — the more your friends play, the bigger your share · {{days}} days left",
       "cta": "See my tickets"
     },
-    "giftCardHow": "Our rewards partner Tremendous emails your account's address; open it and pick PayPal, a gift card, virtual Visa and more (options vary by country).",
+    "giftCardHow": "Confirm the recipient name and email when claiming a gift card. We send the reward through Tango; delivery is not instant.",
     "eventCard": {
       "status": "Live",
       "title": "Invite friends, win together"
@@ -1601,6 +1612,51 @@
     "rankPrize": {
       "won": "incl. {{usd}} rank prize"
     },
-    "worldLinkHint": "Sharing any story link also carries your invite."
+    "worldLinkHint": "Sharing any story link also carries your invite.",
+    "reward": {
+      "title": "Your Invite Race reward",
+      "finished": "The race has finished. Choose how to use your reward.",
+      "tickets": "{{count}} tickets",
+      "bonus": "Get 50% extra value in mushies or a membership.",
+      "choose": "Choose a reward",
+      "plan": "One-month membership",
+      "planDays": "{{days}} days of {{name}}",
+      "planIncludes": "{{m}} included with the membership + {{change}} from your remaining reward.",
+      "planQueue": "If your current plan is the same tier or higher, this time is saved until it can be used. Included mushies are added now.",
+      "name": "Recipient name",
+      "email": "Delivery email",
+      "delivery": "We’ll email a Tango reward link so you can choose your gift cards. Our team sends these manually; the email is not instant.",
+      "change": "The remaining cents add {{m}} mushies.",
+      "confirm": "Confirm reward",
+      "alreadyClaimed": "This reward has already been claimed.",
+      "sent": "Tango reward link emailed",
+      "queued": "Tango reward link waiting to be emailed",
+      "savedPlan": "Saved for later",
+      "usedPlan": "Plan time used",
+      "activePlan": "Plan time activated",
+      "credited": "{{m}} mushies added",
+      "estimateMushies": "Or about {{m}} mushies with the bonus",
+      "tickets_one": "{{count}} ticket",
+      "tickets_other": "{{count}} tickets",
+      "planMonth": "1 month of {{name}}",
+      "membershipTerms": "{{days}} days. No recurring charge.",
+      "mushiesAmount": "{{m}} mushies",
+      "review": "Review reward",
+      "confirmTitle": "Confirm your reward",
+      "finalChoice": "Your choice cannot be changed after you claim it.",
+      "back": "Go back",
+      "confirmCash": "Request Tango reward",
+      "confirmPlan": "Claim membership",
+      "confirmMushies": "Claim {{m}} mushies",
+      "claimed": "Reward claimed",
+      "changed": "Your reward has changed. Please review it again.",
+      "expired": "The choice window has ended. Your reward will be paid in mushies.",
+      "addedImmediately": "Added to your balance immediately.",
+      "claimAction": "Claim your reward"
+    },
+    "support": {
+      "question": "Questions or concerns?",
+      "message": "DM {{username}}"
+    }
   }
 }

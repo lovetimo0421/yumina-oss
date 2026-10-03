@@ -168,9 +168,6 @@ export function LoginPage() {
           <h1 className="text-[1.75rem] font-black tracking-tight text-[#E6E4DD] sm:text-[2rem]">
             {t("login.title")}
           </h1>
-          <p className="mt-1 text-[11px] leading-snug text-[#B9B6AE] sm:mt-1.5 sm:text-xs">
-            {t("login.subtitle")}
-          </p>
         </div>
 
         {accountDeleted && (

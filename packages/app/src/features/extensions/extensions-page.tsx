@@ -70,7 +70,6 @@ export function ExtensionsPage() {
             <Blocks className="h-7 w-7 text-gold" />
             {t("title")}
           </h1>
-          <p className="mt-1 text-sm text-sub/60">{t("subtitle")}</p>
 
           <nav className="mt-5 flex gap-7">
             {TABS.map((k) => (

@@ -66,7 +66,8 @@ export function detectMaterialChange(
   if (ratingClass(approved.ageRating) !== ratingClass(proposed.ageRating)) {
     reasons.push("ageRating");
   }
-  if (coverKey(approved.thumbnailUrl) !== coverKey(proposed.thumbnailUrl)) {
+  if (coverKey(approved.thumbnailUrl) !== coverKey(proposed.thumbnailUrl)
+    || coverKey(approved.schema.landscapeCover) !== coverKey(proposed.schema.landscapeCover)) {
     reasons.push("cover");
   }
 

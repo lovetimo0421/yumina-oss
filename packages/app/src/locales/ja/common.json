@@ -21,7 +21,25 @@
     "help": "ヘルプ",
     "partner": "紹介アナリティクス",
     "messages": "メッセージ",
-    "installApp": "アプリをインストール"
+    "installApp": "アプリをインストール",
+    "prompts": "プロンプト"
+  },
+  "tabTitle": {
+    "home": "Yumina",
+    "discover": "発見",
+    "community": "コミュニティ",
+    "bundles": "バンドル",
+    "create": "作成",
+    "library": "ライブラリ",
+    "quests": "クエスト",
+    "messages": "メッセージ",
+    "profile": "プロフィール",
+    "settings": "設定",
+    "plans": "プラン",
+    "creator": "クリエイター",
+    "signIn": "ログイン",
+    "createAccount": "アカウント作成",
+    "krew": "Krew.io"
   },
   "mobile": {
     "menu": "メニュー",
@@ -267,7 +285,9 @@
         "many": "{{name}} さんと他 {{count}} 人があなたのレビューに返信しました"
       }
     },
-    "giftBonusExpires": "ボーナス {{amount}} の有効期限：{{date}}"
+    "giftBonusExpires": "ボーナス {{amount}} の有効期限：{{date}}",
+    "promptPackApproved": "プロンプト「{{packTitle}}」が承認され、プロンプト広場に公開されました",
+    "promptPackRejected": "プロンプト「{{packTitle}}」は承認されませんでした。理由はライブラリ › プロンプトで確認できます"
   },
   "time": {
     "justNow": "たった今",
@@ -364,6 +384,7 @@
     "imageTooLarge": "画像が大きすぎます (最大 10MB)",
     "sendImage": "画像を送信",
     "shareWorld": "ワールドを共有",
+    "shareWorldHint": "相手は遊べるほか、コピーして編集を手伝えます",
     "sharePlaythrough": "プレイ記録を共有",
     "playthroughShared": "プレイ記録",
     "playthroughBy": "{{name}} のプレイ",
@@ -409,7 +430,11 @@
     "plays": "{{count}} プレイ",
     "players": "プレイヤー",
     "image": "画像",
-    "selectConversation": "会話を選択"
+    "selectConversation": "会話を選択",
+    "reviewChanges": "カードへの変更を確認",
+    "changesToYourCard": "あなたのカードの編集版",
+    "copyThenSendBack": "コピーしました。編集が終わったら「ワールドを共有」でここに送り返すと、相手はワンクリックで適用できます。",
+    "reviewChangesFailed": "変更を開けませんでした。コピーが削除された可能性があります。"
   },
   "planName": {
     "free": "Free",

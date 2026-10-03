@@ -12,6 +12,7 @@ import { grantPlanEntitlement } from "./plan-entitlement-grants.js";
 import { insertHashedTransaction, type LedgerDatabase } from "./transaction-hash.js";
 import type { PlanId } from "./plan-config.js";
 import { notify } from "./notify.js";
+import { getDeletedIdentity } from "./deleted-identity.js";
 import {
   MILESTONES,
   REFERRAL_MILESTONES,
@@ -135,6 +136,21 @@ export async function getClaimedMilestones(userId: string) {
     .select()
     .from(referralMilestones)
     .where(eq(referralMilestones.userId, userId));
+}
+
+/** Include claims retained after a prior account deletion of the same identity. */
+export async function getClaimedMilestoneThresholds(userId: string): Promise<Set<number>> {
+  const [rows, referrer] = await Promise.all([
+    getClaimedMilestones(userId),
+    db.select({ email: user.email }).from(user).where(eq(user.id, userId)).limit(1),
+  ]);
+  const claimed = new Set(rows.map((row) => row.milestone));
+  if (!referrer[0]) return claimed;
+  const priorIdentity = await getDeletedIdentity(referrer[0].email);
+  if (priorIdentity?.referralClaims.epoch === REFERRAL_REWARD_EPOCH.toISOString()) {
+    for (const milestone of priorIdentity.referralClaims.milestones) claimed.add(milestone);
+  }
+  return claimed;
 }
 
 /** The mushies a referred user receives. */
@@ -280,7 +296,7 @@ export async function processReferralMilestones(
     getRewardRawReferralCount(referrerId),
     getConfirmedReferralCount(referrerId),
   ]);
-  const claimed = new Set((await getClaimedMilestones(referrerId)).map((m) => m.milestone));
+  const claimed = await getClaimedMilestoneThresholds(referrerId);
 
   const candidates = selectEarnedMilestones(MILESTONES, { raw, confirmed }, claimed);
   const newlyGranted: MilestoneDef[] = [];

@@ -9,12 +9,12 @@ import { useUserProfileStore } from "@/stores/user-profile";
 import { LibraryGameGrid } from "./library-game-grid";
 import { LibraryMyProjects } from "./library-my-projects";
 import { LibraryResourcesTab } from "./library-session-media";
-import { LibraryBundlesTab } from "@/edition/slots";
+import { LibraryBundlesTab, LibraryPromptsTab } from "@/edition/slots";
 import { useEdition } from "@/edition/edition";
 import { LibraryDetailPanel } from "./library-detail-panel";
 import { LibraryFavoritesView } from "./library-favorites-view";
 import { useLibrarySearchStore, type LibraryTab } from "@/stores/library-search";
-import { Gamepad2, Hammer, Image, Package, Search } from "lucide-react";
+import { Gamepad2, Hammer, Image, Package, ScrollText, Search } from "lucide-react";
 import {
   captureStoryReturnContext,
   navigateToStoryReturn,
@@ -54,6 +54,8 @@ export function LibraryPage() {
   const hiddenTabs = new Set<LibraryTab>([
     ...(features.library ? [] : (["games"] as LibraryTab[])),
     ...(features.bundles ? [] : (["bundle"] as LibraryTab[])),
+    // 提示词 is login-only (hosted); guests never see the tab.
+    ...(features.community && isAuthenticated ? [] : (["prompts"] as LibraryTab[])),
   ]);
   const defaultViewRequestId = useLibrarySearchStore((s) => s.defaultViewRequestId);
   const previousDefaultViewRequestId = useRef(defaultViewRequestId);
@@ -71,19 +73,19 @@ export function LibraryPage() {
   });
 
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchWorlds();
+    if (isAuthenticated && userId) {
+      fetchWorlds({ scope: "library", userId, worldId: searchWorldId });
       fetchLibrary();
       fetchProfile();
     }
-  }, [isAuthenticated, fetchWorlds, fetchLibrary, fetchProfile]);
+  }, [isAuthenticated, userId, searchWorldId, fetchWorlds, fetchLibrary, fetchProfile]);
 
   // Sync tab + selection when the URL `view` param changes mid-session
   // (e.g. the session-export modal navigates to ?view=assets&assetId=…).
   // Without this, the tab state is frozen at mount time.
   useEffect(() => {
-    if (view === "assets") {
-      setActiveTab("assets");
+    if (view === "assets" || view === "prompts") {
+      setActiveTab(view);
       setSelectedItem(null);
     }
   }, [setActiveTab, view]);
@@ -200,6 +202,7 @@ export function LibraryPage() {
     { key: "projects", label: t("tabs.myProjects"), icon: Hammer },
     { key: "assets", label: t("tabs.assets"), icon: Image },
     { key: "bundle", label: t("tabs.bundles"), icon: Package },
+    { key: "prompts", label: t("tabs.prompts"), icon: ScrollText },
   ];
   const tabs = allTabs.filter((tab) => !hiddenTabs.has(tab.key));
 
@@ -240,7 +243,7 @@ export function LibraryPage() {
                     to: "/app/library",
                     search: {
                       worldId: undefined,
-                      view: tab.key === "assets" ? "assets" : undefined,
+                      view: tab.key === "assets" || tab.key === "prompts" ? tab.key : undefined,
                       assetId: undefined,
                     },
                     replace: true,
@@ -283,6 +286,8 @@ export function LibraryPage() {
       {effectiveActiveTab === "assets" && <LibraryResourcesTab highlightedAssetId={view === "assets" ? assetId : undefined} showBindingHint />}
 
       {effectiveActiveTab === "bundle" && <LibraryBundlesTab />}
+
+      {effectiveActiveTab === "prompts" && <LibraryPromptsTab />}
 
 
     </div>

@@ -2,6 +2,7 @@ import {
   GameStateManager,
   PromptBuilder,
   estimateTokens,
+  isVariableBoundEntry,
   migrateWorldDefinition,
 } from "@yumina/engine";
 import type { WorldDefinition } from "@yumina/engine";
@@ -33,6 +34,12 @@ export interface WorldContextRequirement {
   scaffoldTokens: number;
   /** All enabled non-greeting entries — alwaysSend and keyword-triggered lore. */
   loreTokens: number;
+  /** The alwaysSend share of loreTokens — injected on every turn. */
+  alwaysTokens: number;
+  /** The keyword/condition share of loreTokens — only sent when triggered. */
+  triggeredTokens: number;
+  /** Context needed for what goes out every turn (no triggered lore) + story room. */
+  floorTokens: number;
   /** Largest enabled greeting (it opens the chat history). */
   greetingTokens: number;
   /** Recommended room for chat history + story summary. */
@@ -91,7 +98,8 @@ export function computeWorldContextRequirement(
     scaffoldTokens += estimateTokens(promptBuilder.buildStaticFormatBlock(worldDef));
     scaffoldTokens += estimateTokens(promptBuilder.buildFormatBlock(worldDef, snapshot));
 
-    let loreTokens = 0;
+    let alwaysTokens = 0;
+    let triggeredTokens = 0;
     let greetingTokens = 0;
     for (const entry of worldDef.entries) {
       if (!entry.enabled || !entry.content) continue;
@@ -99,15 +107,24 @@ export function computeWorldContextRequirement(
         greetingTokens = Math.max(greetingTokens, estimateTokens(entry.content));
         continue;
       }
-      loreTokens += estimateTokens(entry.content);
+      // Mirrors LorebookMatcher's split: variable-bound entries are never
+      // unconditionally sent, so only a plain alwaysSend counts as every-turn.
+      if (entry.alwaysSend && !isVariableBoundEntry(entry)) alwaysTokens += estimateTokens(entry.content);
+      else triggeredTokens += estimateTokens(entry.content);
     }
+    const loreTokens = alwaysTokens + triggeredTokens;
 
     result = {
       requiredTokens: roundUpToThousand(
         scaffoldTokens + loreTokens + greetingTokens + STORY_ROOM_RESERVE_TOKENS
       ),
+      floorTokens: roundUpToThousand(
+        scaffoldTokens + alwaysTokens + greetingTokens + STORY_ROOM_RESERVE_TOKENS
+      ),
       scaffoldTokens,
       loreTokens,
+      alwaysTokens,
+      triggeredTokens,
       greetingTokens,
       reserveTokens: STORY_ROOM_RESERVE_TOKENS,
     };

@@ -176,9 +176,10 @@ export class TurnOutputAttempt {
         return id;
       },
     });
-    // Failed corrections log usage but never reach billing. Price the requested
-    // free router as free even when it reports the paid model that served it.
-    if (this.correctionUsage && this.audit.correctionApiKeyTier !== "byok") {
+    // Failed corrections log usage but never reach billing, including unverified
+    // turns delivered without them. Price the requested free router as free
+    // even when it reports the paid model that served it.
+    if (this.correctionUsage && this.audit.correctionApiKeyTier !== "byok" && this.audit.outcome !== "unverified") {
       const requested = parseStateGuardModel(resolveGuardModelSelection(this.args.dispatch.outputModels?.get("state-update-guard"), this.args.model)).model;
       this.correctionCost = requested === "openrouter/free" || requested?.endsWith(":free") ? 0
         : await backgroundUsageCost({ userId: this.args.userId, ...this.correctionUsage });

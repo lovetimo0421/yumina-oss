@@ -39,7 +39,7 @@ export function SidebarNavItem({
 
   if (to) {
     return (
-      <Link to={to} preload="intent" className={itemClassName}>
+      <Link to={to} preload="intent" activeOptions={{ exact: to === "/" }} className={itemClassName}>
         {content}
       </Link>
     );

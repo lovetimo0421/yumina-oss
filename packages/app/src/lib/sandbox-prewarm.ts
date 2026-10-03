@@ -9,16 +9,14 @@
  *
  *  Why not just `<link rel="prefetch">` in the parent HTML? Browsers fetch the
  *  HTML itself when idle, but follow-through to sub-resources is inconsistent
- *  across Safari / Chrome / Firefox. This one-shot active prefetch guarantees
- *  the entire bundle graph is warmed. It also warms the document itself, which
- *  a prefetch tag could not: the URL is content-hashed at build time and so
- *  cannot be written into static HTML. */
+ *  across Safari / Chrome / Firefox. Warm the document's directly referenced
+ *  resources without evaluating editor/compiler modules in the parent page.
+ *  This is best-effort; the iframe still loads normally on a cache miss. */
 
 import { SANDBOX_DOC_URL } from "./sandbox-doc-url";
+import { warmSandboxResources } from "./sandbox-resource-prewarm";
 
 let started = false;
-
-const PARSE = /<(?:script[^>]*\ssrc|link[^>]*\shref)=["']([^"']+)["']/g;
 
 export function prewarmSandbox(sandboxEntryUrl: string = SANDBOX_DOC_URL): void {
   if (started) return;
@@ -31,36 +29,7 @@ export function prewarmSandbox(sandboxEntryUrl: string = SANDBOX_DOC_URL): void 
 
   schedule(async () => {
     try {
-      const res = await fetch(sandboxEntryUrl, { credentials: "omit", cache: "force-cache" });
-      if (!res.ok) return;
-      const html = await res.text();
-
-      const urls = new Set<string>();
-      urls.add(sandboxEntryUrl);
-      let match: RegExpExecArray | null;
-      PARSE.lastIndex = 0;
-      while ((match = PARSE.exec(html))) {
-        const raw = match[1];
-        if (!raw) continue;
-        if (raw.startsWith("data:") || raw.startsWith("http")) continue;
-        const normalized = raw.startsWith("/") ? raw : `/sandbox/${raw.replace(/^\.\//, "")}`;
-        urls.add(normalized);
-      }
-
-      // Fire parallel low-priority fetches. 6-connection HTTP/1.1 limit doesn't
-      // apply to HTTP/2+, but even on HTTP/1.1 this is done during idle time so
-      // it doesn't compete with the main app's critical requests.
-      for (const url of urls) {
-        fetch(url, { credentials: "omit", cache: "force-cache" }).catch(() => {});
-      }
-
-      // Also warm the parent-side TSX compiler chunk. WorldRenderer dynamic-imports
-      // it after the iframe handshake; on a cold cache that's a serial chunk fetch
-      // on the critical path (the one that used to cost ~956K of Sucrase, plus
-      // lucide-react via tsx-component-builder). Pulling it during idle removes
-      // that cost from the first chat entry.
-      import("@/features/studio/lib/tsx-compiler").catch(() => {});
-      import("@/features/studio/lib/tsx-bundler").catch(() => {});
+      await warmSandboxResources(sandboxEntryUrl);
     } catch {
       // Best-effort — if prewarm fails the sandbox still works, just slower.
     }

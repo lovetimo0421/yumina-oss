@@ -4,7 +4,9 @@ import { Plus, Trash2, Hash, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DOCS_URLS } from "@/lib/docs-urls";
 import { useEditorStore } from "@/stores/editor";
+import { isContinuityOwned } from "@yumina/engine";
 import type { Variable, VariableActivation } from "@yumina/engine";
+import { OptionsEditor, PreciseTrackingEditor } from "../components/precise-tracking";
 import { Select } from "@/components/ui/select";
 import { TwoTapDeleteButton } from "@/components/ui/two-tap-delete-button";
 import { NumberInput } from "@/components/ui/number-input";
@@ -107,6 +109,7 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
 
   const selectedRaw = clampedIdx !== null ? worldDraft.variables[clampedIdx] ?? null : null;
   const selected = selectedRaw?.internal ? null : selectedRaw; // never open a hidden engine var
+  const preciseOwned = selected ? isContinuityOwned(worldDraft, selected) : false;
 
   return (
     <div className="@container flex min-h-0 flex-1 flex-col">
@@ -232,7 +235,11 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                       >
                         {v.name || t("variables.unnamed")}
                       </span>
-                      {(v.aiAccess === "read" || v.aiAccess === "none") && (
+                      {isContinuityOwned(worldDraft, v) ? (
+                        <span className="shrink-0 rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                          {t("variables.badges.precise")}
+                        </span>
+                      ) : (v.aiAccess === "read" || v.aiAccess === "none") && (
                         <span className="shrink-0 rounded-full bg-white/5 px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
                           {t(`variables.badges.${v.aiAccess}` as any)}
                         </span>
@@ -430,6 +437,31 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                   </div>
                 )}
 
+                {/* String-specific: the fixed set of values it may take. Not
+                    adding any = the AI writes it freely, as before. */}
+                {selected.type === "string" && (
+                  <div className="space-y-3">
+                    <label className="text-sm font-bold text-foreground">{t("variables.optionsLabel")}</label>
+                    <OptionsEditor
+                      key={selected.id}
+                      values={selected.options ?? []}
+                      onChange={(options) => updateVariableAt(clampedIdx, { options: options.length > 0 ? options : undefined })}
+                      addLabel={t("variables.optionsAdd")}
+                      placeholder={t("variables.optionsPlaceholder")}
+                    />
+                    <p className="text-sm text-muted-foreground">{t("variables.optionsHint")}</p>
+                  </div>
+                )}
+
+                {/* Precise tracking — the continuity judge, not the narrative
+                    model, sets this value after each reply. Strings only get
+                    the box once they have a value list to pick from. */}
+                {(selected.type === "number" ||
+                  selected.type === "boolean" ||
+                  (selected.type === "string" && (selected.options?.length ?? 0) > 0)) && (
+                  <PreciseTrackingEditor key={selected.id} variable={selected} onChange={(u) => updateVariableAt(clampedIdx, u)} />
+                )}
+
                 {/* Behavior Rules */}
                 <div className="space-y-3">
                   <label className="text-sm font-bold text-foreground">
@@ -452,7 +484,11 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                   </p>
                 </div>
 
-                {/* AI access — what the AI may do with this variable */}
+                {/* AI access — what the AI may do with this variable. While the
+                    continuity judge owns it (precise tracking on and usable,
+                    world judge not switched off) the prompt marks it read-only
+                    and the narrator's directives are dropped, whatever this
+                    setting says — so the labels say that instead. */}
                 <div className="space-y-3">
                   <label className="text-sm font-bold text-foreground">
                     {t("variables.aiAccessLabel")}
@@ -466,11 +502,19 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                         aiAccess: value === "write" ? undefined : (value as Variable["aiAccess"]),
                       })
                     }
-                    options={aiAccessOptions}
+                    options={
+                      preciseOwned
+                        ? aiAccessOptions.map((o) =>
+                            o.value === "write" ? { ...o, label: t("variables.aiAccessOptions.precise") } : o,
+                          )
+                        : aiAccessOptions
+                    }
                     className="py-3"
                   />
                   <p className="text-sm text-muted-foreground">
-                    {t(`variables.aiAccessHint.${selected.aiAccess ?? "write"}` as any)}
+                    {preciseOwned
+                      ? t("variables.aiAccessHint.precise")
+                      : t(`variables.aiAccessHint.${selected.aiAccess ?? "write"}` as any)}
                   </p>
                 </div>
 

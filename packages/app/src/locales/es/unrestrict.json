@@ -1,0 +1,227 @@
+{
+  "name": "Sin restricciones",
+  "switchLabel": "Activar o desactivar Sin restricciones",
+  "loading": "Cargando…",
+  "cancel": "Cancelar",
+  "tokensApprox": "~{{n}} tokens",
+  "status": {
+    "off": "Desactivado",
+    "on": "Activado · {{variant}} · intensidad {{strength}}",
+    "autoVariant": "Automático ({{variant}})"
+  },
+  "variants": {
+    "gemini": "Edición Gemini",
+    "claude": "Edición Claude",
+    "deepseek": "Edición DeepSeek",
+    "general": "Edición general"
+  },
+  "strength": {
+    "title": "Intensidad",
+    "light": "Ligera",
+    "standard": "Estándar",
+    "strong": "Fuerte",
+    "hint": {
+      "light": "Solo el marco narrativo: lo que menos afecta al estilo.",
+      "standard": "El marco más las indicaciones habituales. Suficiente casi siempre.",
+      "strong": "Añade un recordatorio de autocomprobación antes de cada respuesta. Algunos tokens más."
+    }
+  },
+  "card": {
+    "adjust": "Ajustar"
+  },
+  "age": {
+    "title": "Primero confirma tu edad",
+    "body": "Confirma tu año de nacimiento para activarlo.",
+    "placeholder": "Año de nacimiento, p. ej. 1998",
+    "confirm": "Confirmar",
+    "invalid": "Escribe un año de cuatro cifras.",
+    "under18": "Necesitas tener 18 años o más para usar Sin restricciones."
+  },
+  "errors": {
+    "notEligible": "Esta cuenta no puede usar Sin restricciones ahora mismo",
+    "saveFailed": "No se pudo guardar. Inténtalo de nuevo",
+    "copyFailed": "No se pudo hacer la copia. Inténtalo de nuevo"
+  },
+  "prompts": {
+    "title": "Prompts",
+    "newFolder": "Nueva carpeta",
+    "mine": "Mis prompts",
+    "mineCount": "· {{total}} en total, {{on}} activos",
+    "mineCountLong": "{{total}} en total, {{on}} activos",
+    "new": "Nuevo",
+    "none": "Aún no tienes prompts.",
+    "hubRow": "Buscar más en la Plaza de prompts",
+    "manageInSettings": "Gestionar en Ajustes › Prompts",
+    "pos": "pos {{n}}",
+    "section": {
+      "system": "System",
+      "inChat": "In-Chat",
+      "final": "Final"
+    },
+    "sectionFull": {
+      "system": "System (prompt de sistema)",
+      "inChat": "In-Chat (en el chat)",
+      "final": "Final"
+    }
+  },
+  "conflict": {
+    "paused": "«{{name}}» y el oficial estaban activos a la vez, así que el tuyo está en pausa.",
+    "pausedLong": "Tu «{{name}}» y el preset oficial estaban activos a la vez, así que el tuyo se pausó automáticamente.",
+    "undo": "Deshacer",
+    "restored": "«{{name}}» vuelve a estar activo. Ahora se aplican los dos y pueden chocar.",
+    "repause": "Pausar otra vez"
+  },
+  "chips": {
+    "officialCopy": "Copia oficial",
+    "fromHub": "De la Plaza",
+    "paused": "En pausa"
+  },
+  "page": {
+    "breadcrumb": "Ruta",
+    "crumbSettings": "Ajustes"
+  },
+  "gone": {
+    "title": "Esta página no existe",
+    "body": "Este enlace no se abre en esta cuenta.",
+    "cta": "Ir a Ajustes › Prompts"
+  },
+  "master": {
+    "currentModel": "Modelo actual",
+    "noModel": "ninguno",
+    "autoUses": "usa la «{{variant}}» automáticamente",
+    "manualUses": "usa la «{{variant}}» (elegida por ti)",
+    "off": "Desactivado"
+  },
+  "variantsCard": {
+    "title": "Presets oficiales",
+    "auto": "Automático",
+    "autoPicked": "Elegido automáticamente",
+    "verified": "Última verificación {{date}}"
+  },
+  "what": {
+    "title": "Qué hace",
+    "one": "Por defecto va antes de todos los demás prompts y se envía con cada mensaje. Abajo puedes cambiar dónde va y qué incluye.",
+    "two": "Pausa temporalmente tus propios prompts del mismo tipo para que no choquen. Vuelven cuando lo desactivas."
+  },
+  "honest": "Algunos contenidos los bloquea directamente el proveedor del modelo y ningún prompt lo cambia. En ese caso ayuda más cambiar de modelo.",
+  "adjust": {
+    "title": "tus ajustes",
+    "autoPicked": "(elegida automáticamente)",
+    "copyLocked": "Edita el texto de la copia directamente"
+  },
+  "join": {
+    "title": "Cómo se añade",
+    "follow": "Seguir el oficial",
+    "default": "Por defecto",
+    "followHint": "Se actualiza solo cuando lo mejoramos. Las opciones de abajo siguen funcionando.",
+    "copy": "Hacer mi propia copia",
+    "copyHint": "Se guarda en «Mis prompts» para editarla libremente. Ya no se actualiza sola.",
+    "copyNote": "Guardado en Mis prompts",
+    "backTitle": "¿Volver a seguir el oficial?",
+    "backBody": "El texto vuelve a la versión oficial y se actualiza solo. Tu «{{variant}} (mi copia)» se eliminará de «Mis prompts».",
+    "backOk": "Seguir el oficial"
+  },
+  "update": {
+    "banner": "Hay una versión oficial nueva",
+    "compare": "Comparar",
+    "title": "Nueva «{{variant}}» oficial",
+    "subtitle": "Usas tu propia copia, así que te preguntamos primero",
+    "legend": "Qué cambió (resaltado = añadido, tachado = eliminado):",
+    "note": "«Usar la nueva» hace una copia nueva del texto oficial más reciente. Tus cambios se reemplazarán.",
+    "keepMine": "Mantener la mía",
+    "useNew": "Usar la nueva"
+  },
+  "position": {
+    "title": "Dónde va",
+    "first": {
+      "label": "Al principio (recomendado)",
+      "hint": "El modelo lo lee primero. Lo más fiable."
+    },
+    "after-char": {
+      "label": "Tras el personaje",
+      "hint": "Primero se lee la configuración de la carta. Bueno para cartas con configuraciones muy largas."
+    },
+    "last": {
+      "label": "Al final del chat",
+      "hint": "Lo más cerca de la respuesta: efecto más fuerte, pero puede arrastrar el estilo."
+    }
+  },
+  "modules": {
+    "title": "Qué incluye",
+    "coreLocked": "Núcleo, no se puede quitar",
+    "core": {
+      "name": "Marco narrativo",
+      "desc": "Plantea el chat como ficción. Todo lo demás se apoya en esto."
+    },
+    "antiApology": {
+      "name": "Sin disculpas",
+      "desc": "Tras un rechazo, reformula y sigue escribiendo"
+    },
+    "antiEmpty": {
+      "name": "Sin respuestas vacías",
+      "desc": "Evita respuestas de una línea o en blanco"
+    },
+    "noLecture": {
+      "name": "Sin sermones",
+      "desc": "Sin avisos de seguridad ni advertencias al final"
+    },
+    "adultWriting": {
+      "name": "Estilo del contenido adulto",
+      "desc": "Qué tan explícito es el contenido adulto"
+    },
+    "strongReminder": {
+      "name": "Autocomprobación previa"
+    }
+  },
+  "explicitness": {
+    "subtle": "Sutil",
+    "normal": "Normal",
+    "explicit": "Explícito"
+  },
+  "fullText": {
+    "open": "Ver / editar el texto completo",
+    "title": "{{variant}} · texto completo",
+    "followHint": "Sigues el oficial: el texto es de solo lectura. Toca el texto o «Editar» para cambiarlo.",
+    "copyHint": "Es tu copia: edítala como quieras.",
+    "strengthChip": "Intensidad: {{value}}",
+    "positionChip": "Posición: {{value}}",
+    "copyMissing": "Tu copia está vacía.",
+    "restore": "Restaurar el oficial",
+    "edit": "Editar",
+    "done": "Listo",
+    "saveDone": "Guardar",
+    "confirmTitle": "Editar el texto completo",
+    "confirmBody": "Al editarlo se convierte en tu propia copia, que ya no se actualiza sola. La copia aparece en «Mis prompts» y te avisaremos cuando haya una versión oficial nueva.",
+    "confirmOk": "Seguir editando"
+  },
+  "scope": {
+    "title": "En qué cartas se usa",
+    "all": "Todas las cartas",
+    "some": "Solo en estas cartas",
+    "none": "No hay cartas elegidas: por ahora no se usa en ninguna.",
+    "unknownWorld": "(carta fuera de tu biblioteca)",
+    "remove": "Quitar",
+    "add": "Añadir carta",
+    "pickTitle": "Elegir cartas",
+    "search": "Buscar cartas",
+    "empty": "Tu biblioteca está vacía.",
+    "pickSave": "Listo ({{n}})"
+  },
+  "footer": {
+    "withCost": "~{{n}} tokens en total · unos {{cost}} mushies extra por turno",
+    "tokensOnly": "~{{n}} tokens en total"
+  },
+  "community": {
+    "title": "Prompts de otros jugadores",
+    "myUploads": "Mis subidas",
+    "toHub": "Ir a la Plaza de prompts"
+  },
+  "bindings": {
+    "title": "Activar según el modelo",
+    "hint": "Elige qué prompt se aplica automáticamente en cada familia de modelos.",
+    "none": "Desactivado",
+    "families": {
+      "other": "Otros"
+    }
+  }
+}

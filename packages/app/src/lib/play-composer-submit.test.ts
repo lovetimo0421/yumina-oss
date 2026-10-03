@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import test from "node:test";
-import { act, createElement } from "react";
+import { act, createElement, type ReactNode, type Ref } from "react";
 import { JSDOM } from "jsdom";
 import { transform } from "sucrase";
 
@@ -22,7 +22,12 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
   const sentImages: unknown[][] = [];
   let modelPickerRequests = 0;
   let narrow = false;
+  let promptsAvailable = false;
+  let promptsPanelOpens = 0;
+  let imagePicks = 0;
   const api = {
+    pickChatImage: async () => { imagePicks++; return null; },
+    playerPrompts: null as null | { boundPromptName: string | null; prompts: unknown[] },
     getModels: async () => ({ models: [] }), selectedModel: "google/gemini-2.5-flash", preferredProvider: "official", mixMode: false, modelPool: [],
     isStreaming: false, pendingChoices: [], readOnly: false, language: "en",
     composerSendKey: "enter", sendFailureNonce: 0, error: null as string | null,
@@ -32,6 +37,7 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
     openSessionManager: noop, messages: [], getBranchContext: noop,
     openModelPicker: () => { modelPickerRequests++; },
     branchFromMessage: noop, navigate: noop,
+    voiceInputState: { available: false, enabled: false, mode: "confirm", cardMode: "confirm", playerMode: "", key: "Space" },
   };
   const require = createRequire(import.meta.url);
   const mocks: Record<string, unknown> = {
@@ -46,6 +52,22 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
       ComposerToolMenu: ({ onOpenModelPicker }: { onOpenModelPicker: () => void }) => createElement("button", { onClick: onOpenModelPicker, "data-model-trigger": true }, "Model menu"),
       useIsNarrow: () => narrow,
     },
+    "./player-prompts": {
+      PromptsQuickSheet: empty,
+      openPromptsPanel: () => { promptsPanelOpens++; },
+      usePromptsAvailable: () => promptsAvailable,
+      usePromptsStatus: () => "status",
+    },
+    // Read-aloud is a sibling of the send key, not part of it: mocked so this
+    // test stays about what Enter does.
+    "./voice-panel": { VoicePanelButton: empty },
+    // Composer popovers portal to <body> in the app; inline here is enough.
+    "./composer-popover": {
+      ComposerPopover: ({ children, popoverRef }: { children: ReactNode; popoverRef: Ref<HTMLDivElement> }) => createElement("div", { ref: popoverRef }, children),
+    },
+    "./voice-input": { MicButton: empty, VoiceRecordingOverlay: empty, useHoldToTalkKey: noop, useVoiceInput: () => ({}) },
+    // Per-turn pictures (experimental, opt-in): off here, so the menu has no auto switch.
+    "./turn-images": { useTurnImageSettings: () => ({ settings: null, setAuto: async () => false, refresh: noop }) },
     "../protocol": { postToParentWindow: noop, wrapMessage: (value: unknown) => value },
     "../../src/lib/chat-image-input": require("./chat-image-input.ts"),
     "../../src/lib/composer-message-limit": {
@@ -119,6 +141,39 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
           assert.equal(win.document.querySelector("[data-legacy-picker]"), null);
           assertDraft(input);
         });
+      });
+    }
+    narrow = false;
+    for (const compact of [false, true]) {
+      await t.test(`${compact ? "narrow" : "wide"} toolbar: image + prompts live in the plus menu, not the toolbar`, async () => {
+        narrow = compact;
+        promptsAvailable = true;
+        api.playerPrompts = { boundPromptName: "Pack A", prompts: [] };
+        promptsPanelOpens = 0;
+        imagePicks = 0;
+        try {
+          await withComposer({}, async () => {
+            const toolbar = win.document.querySelector(".play-composer-toolbar")!;
+            assert.equal(toolbar.querySelector('button[aria-label="Add images"]'), null, "no standalone image button");
+            assert.ok(!toolbar.textContent?.includes("prompts"), "no standalone prompts button");
+            assert.ok(win.document.querySelector("[data-prompt-bound-dot]"), "bound prompt shows a dot on +");
+            const plus = () => win.document.querySelector<HTMLButtonElement>('button[title="actions"]')!;
+            const item = (label: string) => [...win.document.querySelectorAll<HTMLButtonElement>("button")]
+              .find(b => b.textContent?.startsWith(label));
+            await act(async () => plus().click());
+            assert.ok(item("sendImage") && item("prompts"));
+            await act(async () => { item("sendImage")!.click(); await new Promise(r => setTimeout(r, 10)); });
+            assert.equal(imagePicks, 1);
+            assert.equal(item("continue"), undefined, "menu closes after picking an image");
+            await act(async () => plus().click());
+            await act(async () => item("prompts")!.click());
+            assert.equal(promptsPanelOpens, 1);
+            assert.equal(item("continue"), undefined, "menu closes after opening prompts");
+          });
+        } finally {
+          promptsAvailable = false;
+          api.playerPrompts = null;
+        }
       });
     }
     narrow = false;

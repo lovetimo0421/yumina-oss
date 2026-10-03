@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, test } from "node:test";
-import { useModelsStore } from "./models";
-import { useCreditStore } from "@/edition/slots.state";
-import { useUserProfileStore } from "./user-profile";
+import "../lib/vite-env.test-helpers";
+const { useModelsStore } = await import("./models");
+const { useCreditStore } = await import("@/edition/slots.state");
+const { useUserProfileStore } = await import("./user-profile");
 
 const originalFetch = globalThis.fetch;
 const key = (id = "a", models = ["deepseek-old"]) => ({ id, provider: "custom", metadata: { models } });

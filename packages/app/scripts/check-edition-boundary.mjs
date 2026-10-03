@@ -26,10 +26,12 @@ const SRC = resolve(here, "..", "src");
  * Keep this list in sync with the export manifest (oss/manifest.json).
  */
 export const HOSTED_DIRS = [
+  "features/invite-race/",
   "features/admin/",
   "features/community/",
   "features/dm/",
   "features/hub/",
+  "features/discover-preview/",
   "features/bundles/",
   "features/achievements/",
   "features/notifications/",
@@ -44,9 +46,15 @@ export const HOSTED_DIRS = [
   "features/pvz/",
   // platform image generation (credit-metered, /api/generation/*)
   "features/generation/",
+  // 提示词广场 (community prompt packs)
+  "features/prompt-hub/",
 ];
 
 export const HOSTED_FILES = [
+  "routes/app/invite-race",
+  // Public world and creator addresses (/@user, /@user/name-id) render the hub.
+  "routes/$handle",
+  "routes/$handle_.$world",
   // components + routes that only serve hosted features
   "components/account-wallet",
   "components/review-replies",
@@ -78,6 +86,9 @@ export const HOSTED_FILES = [
   "stores/dm-conversation-state",
   "stores/invite-modal",
   "stores/studio-credit-recovery",
+  "stores/prompt-packs",
+  // 提示词广场 layout route (exact file; /app/prompts/unrestrict is not hosted-only)
+  "routes/app/prompts",
   // components
   "components/credit-indicator",
   "components/notification-bell",
@@ -156,6 +167,9 @@ export const HOSTED_ROUTE_PREFIXES = [
   "routes/app/bundles",
   "routes/app/dev.feedback",
   "routes/app/generate",
+  "routes/app/prompts.index",
+  "routes/app/prompts.$packId",
+  "routes/app/prompts.upload",
 ];
 
 /** i18n namespaces the export drops (per language). */
@@ -166,6 +180,7 @@ export const HOSTED_LOCALE_NAMESPACES = [
   "plans",
   "creator",
   "achievements",
+  "prompthub",
 ];
 
 /**

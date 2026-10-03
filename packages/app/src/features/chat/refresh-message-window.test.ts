@@ -48,5 +48,35 @@ test("errors, repeated cursors and large disjoint advances never return partial 
   assert.equal(calls, 2);
   const source = loader(rows);
   assert.equal(await refreshMessageWindow(rows.slice(0, 2), source.load), null);
-  assert.equal(source.calls.length, 2);
+  assert.equal(source.calls.length, 3);
+});
+
+test("refresh reconciles edits and deletions across byte-limited one-row pages", async () => {
+  const existing = rows.slice(640);
+  const server = rows.filter((row) => row.id !== "m0645")
+    .map((row) => row.id === "m0642" ? { ...row, content: "edited large turn" } : row);
+  let calls = 0;
+  const result = await refreshMessageWindow(existing, async (before) => {
+    calls++;
+    const end = before ? server.findIndex((row) => row.id === before.id) : server.length;
+    return { data: server.slice(end - 1, end), meta: { hasMore: end > 1 } };
+  });
+  assert.equal(calls, 9);
+  assert.deepEqual(result?.messages, server.filter((row) => row.id >= "m0640"));
+  assert.equal(result?.hasEarlierMessages, true);
+});
+
+test("same-millisecond turns with different microseconds retain server order regardless of ID", async () => {
+  const ordered = [
+    { id: "z", createdAt: "2026-01-01T00:00:00.123100Z" },
+    { id: "a", createdAt: "2026-01-01T00:00:00.123900Z" },
+  ];
+  let calls = 0;
+  const result = await refreshMessageWindow(ordered, async (before) => {
+    calls++;
+    return { data: [ordered[before ? 0 : 1]!], meta: { hasMore: !before } };
+  });
+  assert.equal(calls, 2);
+  assert.deepEqual(result?.messages, ordered);
+  assert.equal(result?.hasEarlierMessages, false);
 });

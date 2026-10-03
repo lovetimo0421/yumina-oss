@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { and, asc, eq, gt, inArray, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { db, isAccountDeletionSchemaReady } from "../db/index.js";
 import {
   bundles,
@@ -12,6 +12,7 @@ import {
   inviteCodeRedemptions,
   mushieGifts,
   referralMilestones,
+  referralRedemptions,
   session,
   threadRewards,
   tipPaymentIntents,
@@ -24,7 +25,7 @@ import {
 import { env } from "./env.js";
 import { deleteObject, deletePrefix, isS3Configured } from "./s3.js";
 import { redis } from "./redis.js";
-import { posthog } from "./posthog.js";
+import { captureServerError, posthog } from "./posthog.js";
 import { invalidateSessionUser } from "./session-user-cache.js";
 import {
   getDeletedIdentity,
@@ -32,26 +33,43 @@ import {
   hashDeletedIdentityCandidates,
 } from "./deleted-identity.js";
 import { accountDeletionBlockedUntil } from "./account-deletion-cooldown.js";
+import { REFERRAL_REWARD_EPOCH } from "./referral-rewards.js";
+import { mergeReferralClaims } from "./referral-claim-history.js";
 import {
   evaluateAccountDeletionAccess,
   type AccountDeletionAccessBlockCode,
   type AccountDeletionAccessDecision,
 } from "./account-deletion-access.js";
 import { anonymizeDeletedAccountAudit } from "./account-deletion-audit.js";
-import { eraseDiscoveryAccountData, findLinkedDiscoveryGuests, purgeErasedDiscoveryEvents } from "./discovery-erasure.js";
+import {
+  eraseDiscoveryAccountData,
+  findLinkedDiscoveryGuests,
+  purgeErasedDiscoveryEvents,
+  purgeErasedDiscoveryEventsBatched,
+  type BatchedErasureExecutor,
+} from "./discovery-erasure.js";
+import {
+  CLEANUP_CLAIM_MS,
+  CLEANUP_CONTINUE_DELAY_MS,
+  CLEANUP_MAX_ATTEMPTS,
+  createCleanupTicker,
+  planCleanupFailure,
+  redisCleanupLease,
+  type MinimalLeaseRedis,
+} from "./account-deletion-cleanup-runner.js";
+import { isRogueInstance } from "./leader.js";
 import { hasStripeCleanupArtifacts } from "./account-deletion-policy.js";
 import {
   closeStripeConnectAccount,
   isMissingStripeResource,
   listCancelableStripeSubscriptionIds,
+  redactAndDeleteConnectAccount,
 } from "./account-deletion-stripe.js";
 
 export type AccountDeletionBlockCode =
   | AccountDeletionAccessBlockCode
   | "ACCOUNT_DELETION_NOT_READY"
   | "ACCOUNT_DELETION_COOLDOWN"
-  | "ACCOUNT_RESTRICTION_REQUIRES_SUPPORT"
-  | "REFERRAL_HISTORY_REQUIRES_SUPPORT"
   | "PENDING_CREATOR_EARNINGS"
   | "BILLING_CLEANUP_UNAVAILABLE"
   | "SUBSCRIPTION_CANCELLATION_FAILED";
@@ -80,6 +98,7 @@ const stripe = env.STRIPE_SECRET_KEY
 type DeletionContext = {
   email: string;
   wasBanned: boolean;
+  wasSuspended: boolean;
   blockInviteRedemption: boolean;
   lastCheckinDay: string | null;
   rewardBlockedUntil: Date | null;
@@ -125,6 +144,7 @@ async function getDeletionContext(
     .select({
       email: user.email,
       wasBanned: user.isBanned,
+      wasSuspended: user.isSuspended,
       referredBy: user.referredBy,
       stripeCustomerId: user.stripeCustomerId,
       stripeSubscriptionId: user.stripeSubscriptionId,
@@ -136,6 +156,11 @@ async function getDeletionContext(
     .select({ id: inviteCodeRedemptions.id })
     .from(inviteCodeRedemptions)
     .where(eq(inviteCodeRedemptions.userId, userId))
+    .limit(1);
+  const referralRedemption = await executor
+    .select({ inviteeId: referralRedemptions.inviteeId })
+    .from(referralRedemptions)
+    .where(eq(referralRedemptions.inviteeId, userId))
     .limit(1);
   const payoutRows = await executor
     .select({ stripeConnectId: creatorPayoutAccounts.stripeConnectId })
@@ -191,7 +216,8 @@ async function getDeletionContext(
   return {
     email: accountRows[0]?.email ?? "",
     wasBanned: accountRows[0]?.wasBanned ?? false,
-    blockInviteRedemption: !!accountRows[0]?.referredBy || inviteRedemptions.length > 0,
+    wasSuspended: accountRows[0]?.wasSuspended ?? false,
+    blockInviteRedemption: !!accountRows[0]?.referredBy || inviteRedemptions.length > 0 || referralRedemption.length > 0,
     lastCheckinDay: checkinRows[0]?.lastCheckinDay ?? null,
     rewardBlockedUntil: walletRows[0]?.periodEnd ?? null,
     stripeCustomerId: accountRows[0]?.stripeCustomerId ?? null,
@@ -234,25 +260,6 @@ export async function getAccountDeletionConfirmationTarget(userId: string): Prom
   return account?.username?.trim() || account?.email.trim() || null;
 }
 
-async function hasReferralHistory(
-  userId: string,
-  executor: QueryExecutor = db,
-): Promise<boolean> {
-  const referredUsers = await executor
-    .select({ id: user.id })
-    .from(user)
-    .where(eq(user.referredBy, userId))
-    .limit(1);
-  if (referredUsers.length > 0) return true;
-
-  const milestones = await executor
-    .select({ id: referralMilestones.id })
-    .from(referralMilestones)
-    .where(eq(referralMilestones.userId, userId))
-    .limit(1);
-  return milestones.length > 0;
-}
-
 /**
  * Cheap guard used both when requesting the confirmation email and again when
  * its link is opened. Held creator earnings must be settled while the creator
@@ -287,24 +294,11 @@ export async function assertAccountDeletionAllowed(userId: string): Promise<void
   assertAccountDeletionAccessDecision(evaluateAccountDeletionAccess(
     account?.role,
     administratorCountRow?.value ?? 0,
+    account?.isBanned === true || account?.isSuspended === true,
   ));
   if (!account) throw new Error(`Account ${userId} no longer exists`);
-  if (account.isBanned || account.isSuspended) {
-    throw new AccountDeletionBlockedError(
-      "ACCOUNT_RESTRICTION_REQUIRES_SUPPORT",
-      "Suspended accounts require support-assisted deletion so active safety restrictions cannot be bypassed.",
-    );
-  }
-
   const deletedIdentity = await getDeletedIdentity(account.email);
   assertRepeatDeletionCooldownElapsed(deletedIdentity?.latestDeletionAt);
-
-  if (await hasReferralHistory(userId)) {
-    throw new AccountDeletionBlockedError(
-      "REFERRAL_HISTORY_REQUIRES_SUPPORT",
-      "Accounts with referral history require support-assisted deletion so reward eligibility is preserved safely.",
-    );
-  }
   const [unsettledEarning] = await db
     .select({ id: creatorEarnings.id })
     .from(creatorEarnings)
@@ -540,13 +534,67 @@ async function deleteStoredAssets(keys: string[], prefixes: string[]): Promise<v
 
 type CleanupJob = typeof accountDeletionCleanupJobs.$inferSelect;
 
-async function runAccountDeletionCleanupJob(job: CleanupJob): Promise<boolean> {
+const PURGE_BUDGET_MS = 2 * 60_000;
+const PURGE_CURSOR_TTL_SECONDS = 2 * 24 * 60 * 60;
+const localPurgeCursors = new Map<string, string>();
+const purgeCursorKey = (jobId: string) => `account-deletion:purge-cursor:${jobId}`;
+
+/** Resume point for the no-index fallback purge. Kept in Redis because the
+ * fleet lease can move the runner between replicas from one tick to the next. */
+async function loadPurgeCursor(jobId: string): Promise<string | null> {
+  if (redis) {
+    try {
+      return (await redis.get(purgeCursorKey(jobId))) ?? null;
+    } catch {
+      // fall through to the local copy
+    }
+  }
+  return localPurgeCursors.get(jobId) ?? null;
+}
+
+async function savePurgeCursor(jobId: string, cursor: string | null): Promise<void> {
+  if (cursor === null) return forgetPurgeCursor(jobId);
+  localPurgeCursors.set(jobId, cursor);
+  if (redis) await redis.set(purgeCursorKey(jobId), cursor, "EX", PURGE_CURSOR_TTL_SECONDS).catch(() => {});
+}
+
+async function forgetPurgeCursor(jobId: string): Promise<void> {
+  localPurgeCursors.delete(jobId);
+  if (redis) await redis.del(purgeCursorKey(jobId)).catch(() => {});
+}
+
+type CleanupJobOutcome = "final" | "pre-final" | "partial";
+
+async function runAccountDeletionCleanupJob(job: CleanupJob): Promise<CleanupJobOutcome> {
   // Freeze the phase at attempt start. A long pre-final pass can cross the
   // deadline, but must not delete the job until an actual final sweep ran.
   const isFinalSweep = Date.now() >= job.finalizeAfter.getTime();
+  // Safety net for the post-commit discovery purge (process restart, error).
+  // Only on the final sweep. It is the one step that touches a large table, so
+  // it runs first and alone, in small individually timed-out batches within a
+  // time budget; an unfinished purge resumes on the next tick before any of
+  // the external (Stripe/S3/Redis/PostHog) steps are repeated.
+  let purgeFailure: unknown = null;
+  if (isFinalSweep) {
+    try {
+      const purge = await purgeErasedDiscoveryEventsBatched(
+        db as unknown as BatchedErasureExecutor,
+        [`user:${job.deletedUserId}`],
+        { budgetMs: PURGE_BUDGET_MS, cursor: await loadPurgeCursor(job.id) },
+      );
+      if (!purge.done) {
+        await savePurgeCursor(job.id, purge.cursor);
+        return "partial";
+      }
+      await forgetPurgeCursor(job.id);
+    } catch (error) {
+      purgeFailure = error;
+    }
+  }
   const billingContext: DeletionContext = {
     email: "",
     wasBanned: false,
+    wasSuspended: false,
     blockInviteRedemption: false,
     lastCheckinDay: null,
     rewardBlockedUntil: null,
@@ -681,12 +729,12 @@ async function runAccountDeletionCleanupJob(job: CleanupJob): Promise<boolean> {
       });
       for (const account of page.data) {
         if (account.metadata?.userId !== job.deletedUserId) continue;
-        await stripe.accounts.update(account.id, {
-          email: "",
-          // Retain the minimal discovery marker until Stripe confirms deletion.
-          metadata: { userId: job.deletedUserId },
+        // Standard/Express accounts reject a platform email edit; that used to
+        // fail every final sweep forever (2 jobs, 1,769 attempts by 09-29).
+        await redactAndDeleteConnectAccount(account.id, job.deletedUserId, {
+          update: (accountId, params) => stripe.accounts.update(accountId, params),
+          del: (accountId) => stripe.accounts.del(accountId),
         });
-        await stripe.accounts.del(account.id);
       }
       if (!page.has_more || page.data.length === 0) break;
       connectStartingAfter = page.data.at(-1)!.id;
@@ -714,11 +762,8 @@ async function runAccountDeletionCleanupJob(job: CleanupJob): Promise<boolean> {
     // delete with a pre-deletion usage_logs snapshot. Re-delete it on every
     // outbox pass, including the mandatory post-presign final sweep.
     db.execute(sql`DELETE FROM daily_user_activity WHERE user_id = ${job.deletedUserId}`),
-    // Safety net for the post-commit discovery purge (process restart, error).
-    // Only on the final sweep: each pass is a full scan of discovery_events.
-    isFinalSweep
-      ? purgeErasedDiscoveryEvents(db as unknown as Parameters<typeof purgeErasedDiscoveryEvents>[0], [`user:${job.deletedUserId}`])
-      : Promise.resolve(),
+    // The final-sweep discovery purge already ran above; report its failure here.
+    purgeFailure ? Promise.reject(purgeFailure) : Promise.resolve(),
     (async () => {
       await cancelExternalSubscriptions(billingContext);
       await anonymizeExternalBillingIdentity(billingContext);
@@ -735,13 +780,29 @@ async function runAccountDeletionCleanupJob(job: CleanupJob): Promise<boolean> {
     .filter((result): result is PromiseRejectedResult => result.status === "rejected")
     .map((result) => result.reason instanceof Error ? result.reason.message : String(result.reason));
   if (failures.length > 0) throw new Error(failures.join("; "));
-  return isFinalSweep;
+  return isFinalSweep ? "final" : "pre-final";
 }
 
 async function processAccountDeletionCleanupJob(job: CleanupJob): Promise<void> {
   try {
-    const completedFinalSweep = await runAccountDeletionCleanupJob(job);
-    if (!completedFinalSweep) {
+    const outcome = await runAccountDeletionCleanupJob(job);
+    if (outcome === "partial") {
+      // Progress was made but the bounded purge ran out of its time budget.
+      // Not a failure: resume soon without spending an attempt.
+      try {
+        await db
+          .update(accountDeletionCleanupJobs)
+          .set({
+            nextAttemptAt: new Date(Date.now() + CLEANUP_CONTINUE_DELAY_MS),
+            updatedAt: new Date(),
+          })
+          .where(eq(accountDeletionCleanupJobs.id, job.id));
+      } catch (error) {
+        console.warn(`[account-deletion] Could not schedule purge continuation for ${job.id}:`, error);
+      }
+      return;
+    }
+    if (outcome === "pre-final") {
       try {
         // Presigned PUT URLs remain valid for one hour. Keep the manifest and
         // perform one mandatory final sweep after they (and resize workers)
@@ -761,6 +822,7 @@ async function processAccountDeletionCleanupJob(job: CleanupJob): Promise<void> 
     }
     try {
       await db.delete(accountDeletionCleanupJobs).where(eq(accountDeletionCleanupJobs.id, job.id));
+      await forgetPurgeCursor(job.id);
     } catch (error) {
       // Cleanup already succeeded and every operation is idempotent. Leaving
       // the job in place merely causes a safe retry; never turn a committed
@@ -768,41 +830,73 @@ async function processAccountDeletionCleanupJob(job: CleanupJob): Promise<void> 
       console.warn(`[account-deletion] Could not remove completed cleanup job ${job.id}:`, error);
     }
   } catch (error) {
-    const attempts = job.attempts + 1;
-    const retryDelayMs = Math.min(60 * 60_000, 30_000 * 2 ** Math.min(attempts - 1, 7));
     const message = error instanceof Error ? error.message : String(error);
+    const plan = planCleanupFailure(job.attempts, message);
     try {
       await db
         .update(accountDeletionCleanupJobs)
         .set({
-          attempts,
-          lastError: message.slice(0, 2_000),
-          nextAttemptAt: new Date(Date.now() + retryDelayMs),
+          attempts: plan.attempts,
+          lastError: plan.lastError,
+          nextAttemptAt: plan.nextAttemptAt,
           updatedAt: new Date(),
         })
         .where(eq(accountDeletionCleanupJobs.id, job.id));
     } catch (updateError) {
-      // The row was committed with next_attempt_at=now, so the interval will
-      // naturally retry even if recording backoff metadata failed.
+      // The claim already pushed next_attempt_at out by CLEANUP_CLAIM_MS, so a
+      // lost backoff write delays the retry instead of hot-looping it.
       console.error(`[account-deletion] Could not update cleanup job ${job.id}:`, updateError);
     }
-    console.warn(`[account-deletion] External cleanup job ${job.id} will retry: ${message}`);
+    if (plan.exhausted) {
+      // Logged once: the runner never selects a job at the ceiling again.
+      console.error(
+        `[account-deletion] Cleanup job ${job.id} stopped after ${plan.attempts} attempts and needs attention: ${message}`,
+      );
+      captureServerError("account-deletion-cleanup-exhausted", error, { job_id: job.id, attempts: plan.attempts });
+    } else {
+      const minutes = Math.round((plan.nextAttemptAt.getTime() - Date.now()) / 60_000);
+      console.warn(`[account-deletion] Cleanup job ${job.id} attempt ${plan.attempts}/${CLEANUP_MAX_ATTEMPTS} failed; retry in ~${minutes} min: ${message}`);
+    }
   }
 }
 
-export async function processPendingAccountDeletionCleanupJobs(limit = 10): Promise<void> {
-  // The outbox is additive testing-branch DDL. Avoid querying it during the
-  // rolling-deploy window before the background schema heal has completed.
-  if (!isAccountDeletionSchemaReady()) return;
-  const jobs = await db
+/** Claim = push next_attempt_at out before running, conditional on the job
+ * still being due. Exactly one caller (a tick on any replica, or the
+ * post-commit immediate run) wins; the others get no row and skip it. */
+async function claimAccountDeletionCleanupJob(job: CleanupJob): Promise<CleanupJob | null> {
+  const now = Date.now();
+  const [claimed] = await db
+    .update(accountDeletionCleanupJobs)
+    .set({ nextAttemptAt: new Date(now + CLEANUP_CLAIM_MS), updatedAt: new Date(now) })
+    .where(and(
+      eq(accountDeletionCleanupJobs.id, job.id),
+      lte(accountDeletionCleanupJobs.nextAttemptAt, new Date(now)),
+      lt(accountDeletionCleanupJobs.attempts, CLEANUP_MAX_ATTEMPTS),
+    ))
+    .returning();
+  return claimed ?? null;
+}
+
+const tickAccountDeletionCleanup = createCleanupTicker<CleanupJob>({
+  lease: redisCleanupLease(redis as unknown as MinimalLeaseRedis | null),
+  // The outbox is additive DDL. Avoid querying it during the rolling-deploy
+  // window before the background schema heal has completed.
+  isBlocked: () => isRogueInstance || !isAccountDeletionSchemaReady(),
+  listDue: (limit) => db
     .select()
     .from(accountDeletionCleanupJobs)
-    .where(lte(accountDeletionCleanupJobs.nextAttemptAt, new Date()))
+    .where(and(
+      lte(accountDeletionCleanupJobs.nextAttemptAt, new Date()),
+      lt(accountDeletionCleanupJobs.attempts, CLEANUP_MAX_ATTEMPTS),
+    ))
     .orderBy(asc(accountDeletionCleanupJobs.nextAttemptAt))
-    .limit(limit);
-  for (const job of jobs) {
-    await processAccountDeletionCleanupJob(job);
-  }
+    .limit(limit),
+  claim: claimAccountDeletionCleanupJob,
+  process: processAccountDeletionCleanupJob,
+});
+
+export async function processPendingAccountDeletionCleanupJobs(): Promise<void> {
+  await tickAccountDeletionCleanup();
 }
 
 let cleanupInterval: ReturnType<typeof setInterval> | null = null;
@@ -812,6 +906,8 @@ export function startAccountDeletionCleanupInterval(): void {
   void processPendingAccountDeletionCleanupJobs().catch((error) => {
     console.error("[account-deletion] Cleanup outbox failed:", error);
   });
+  // Overlapping ticks are no-ops (reentrancy guard + fleet lease), so a slow
+  // tick can never stack another copy of the same job behind it.
   cleanupInterval = setInterval(() => {
     void processPendingAccountDeletionCleanupJobs().catch((error) => {
       console.error("[account-deletion] Cleanup outbox failed:", error);
@@ -872,21 +968,9 @@ export async function permanentlyDeleteAccount(
           && account.is_banned !== true
           && account.is_suspended !== true,
       ).length,
+      lockedAccount?.is_banned === true || lockedAccount?.is_suspended === true,
     ));
     if (!lockedAccount) throw new Error(`Account ${userId} no longer exists`);
-    if (lockedAccount.is_banned || lockedAccount.is_suspended) {
-      throw new AccountDeletionBlockedError(
-        "ACCOUNT_RESTRICTION_REQUIRES_SUPPORT",
-        "Suspended accounts require support-assisted deletion so active safety restrictions cannot be bypassed.",
-      );
-    }
-
-    if (await hasReferralHistory(userId, tx as unknown as QueryExecutor)) {
-      throw new AccountDeletionBlockedError(
-        "REFERRAL_HISTORY_REQUIRES_SUPPORT",
-        "Accounts with referral history require support-assisted deletion so reward eligibility is preserved safely.",
-      );
-    }
     const [unsettledEarning] = await tx
       .select({ id: creatorEarnings.id })
       .from(creatorEarnings)
@@ -987,6 +1071,17 @@ export async function permanentlyDeleteAccount(
       .at(-1) ?? null;
     const mergedWasBanned = lockedContext.wasBanned
       || priorTombstones.some((record) => record.wasBanned);
+    const mergedWasSuspended = lockedContext.wasSuspended
+      || priorTombstones.some((record) => record.wasSuspended);
+    const claimedMilestones = await tx
+      .select({ milestone: referralMilestones.milestone })
+      .from(referralMilestones)
+      .where(eq(referralMilestones.userId, userId));
+    const referralClaims = mergeReferralClaims(
+      REFERRAL_REWARD_EPOCH,
+      claimedMilestones.map((row) => row.milestone),
+      priorTombstones.map((record) => record.referralClaims),
+    );
     const mergedBlockInviteRedemption = lockedContext.blockInviteRedemption
       || priorTombstones.some((record) => record.blockInviteRedemption);
     await tx
@@ -994,6 +1089,8 @@ export async function permanentlyDeleteAccount(
       .values({
         identityHash,
         wasBanned: mergedWasBanned,
+        wasSuspended: mergedWasSuspended,
+        referralClaims,
         blockWelcomeRewards: true,
         blockInviteRedemption: mergedBlockInviteRedemption,
         lastCheckinDay,
@@ -1004,6 +1101,8 @@ export async function permanentlyDeleteAccount(
         target: deletedAccountTombstones.identityHash,
         set: {
           wasBanned: sql`${deletedAccountTombstones.wasBanned} OR ${mergedWasBanned}`,
+          wasSuspended: sql`${deletedAccountTombstones.wasSuspended} OR ${mergedWasSuspended}`,
+          referralClaims,
           blockWelcomeRewards: true,
           blockInviteRedemption: sql`${deletedAccountTombstones.blockInviteRedemption} OR ${mergedBlockInviteRedemption}`,
           lastCheckinDay: lastCheckinDay
@@ -1199,6 +1298,19 @@ export async function permanentlyDeleteAccount(
       knownGuests: knownDiscoveryGuests, deferEventDelete: true,
     });
 
+    // The FK clears referred_by on surviving invitees. Retain only the
+    // invitee's one-time redemption marker before that happens.
+    await tx.execute(sql`
+      INSERT INTO referral_redemptions (invitee_id, redeemed_at)
+      SELECT id, COALESCE(referred_at, created_at)
+      FROM "user"
+      WHERE referred_by = ${userId}
+      ON CONFLICT (invitee_id) DO NOTHING
+    `);
+    // Qualifications intentionally have no user FK. A deleted referrer has
+    // no future reward to settle, so remove rows that retain their user ID.
+    await tx.execute(sql`DELETE FROM referral_qualifications WHERE referrer_id = ${userId}`);
+
     const deleted = await tx
       .delete(user)
       .where(eq(user.id, userId))
@@ -1312,7 +1424,11 @@ export async function permanentlyDeleteAccount(
 
   // Attempt immediately for fast erasure. Any transient failure is durably
   // retained in the outbox and retried by every server process until success.
-  void processAccountDeletionCleanupJob(result.cleanupJob).catch((error) => {
+  void (async () => {
+    // Claim first: an interval tick on any replica may have picked it up too.
+    const claimed = await claimAccountDeletionCleanupJob(result.cleanupJob);
+    if (claimed) await processAccountDeletionCleanupJob(claimed);
+  })().catch((error) => {
     // Defensive: the processor handles and records its own failures, but no
     // post-commit exception may change the successful deletion response.
     console.error(`[account-deletion] Immediate cleanup job ${result.cleanupJob.id} failed:`, error);

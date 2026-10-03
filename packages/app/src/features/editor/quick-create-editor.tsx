@@ -71,6 +71,7 @@ import { GuestEditorReadOnly } from "./components/guest-editor-readonly";
 import { BundlesSection } from "@/edition/slots";
 import { AssetPicker } from "./asset-picker";
 import { EntryPortraitField } from "./components/entry-portrait-field";
+import { VoiceField } from "./components/voice-field";
 import { resolveAssetUrl } from "@/lib/asset-url";
 import { useTemplateContentPlaceholder } from "./template-placeholders";
 import {
@@ -1063,7 +1064,7 @@ function CharacterForm({
 }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { t, i18n } = useTranslation("editor") as unknown as {
-    t: (key: string) => string;
+    t: (key: string, options?: Record<string, unknown>) => string;
     i18n: { language: string };
   };
   const entry = useEditorStore((s) =>
@@ -1115,6 +1116,13 @@ function CharacterForm({
           </TwoTapDeleteButton>
         )}
       </div>
+      <VoiceField
+        variant="compact"
+        label={t("voiceField.characterLabel")}
+        title={t("voiceField.character", { name: entry.name })}
+        value={entry.voice}
+        onChange={(voice) => updateEntry(entryId, { voice })}
+      />
 
       <div>
         <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">

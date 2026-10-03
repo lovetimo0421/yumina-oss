@@ -98,6 +98,21 @@ cdnRoutes.get("/key/:encodedKey", async (c) => {
   return streamS3Object(c, s3Key, "CDN key proxy error:");
 });
 
+// GET /cdn/tts/:hash — synthesized voice readouts (content-addressed cache).
+// The hash is sha256(model|voice|text): knowing it requires knowing the exact
+// text already, so this is a capability URL — same access model as /:assetId.
+// Range support comes free from streamS3Object (audio seeking).
+cdnRoutes.get("/tts/:hash", async (c) => {
+  if (!isS3Configured()) {
+    return c.json({ error: "Asset storage not configured" }, 503);
+  }
+  const hash = c.req.param("hash");
+  if (!/^[a-f0-9]{64}$/.test(hash)) {
+    return c.json({ error: "Invalid hash" }, 400);
+  }
+  return streamS3Object(c, `tts/${hash}.mp3`, "CDN TTS proxy error:");
+});
+
 /**
  * Stream an S3 object through, honoring Range requests (audio/video seeks no
  * longer re-download from byte zero — S3 itself slices and answers 206 with

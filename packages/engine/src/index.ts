@@ -16,6 +16,9 @@ export type {
   GameState,
   AudioTrack,
   AudioEffect,
+  ContinuityConfig,
+  ContinuityMusicConfig,
+  SceneImage,
   BGMPlaylist,
   ConditionalBGM,
   BGMTriggerType,
@@ -105,6 +108,7 @@ export {
   gameStateSchema,
   audioTrackSchema,
   audioEffectSchema,
+  sceneImageSchema,
   bgmPlaylistSchema,
   conditionalBGMSchema,
   lorebookEntrySchema,
@@ -169,6 +173,42 @@ export type {
 export { deriveSectionDefaults, deriveSectionDefaultsForEntry } from "./entries/section-defaults.js";
 export { OFFICIAL_PRESETS } from "./entries/official-presets.js";
 export type { OfficialPreset } from "./entries/official-presets.js";
+// Per-model prompt binding: model → family classifier, shared by server + app.
+export { MODEL_FAMILIES, familyOf, isModelFamily } from "./entries/model-families.js";
+export type { ModelFamily } from "./entries/model-families.js";
+// Source texts for the seeded 解除限制 presets (the per-model prompt packs the
+// seed script bakes into the 提示词广场). No assembly/options layer any more.
+export {
+  UNRESTRICT_TEXT_VERSION,
+  UNRESTRICT_TEXT_VERIFIED_AT,
+  UNRESTRICT_TEXTS,
+} from "./entries/unrestrict-preset-texts.js";
+export type {
+  UnrestrictVariantTexts,
+  UnrestrictVariant,
+  UnrestrictStrength,
+  UnrestrictExplicitness,
+} from "./entries/unrestrict-preset-texts.js";
+
+// Bundles: the composed index every card with installed UI bundles gets, and
+// the official in-story App packs that plug into its dock.
+export {
+  USER_ROOT_PATH,
+  COMPOSED_MARKER,
+  BUNDLE_NS_RE,
+  generateComposedIndex,
+} from "./bundles/composed-index.js";
+export {
+  APP_PACK_IDS,
+  appPack,
+  appPackSummaries,
+  appPackSource,
+  appPackLanguage,
+  appPackSample,
+  appPackSets,
+  appPackVariableId,
+} from "./bundles/app-packs.js";
+export type { AppPackId, AppPackSummary, AppPackLanguage, AppPackSet } from "./bundles/app-packs.js";
 
 // Lorebook
 export { LorebookMatcher } from "./lorebook/lorebook-matcher.js";
@@ -191,7 +231,28 @@ export {
   isAiWritable,
   resolveActiveVariableIds,
   filterAiEffects,
+  isContinuityEnabled,
+  isContinuityEligible,
+  isContinuityOwned,
+  isSceneImageJudgeOn,
+  CONTINUITY_MAX_OPTIONS,
+  suggestedContinuityDelta,
+  withPreciseTrackingDefault,
 } from "./state/variable-activation.js";
+export {
+  buildContinuityPlan,
+  applyContinuityPlan,
+  CONTINUITY_THRESHOLDS,
+} from "./continuity/index.js";
+export type {
+  ContinuityPlan,
+  ContinuityInput,
+  ContinuityMemory,
+  ContinuityResult,
+  ContinuityDecision,
+  JevQuestion,
+  JevAnswer,
+} from "./continuity/index.js";
 export { keywordMatches } from "./lorebook/keyword-matcher.js";
 export {
   extractLoreSlotsFromFiles,
@@ -214,6 +275,16 @@ export { StructuredResponseParser } from "./parser/structured-response-parser.js
 export { IncrementalSegmentExtractor } from "./parser/incremental-segment-extractor.js";
 export type { ExtractedSegment, ExtractionResult } from "./parser/incremental-segment-extractor.js";
 export { parseImageEmbeds, renderImageEmbedHtml, isImageEmbedSource } from "./parser/image-embed-parser.js";
+export {
+  getAiSceneImages,
+  resolveSceneImageDirectives,
+  hasImageVariable,
+  sceneImageEmbed,
+  buildSceneImagePromptBlock,
+  hasSceneImageHandle,
+  reclaimCopiedSceneImages,
+} from "./parser/scene-image-directives.js";
+export type { ResolvedSceneImages } from "./parser/scene-image-directives.js";
 export { ThinkingTagFilter } from "./parser/thinking-tag-filter.js";
 export type { ImageEmbed, ImageEmbedPlacement, ImageEmbedSize, ParsedImageEmbeds } from "./parser/image-embed-parser.js";
 

@@ -52,6 +52,7 @@ import {
   LorebookPanel,
   VariablesPanel,
   AudioPanel,
+  SceneImagesPanel,
   OverviewPanel,
   CodeViewPanel,
   PlaytestPanel,
@@ -86,6 +87,7 @@ const PANEL_COMPONENTS: Record<
   variables: VariablesPanel,
   rules: RulesPanel,
   audio: AudioPanel,
+  "scene-images": SceneImagesPanel,
   overview: OverviewPanel,
   "code-view": CodeViewPanel,
   playtest: PlaytestPanel,
@@ -109,6 +111,7 @@ const PANEL_TITLE_KEYS: Record<string, string> = {
   "first-message": "studio.panels.firstMessage",
   assets: "studio.panels.assets",
   audio: "studio.panels.audio",
+  "scene-images": "studio.panels.sceneImages",
   canvas: "studio.panels.canvas",
   "code-view": "studio.panels.frontEndCode",
   overview: "studio.panels.overview",
@@ -331,6 +334,16 @@ function buildDesktopReviewPayload(toolCall: ToolCall, draftInput?: Record<strin
     };
   }
 
+  if (toolName === "write_scene_image") {
+    const existing = findReviewEntity(args, draft.sceneImages as unknown[]);
+    return {
+      title,
+      toolName,
+      changed: formatReviewValue(args),
+      original: existing ? formatReviewValue(summarizeReviewEntity(existing)) : noOriginal,
+    };
+  }
+
   if (toolName === "delete_entities") {
     const ids = Array.isArray(args.ids) ? args.ids.filter((id): id is string => typeof id === "string") : [];
     const collections = [
@@ -339,6 +352,7 @@ function buildDesktopReviewPayload(toolCall: ToolCall, draftInput?: Record<strin
       ...(draft.reactions as unknown[] | undefined ?? []),
       ...(draft.rules as unknown[] | undefined ?? []),
       ...(draft.audioTracks as unknown[] | undefined ?? []),
+      ...(draft.sceneImages as unknown[] | undefined ?? []),
     ];
     const files = (draft.rootComponent as Record<string, unknown> | undefined)?.files as Record<string, string> | undefined;
     const originals = ids.map((id) => {

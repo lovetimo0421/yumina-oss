@@ -8,3 +8,8 @@ test('only immutable packaged game resources receive long-lived caching',()=>{
  for(const key of ['users/a/avatar.png','worlds/a/image.jpg',prefix+'index.html',prefix+'unexpected.txt',prefix+'../main.pak','worlds/pvz-previews/latest/main.pak'])
   assert.equal(publicAssetCacheControl(key),'public, max-age=0, s-maxage=300, must-revalidate');
 });
+test('content-addressed voice readouts are immutable; anything else under tts/ is not',()=>{
+ assert.equal(publicAssetCacheControl('tts/'+'b'.repeat(64)+'.mp3'),'public, max-age=31536000, immutable');
+ for(const key of ['tts/latest.mp3','tts/'+'b'.repeat(64)+'.wav','tts/'+'B'.repeat(64)+'.mp3','xtts/'+'b'.repeat(64)+'.mp3'])
+  assert.equal(publicAssetCacheControl(key),'public, max-age=0, s-maxage=300, must-revalidate');
+});

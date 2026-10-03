@@ -1,4 +1,3 @@
-import { ImageCapabilityBadge } from "@/components/image-capability-badge";
 import { savePreferredProvider } from "@/lib/provider-switch";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -662,7 +661,7 @@ function MixConfigView({
                       )}
                     >
                       <Plus className="h-3.5 w-3.5 shrink-0 text-primary/60" />
-                      <span className="flex-1 truncate text-xs font-medium text-white/70">{m.name}</span><ModelImageBadge supported={m.supportsImages} />
+                      <span className="flex-1 truncate text-xs font-medium text-white/70">{m.name}</span>
                       <span className="shrink-0 text-[10px] text-white/25">{m.provider}</span>
                     </button>
                   );
@@ -723,7 +722,6 @@ function OfficialView({
   const modelPool = useConfigStore(s => s.modelPool);
   const grokTrialRemaining = useCreditStore(s => s.grokTrialRemaining);
   const storeModels = useModelsStore(s => s.models);
-  const imageSupportById = useMemo(() => new Map(storeModels.map(x => [x.id, x.supportsImages])), [storeModels]);
   const statsById = useMemo(() => new Map(storeModels.map(x => [x.id, x.costStats])), [storeModels]);
   const pinnedModels = useConfigStore(s => s.pinnedModels);
   const pinModel = useConfigStore(s => s.pinModel);
@@ -820,7 +818,7 @@ function OfficialView({
       </div>
       <div className="flex min-h-8 shrink-0 items-center justify-between gap-1 px-5 text-[11px] text-white/55" aria-live="polite">
         <span>{pinLimitHit ? t("modelBrowser.pinLimit",{max:MAX_PINNED_MODELS}) : t("modelBrowser.modelsFound",{count:models.length})}</span>
-        {sort === "popular" && <button type="button" onClick={e=>showInfo("popularity",e)} aria-expanded={info === "popularity"} className="flex items-center gap-1 rounded px-1 py-1 hover:text-white">· {t("modelBrowser.popularityLabel")}<Info className="h-3 w-3" /></button>}
+        {sort === "popular" && <button type="button" onClick={e=>showInfo("popularity",e)} aria-label={t("modelBrowser.popularityInfoTitle")} title={t("modelBrowser.popularityInfoTitle")} aria-expanded={info === "popularity"} className="flex h-8 w-8 shrink-0 items-center justify-center rounded hover:text-white"><Info className="h-3 w-3" /></button>}
       </div>
       <div ref={listRef} data-testid="official-model-list" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 max-[390px]:px-2">
         {models.map(m => {
@@ -833,7 +831,7 @@ function OfficialView({
               <span aria-hidden="true" className={cn("h-2 w-2 shrink-0 rounded-full",meta.dot,isSelected ? "opacity-100 ring-4 ring-white/5" : "opacity-70")} />
               <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-2">
-                <span className="min-w-0 text-sm font-medium text-white/90 [overflow-wrap:anywhere]">{m.name}</span><ModelImageBadge supported={imageSupportById.get(m.id) ?? m.supportsImages} />
+                <span className="min-w-0 flex-1 text-sm font-medium text-white/90 [overflow-wrap:anywhere]">{m.name}</span>
                 {isSelected && !locked && <Check aria-hidden="true" className={cn("h-3 w-3 shrink-0 self-center",meta.color)} />}
                 <span className={cn("shrink-0 whitespace-nowrap text-[11px] tabular-nums",m.avgCostMushies === 0 ? "text-emerald-400/80" : "text-gold/75")}>{cost(m)}</span>
               </div>
@@ -974,7 +972,7 @@ function PrivateView({
         </span>
         <div className="flex-1 min-w-0">
           <p className={cn("truncate text-sm font-medium", isSelected ? "text-white" : "text-white/80")}>
-            {m.name || formatModelId(m.id)}<ModelImageBadge supported={m.supportsImages} />
+            {m.name || formatModelId(m.id)}
           </p>
         </div>
         <span className={cn("shrink-0 text-[10px] font-medium", providerColor)}>{m.provider}</span>
@@ -1261,9 +1259,4 @@ function SectionLabel({ icon, children }: { icon?: React.ReactNode; children: Re
       <span className="text-[10px] font-semibold uppercase tracking-wider text-white/25">{children}</span>
     </div>
   );
-}
-
-function ModelImageBadge({ supported }: { supported?: boolean }) {
-  const { i18n } = useTranslation();
-  return <ImageCapabilityBadge supported={supported} language={i18n.language} />;
 }

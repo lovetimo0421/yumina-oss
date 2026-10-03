@@ -81,3 +81,33 @@ export const adminUpdateWorldSchema = z.object({
 export type CreateWorldSchema = z.infer<typeof createWorldSchema>;
 export type UpdateWorldSchema = z.infer<typeof updateWorldSchema>;
 export type AdminUpdateWorldSchema = z.infer<typeof adminUpdateWorldSchema>;
+
+/** Admin composition only: image uploads and arbitrary source URLs are excluded. */
+export const adminWorldArtworkCropSchema = z.object({
+  x: z.number().finite().min(-45).max(45),
+  y: z.number().finite().min(-45).max(45),
+  zoom: z.number().finite().min(0.25).max(1),
+  fit: z.literal("cover"),
+}).strict();
+
+export const adminWorldArtworkUpdateSchema = z.object({
+  expectedRevision: z.string().regex(/^[a-f0-9]{64}$/),
+  coverCrop: adminWorldArtworkCropSchema.optional(),
+  landscapeCoverCrop: adminWorldArtworkCropSchema.optional(),
+  landscapeSource: z.literal("portrait").optional(),
+}).strict().refine(value => !!(value.coverCrop || value.landscapeCoverCrop), {
+  message: "Confirm at least one artwork crop",
+}).refine(value => !value.landscapeSource || !!value.landscapeCoverCrop, {
+  message: "Reusing portrait artwork requires a landscape crop",
+});
+
+export type AdminWorldArtworkUpdate = z.infer<typeof adminWorldArtworkUpdateSchema>;
+export interface AdminWorldArtwork {
+  thumbnailUrl: string | null;
+  landscapeCoverUrl: string | null;
+  // Existing cards may have legacy crop values; clients normalize for display.
+  coverCrop: unknown | null;
+  galleryCoverCrop: unknown | null;
+  landscapeCoverCrop: unknown | null;
+  revision: string;
+}

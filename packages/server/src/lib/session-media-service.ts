@@ -361,7 +361,7 @@ export function createSessionMediaService(db: DrizzleDB, storage: MediaStorage) 
         value: unknown;
     }) {
         await requireReady();
-        if (changes.length > 100)
+        if (changes.length > 500)
             throw new MediaError('MEDIA_INVALID_REQUEST');
         if (document && (!document.value || typeof document.value !== 'object' || Array.isArray(document.value) || Buffer.byteLength(JSON.stringify(document.value)) > 24 * 1024))
             throw new MediaError('MEDIA_INVALID_METADATA');

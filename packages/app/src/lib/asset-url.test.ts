@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cardImageUrl, originalImageUrl, fallbackToOriginalOnError, isAnimatedImageRef } from "./asset-url";
+import { cardImageUrl, thumbnailImageUrl, originalImageUrl, fallbackToOriginalOnError, isAnimatedImageRef } from "./asset-url";
 
 // Guards the CF Image Transformations contract (see cardImageUrl doc comment):
 // quality=85 (Cloudflare's default — 82 read visibly worse on DPR-1 monitors),
@@ -12,6 +12,19 @@ test("cardImageUrl builds a transform URL at quality=85", () => {
     cardImageUrl("/cdn/some-asset-id", 480),
     "/cdn-cgi/image/width=480,quality=85,format=auto,onerror=redirect/cdn/some-asset-id",
   );
+});
+
+test("list thumbnails resize static covers and preserve original animation URLs", () => {
+  assert.equal(thumbnailImageUrl("/cdn/static-cover"), cardImageUrl("/cdn/static-cover", 800));
+  assert.equal(thumbnailImageUrl("/cdn/static-cover", 96), cardImageUrl("/cdn/static-cover", 96));
+  const animated = `/cdn/key/${Buffer.from("covers/motion.anim.webp").toString("base64url")}`;
+  assert.equal(thumbnailImageUrl(animated), animated);
+  assert.equal(thumbnailImageUrl("data:image/png;base64,xyz"), "data:image/png;base64,xyz");
+  assert.equal(thumbnailImageUrl("https://elsewhere.example/cover.jpg"), "https://elsewhere.example/cover.jpg");
+  assert.equal(thumbnailImageUrl(null), undefined);
+  const img = { src: thumbnailImageUrl("/cdn/static-cover")! } as HTMLImageElement;
+  fallbackToOriginalOnError({ currentTarget: img });
+  assert.equal(img.src, "/cdn/static-cover");
 });
 
 test("cardImageUrl resolves bare uuid refs onto /cdn/ before wrapping", () => {

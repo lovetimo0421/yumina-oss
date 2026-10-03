@@ -7,6 +7,7 @@ import {
   MessageCircle,
   MessageSquare,
   Music,
+  Images,
   Package,
   PanelRight,
   Variable,
@@ -42,6 +43,7 @@ export const PANEL_MENU_GROUPS = [
     items: [
       { id: "code-view", labelKey: "studio.panels.frontEndCode", icon: Code },
       { id: "audio", labelKey: "studio.panels.audio", icon: Music },
+      { id: "scene-images", labelKey: "studio.panels.sceneImages", icon: Images },
       { id: "assets", labelKey: "studio.panels.assets", icon: FolderOpen },
     ],
   },

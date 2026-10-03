@@ -27,6 +27,8 @@ export interface SpeakerEntry {
   role?: string;
   enabled?: boolean;
   portrait?: string | null;
+  /** The voice the author gave this character (fish.audio reference id). */
+  voice?: string | null;
 }
 
 export interface Speaker {
@@ -34,6 +36,8 @@ export interface Speaker {
   /** null when the tagged character exists but has no portrait — the name
    *  still beats a generic "Narrator" label. */
   portrait: string | null;
+  /** The character's own voice, or null: the readout falls to the narrator's. */
+  voice: string | null;
 }
 
 /** The text a bubble should render: the leading tag never reaches the player. */
@@ -49,6 +53,7 @@ function toSpeaker(e: SpeakerEntry): Speaker {
   return {
     name: displayCharacterName(e.name),
     portrait: typeof e.portrait === "string" && e.portrait.length > 0 ? e.portrait : null,
+    voice: typeof e.voice === "string" && e.voice.length > 0 ? e.voice : null,
   };
 }
 

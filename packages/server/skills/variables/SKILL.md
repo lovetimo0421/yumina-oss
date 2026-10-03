@@ -55,6 +55,12 @@ Design rule: **the AI should only write what only the AI can judge.** Everything
 
 `read`/`none` variables usually need no behaviorRules (nothing to teach the AI about updating); a `read` variable's behaviorRules, if present, should explain how to NARRATE it, not how to change it.
 
+### precise — 精准追踪 (on by default for new variables)
+
+A new `number`/`boolean` variable, and a `string` with `options`, is created with `precise: true`: after each reply a small decision model reads the turn and sets the value (numbers move within `deltaDown`/`deltaUp` per turn — default 15% of max−min, or 10 without a range; strings pick one of `options`). The narrator sees it as read-only, so the value moves reliably even on models that forget directives. Its behaviorRules still matter — the judge reads them to decide how much it moves.
+
+Pass `precise: false` for a value something else owns: a counter a behavior ticks, a choice the player makes in the UI. `read`/`none`/internal/json/setup variables are never precise-tracked. Give a string variable `options` when it has a small fixed set of states (mood, stage) so it can be tracked too.
+
 ### activation — when the variable is in play
 
 Same shape as a worldbook's activation. Omit = always active.

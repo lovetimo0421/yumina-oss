@@ -4,6 +4,8 @@ import { db } from "../db/index.js";
 import { deletedAccountTombstones, user } from "../db/schema.js";
 import { env } from "./env.js";
 import { isDeletedIdentityRegistrationBlocked } from "./deleted-identity-policy.js";
+import { REFERRAL_REWARD_EPOCH } from "./referral-rewards.js";
+import { mergeReferralClaims } from "./referral-claim-history.js";
 
 function deletedIdentitySecrets(): string[] {
   const configured = env.DELETED_IDENTITY_HMAC_SECRETS
@@ -47,6 +49,12 @@ export async function getDeletedIdentity(email: string) {
     return {
       ...first,
       wasBanned: records.some((record) => record.wasBanned),
+      wasSuspended: records.some((record) => record.wasSuspended),
+      referralClaims: mergeReferralClaims(
+        REFERRAL_REWARD_EPOCH,
+        [],
+        records.map((record) => record.referralClaims),
+      ),
       blockWelcomeRewards: records.some((record) => record.blockWelcomeRewards),
       blockInviteRedemption: records.some((record) => record.blockInviteRedemption),
       lastCheckinDay: records
@@ -100,12 +108,12 @@ async function removeRejectedSignupUser(userId: string): Promise<void> {
 }
 
 /**
- * Close the same-email race between an uncommitted banned-account deletion
- * tombstone and a signup INSERT. A newly visible ban is reapplied and the
+ * Close the same-email race between an uncommitted restricted-account deletion
+ * tombstone and a signup INSERT. A newly visible restriction is reapplied and the
  * inserted user is removed before Better Auth can leave a usable account
  * behind. Ordinary deleted identities may register again immediately.
  */
-export async function rejectBannedDeletedIdentityAfterCreate(userId: string, email: string) {
+export async function rejectRestrictedDeletedIdentityAfterCreate(userId: string, email: string) {
   let deletedIdentity: Awaited<ReturnType<typeof getDeletedIdentity>>;
   try {
     deletedIdentity = await getDeletedIdentity(email);

@@ -91,21 +91,21 @@ export async function walletBreakdown(wallet:{id:string;userId:string;balance:nu
   if(!bonusCompatibilityEnabled())return null;
   return db.transaction(async tx=>{
     await expireWalletBonus(wallet.userId,tx);
-    const fresh=await tx.execute(sql`SELECT balance,addon_balance,period_start,period_end,monthly_credits FROM credit_wallets WHERE id=${wallet.id} FOR UPDATE`) as Rows<{balance:number;addon_balance:number;period_start:Date|string;period_end:Date|string;monthly_credits:number}>;
+    const fresh=await tx.execute(sql`SELECT balance,addon_balance,period_start,period_end,monthly_credits,plan,plan_version,plan_expires_at,pending_plan,pending_plan_effective FROM credit_wallets WHERE id=${wallet.id} FOR UPDATE`) as Rows<{balance:number;addon_balance:number;period_start:Date|string;period_end:Date|string;monthly_credits:number;plan:string;plan_version:number;plan_expires_at:Date|string|null;pending_plan:string|null;pending_plan_effective:Date|string|null}>;
     const row=fresh.rows[0];if(!row)throw new Error('WALLET_MISSING');
-    const current={...wallet,balance:Number(row.balance),addonBalance:Number(row.addon_balance),monthlyCredits:Number(row.monthly_credits),periodStart:utcDate(row.period_start),periodEnd:utcDate(row.period_end)};
+    const current={...wallet,balance:Number(row.balance),addonBalance:Number(row.addon_balance),monthlyCredits:Number(row.monthly_credits),periodStart:utcDate(row.period_start),periodEnd:utcDate(row.period_end),plan:row.plan,planVersion:row.plan_version,planExpiresAt:row.plan_expires_at?utcDate(row.plan_expires_at):null,pendingPlan:row.pending_plan,pendingPlanEffective:row.pending_plan_effective?utcDate(row.pending_plan_effective):null};
     const groups=await bonusGroups(tx,wallet.id),bonus=groups.reduce((s,g)=>s+g.amount,0),rollout=freeCreditRollout();
     if(bonus>current.addonBalance+walletTolerance(bonus,current.addonBalance))throw new Error('BONUS_BALANCE_MISMATCH');
-    const reduced=await useBonusRewards(wallet.userId,wallet.plan,current.periodStart,new Date(),tx);
-    const reducedCycle=(await currentCycleTerms(wallet.id,current.periodStart,wallet.plan,tx)).reduced;
-    const planVersion=wallet.planVersion??1;
+    const reduced=await useBonusRewards(wallet.userId,current.plan,current.periodStart,new Date(),tx);
+    const reducedCycle=(await currentCycleTerms(wallet.id,current.periodStart,current.plan,tx)).reduced;
+    const planVersion=current.planVersion??1;
     // The free-policy change notices ("check-ins change …", "monthly allowance
     // and recovery change …") describe the LEGACY lineup. A lineup-2 wallet has
     // no recovery to change and no dated cycle change, and it never writes a
     // wallet_free_cycles row — which made reducedCycle false and fired the
     // notice at every new free signup. Version 2 is simply out of scope.
-    const legacyPolicy=rollout.enabled&&wallet.plan==='free'&&planVersion!==2;
-    const nextDrop=await nextDropFor({id:wallet.id,plan:wallet.plan,planVersion,periodStart:current.periodStart},tx);
+    const legacyPolicy=rollout.enabled&&current.plan==='free'&&planVersion!==2;
+    const nextDrop=await nextDropFor({...current,planVersion},tx);
     return {version:1 as const,planVersion,nextDrop,total:current.balance,monthly:Math.max(0,current.balance-current.addonBalance),bonus,saved:Math.max(0,current.addonBalance-bonus),monthlyResetsAt:current.periodEnd.toISOString(),groups,policy:{reducedCycle,reducedCheckins:reduced,checkinsChangeAt:legacyPolicy&&!reduced?rollout.existingAt:null,cycleChangeAt:legacyPolicy&&!reducedCycle?nextPolicyCycle(current.periodEnd,rollout.existingAt!).toISOString():null}};
   });
 }

@@ -51,7 +51,7 @@ test("reconciled uploads do not count storage twice and clear rejects late uploa
 });
 
 test("auth cleanup aborts background upload synchronously without a mounted host", async () => {
-  let aborted = false, assetClears = 0;
+  let aborted = false, assetClears = 0, worldClears = 0;
   const task = createAssetImportStore({ storage: () => ({ used: 0, limit: 100 }), createFolder: async () => ({ id: "folder" }),
     upload: async (_file, _type, _folder, signal) => new Promise(resolve => signal.addEventListener("abort", () => { aborted = true; resolve(null); }, { once: true })) });
   task.getState().select({ parentFolderId: null, parentLabel: "Root", plan: planFolderImport([{ path: "folder/a.txt", file: new File(["a"], "a.txt") }]) }, "alice");
@@ -65,12 +65,14 @@ test("auth cleanup aborts background upload synchronously without a mounted host
     "@/stores/user-profile": { useUserProfileStore: { getState: () => ({ clear: noop }) } },
     "@/edition/slots.state": { resetHostedStoresOnSignOut: noop },
     "@/stores/library": { useLibraryStore: { setState: noop } },
+    "@/stores/worlds": { useWorldsStore: { getState: () => ({ clear: () => { worldClears++; } }) } },
     "@/stores/ui": {}, "@/stores/studio-sidebar": {}, "@/lib/analytics": {},
     "@/lib/session-picker-cache": { clearSessionPickerCache: noop },
   });
   clearAllStores();
   assert.equal(aborted, true);
   assert.equal(assetClears, 1);
+  assert.equal(worldClears, 1);
   assert.equal(task.getState().task, null);
   await run;
 });

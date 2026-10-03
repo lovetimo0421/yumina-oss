@@ -16,15 +16,10 @@ export async function sessionMediaLimit(userId: string) {
     const plan = await resolveEffectivePlanWithEventEntitlements(userId, wallet.plan);
     return PLANS[plan].storageCap;
 }
-/** Kill switch affects new writes only; existing media remains readable. */
-export function sessionMediaUploadsEnabled(userId: string, worldId: string) {
-    if (storageKind() !== 's3') return false;
-    if (process.env.SESSION_MEDIA_UPLOADS_ENABLED === 'false')
-        return false;
-    if (process.env.SESSION_MEDIA_UPLOADS_ENABLED === 'true')
-        return true;
-    return (process.env.SESSION_MEDIA_PILOT_USERS ?? '').split(',').map(id=>id.trim()).filter(Boolean).includes(userId)
-        || (process.env.SESSION_MEDIA_PILOT_WORLDS ?? '').split(',').map(id=>id.trim()).filter(Boolean).includes(worldId);
+/** Available to every save with private object storage. The emergency switch
+ * pauses new writes only; existing images remain readable. No world allowlist. */
+export function sessionMediaUploadsEnabled(_userId: string, _worldId: string) {
+    return storageKind() === 's3' && process.env.SESSION_MEDIA_UPLOADS_ENABLED !== 'false';
 }
 let sweeping = false;
 export function startSessionMediaCleanup() {

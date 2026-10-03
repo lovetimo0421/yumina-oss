@@ -26,3 +26,15 @@ export function getKrewPublicConfig(clientOrigin: string, testClientOrigin: stri
     testClientOrigin: client ? normalizeKrewClientOrigin(testClientOrigin) || null : null,
   };
 }
+
+/** The gateway krew's client talks to, derived the way its engine page does
+ *  (`game.` + the client host without a `play.`/`www.` prefix): play.krew.io →
+ *  game.krew.io, test.krew.io → game.test.krew.io. Used only to warm a
+ *  connection early; the client still decides where it actually connects. */
+export function krewGameOrigin(clientOrigin: string): string | null {
+  const origin = normalizeKrewClientOrigin(clientOrigin);
+  if (!origin) return null;
+  const url = new URL(origin);
+  if (["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)) return null;
+  return `${url.protocol}//game.${url.hostname.replace(/^(play|www)\./, "")}`;
+}

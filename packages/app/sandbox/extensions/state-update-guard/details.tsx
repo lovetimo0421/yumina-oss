@@ -43,6 +43,11 @@ const statusCopy = {
   ja: ["修正済み", "修正不要"], es: ["Corregido", "No necesita corrección"],
 } as const;
 
+const unverifiedCopy = {
+  en: "Unchecked, applied as written", zh: "未检查，按原回复更新", "zh-Hant": "未檢查，按原回覆更新",
+  ja: "未確認、元の返信どおり更新", es: "Sin comprobar, aplicado como se escribió",
+} as const;
+
 function historyStatus(audit: StateValidationAudit, language = "en") {
   const key = clampLanguage(language);
   const outcome = auditOutcome(audit);
@@ -50,6 +55,7 @@ function historyStatus(audit: StateValidationAudit, language = "en") {
   if (outcome === "valid-updates" || outcome === "explicit-none" || outcome === "not-required") {
     return statusCopy[key][audit.correctionCount > 0 && outcome !== "not-required" ? 0 : 1];
   }
+  if (outcome === "unverified") return unverifiedCopy[key];
   return labels[({ validating: 5, repairing: 6, failed: 7, cancelled: 8, stale: 9 } as const)[outcome]];
 }
 

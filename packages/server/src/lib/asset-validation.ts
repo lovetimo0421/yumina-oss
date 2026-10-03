@@ -93,5 +93,13 @@ export function scanWorldSchemaForInlineAssets(schema: unknown): InlineAssetMatc
     }
   }
 
+  // sceneImages[*].url (starts with data:)
+  const sceneImages = (s.sceneImages as Array<{ id?: string; url?: string }> | undefined) ?? [];
+  for (const img of sceneImages) {
+    if (typeof img.url === "string" && img.url.startsWith("data:")) {
+      found.push({ location: `sceneImages "${img.id ?? "?"}" url`, count: 1, totalBytes: img.url.length });
+    }
+  }
+
   return found;
 }

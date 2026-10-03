@@ -1,0 +1,227 @@
+{
+  "name": "制限解除",
+  "switchLabel": "制限解除のオン/オフ",
+  "loading": "読み込み中…",
+  "cancel": "キャンセル",
+  "tokensApprox": "約 {{n}} トークン",
+  "status": {
+    "off": "オフ",
+    "on": "オン · {{variant}} · 強度：{{strength}}",
+    "autoVariant": "自動（{{variant}}）"
+  },
+  "variants": {
+    "gemini": "Gemini 版",
+    "claude": "Claude 版",
+    "deepseek": "DeepSeek 版",
+    "general": "汎用版"
+  },
+  "strength": {
+    "title": "強度",
+    "light": "弱",
+    "standard": "標準",
+    "strong": "強",
+    "hint": {
+      "light": "物語の枠組みだけ。文体への影響がいちばん少ない。",
+      "standard": "枠組みとよく使う指示。たいていはこれで十分。",
+      "strong": "返信前のセルフチェックを追加。トークンが少し増えます。"
+    }
+  },
+  "card": {
+    "adjust": "調整"
+  },
+  "age": {
+    "title": "まず年齢を確認",
+    "body": "生まれ年を確認するとオンにできます。",
+    "placeholder": "生まれた年（例：1998）",
+    "confirm": "確認",
+    "invalid": "4桁の年を入力してください。",
+    "under18": "18歳未満は制限解除を使えません。"
+  },
+  "errors": {
+    "notEligible": "このアカウントでは今は制限解除を使えません",
+    "saveFailed": "保存できませんでした。もう一度お試しください",
+    "copyFailed": "コピーできませんでした。もう一度お試しください"
+  },
+  "prompts": {
+    "title": "プロンプト",
+    "newFolder": "新しいフォルダ",
+    "mine": "マイプロンプト",
+    "mineCount": "· {{total}} 件、{{on}} 件オン",
+    "mineCountLong": "全 {{total}} 件、{{on}} 件オン",
+    "new": "新規",
+    "none": "プロンプトはまだありません。",
+    "hubRow": "プロンプト広場でもっと探す",
+    "manageInSettings": "設定 › プロンプト で管理",
+    "pos": "位置 {{n}}",
+    "section": {
+      "system": "System",
+      "inChat": "In-Chat",
+      "final": "Final"
+    },
+    "sectionFull": {
+      "system": "System（システム）",
+      "inChat": "In-Chat（会話中）",
+      "final": "Final（最後）"
+    }
+  },
+  "conflict": {
+    "paused": "「{{name}}」と公式版が同時にオンだったので、あなたの方を一時停止しました。",
+    "pausedLong": "あなたの「{{name}}」と公式プリセットが同時にオンだったので、あなたの方を自動で一時停止しました。",
+    "undo": "元に戻す",
+    "restored": "「{{name}}」を戻しました。今は両方が効いていて、ぶつかる可能性があります。",
+    "repause": "もう一度停止"
+  },
+  "chips": {
+    "officialCopy": "公式のコピー",
+    "fromHub": "広場から",
+    "paused": "一時停止中"
+  },
+  "page": {
+    "breadcrumb": "現在地",
+    "crumbSettings": "設定"
+  },
+  "gone": {
+    "title": "このページは存在しません",
+    "body": "このアカウントではこのリンクを開けません。",
+    "cta": "設定 › プロンプト へ"
+  },
+  "master": {
+    "currentModel": "現在のモデル",
+    "noModel": "未選択",
+    "autoUses": "自動で「{{variant}}」を使用",
+    "manualUses": "「{{variant}}」を使用（手動指定）",
+    "off": "オフ"
+  },
+  "variantsCard": {
+    "title": "公式プリセット",
+    "auto": "自動",
+    "autoPicked": "自動で選択",
+    "verified": "最終確認 {{date}}"
+  },
+  "what": {
+    "title": "何をするのか",
+    "one": "標準ではすべてのプロンプトの先頭に置かれ、毎回のメッセージで送られます。位置と内容は下で調整できます。",
+    "two": "同じ種類の自分のプロンプトを一時的に止めて、ぶつからないようにします。オフにすると元に戻ります。"
+  },
+  "honest": "内容によってはモデル提供元が直接ブロックしていて、オンにしても書けません。その場合はモデルを変える方が効果的です。",
+  "adjust": {
+    "title": "あなたの調整",
+    "autoPicked": "（自動で選択）",
+    "copyLocked": "コピーは本文を直接編集してください"
+  },
+  "join": {
+    "title": "追加のしかた",
+    "follow": "公式に従う",
+    "default": "標準",
+    "followHint": "公式が改善すると自動で更新。下の設定はそのまま使えます。",
+    "copy": "コピーして自分で編集",
+    "copyHint": "「マイプロンプト」に保存して自由に編集。自動更新はされません。",
+    "copyNote": "「マイプロンプト」に保存しました",
+    "backTitle": "公式に従う設定に戻しますか？",
+    "backBody": "本文が公式版に戻り、自動で更新されます。「{{variant}}（マイコピー）」は「マイプロンプト」から削除されます。",
+    "backOk": "公式に従う"
+  },
+  "update": {
+    "banner": "公式版が更新されました",
+    "compare": "比較",
+    "title": "公式「{{variant}}」の新しい版",
+    "subtitle": "自分のコピーを使っているので、先に確認します",
+    "legend": "今回の変更（強調＝追加、取り消し線＝削除）：",
+    "note": "「新しい版を使う」と公式の最新本文でコピーし直します。あなたの編集は置き換わります。",
+    "keepMine": "自分の版を残す",
+    "useNew": "新しい版を使う"
+  },
+  "position": {
+    "title": "置く場所",
+    "first": {
+      "label": "先頭（おすすめ）",
+      "hint": "モデルが最初に読むので、いちばん安定します。"
+    },
+    "after-char": {
+      "label": "キャラ設定の後",
+      "hint": "カードの設定を読んでからこれを読みます。設定が長いカード向け。"
+    },
+    "last": {
+      "label": "会話の最後",
+      "hint": "返信にいちばん近く効果は強いですが、文体が引っぱられることがあります。"
+    }
+  },
+  "modules": {
+    "title": "含める部分",
+    "coreLocked": "中核、オフ不可",
+    "core": {
+      "name": "物語の枠組み",
+      "desc": "会話を創作として位置づけます。ほかの項目の土台です。"
+    },
+    "antiApology": {
+      "name": "謝罪防止",
+      "desc": "拒否されたら言い方を変えて書き続ける"
+    },
+    "antiEmpty": {
+      "name": "空返事防止",
+      "desc": "一、二行だけや空白の返信を避ける"
+    },
+    "noLecture": {
+      "name": "説教なし",
+      "desc": "最後に安全上の注意や忠告を付けない"
+    },
+    "adultWriting": {
+      "name": "成人向け描写",
+      "desc": "成人向けの内容をどこまで直接的に書くか"
+    },
+    "strongReminder": {
+      "name": "返信前セルフチェック"
+    }
+  },
+  "explicitness": {
+    "subtle": "控えめ",
+    "normal": "普通",
+    "explicit": "直接的"
+  },
+  "fullText": {
+    "open": "全文を見る／編集",
+    "title": "{{variant}} · 全文",
+    "followHint": "公式に従っているので本文は読み取り専用です。本文か「編集」を押すと編集できます。",
+    "copyHint": "これはあなたのコピーです。自由に編集できます。",
+    "strengthChip": "強度：{{value}}",
+    "positionChip": "位置：{{value}}",
+    "copyMissing": "コピーにはまだ内容がありません。",
+    "restore": "公式版に戻す",
+    "edit": "編集",
+    "done": "完了",
+    "saveDone": "保存",
+    "confirmTitle": "全文を編集",
+    "confirmBody": "編集すると自分のコピーになり、自動更新されなくなります。コピーは「マイプロンプト」に表示され、公式の更新時にお知らせします。",
+    "confirmOk": "編集を続ける"
+  },
+  "scope": {
+    "title": "使うカード",
+    "all": "すべてのカード",
+    "some": "このカードだけ",
+    "none": "カードが選ばれていないので、今はどのカードでも使われません。",
+    "unknownWorld": "（ライブラリにないカード）",
+    "remove": "削除",
+    "add": "カードを追加",
+    "pickTitle": "カードを選ぶ",
+    "search": "カード名で検索",
+    "empty": "ライブラリにカードがありません。",
+    "pickSave": "完了（{{n}}）"
+  },
+  "footer": {
+    "withCost": "合計 約 {{n}} トークン · 1ターンあたり約 {{cost}} マッシーが追加",
+    "tokensOnly": "合計 約 {{n}} トークン"
+  },
+  "community": {
+    "title": "ほかの人のプロンプト",
+    "myUploads": "自分のアップロード",
+    "toHub": "プロンプト広場へ"
+  },
+  "bindings": {
+    "title": "モデル別に自動有効化",
+    "hint": "モデルの種類ごとに自動で使うプロンプトを選べます。",
+    "none": "無効",
+    "families": {
+      "other": "その他"
+    }
+  }
+}

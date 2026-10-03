@@ -59,5 +59,5 @@ test("rejects external, ambiguous, and API fallbacks", () => {
 
   const fallback = createHistory(0);
   navigateBackSafely(fallback.history, "https://evil.example/");
-  assert.deepEqual(fallback.calls.replace, ["/app/hub"]);
+  assert.deepEqual(fallback.calls.replace, ["/"]);
 });

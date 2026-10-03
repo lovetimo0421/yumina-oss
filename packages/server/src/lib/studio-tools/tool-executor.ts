@@ -14,12 +14,14 @@ import type {
   Reaction,
   ReactionEffect,
   AudioTrack,
+  SceneImage,
   Condition,
   Worldbook,
   LoreUiBinding,
 } from "@yumina/engine";
 import type { EventPattern, EventMatchCondition, VariableActivation } from "@yumina/engine";
-import { deriveSectionDefaults, deriveSectionDefaultsForEntry, isVariableBoundEntry, estimateTokens } from "@yumina/engine";
+import { deriveSectionDefaults, deriveSectionDefaultsForEntry, isVariableBoundEntry, estimateTokens, withPreciseTrackingDefault } from "@yumina/engine";
+import { isValidTtsVoice } from "@yumina/shared";
 import crypto from "crypto";
 import { parseToolArgs } from "./parse-tool-args.js";
 import { toStringArray, computeLorebookHealth, LOREBOOK_BUDGETS } from "./context-resolver.js";
@@ -41,7 +43,7 @@ function suggestSimilarIds(target: string, allIds: string[]): string {
 
 export interface SchemaChange {
   action: "create" | "update" | "delete";
-  entityType: "entry" | "variable" | "rule" | "behavior" | "customUI" | "audio" | "settings" | "worldbook" | "loreBinding";
+  entityType: "entry" | "variable" | "rule" | "behavior" | "customUI" | "audio" | "sceneImage" | "settings" | "worldbook" | "loreBinding";
   id?: string;
   data?: Record<string, unknown>;
 }
@@ -226,6 +228,9 @@ export function executeReadEntities(
 
     const audio = (world.audioTracks ?? []).find((a) => a.id === id);
     if (audio) { results[id] = { ...audio, _type: "audio" }; continue; }
+
+    const sceneImage = (world.sceneImages ?? []).find((img) => img.id === id);
+    if (sceneImage) { results[id] = { ...sceneImage, _type: "sceneImage" }; continue; }
 
     // Special IDs
     if (id === "settings") { results[id] = { ...world.settings, _type: "settings" }; continue; }
@@ -491,6 +496,7 @@ export function executeValidateWorld(world: WorldDefinition, options?: { skipTsx
   const ruleIds = world.rules.map((r) => r.id);
   const customUIIds = (world.customUI ?? []).map((c) => c.id);
   const audioIds = (world.audioTracks ?? []).map((a) => a.id);
+  const sceneImageIds = (world.sceneImages ?? []).map((img) => img.id);
 
   // ── Duplicate-ID check (cross-type) ──
   const allIds: { id: string; type: string }[] = [
@@ -500,6 +506,7 @@ export function executeValidateWorld(world: WorldDefinition, options?: { skipTsx
     ...ruleIds.map((id) => ({ id, type: "rule" })),
     ...customUIIds.map((id) => ({ id, type: "customUI" })),
     ...audioIds.map((id) => ({ id, type: "audio" })),
+    ...sceneImageIds.map((id) => ({ id, type: "sceneImage" })),
   ];
   const seen = new Map<string, string>();
   for (const { id, type } of allIds) {
@@ -700,6 +707,18 @@ export function executeValidateWorld(world: WorldDefinition, options?: { skipTsx
         entity: { type: "entry", id: e.id },
         message: `Entry "${e.id}" content contains ${match.count} inline base64 data URI(s) totaling ~${Math.round(match.totalBytes / 1024)}KB. Every LLM call re-sends these bytes.`,
         fix: "Replace ![alt](data:...) markdown images with @asset:{assetId} refs (uploaded via asset picker).",
+      });
+    }
+  }
+
+  for (const img of world.sceneImages ?? []) {
+    if ((img.url ?? "").startsWith("data:")) {
+      issues.push({
+        severity: "warning",
+        code: "inline-data-uri-in-scene-image",
+        entity: { type: "sceneImage", id: img.id },
+        message: `Scene image "${img.id}" has a data: URI as its picture. Upload it as an asset and reference @asset:{id} so it streams from CDN instead of living in the world JSON.`,
+        fix: "Upload the picture via the asset picker, then set url to '@asset:{assetId}'.",
       });
     }
   }
@@ -1024,6 +1043,8 @@ function applySingleChange(
         return applyCustomUIChange(draft, change.action, id, data, index);
       case "audio":
         return applyAudioChange(draft, change.action, id, data, index);
+      case "sceneImage":
+        return applySceneImageChange(draft, change.action, id, data, index);
       case "worldbook":
         return applyWorldbookChange(draft, change.action, id, data, index);
       case "loreBinding":
@@ -1090,6 +1111,8 @@ function ensureFolderExists(
 
 function applyEntryChange(draft: WorldDefinition, action: string, id: string, data: Record<string, unknown>, index: number): ChangeResult {
   const base = { index, action, entityType: "entry", id };
+  const badVoice = invalidVoiceError("write_entry", id, "voice", data.voice);
+  if (badVoice) return { ...base, status: "error", error: badVoice };
 
   if (action === "create") {
     // Duplicate check
@@ -1132,6 +1155,7 @@ function applyEntryChange(draft: WorldDefinition, action: string, id: string, da
       content: (data.content as string) ?? "",
       role: (data.role as WorldEntry["role"]) ?? "custom",
       portrait: typeof data.portrait === "string" ? data.portrait : undefined,
+      voice: voiceArg(data.voice),
       alwaysSend: (data.alwaysSend as boolean) ?? defaults.alwaysSend,
       keywords: toStringArray(data.keywords),
       conditions: mapConditions(data.conditions),
@@ -1217,6 +1241,7 @@ function applyEntryUpdates(entry: WorldEntry, data: Record<string, unknown>): vo
   if (data.content !== undefined) entry.content = data.content as string;
   if (data.role !== undefined) entry.role = data.role as WorldEntry["role"];
   if (typeof data.portrait === "string") entry.portrait = data.portrait;
+  if (typeof data.voice === "string") entry.voice = voiceArg(data.voice);
   if (data.keywords !== undefined) entry.keywords = toStringArray(data.keywords);
   if (data.conditions !== undefined) entry.conditions = mapConditions(data.conditions);
   if (data.conditionLogic !== undefined) entry.conditionLogic = data.conditionLogic as "all" | "any";
@@ -1394,8 +1419,11 @@ function applyVariableChange(draft: WorldDefinition, action: string, id: string,
       aiAccess: normalizeAiAccess(data.aiAccess),
       activation: normalizeVariableActivation(data.activation),
       enabled: typeof data.enabled === "boolean" ? data.enabled : undefined,
+      ...preciseFields(data),
     };
-    draft.variables.push(newVar);
+    // Precise tracking is on for a new variable unless the assistant said
+    // otherwise — the same default the editor gives a variable it makes.
+    draft.variables.push(withPreciseTrackingDefault(newVar));
     return { ...base, status: "success" };
   }
 
@@ -1434,6 +1462,26 @@ function applyVariableUpdates(variable: Variable, data: Record<string, unknown>)
   if (data.aiAccess !== undefined) variable.aiAccess = normalizeAiAccess(data.aiAccess);
   if (data.activation !== undefined) variable.activation = normalizeVariableActivation(data.activation);
   if (data.enabled !== undefined) variable.enabled = typeof data.enabled === "boolean" ? data.enabled : undefined;
+  const precise = preciseFields(data);
+  for (const key of ["options", "precise", "deltaDown", "deltaUp"] as const) {
+    if (key in precise) (variable as unknown as Record<string, unknown>)[key] = precise[key];
+  }
+}
+
+/** The precise-tracking fields a write_variable call carried, validated:
+ *  `options` a list of non-empty strings, deltas whole numbers ≥ 0. */
+function preciseFields(data: Record<string, unknown>): Partial<Pick<Variable, "options" | "precise" | "deltaDown" | "deltaUp">> {
+  const out: Partial<Pick<Variable, "options" | "precise" | "deltaDown" | "deltaUp">> = {};
+  if (Array.isArray(data.options)) {
+    const options = [...new Set(data.options.filter((o): o is string => typeof o === "string" && o.trim() !== "").map((o) => o.trim()))];
+    out.options = options.length > 0 ? options : undefined;
+  }
+  if (data.precise === true) out.precise = true;
+  if (data.precise === false) out.precise = false;
+  const delta = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.floor(v)) : undefined);
+  if (delta(data.deltaDown) !== undefined) out.deltaDown = delta(data.deltaDown);
+  if (delta(data.deltaUp) !== undefined) out.deltaUp = delta(data.deltaUp);
+  return out;
 }
 
 // ── Behavior/Reaction CRUD ──
@@ -1792,6 +1840,7 @@ function applyAudioChange(draft: WorldDefinition, action: string, id: string, da
       fadeOut: data.fadeOut as number | undefined,
       maxDuration: data.maxDuration as number | undefined,
     };
+    applyAudioUpdates(newTrack, { aiNote: data.aiNote, allowAiControl: data.allowAiControl });
     draft.audioTracks.push(newTrack);
     return { ...base, status: "success" };
   }
@@ -1822,12 +1871,77 @@ function applyAudioUpdates(track: AudioTrack, data: Record<string, unknown>): vo
   if (data.fadeIn !== undefined) track.fadeIn = data.fadeIn as number;
   if (data.fadeOut !== undefined) track.fadeOut = data.fadeOut as number;
   if (data.maxDuration !== undefined) track.maxDuration = data.maxDuration as number;
+  if (typeof data.aiNote === "string") track.aiNote = data.aiNote.trim() || undefined;
+  if (typeof data.allowAiControl === "boolean") track.allowAiControl = data.allowAiControl ? undefined : false;
+}
+
+/** A non-empty voice argument that is not a fish.audio id → the error the
+ *  model sees, so it corrects the id instead of the write silently dropping it. */
+function invalidVoiceError(tool: string, id: string, field: string, raw: unknown): string | null {
+  if (typeof raw !== "string" || !raw.trim() || voiceArg(raw)) return null;
+  return `${tool} "${id}" rejected: ${field} "${raw}" is not a fish.audio voice id (32 lowercase hex). Use one from the curated list in the tool description, an id the creator gave you, or "" to clear it.`;
+}
+
+/** A voice argument → a stored fish.audio id, or undefined to clear it. An
+ *  empty string clears; anything that is not 32 hex is dropped rather than
+ *  saved, since a bad id is a hard provider error the moment readout plays. */
+function voiceArg(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const id = raw.trim().toLowerCase();
+  return isValidTtsVoice(id) ? id : undefined;
+}
+
+// ── Scene images ──
+
+function applySceneImageChange(draft: WorldDefinition, action: string, id: string, data: Record<string, unknown>, index: number): ChangeResult {
+  const base = { index, action, entityType: "sceneImage", id };
+  if (!draft.sceneImages) draft.sceneImages = [];
+
+  if ((action === "create" || action === "update") && typeof data.url === "string" && data.url.startsWith("data:")) {
+    return { ...base, status: "error", error: `write_scene_image "${id}" rejected: url starts with "data:" (inline base64). Upload the picture via the asset picker and set url to "@asset:{assetId}" so it streams from CDN.` };
+  }
+
+  const apply = (img: SceneImage) => {
+    if (data.name !== undefined) img.name = String(data.name);
+    if (data.url !== undefined) img.url = String(data.url);
+    if (data.scene !== undefined) img.scene = String(data.scene);
+    if (data.hint !== undefined) img.hint = data.hint ? String(data.hint) : undefined;
+    if (data.greetingIds !== undefined) {
+      const ids = Array.isArray(data.greetingIds) ? (data.greetingIds as unknown[]).filter((g): g is string => typeof g === "string") : [];
+      img.greetingIds = ids.length ? ids : undefined;
+    }
+    if (data.allowAiControl !== undefined) img.allowAiControl = data.allowAiControl === false ? false : undefined;
+  };
+
+  if (action === "create") {
+    const existing = draft.sceneImages.find((img) => img.id === id);
+    if (existing) { apply(existing); return { ...base, status: "success" }; }
+    const created: SceneImage = { id, name: (data.name as string) ?? "", url: (data.url as string) ?? "", scene: (data.scene as string) ?? "" };
+    apply(created);
+    draft.sceneImages.push(created);
+    return { ...base, status: "success" };
+  }
+  if (action === "update") {
+    const img = draft.sceneImages.find((x) => x.id === id);
+    if (!img) return { ...base, status: "error", error: `Scene image not found: ${id}` };
+    apply(img);
+    return { ...base, status: "success" };
+  }
+  if (action === "delete") {
+    const idx = draft.sceneImages.findIndex((x) => x.id === id);
+    if (idx === -1) return { ...base, status: "error", error: `Scene image not found: ${id}` };
+    draft.sceneImages.splice(idx, 1);
+    return { ...base, status: "success" };
+  }
+  return { ...base, status: "error", error: `Unknown action: ${action}` };
 }
 
 // ── Settings ──
 
 function applySettingsChange(draft: WorldDefinition, data: Record<string, unknown>, index: number): ChangeResult {
   const base = { index, action: "update", entityType: "settings", id: "settings" };
+  const badVoice = invalidVoiceError("update_settings", "settings", "narratorVoice", data.narratorVoice);
+  if (badVoice) return { ...base, status: "error", error: badVoice };
   if (!draft.settings) draft.settings = {} as WorldDefinition["settings"];
   const s = draft.settings;
 
@@ -1843,6 +1957,24 @@ function applySettingsChange(draft: WorldDefinition, data: Record<string, unknow
   if (data.lorebookRecursionDepth !== undefined) (s as Record<string, unknown>).lorebookRecursionDepth = data.lorebookRecursionDepth;
   if (data.lorebookBudgetCap !== undefined) (s as Record<string, unknown>).lorebookBudgetCap = data.lorebookBudgetCap;
   if (data.lorebookBudgetPercent !== undefined) (s as Record<string, unknown>).lorebookBudgetPercent = data.lorebookBudgetPercent;
+  if (typeof data.narratorVoice === "string") s.narratorVoice = voiceArg(data.narratorVoice);
+  if (data.voiceInputMode === "confirm" || data.voiceInputMode === "auto") s.voiceInputMode = data.voiceInputMode;
+  if (data.continuity && typeof data.continuity === "object" && !Array.isArray(data.continuity)) {
+    const c = data.continuity as Record<string, unknown>;
+    const next = { ...(draft.continuity ?? {}) };
+    for (const key of ["enabled", "bgm", "sfx", "images"] as const) {
+      if (typeof c[key] === "boolean") next[key] = c[key] as boolean;
+    }
+    if (c.music && typeof c.music === "object" && !Array.isArray(c.music)) {
+      const m = c.music as Record<string, unknown>;
+      const music = { ...(next.music ?? {}) };
+      for (const key of ["overRules", "once", "duck"] as const) {
+        if (typeof m[key] === "boolean") music[key] = m[key] as boolean;
+      }
+      next.music = music;
+    }
+    draft.continuity = next;
+  }
 
   return { ...base, status: "success" };
 }
@@ -2099,6 +2231,7 @@ export function resolveEntityType(
   if (world.rootComponent &&
       (world.rootComponent.id === id || id === "root-component" || id in world.rootComponent.files)) return "customUI";
   if ((world.audioTracks ?? []).find((a) => a.id === id)) return "audio";
+  if ((world.sceneImages ?? []).find((img) => img.id === id)) return "sceneImage";
   if ((world.worldbooks ?? []).find((w) => w.id === id)) return "worldbook";
   if ((world.loreUiBindings ?? []).find((b) => b.slotId === id)) return "loreBinding";
   return null;
@@ -2111,6 +2244,7 @@ const TOOL_TO_ENTITY_TYPE: Record<string, SchemaChange["entityType"]> = {
   write_custom_ui: "customUI",
   edit_custom_ui: "customUI",
   write_audio: "audio",
+  write_scene_image: "sceneImage",
   write_worldbook: "worldbook",
   write_lore_binding: "loreBinding",
 };

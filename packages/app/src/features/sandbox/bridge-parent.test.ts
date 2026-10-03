@@ -84,6 +84,31 @@ test("SDK storage writes with synchronous void handlers resolve instead of timin
   assert.equal(h.responses.length, 2);
 });
 
+test("sessionStorage forwards JSON and explicit versions, and propagates conflicts without retry", async (t) => {
+  const calls: { method: string; args: unknown[] }[] = [];
+  const h = harness(t, (method, args) => {
+    calls.push({ method, args });
+    if (method === "sessionStorage.get") return { value: { coverEntryId: "one" }, version: 3, exists: true };
+    if (method === "sessionStorage.set") {
+      if ((args[2] as { expectedVersion: number }).expectedVersion !== 3) throw new Error("SESSION_STORAGE_CONFLICT");
+      return { value: args[1], version: 4, exists: true };
+    }
+    return { value: null, version: 5, exists: false };
+  });
+  const current = await h.api.sessionStorage.get<{ coverEntryId: string }>("gallery");
+  assert.equal(current.value?.coverEntryId, "one");
+  const saved = await h.api.sessionStorage.set("gallery", { coverEntryId: "two" }, { expectedVersion: current.version });
+  assert.equal(saved.version, 4);
+  await assert.rejects(h.api.sessionStorage.set("gallery", { coverEntryId: "stale" }, { expectedVersion: 2 }), /SESSION_STORAGE_CONFLICT/);
+  assert.deepEqual(await h.api.sessionStorage.remove("gallery", { expectedVersion: 4 }), { value: null, version: 5, exists: false });
+  assert.deepEqual(calls, [
+    { method: "sessionStorage.get", args: ["gallery"] },
+    { method: "sessionStorage.set", args: ["gallery", { coverEntryId: "two" }, { expectedVersion: 3 }] },
+    { method: "sessionStorage.set", args: ["gallery", { coverEntryId: "stale" }, { expectedVersion: 2 }] },
+    { method: "sessionStorage.remove", args: ["gallery", { expectedVersion: 4 }] },
+  ]);
+});
+
 test("request IDs govern replies; void, null, false and domain errors retain their values", async (t) => {
   const values = [undefined, Promise.resolve(undefined), null, false, { error: "quota_exceeded" }];
   const h = harness(t, () => values.shift());

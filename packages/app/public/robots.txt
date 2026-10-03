@@ -19,6 +19,7 @@ Disallow: /app/configs
 Disallow: /app/plans
 Disallow: /app/onboarding
 Disallow: /app/preview/
+Disallow: /app/prompts
 Disallow: /sandbox/
 
 Sitemap: https://yumina.io/sitemap.xml

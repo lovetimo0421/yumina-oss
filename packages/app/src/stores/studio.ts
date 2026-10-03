@@ -4,7 +4,7 @@ import { useCreditStore } from "@/edition/slots.state";
 import { serializeStudioChatMessages } from "@/features/studio/lib/types";
 import type { StudioImageProposal, StudioImageBatchProposal } from "@/features/studio/lib/types";
 import { matchingImageBatch, proposalWithImageBatch } from "@/features/studio/lib/image-batch-state";
-import { SMART_IMAGE_MODEL } from "@yumina/shared";
+import { SMART_IMAGE_MODEL, getPlatformStyle, platformStylePrice } from "@yumina/shared";
 import type {
   StudioChatMessage,
   ToolCall,
@@ -553,6 +553,20 @@ async function tryRecoverAgentRun(
             unitMushies = Number(body?.smartEstimates?.[SMART_IMAGE_MODEL] ?? 0) || 0;
           } catch { /* estimate unknown after a reload; the card says so */ }
           const batchSize = Math.min(4, Math.max(1, Math.round(Number(args.batchSize ?? 1)) || 1));
+          // The server parks the normalized proposal, so a custom card comes back
+          // as custom with its base model; its price is the shared formula.
+          const customStyle = args.mode === "custom" && typeof args.style === "string" && getPlatformStyle(args.style) ? args.style : undefined;
+          if (customStyle) {
+            const aspectId = typeof args.aspectRatio === "string" ? args.aspectRatio : "portrait";
+            callbacks.onImageProposal?.({
+              runId: recoveredRunId, toolCallId: call.id, textContent: data.textContent ?? "",
+              prompt: typeof args.prompt === "string" ? args.prompt : "", purpose: typeof args.purpose === "string" ? args.purpose : undefined,
+              ...(typeof args.modelReason === "string" ? { modelReason: args.modelReason } : {}),
+              mode: "custom", style: customStyle, model: "image-anime", aspectRatio: aspectId, batchSize,
+              unitMushies: platformStylePrice(customStyle, aspectId, 1), estimatedMushies: platformStylePrice(customStyle, aspectId, batchSize),
+            });
+            return true;
+          }
           callbacks.onImageProposal?.({
             runId: recoveredRunId, toolCallId: call.id, textContent: data.textContent ?? "",
             prompt: typeof args.prompt === "string" ? args.prompt : "", purpose: typeof args.purpose === "string" ? args.purpose : undefined,

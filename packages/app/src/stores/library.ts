@@ -15,6 +15,8 @@ export interface LibraryItem {
   worldThumbnailUrl: string | null;
   worldCoverCrop?: CoverCropSettings | null;
   worldGalleryCoverCrop?: CoverCropSettings | null;
+  worldLandscapeCoverUrl?: string | null;
+  worldLandscapeCoverCrop?: CoverCropSettings | null;
   worldStatus: string;
   worldTags: string[];
   worldIsNsfw: boolean;

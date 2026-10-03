@@ -15,7 +15,8 @@
     "games": "Games",
     "myProjects": "My Projects",
     "assets": "Assets",
-    "bundles": "Bundles"
+    "bundles": "Bundles",
+    "prompts": "Prompts"
   },
   "sort": {
     "sortBy": "Sort by:",
@@ -148,26 +149,26 @@
     "tabCard": "This Card",
     "tabAll": "All Assets",
     "title": "This Card's Folders",
-    "description": "Folders and assets bound to this card for quick access. Binding is for organization only — it doesn't change what gets published.",
+    "description": "Linked folders appear in the card editor. Linking doesn't change what gets published.",
     "bindFolder": "Bind Folder",
     "unbind": "Unbind",
     "emptyHeadline": "No folders bound yet",
-    "emptySubtitle": "Bind a folder from your library to keep this card's assets one click away.",
+    "emptySubtitle": "Link a library folder to access its assets in this editor.",
     "folderEmpty": "This folder is empty.",
     "uploadToFolder": "Upload to “{{folder}}”",
     "referencedTitle": "Referenced assets",
     "pickerTitle": "Bind a folder",
-    "pickerDescription": "Pick a folder to surface on this card. You can bind more than one.",
+    "pickerDescription": "Choose folders to show in this card's editor.",
     "noFolders": "You don't have any folders yet. Create one in All Assets.",
     "allBound": "All your folders are bound to this card.",
     "bindToCard": "Bind to card...",
     "bindToCardTitle": "Bind \"{{folder}}\" to a card",
-    "bindToCardDescription": "Pick which of your cards this folder should surface on.",
+    "bindToCardDescription": "Choose which card's editor should show this folder.",
     "noCards": "You don't have any cards yet.",
     "bound": "Bound",
     "boundCount": "{{count}} card",
     "boundCount_other": "{{count}} cards",
-    "hint": "Bind a folder to a card to surface its assets right inside the card editor. Right-click a folder or click the 🔗 to bind.",
+    "hint": "Right-click a folder or use the link icon to add it to a card's editor.",
     "dismissHint": "Dismiss",
     "boundToast": "Bound to “{{card}}”",
     "unboundToast": "Unbound from “{{card}}”",
@@ -311,7 +312,7 @@
       "failedToLoadSession": "Failed to load session",
       "failedToSaveSession": "Failed to save session text",
       "downloadCompleteTitle": "Download complete",
-      "downloadCompleteDescription": "Your session text has been saved to Assets > output chat as a TXT file. You can open it there, share it into Community, or pick another.",
+      "downloadCompleteDescription": "Transcript saved as a TXT file in Assets > output chat.",
       "downloadSizeSummary": "{{size}} saved to your Assets.",
       "pickAnother": "Pick another",
       "viewInAssets": "View in assets",
@@ -348,7 +349,7 @@
   },
   "dialog": {
     "editAsMyProject": "Edit as My Project",
-    "editAsMyProjectDesc": "This is a game published by {{creator}}. Create an editable copy of <strong>{{name}}</strong> in your projects? You'll be able to edit and customize it freely.",
+    "editAsMyProjectDesc": "Create an editable copy of <strong>{{name}}</strong> by {{creator}} in your projects?",
     "createCopy": "Create Copy",
     "cancel": "Cancel",
     "deleteGame": "Delete Game",
@@ -447,13 +448,13 @@
     "importWorld": "Import World",
     "importWorldDesc": "Import a world from a JSON file.",
     "characterChat": "Character Chat",
-    "characterChatDesc": "Design a persona and converse in an immersive 1-on-1 dialogue.",
+    "characterChatDesc": "Create a character for one-on-one chat.",
     "worldSimulation": "World Simulation",
-    "worldSimulationDesc": "Build an entire world with its own lore, factions, and dynamic events.",
+    "worldSimulationDesc": "Create a world with its own lore, factions, and events.",
     "multiplayerCampaign": "Multiplayer Campaign",
-    "multiplayerCampaignDesc": "Collaborative multiplayer adventure for 2-4 players. Define your own game system and world.",
+    "multiplayerCampaignDesc": "Create an adventure for 2–4 players with your own rules.",
     "imageGeneration": "AI generation",
-    "imageGenerationDesc": "Images and music from a line of text: character art, scenes, covers, a BGM for the card."
+    "imageGenerationDesc": "Generate character art, scenes, covers, or music."
   },
   "newSubFolder": "New sub-folder",
   "allAssetsLabel": "All Assets",
@@ -481,19 +482,19 @@
     "template": {
       "image-anime": {
         "name": "Custom generation",
-        "desc": "Choose models, LoRAs and settings"
+        "desc": "Choose the model and settings"
       },
       "video-text": {
         "name": "Text Video",
-        "desc": "A short video straight from your prompt — no reference image, and the look leans realistic"
+        "desc": "Generate a short, realistic video from text."
       },
       "video-fast": {
         "name": "Quick Video",
-        "desc": "Animate an image into a short clip — fast and cheap"
+        "desc": "Animate an image into a short clip."
       },
       "video-hq": {
         "name": "HQ Video",
-        "desc": "Higher-quality image-to-video, takes several minutes"
+        "desc": "Higher-quality image animation. Takes several minutes."
       },
       "image-smart": {
         "name": "Describe & create",
@@ -643,7 +644,7 @@
       "reportedToast": "Reported — thank you",
       "reportFailed": "Couldn't send the report — try again",
       "loadFailed": "Couldn't load the shared models",
-      "loadFailedHint": "Nothing is lost — the list just didn't come through. Try again in a moment.",
+      "loadFailedHint": "Try again in a moment.",
       "retry": "Try again"
     },
     "progress": "{{pct}}% · ~{{seconds}}s left",
@@ -653,7 +654,10 @@
     "loadMore": "Load more",
     "makeImage": "Image to image",
     "enhanceToggle": "AI prompt polish",
-    "enhanceHint": "Rewrites your description into the model's native format. Off = sent verbatim.",
+    "enhanceHint": "Rewrites your description into the model's native format and puts it in the box for you to check and edit. Without it, your text is sent exactly as typed.",
+    "enhancing": "Polishing…",
+    "enhanceDone": "Replaced with the polished prompt — edit it freely before generating.",
+    "enhanceUndo": "Undo",
     "useBase": "Reference image",
     "clearReference": "Remove image",
     "uploadReference": "Upload image",
@@ -709,7 +713,8 @@
         "name": "Western",
         "desc": "Western fantasy/comic art (ZavyChroma XL).",
         "detail": "Prose prompts; strong at dramatic lighting and painterly fantasy scenes."
-      }
+      },
+      "surchargeChip": "+{{count}} mushies"
     },
     "videoStyleFromReference": "The video keeps the reference image’s art style.",
     "makeReference": "Generate one first",
@@ -754,7 +759,9 @@
       "PROVIDER_REQUEST": "The model did not accept these settings. Change the model or image settings.",
       "PROVIDER_TIMEOUT": "The model took too long and timed out. You were not charged. Try a faster model or a lower resolution.",
       "PROVIDER_REJECTED": "The model declined this request. You were not charged. Try another model.",
-      "CONTENT_FILTERED": "The model provider refused this one — not a Yumina restriction. You were not charged; try another model or reword the description."
+      "CONTENT_FILTERED": "The model provider refused this one — not a Yumina restriction. You were not charged; try another model or reword the description.",
+      "ENHANCE_REFUSED": "The AI couldn't polish this description. Your text is unchanged — reword it and try again, or generate with it as is.",
+      "ENHANCE_FAILED": "Prompt polish isn't available right now. Your text is unchanged — try again in a moment."
     },
     "queue": {
       "waiting": "Waiting in queue…",
@@ -830,7 +837,11 @@
       "baseImage": "Base image",
       "editResult": "Edit this image",
       "chooseEditImage": "Choose an image to edit",
-      "reuseParameters": "Reuse parameters"
+      "reuseParameters": "Reuse parameters",
+      "baseModelHint": "Sets the art style, and how the prompt is written",
+      "paramSummary": "{{steps}} steps · CFG {{cfg}} · {{seed}}",
+      "seedRandomSummary": "random seed",
+      "seedFixedSummary": "seed {{seed}}"
     },
     "atelier": {
       "title": "AI images",
@@ -839,7 +850,7 @@
       "unit": "mushies",
       "sectionReference": "Reference",
       "sectionSpec": "Model & size",
-      "referenceHint": "Drop an image in and this becomes an edit: restyle, change a part, extend the frame. The model keeps the original composition.",
+      "referenceHint": "Add a reference image to restyle it, edit a part, or extend the frame.",
       "addImage": "Add image",
       "emptyTitle": "No images yet",
       "emptyBody": "The first one shows up here.",
@@ -848,15 +859,16 @@
       "tabImage": "Images",
       "tabAudio": "Audio",
       "audioTitle": "AI music",
-      "audioLead": "Music is saved to your asset library."
+      "audioLead": "Music is saved to your asset library.",
+      "sectionOutput": "Output"
     },
     "music": {
       "workshopTitle": "Generate a BGM",
       "length": "Length",
       "clip": "{{seconds}}s clip",
       "full": "Full piece",
-      "clipHint": "A loopable mood, good for a scene's BGM",
-      "fullHint": "A full piece with a shape, good for a theme",
+      "clipHint": "A short, loopable track for background music.",
+      "fullHint": "A full-length track for a theme or song.",
       "promptLabel": "What the music is like",
       "placeholder": "One line about the music: mood, instruments, tempo, vocals or not",
       "recent": "Recent",
@@ -879,6 +891,27 @@
       "estimating": "Pricing…",
       "estimate": "About {{count}} mushies",
       "go": "Generate"
+    },
+    "format": {
+      "tags": {
+        "title": "Tag format",
+        "body": "comma-separated Danbooru tags, in English",
+        "short": "Tags"
+      },
+      "prose": {
+        "title": "Natural language",
+        "body": "describe the image in English sentences",
+        "short": "Prose"
+      },
+      "example": "Example",
+      "exampleHint": "Fill the box with this example"
+    },
+    "live": {
+      "waiting": "Waiting for a GPU",
+      "waitingHint": "In the queue or a machine is starting",
+      "generating": "Generating",
+      "generatingSteps": "Generating · ~{{step}}/{{steps}} steps",
+      "saving": "Saving"
     }
   },
   "media": {

@@ -314,3 +314,19 @@ export async function resolveOpenRouterKeyForUser(userId: string): Promise<{
   if (byok) return { apiKey: byok, isByok: true, apiKeyTier: "byok" };
   return null;
 }
+
+/**
+ * Yumina's own OpenRouter key for this user's plan, regardless of their
+ * provider preference. For a paid side call a BYOK player can't make on their
+ * own key (custom endpoint / local model, no OpenRouter key): the caller runs
+ * it on this key and bills mushies exactly as in official mode.
+ */
+export async function resolveOfficialOpenRouterKeyForUser(userId: string): Promise<{
+  apiKey: string;
+  isByok: false;
+  apiKeyTier: ApiKeyTier;
+} | null> {
+  const { plan } = await getUserMeta(userId);
+  const officialKey = resolveOfficialKey(plan);
+  return officialKey ? { apiKey: officialKey, isByok: false, apiKeyTier: plan as ApiKeyTier } : null;
+}

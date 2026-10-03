@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useLayoutEffect, useMemo, forwardRef } fro
 import { createPortal } from "react-dom";
 import { useYumina } from "../sandbox-context";
 import { makeChatT } from "./i18n";
+import { useTurnImageSettings } from "./turn-images";
 
 interface MessageActionsProps {
   message: { id: string; role: string; content: string };
@@ -60,6 +61,20 @@ export function MessageActions({
     setRegenPending(true);
     api.regenerateMessage(message.id);
     window.setTimeout(() => setRegenPending(false), 4000);
+  };
+  const { settings: turnImages } = useTurnImageSettings(api);
+  const [illustrating, setIllustrating] = useState(false);
+  const handleIllustrate = async () => {
+    if (illustrating) return;
+    setIllustrating(true);
+    // A failure shows as a line under the reply (turn-image-state), not a toast.
+    try {
+      await api.illustrateMessage(message.id);
+    } catch {
+      /* the host already recorded why */
+    } finally {
+      setIllustrating(false);
+    }
   };
   const popoverRef = useRef<HTMLDivElement>(null);
   const deleteBtnRef = useRef<HTMLButtonElement>(null);
@@ -156,6 +171,25 @@ export function MessageActions({
     } finally {
       setBranching(false);
     }
+  };
+
+  // ── Voice readout button state ──
+  // Driven entirely by the host-pushed playback record: this message's key in
+  // "loading" shows a spinner, "playing" turns the button into a stop control.
+  const tts = api.ttsState;
+  const ttsPlayback = tts?.playback ?? null;
+  const isThisVoice = ttsPlayback?.key === message.id;
+  const voiceLoading = isThisVoice && ttsPlayback?.status === "loading";
+  const voicePlaying = isThisVoice && ttsPlayback?.status === "playing";
+  const voiceProgress = voicePlaying ? (ttsPlayback?.progress ?? 0) : 0;
+  const handleSpeak = () => {
+    if (voiceLoading || voicePlaying) {
+      // Loading: cancel the pending synth (it still lands in the server cache,
+      // so a retry is free). Playing: stop.
+      api.tts.stop();
+      return;
+    }
+    void api.tts.speak({ messageId: message.id });
   };
 
   const popoverStyle: React.CSSProperties = popoverPos
@@ -259,6 +293,73 @@ export function MessageActions({
       )}
 
       {/* Primary actions */}
+      {message.role === "assistant" && tts?.available && tts.enabled && (
+        <ActionBtn
+          onClick={handleSpeak}
+          title={voicePlaying ? t("stopReading") : voiceLoading ? t("generatingVoice") : t("readAloud")}
+          className={voicePlaying || voiceLoading ? "text-primary" : ""}
+        >
+          {voiceLoading ? (
+            // Spinner: synth round-trip in flight
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="animate-spin"
+            >
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+          ) : voicePlaying ? (
+            // Stop control ringed by playback progress. The track circle keeps
+            // the control legible before duration metadata arrives (progress 0).
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              className="-rotate-90"
+            >
+              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2.5" />
+              <circle
+                cx="12"
+                cy="12"
+                r="10"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeDasharray="62.83"
+                strokeDashoffset={62.83 * (1 - voiceProgress)}
+                style={{ transition: "stroke-dashoffset 0.5s linear" }}
+              />
+              <rect x="8.5" y="8.5" width="7" height="7" rx="1.5" fill="currentColor" />
+            </svg>
+          ) : (
+            // Idle: speaker with sound waves
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M11 4.702a.705.705 0 0 0-1.203-.498L6.413 7.587A1.4 1.4 0 0 1 5.416 8H3a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2.416a1.4 1.4 0 0 1 .997.413l3.383 3.384A.705.705 0 0 0 11 19.298z" />
+              <path d="M16 9a5 5 0 0 1 0 6" />
+              <path d="M19.364 18.364a9 9 0 0 0 0-12.728" />
+            </svg>
+          )}
+        </ActionBtn>
+      )}
       <ActionBtn onClick={handleCopy} title={t("copy")}>
         {copied ? (
           <svg
@@ -328,6 +429,28 @@ export function MessageActions({
           <path d="m15 5 4 4" />
         </svg>
       </ActionBtn>
+
+      {message.role === "assistant" && turnImages?.available && (
+        <ActionBtn
+          onClick={handleIllustrate}
+          title={illustrating ? t("illustrating") : t("illustrate")}
+          className={illustrating ? "text-primary" : ""}
+        >
+          {illustrating ? (
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin">
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+          ) : (
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect width="18" height="18" x="3" y="3" rx="2" />
+              <circle cx="9" cy="9" r="2" />
+              <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+            </svg>
+          )}
+        </ActionBtn>
+      )}
 
       {message.role === "assistant" && isLastAssistant && (
         <ActionBtn

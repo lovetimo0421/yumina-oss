@@ -83,3 +83,14 @@ describe("detectMaterialChange", () => {
     expect(r.reasons.sort()).toEqual(["ageRating", "cover", "entries"]);
   });
 });
+
+
+describe("landscape artwork", () => {
+  it("holds additions, replacements and removal of landscape artwork for review", () => {
+    for (const [before, after] of [[undefined, "wide.jpg"], ["wide.jpg", "new.jpg"], ["wide.jpg", undefined]]) {
+      const a = snap({ schema: world({ landscapeCover: before } as Partial<WorldDefinition>) });
+      const b = snap({ schema: world({ landscapeCover: after } as Partial<WorldDefinition>) });
+      expect(detectMaterialChange(a, b)).toEqual({ changed: true, reasons: ["cover"] });
+    }
+  });
+});

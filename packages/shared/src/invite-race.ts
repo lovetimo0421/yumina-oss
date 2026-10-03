@@ -265,6 +265,43 @@ export function settleInviteRaceRound(standings: InviteRaceStanding[], rules: In
 
 // ─── API shapes ──────────────────────────────────────────────────────
 
+/** Keep existing prize allocations; fund small participation awards separately. */
+export function settleInviteRaceRewards(standings: InviteRaceStanding[], rules: InviteRaceRules = DEFAULT_INVITE_RACE_RULES): InviteRaceSettlement {
+  const settlement = settleInviteRaceRound(standings, rules);
+  const existing = new Map(settlement.payouts.map(p => [p.userId, p]));
+  settlement.payouts = inviteRaceRank(standings).map(s => {
+    const payout = existing.get(s.userId);
+    if (payout) return { ...payout, method: "choice_pending" as const, mushies: null };
+    const totalUsd = Math.max(1, Math.floor(settlement.potUsd * 100 * s.tickets / settlement.totalTickets)) / 100;
+    return { userId: s.userId, tickets: s.tickets, rank: null, rankUsd: 0, shareUsd: totalUsd, totalUsd,
+      method: "choice_pending" as const, mushies: null, giftCardUsd: null, giftCardChangeMushies: null };
+  });
+  return settlement;
+}
+
+export interface InviteRacePlanReward {
+  planId: "go" | "plus" | "pro" | "ultra";
+  name: string;
+  days: number;
+  includedMushies: number;
+  changeMushies: number;
+}
+
+export interface InviteRaceRewardOptions {
+  mushies: number;
+  bonusMultiplier: number;
+  giftCardUsd: number | null;
+  giftCardChangeMushies: number;
+  plans: InviteRacePlanReward[];
+}
+
+export interface InviteRaceRewardsView {
+  eventId: string;
+  email: string;
+  name: string;
+  results: InviteRaceRoundResult[];
+}
+
 export type InviteRaceFriendStep = "signed_up" | "active" | "using";
 
 export interface InviteRaceFriendView {
@@ -299,9 +336,15 @@ export interface InviteRaceRoundResult {
   tickets: number;
   totalUsd: number;
   rank: number | null;
-  method: "mushies_auto" | "choice_pending" | "mushies" | "cash" | null;
+  method: "mushies_auto" | "choice_pending" | "mushies" | "cash" | "plan" | null;
   mushies: number | null;
   chooseBy: string | null;
+  options?: InviteRaceRewardOptions;
+  recipientEmail?: string | null;
+  cashStatus?: string | null;
+  planReward?: InviteRacePlanReward | null;
+  planStatus?: string | null;
+  seen?: boolean;
 }
 
 export interface InviteRaceView {

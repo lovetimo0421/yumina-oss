@@ -66,9 +66,9 @@ export function ensureTraditionalizer(): void {
  * for everyone else, and until the dictionary is ready, it returns the text
  * unchanged (readable Simplified, never a blank or English fallback).
  */
-export function useTraditionalize(): (text: string | null | undefined) => string {
+export function useTraditionalize(locale?: string): (text: string | null | undefined) => string {
   const { i18n } = useTranslation();
-  const traditional = isTraditionalLocale(i18n.language);
+  const traditional = isTraditionalLocale(locale ?? i18n.language);
   const ready = useConverterReady((s) => s.ready);
 
   useEffect(() => {

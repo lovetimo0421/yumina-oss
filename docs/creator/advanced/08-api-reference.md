@@ -160,6 +160,33 @@ A checkpoint is a named snapshot inside the current session you can rewind to.
 | `setAudioVolume(type, volume)` | `type` is `"bgm"` or `"sfx"`, `volume` is 0–1 |
 | `getAudioVolume(type)` | Synchronously returns the current volume (0–1) |
 
+### Voice readout (TTS)
+
+Speak text aloud through the platform voice pipeline (Fish Audio via OpenRouter). Billed per character to the player; replaying the same text+voice is a free cache hit. One voice plays at a time. Inline `[whisper]` / `[excited]`-style tags in the text control the delivery.
+
+Voice readout is **opt-in**: players turn it on in Settings › Display. Until they do, `ttsState.enabled` is `false`, `tts.speak` / `tts.preview` resolve `{ ok: false, reason: "disabled" }` without synthesizing or charging, and `tts.setPrefs` changes nothing. Hide your voice UI while `enabled` is false.
+
+| Method / field | What it does |
+|--------|--------------|
+| `tts.speak(opts)` | `opts`: `{ messageId?, text?, key?, voice? }`. Pass `messageId` to read a chat message (honors the player's reading-mode setting), or `text` for arbitrary card lines (`key` gives it a stable playback identity). `voice` optionally overrides the player's voice with a fish.audio marketplace id (32-hex) so cards can voice their own characters. Returns `Promise<{ok, reason?}>` — `reason` is `"disabled"` (the player hasn't turned readout on), `"unavailable"` (preview/replay), `"insufficient"` (not enough mushies), `"rate-limited"`, `"empty"`, or an error |
+| `tts.stop()` | Stop the current readout (also cancels a pending synthesis and the auto read-along queue) |
+| `tts.setPrefs(prefs)` | Update the player's readout preferences: `{ enabled?, autoPlay?, mode?, voice?, voicePool?, volume? }` (`volume` 0–100; `voicePool` is the list of voice ids AI casting may give characters, `[]` = all; `voice` sets a pool of one, "" = all). Persists to the account; new values flow back via `ttsState`. Only works once the player has opted in; `enabled: true` is ignored (only Settings turns readout on), `enabled: false` switches it off |
+| `tts.preview(voice)` | Play a short sample of a voice (`""` = the auto voice). Billed like any synth on first listen, cached for everyone after. Returns `Promise<{ok, reason?}>` |
+| `ttsState` | Read-only: `{ available, enabled, voice, voicePool, mode, autoPlay, volume, playback }`. `available` is false outside real sessions (guest preview, replay) — hide ALL voice UI then; `enabled` is the player's opt-in (false until they turn readout on in Settings). `playback` is `{ key, status: "loading" \| "playing", progress? }` or `null` (`progress` 0–1 at ~2Hz), so a custom UI can render per-line speaker states and progress rings |
+
+### Voice input (hold-to-talk)
+
+Let the player speak instead of type. The platform records (the card never touches the microphone) and hands back the words. Free to the player. The default chat composer already has a mic; use these to build your own talk button, e.g. a werewolf speaking podium.
+
+| Method / field | What it does |
+|--------|--------------|
+| `voice.record(opts?)` | Start recording — call it when your talk button goes down. `opts.onLevel(level)` gets the live input loudness (0–1, ~15×/s) for a waveform. Resolves after `voice.stop()` with `{ ok: true, text }`, or `{ ok: false, reason }` — `reason` is `"cancelled"`, `"too-short"` (a tap, not a hold), `"denied"` (microphone blocked), `"empty"`, `"rate-limited"`, `"unavailable"` (preview/replay) or `"error"`. Pauses any voice readout so the AI isn't recorded |
+| `voice.stop()` | Finish the clip and transcribe it (talk button released) |
+| `voice.cancel()` | Throw the clip away |
+| `voiceInputState` | Read-only: `{ available, enabled, mode, cardMode, playerMode, key }`. `mode` is what the player wants on release — `"auto"` (send it as spoken) or `"confirm"` (let them review it). It is your card's `settings.voiceInputMode` unless the player overrode it. `key` is the `KeyboardEvent.code` they hold to talk |
+
+Set the default for your card in the editor (Overview → *Voice* → *Player voice input*), or as `settings.voiceInputMode: "auto" | "confirm"` in the world JSON.
+
 ### UI / navigation
 
 | Method | What it does |
@@ -172,9 +199,9 @@ A checkpoint is a named snapshot inside the current session you can rewind to.
 | `navigate(path)` | Ask the parent to route to a path like `"/app/hub"` (replaces `window.location = ...`) |
 | `showToast(message, type?)` | Show a toast in the parent UI. `type`: `"success"`, `"error"`, `"info"` (default) |
 
-### Persistent storage (per-world)
+### Browser-local storage (per-world)
 
-Replacement for localStorage. Scoped by `worldId`; worlds cannot read each other's keys.
+Replacement for localStorage. Scoped by `worldId`; worlds cannot read each other's keys. This is device-local preference/cache storage: it does not sync across devices or enter checkpoints, branches, or shared snapshots. The browser's `sessionStorage` alias also uses this local API; it is distinct from `api.sessionStorage` below.
 
 | Method | What it does |
 |--------|--------------|
@@ -183,6 +210,48 @@ Replacement for localStorage. Scoped by `worldId`; worlds cannot read each other
 | `storage.remove(key)` | Delete. Returns `Promise<void>` |
 
 Need complex data? `JSON.stringify` / `JSON.parse` on the way in/out.
+
+### Cloud JSON storage (per-session)
+
+Use `api.sessionStorage` for small JSON records that belong to a play session and should follow it across devices. Values remain separate from AI game variables. All methods return a promise containing `{ value, version, exists }`. A never-written key returns `{ value: null, version: 0, exists: false }`; a removed key retains a version, so check `exists` rather than assuming `null` means absent.
+
+| Method | What it does |
+|--------|--------------|
+| `sessionStorage.get(key)` | Read the current record, or the frozen record in a shared replay |
+| `sessionStorage.set(key, value, { expectedVersion })` | Save a JSON value only if its current version matches; options are required |
+| `sessionStorage.remove(key, { expectedVersion })` | Remove the value, retaining a versioned tombstone; options are required |
+
+```tsx
+const previous = await api.sessionStorage.get("journal");
+const saved = await api.sessionStorage.set(
+  "journal", { notes: ["Reached the village"] },
+  { expectedVersion: previous.version }
+);
+// Keep saved.version for the next change, including remove().
+```
+
+On `SESSION_STORAGE_CONFLICT`, retain the player's draft, reload the record, and reconcile the changes before submitting again. Do not blindly retry stale values. Await a successful response before showing a saved state. Respect `api.readOnly`; shared replays cannot write. Reads and writes require a real session or an authorized shared replay, not editor or guest preview.
+
+Keys use 1–128 ASCII letters, digits, `_`, `.`, `:`, or `-`, starting with a letter or digit. Limits: 32 KiB of serialized UTF-8 JSON per value, 256 KiB of current values per session, 128 keys including tombstones, 16 MiB of value history per session, and 1,000 mutations per hour across the owner's sessions. Keep records bounded; this is not a file store.
+
+Checkpoint restores that change JSON share these capacity and rate limits. Exceeding the 16 MiB history limit or another quota returns HTTP 413; exceeding the hourly mutation limit returns 429. The whole restore rolls back, including media and story state, without a partial restore. Existing history is retained. When values are unchanged, restore does not duplicate history and can proceed even at these JSON limits.
+
+JSON and media references are captured together in checkpoints, same-account branches, and shared snapshots. Restoring a checkpoint restores both. Private live-session data is accessible only to its owner; being the world's creator does not grant access to it. A shared snapshot follows the existing visibility, world publication status, hidden/moderation status, and content-level rules. Under those rules, the sharer and the card's creator are privileged readers of the snapshot, including hidden, unpublished, or sensitive snapshots. Other viewers must pass the applicable checks; unlisted shares are accessible by link. Do not store secrets in records included in a share. There is no automatic migration of arbitrary browser-storage keys.
+
+### Player images (per-session)
+
+Use `api.media` for private player images. Creator assets still use `@asset:`. With server S3 storage configured, uploads are enabled for all worlds unless the operator pauses new uploads.
+
+| Method | What it does |
+|--------|--------------|
+| `media.list(offset?)` | Returns `{ items, hasMore, uploadsEnabled }`; load further pages when `hasMore` is true |
+| `media.pick({ entryId?, metadata? }?)` | Opens the picker and uploads; resolves to `{ mediaId, entryId }`, or `null` if canceled |
+| `media.upload(file, { entryId?, filename?, metadata?, uploadId? }?)` | Uploads a `Blob`/`File`; returns `{ mediaId, entryId }`. Reuse `uploadId` for a retry of the same request |
+| `media.remove(entryId, version)` | Removes the current session association using the item's version; returns `{ removed }` |
+
+Listed items include `{ id, entryId, filename, metadata, version, url, thumbnailUrl, deleted }`; `id` is the media ID. Persist `entryId`/`mediaId` in JSON, never signed display URLs or base64 bytes. Refresh URLs with `list()` when reopening and before their five-minute expiry. Deleted items can have null URLs. Removing a session association does not permanently delete the file or release capacity while other references remain.
+
+Static JPEG/PNG/WebP input is limited to 16 MiB and 40 million decoded pixels. The server produces WebP display images up to 2048 pixels plus thumbnails; this is not an original-file backup. Images use the account's shared asset capacity. See the [player image recipe](./recipes/player-images.md) for persistence and migration guidance.
 
 ### Lorebook lookups
 
@@ -610,6 +679,15 @@ useYumina()
 │   ├── storage.get(key) → Promise<string | null>
 │   ├── storage.set(key, value) → Promise<void>
 │   └── storage.remove(key) → Promise<void>
+├── Cloud session JSON
+│   ├── sessionStorage.get(key) → Promise<{value, version, exists}>
+│   ├── sessionStorage.set(key, value, {expectedVersion}) → Promise<{value, version, exists}>
+│   └── sessionStorage.remove(key, {expectedVersion}) → Promise<{value, version, exists}>
+├── Session images
+│   ├── media.list(offset?) → Promise<{items, hasMore, uploadsEnabled}>
+│   ├── media.pick(options?) → Promise<{mediaId, entryId} | null>
+│   ├── media.upload(file, options?) → Promise<{mediaId, entryId}>
+│   └── media.remove(entryId, version) → Promise<{removed}>
 ├── Lorebook
 │   ├── entries (ReadonlyArray<SandboxEntry>)  // sorted by position, enabled only
 │   └── getEntry(name) → SandboxEntry | null

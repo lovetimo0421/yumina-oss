@@ -10,7 +10,9 @@ export type VersionExecutor = Pick<typeof db, "select" | "insert" | "update" | "
 export type VersionWorld = typeof worlds.$inferSelect;
 export type VersionMaterial = { schema: Record<string, unknown>; thumbnailUrl: string | null; ageRating: string | null };
 type Pending = typeof worldPendingEdits.$inferSelect;
-type AutomaticSource = "publish" | "live" | "backup";
+// "incoming": taken right before someone else's changes (an imported file, or a
+// helper's copy sent back over DM) are applied onto the card — see world-changes.ts.
+type AutomaticSource = "publish" | "live" | "backup" | "incoming";
 
 export async function lockVersionWorld(tx: VersionExecutor, worldId: string, creatorId: string) {
   const [world] = await tx.select().from(worlds)
@@ -47,10 +49,11 @@ export async function captureAutomaticVersion(
   source: AutomaticSource,
   material: VersionMaterial,
   protectIds: string[] = [],
+  opts: { note?: string | null } = {},
 ) {
   // Reuse saved content across Update, submission and approval. Only an actual
   // publication can promote it to live; matching named saves remain independent.
-  if (source !== "backup") {
+  if (source === "publish" || source === "live") {
     const [existing] = await tx.select({ id: worldVersions.id, source: worldVersions.source, publishedAt: worldVersions.publishedAt }).from(worldVersions).where(and(
       eq(worldVersions.worldId, world.id), inArray(worldVersions.source, ["publish", "live"]),
       sql`(${worldVersions.schema} - 'name') = (${JSON.stringify(material.schema)}::jsonb - 'name')`,
@@ -68,10 +71,11 @@ export async function captureAutomaticVersion(
     }
   }
   const now = new Date();
-  const labels = { publish: "Saved version", live: "Saved version", backup: "Backup before restore" };
+  const labels = { publish: "Saved version", live: "Saved version", backup: "Backup before restore", incoming: "Backup before applying changes" };
   const [inserted] = await tx.insert(worldVersions).values({
     worldId: world.id, createdBy: world.creatorId,
     name: `${labels[source]} · ${now.toISOString().slice(0, 16).replace("T", " ")} UTC`,
+    note: opts.note ?? null,
     source, publishedAt: source === "live" ? now : null, schema: { ...material.schema, name: world.name },
     thumbnailUrl: material.thumbnailUrl, ageRating: material.ageRating ?? "all", createdAt: now,
   }).returning();

@@ -86,7 +86,7 @@ export class GameStateManager {
       }
 
       // Handle dot-path effects (e.g., factions.ember_court.affinity)
-      if (effect.variableId.includes(".")) {
+      if (effect.variableId.includes(".") || /\[\d+\]/.test(effect.variableId)) {
         const { rootId, applied, oldValue, newValue } = this.resolvePathEffect(effect);
         if (applied) {
           changes.push({ variableId: rootId, oldValue, newValue });
@@ -488,35 +488,50 @@ export class GameStateManager {
     oldValue: VariableValue;
     newValue: VariableValue;
   } {
-    const dotIndex = effect.variableId.indexOf(".");
-    if (dotIndex === -1) return { rootId: effect.variableId, applied: false, oldValue: 0, newValue: 0 };
+    // `a.list[0].hp` is the documented spelling; the walk below speaks dots.
+    const variableId = effect.variableId.replace(/\[(\d+)\]/g, ".$1");
+    const noop = (id: string) => ({ rootId: id, applied: false, oldValue: 0 as VariableValue, newValue: 0 as VariableValue });
+    const dotIndex = variableId.indexOf(".");
+    if (dotIndex === -1) return noop(effect.variableId);
 
-    const rootId = effect.variableId.substring(0, dotIndex);
-    const path = effect.variableId.substring(dotIndex + 1);
+    const rootId = variableId.substring(0, dotIndex);
+    const path = variableId.substring(dotIndex + 1);
     const rootVar = this.variables.get(rootId);
-    if (!rootVar || rootVar.type !== "json") return { rootId: effect.variableId, applied: false, oldValue: 0, newValue: 0 };
+    if (!rootVar || rootVar.type !== "json") return noop(effect.variableId);
 
     const rootValue = this.state.variables[rootId];
-    if (typeof rootValue !== "object" || rootValue === null) return { rootId, applied: false, oldValue: 0, newValue: 0 };
+    if (typeof rootValue !== "object" || rootValue === null) return noop(rootId);
+
+    // Navigate to parent and set the leaf
+    const parts = path.split(".");
+    // A path is AI-written text: never let it walk onto a prototype.
+    if (parts.some((p) => p === "" || p === "__proto__" || p === "prototype" || p === "constructor")) return noop(rootId);
 
     // Deep clone the root value
     const cloned = JSON.parse(JSON.stringify(rootValue));
     const oldRoot = JSON.parse(JSON.stringify(rootValue));
-
-    // Navigate to parent and set the leaf
-    const parts = path.split(".");
-    if (parts.length === 0) return { rootId, applied: false, oldValue: 0, newValue: 0 };
 
     let current: Record<string, unknown> = cloned as Record<string, unknown>;
     for (let i = 0; i < parts.length - 1; i++) {
       const key = parts[i]!;
       if (current[key] === undefined || current[key] === null) {
         current[key] = {}; // auto-create intermediate objects
+      } else if (typeof current[key] !== "object") {
+        // The path runs through a scalar (`hp.max` while hp is 30). Building a
+        // structure there would silently destroy the value — refuse instead.
+        return noop(rootId);
       }
       current = current[key] as Record<string, unknown>;
     }
 
     const leafKey = parts[parts.length - 1]!;
+    // A key the AI names for the first time (a new character, a new thread)
+    // is created by the op that names it: merge starts the object, push starts
+    // the list, add/subtract count from 0. An existing leaf of the wrong shape
+    // is still left alone.
+    const leafMissing = current[leafKey] === undefined || current[leafKey] === null;
+    const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+      typeof v === "object" && v !== null && !Array.isArray(v);
 
     // Apply the operation to the leaf
     switch (effect.operation) {
@@ -524,12 +539,16 @@ export class GameStateManager {
         current[leafKey] = effect.value;
         break;
       case "add":
-        if (typeof current[leafKey] === "number" && typeof effect.value === "number") {
+        if (leafMissing && typeof effect.value === "number") {
+          current[leafKey] = effect.value;
+        } else if (typeof current[leafKey] === "number" && typeof effect.value === "number") {
           current[leafKey] = (current[leafKey] as number) + effect.value;
         }
         break;
       case "subtract":
-        if (typeof current[leafKey] === "number" && typeof effect.value === "number") {
+        if (leafMissing && typeof effect.value === "number") {
+          current[leafKey] = -effect.value;
+        } else if (typeof current[leafKey] === "number" && typeof effect.value === "number") {
           current[leafKey] = (current[leafKey] as number) - effect.value;
         }
         break;
@@ -542,12 +561,16 @@ export class GameStateManager {
         }
         break;
       case "merge":
-        if (typeof current[leafKey] === "object" && current[leafKey] !== null && typeof effect.value === "object" && effect.value !== null) {
+        if (leafMissing && isPlainObject(effect.value)) {
+          current[leafKey] = JSON.parse(JSON.stringify(effect.value));
+        } else if (typeof current[leafKey] === "object" && current[leafKey] !== null && typeof effect.value === "object" && effect.value !== null) {
           current[leafKey] = { ...(current[leafKey] as Record<string, unknown>), ...(effect.value as Record<string, unknown>) };
         }
         break;
       case "push":
-        if (Array.isArray(current[leafKey])) {
+        if (leafMissing) {
+          current[leafKey] = [effect.value];
+        } else if (Array.isArray(current[leafKey])) {
           current[leafKey] = [...(current[leafKey] as unknown[]), effect.value];
         }
         break;

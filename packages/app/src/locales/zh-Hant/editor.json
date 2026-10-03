@@ -44,7 +44,9 @@
     "assets": "資源",
     "overview": "概覽",
     "bundles": "資源包",
-    "aiGeneration": "AI 生成"
+    "aiGeneration": "AI 生成",
+    "apps": "劇情內 App",
+    "sceneImages": "場景圖"
   },
   "kb": {
     "listTitle": "本卡的知識庫",
@@ -159,6 +161,8 @@
     "all": "全部",
     "filter": "篩選",
     "editEntry": "編輯條目",
+    "isCharacter": "這是一個角色",
+    "isCharacterHint": "角色可以設定立繪和聲音；立繪會顯示在聊天裡，也用於劇情插圖。",
     "duplicate": "建立副本",
     "copySuffix": "副本",
     "delete": "刪除",
@@ -366,12 +370,14 @@
     "aiAccessOptions": {
       "write": "AI 可讀可寫",
       "read": "AI 唯讀",
-      "none": "僅引擎（對 AI 隱藏）"
+      "none": "僅引擎（對 AI 隱藏）",
+      "precise": "AI 唯讀（精準追蹤來寫）"
     },
     "aiAccessHint": {
       "write": "每回合展示給 AI，並允許它用指令更新——留給只有 AI 能判斷的敘事量（好感度、情緒）。",
       "read": "展示給 AI 並標註唯讀，讓它照著敘事；AI 對它的寫入指令會被丟棄——由行為或自訂前端驅動。",
-      "none": "完全不發給 AI。仍可驅動條件、行為和自訂前端——適合帳本、計數等內部狀態。"
+      "none": "完全不發給 AI。仍可驅動條件、行為和自訂前端——適合帳本、計數等內部狀態。",
+      "precise": "開著精準追蹤：展示給 AI 並標註唯讀，寫故事的 AI 對它的寫入指令會被丟棄，每回合由精準追蹤的小助手決定它怎麼變。關掉精準追蹤後，才按這裡的設定來。"
     },
     "activationLabel": "啟用時機",
     "activationModes": {
@@ -392,7 +398,8 @@
       "none": "引擎",
       "manual": "手動",
       "conditions": "條件",
-      "greeting": "開局"
+      "greeting": "開局",
+      "precise": "精準"
     },
     "invalidJson": "JSON 格式錯誤：{{message}}",
     "jsonUndo": "復原",
@@ -430,7 +437,21 @@
       "string": "字串",
       "boolean": "布林值",
       "json": "JSON（物件/陣列）"
-    }
+    },
+    "optionsLabel": "可選值",
+    "optionsHint": "可以在這裡固定 AI 的輸出哦：填了之後，這個變數就只會在這幾個固定的詞語裡變化。不填的話，AI 會根據情況自由變化，但穩定性可能會降低。",
+    "optionsAdd": "新增一個值",
+    "optionsPlaceholder": "輸入後按 Enter",
+    "preciseLabel": "精準追蹤",
+    "preciseHint": "開著時，每回合會有專門的小助手檢查一遍這個變數該不該變、變多少，比讓寫故事的 AI 順手改更準更穩。",
+    "preciseStringHint": "勾選後，這個變數的變化會更準確、更穩定，只會是可選值裡的一個",
+    "preciseDown": "每回合最多降",
+    "preciseUp": "每回合最多漲",
+    "preciseRange": "每回合會在 −{{down}} 到 +{{up}} 之間，按劇情選一個數",
+    "preciseUpOnly": "每回合只會漲，最多 +{{up}}，或者不變",
+    "preciseDownOnly": "每回合只會降，最多 −{{down}}，或者不變",
+    "preciseZero": "兩邊都是 0，它就不會變了",
+    "preciseTooWide": "這個變數的變化幅度太大，不支援精準追蹤哦～ 兩邊加起來不超過 {{max}} 才能用"
   },
   "components": {
     "title": "自定義 UI",
@@ -511,6 +532,17 @@
     "htmlPlaceholder": "<div>HTML 內容</div>\n<script>window.yumina.onChange(function() { ... });</script>",
     "markdownCode": "Markdown",
     "markdownPlaceholder": "# 標題\n\n在此輸入 Markdown 內容..."
+  },
+  "appPacks": {
+    "title": "劇情內 App",
+    "blurb": "玩家從聊天旁邊的停靠欄打開的小 App：訊息、角色關係、廣場、時間……每個 App 的資料放在一個變數裡，由 AI 跟著劇情填寫。每張卡片上方就是這個 App 的真實樣子，你什麼都不用寫。",
+    "add": "加進這張卡",
+    "added": "已加入停靠欄",
+    "footnote": "App 裡的文字跟著卡的語言走（中文、英文或西班牙語）。在 Bundles 頁移除後，按鈕、資料和規則會一起刪掉。",
+    "sets": "推薦組合——這類卡大多在追蹤這些",
+    "addSet": "四個一起加",
+    "setAdded": "已全部加入",
+    "installed": "已裝「{{name}}」"
   },
   "audio": {
     "title": "音訊",
@@ -595,7 +627,25 @@
     "trackIdCopyFailed": "複製失敗，請選取 ID 後手動複製。",
     "trackIdHelp": "在腳本和音訊指令中使用此 ID，它與素材 ID 不同。",
     "allowAiControl": "允許 AI 控制",
-    "allowAiControlHelp": "關閉後，AI 無法播放、停止或調整此音軌。腳本、行為和播放清單仍可控制它。"
+    "allowAiControlHelp": "關閉後，AI 無法播放、停止或調整此音軌。腳本、行為和播放清單仍可控制它。",
+    "aiNoteLabel": "什麼時候放",
+    "aiNoteSfxLabel": "什麼事發生時放一次",
+    "aiNotePlaceholder": "例如：熱鬧歡快，慶祝、集市、追逐打鬧時放",
+    "aiPickTitle": "讓 AI 自動播放這首",
+    "aiPickHelp": "寫一句什麼時候放，AI 讀到劇情對上的時候就會自動切到這首。不寫的話，這首只按播放清單和條件規則放。",
+    "aiPickSfxTitle": "讓 AI 自動播放這個音效",
+    "aiPickSfxHelp": "寫一句什麼事發生時放，AI 讀到劇情裡發生了這件事就放一次。不寫的話，只按條件規則放。",
+    "aiNoteSfxPlaceholder": "例如：有人拔刀動手",
+    "aiPickOn": "已開啟：劇情對上的時候，AI 會自動播放這首",
+    "aiPickOff": "還沒開啟，填一句就開啟",
+    "aiPickBadgeTitle": "AI 會在劇情對上時自動播放",
+    "musicRuleConflict": "AI 想換歌，但條件規則正在放它自己的曲子時",
+    "musicRuleConflictRules": "規則優先：規則的曲子照放，AI 這回合不換",
+    "musicRuleConflictAi": "AI 優先：換成 AI 選的，放完或 AI 交還之前規則不插手",
+    "musicRuleAfter": "AI 選的曲子放完以後",
+    "musicRuleAfterLoop": "一直循環，直到 AI 換歌或交回播放清單",
+    "musicRuleAfterOnce": "只放一遍，放完回到預設播放清單",
+    "musicRuleDuck": "AI 播放音效的時候，把背景音樂壓低，放完恢復"
   },
   "overview": {
     "title": "概覽",
@@ -652,7 +702,9 @@
     "coverFromAssetFailed": "無法將其設為封面",
     "galleryAddFailed": "無法新增該圖片",
     "imageRemoveFailed": "無法移除該圖片",
-    "importCoverFailed": "無法把卡片圖片用作封面"
+    "importCoverFailed": "無法把卡片圖片用作封面",
+    "continuity": "智慧追蹤",
+    "continuityDesc": "每回合 AI 寫完回覆後，會有一個專門的小助手再檢查一遍：變數該不該變、該放哪首歌、該發哪張場景圖。比讓寫故事的 AI 順手改準得多。關掉就只靠寫故事的 AI 自己改。"
   },
   "variantBar": {
     "primaryBadge": "主",
@@ -742,7 +794,8 @@
     "source": {
       "publish": "已儲存版本",
       "live": "已儲存版本",
-      "backup": "還原前備份"
+      "backup": "還原前備份",
+      "incoming": "套用改動前的備份"
     },
     "previousPublished": "曾經上線",
     "notPublished": "尚未發佈"
@@ -1101,7 +1154,8 @@
       "canvas": "畫布",
       "aiAssistant": "AI 助手",
       "playtest": "測試",
-      "marketplace": "資源市場"
+      "marketplace": "資源市場",
+      "sceneImages": "場景圖"
     },
     "layouts": {
       "writing": "寫作",
@@ -1116,6 +1170,9 @@
         "count": "張數",
         "estimate": "預估 {{amount}} 蘑菇幣",
         "estimateNote": "出圖後按實際用量結算，沒出圖不扣錢。",
+        "price": "{{amount}} 蘑菇幣",
+        "customNoteTags": "提示詞按 Danbooru 標籤原樣發給底模，不會被改寫。按這個價扣費，沒出圖會退回。",
+        "customNoteProse": "提示詞按英文句子原樣發給底模，不會被改寫。按這個價扣費，沒出圖會退回。",
         "confirm": "生成",
         "decline": "不用了",
         "generating": "在畫了，大約 30 秒",
@@ -1624,6 +1681,7 @@
     "mergedConflictsToast": "已合併，保留了你的版本",
     "failed": "儲存失敗",
     "agentMergedNotice": "已與助手的變更合併",
+    "coverRefreshFailed": "封面已上傳，但編輯器重新整理失敗。請重新開啟作品後再調整裁剪。",
     "agentMergedConflictsNotice": "已合併，保留了你的版本"
   },
   "review": {
@@ -1925,5 +1983,132 @@
     "library": "從素材庫選",
     "uploading": "上傳中…",
     "failed": "上傳失敗：{{name}}"
+  },
+  "sceneImages": {
+    "hintLabel": "解鎖提示",
+    "hintHelp": "圖片還沒出現時，玩家在圖鑑裡看到的一句話。吊胃口，別劇透。",
+    "hintPlaceholder": "例如：喵、喵喵？！",
+    "learnMore": "創作者指南 →",
+    "uploadFiles": "從電腦上傳",
+    "dropHint": "把圖片拖到這裡，可以一次加多張",
+    "uploading": "上傳中 {{done}}/{{total}}…",
+    "uploadFailed": "上傳失敗：{{name}}",
+    "title": "場景圖",
+    "description": "在故事裡發給玩家的圖片。給每張圖寫一句發送條件，AI 會照著執行：條件滿足的回覆就帶上這張圖。",
+    "addImage": "新增圖片",
+    "searchPlaceholder": "搜尋圖片...",
+    "noImages": "還沒有場景圖",
+    "noImagesDesc": "上傳一張圖，寫清楚它對應的情境，故事走到那裡時 AI 會把它展示出來。",
+    "noImagesMatch": "沒有符合「{{query}}」的圖片",
+    "back": "返回",
+    "unnamed": "未命名圖片",
+    "nameLabel": "標題",
+    "namePlaceholder": "例如：Minyu 被嚇到",
+    "delete": "刪除",
+    "idLabel": "圖片 ID",
+    "idHelp": "「複製代碼」會給出完整標籤，貼進開場白或詞條裡，圖就會在那裡出現。",
+    "copyId": "複製 ID",
+    "copyCode": "複製代碼",
+    "copyFailed": "複製失敗",
+    "imageSource": "圖片",
+    "urlLabel": "URL 或素材 ID",
+    "urlPlaceholder": "https://... 或 @asset:id",
+    "browseAssets": "瀏覽素材",
+    "sceneLabel": "什麼時候展示",
+    "scenePlaceholder": "例如：貓咪 Minyu 被嚇了一跳，整隻彈起來",
+    "allowAi": "讓 AI 自動展示這張圖",
+    "scopeLabel": "適用開場",
+    "scopeHelp": "只在某些開場白下啟用這張圖。",
+    "scopeAll": "所有開場",
+    "scopeNoGreetings": "先新增開場白，才能按開場限定圖片。",
+    "greetingFallback": "開場 {{index}}",
+    "emptyNoImages": "先新增一張圖片",
+    "emptySelect": "選擇一張圖片進行編輯",
+    "modeTitle": "誰來放圖",
+    "modeJudge": "回覆寫完再配圖",
+    "modeJudgeHelp": "每回合看完 AI 的回覆，逐張按「什麼時候展示」裡寫的條件判斷，滿足就放在這條回覆最後。條件寫「每次回覆都發」就每回合都發。玩家用什麼模型都一樣穩。",
+    "modeNarrator": "寫故事的 AI 自己插",
+    "modeNarratorHelp": "圖能插在兩段話中間，但得看模型聽不聽話，有的模型基本不放。",
+    "modeRecommended": "推薦",
+    "modeLocked": "智慧追蹤在「概覽」裡關掉了，現在由寫故事的 AI 自己插圖。",
+    "autoCount": "{{on}}/{{total}} 張會自動展示",
+    "autoHelpJudge": "寫一句發送條件，照字面執行。比如「兩人在咖啡店對坐時」，或者「每次回覆後都發」。滿足條件的回覆都會在最後帶上這張圖，之前發過也照發。",
+    "autoHelpNarrator": "寫一句發送條件，照字面執行。比如「兩人在咖啡店對坐時」，或者「每次回覆後都發」。滿足條件時，寫故事的 AI 會把它插進正文。",
+    "autoOn": "已開啟：滿足條件時自動發送",
+    "autoOff": "還沒開啟，填一句就開啟。不填的話只能用複製的代碼手動放。",
+    "autoNoPicture": "還差一張圖，傳好圖就會自動展示。",
+    "autoHeld": "之前關掉了自動展示，這張現在只能用複製的代碼手動放。",
+    "autoReenable": "重新打開",
+    "autoBadgeTitle": "滿足條件時自動發送"
+  },
+  "voiceField": {
+    "characterLabel": "音色",
+    "characterHint": "玩家開語音朗讀時，這個角色的台詞用這個聲音唸。不設的話由 AI 依角色自動挑一個。",
+    "custom": "自訂音色",
+    "customGroup": "自訂音色",
+    "useCustom": "使用",
+    "customHint": "設定 › 語音裡儲存的自訂音色，或貼上任一 fish.audio 音色 ID。玩家開啟語音朗讀時就會用這個聲音。",
+    "clear": "清除",
+    "cardTitle": "聲音",
+    "cardDesc": "玩家開語音朗讀、用語音輸入時的設定",
+    "narratorLabel": "旁白音色",
+    "narratorHint": "敘述部分用這個聲音唸。不設就用玩家自己選的音色。",
+    "narrator": "旁白音色",
+    "character": "「{{name}}」的音色",
+    "follow": "跟玩家自己的設定",
+    "followHint": "這張卡不指定，用玩家在設定裡選的",
+    "preview": "試聽",
+    "hint": "玩家開朗讀時按說話人切換音色；沒指定的角色用旁白音色，旁白也沒指定就用玩家自己的。",
+    "inputTitle": "玩家語音輸入",
+    "inputHint": "玩家放開麥克風後。狼人殺、審訊這類卡適合直接送出",
+    "inputConfirm": "先確認",
+    "inputAuto": "直接送出",
+    "lang": {
+      "zh": "中文",
+      "en": "英文",
+      "ja": "日文",
+      "es": "西班牙文"
+    },
+    "gender": {
+      "female": "女",
+      "male": "男"
+    },
+    "close": "關閉"
+  },
+  "bundleCounts": {
+    "entries_other": "{{count}} 個詞條",
+    "variables_other": "{{count}} 個變數",
+    "behaviors_other": "{{count}} 個行為",
+    "components_other": "{{count}} 個組件",
+    "empty": "空"
+  },
+  "worldChanges": {
+    "title": "更新《{{name}}》？",
+    "fromFile": "來自檔案 {{file}}",
+    "fromCopy": "來自 {{name}} 改過的副本",
+    "pickTarget": "這個檔案對應你的好幾張卡，要更新哪一張？",
+    "statusPublished": "已發布",
+    "statusDraft": "草稿",
+    "exactOrigin": "就是從這張下載的",
+    "comparing": "正在和你的卡比對…",
+    "diffFailed": "沒能和你的卡比對。仍然可以更新，會先存一份備份。",
+    "noChanges": "沒有可更新的：和你的卡完全一樣。",
+    "summary": "新增 {{added}} · 修改 {{modified}} · 刪除 {{removed}}",
+    "more": "還有 {{count}} 項",
+    "changedSinceCopy": "對方複製之後你又改過這張卡，更新會把那些改動也替換掉——備份裡還找得回。",
+    "backupLine": "更新前會先備份你的卡，隨時能在版本歷史裡還原。",
+    "publishedLine": "這張卡已發布：改動會先進修改稿，和平常一樣提交審核後才上線。",
+    "apply": "更新《{{name}}》",
+    "saveAsNew": "另存為新專案",
+    "applied": "已更新《{{name}}》",
+    "appliedHeld": "已更新《{{name}}》的修改稿，提交審核通過後才會上線。",
+    "backupNoteFile": "套用 {{file}} 之前",
+    "backupNoteCopy": "套用 {{name}} 的改動之前",
+    "error": {
+      "otherWorldUnsaved": "編輯器裡另一張卡有沒儲存的改動，先儲存它再試。",
+      "backup": "沒能備份你的卡，所以什麼都沒改。再試一次。",
+      "load": "沒能打開你的卡，什麼都沒改。",
+      "save": "更新沒儲存成功。你的卡沒變，備份在版本歷史裡。"
+    }
   }
 }

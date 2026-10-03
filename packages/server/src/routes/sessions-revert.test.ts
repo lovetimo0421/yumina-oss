@@ -3,7 +3,7 @@ import { describe, it, beforeEach, afterEach, after } from "node:test";
 import assert from "node:assert/strict";
 import { db } from "../db/index.js";
 import { playSessions, messages, worlds, user, userPersonas, userWorldPersonas } from "../db/schema.js";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, sql } from "drizzle-orm";
 import { revertSession } from "./sessions.js";
 import { pruneSessionSnapshots } from "../lib/snapshot.js";
 
@@ -129,6 +129,65 @@ describe("revertSession", () => {
     assert.strictEqual((result.body.data!.state as any).variables.hp, 9);
   });
 
+  it("restores the target snapshot at PostgreSQL microsecond precision", async () => {
+    // Three assistant snapshots share one JS millisecond, but are distinct
+    // PostgreSQL turns. UUID ordering must not select a snapshot after target.
+    await db.execute(sql`UPDATE messages SET created_at = '2026-01-02 00:00:00.123400'::timestamp
+      WHERE id = ${messageIds[0]!}`);
+    await db.execute(sql`UPDATE messages SET created_at = '2026-01-02 00:00:00.123450'::timestamp
+      WHERE id = ${messageIds[1]!}`);
+    await db.execute(sql`UPDATE messages SET created_at = '2026-01-02 00:00:00.123500'::timestamp
+      WHERE id = ${messageIds[2]!}`);
+    await db.execute(sql`UPDATE messages SET created_at = '2026-01-02 00:00:00.123550'::timestamp
+      WHERE id = ${messageIds[3]!}`);
+    await db.execute(sql`UPDATE messages SET created_at = '2026-01-02 00:00:00.123600'::timestamp
+      WHERE id = ${messageIds[4]!}`);
+    const result = await revertSession({ userId: testUserId, sessionId: testSessionId, messageId: messageIds[2]! });
+    assert.equal(result.status, 200);
+    assert.equal((result.body.data!.state.variables as any).hp, 9);
+    assert.equal(result.body.data!.messageTotal, 3);
+  });
+
+  it("reverts the last exchange and reports the surviving history count", async () => {
+    const result = await revertSession({ userId: testUserId, sessionId: testSessionId });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.data!.messageTotal, 3);
+    assert.equal(result.body.data!.messages.length, 3);
+    assert.equal((result.body.data!.state.variables as any).hp, 9);
+  });
+
+  it("returns a bounded surviving page with an accurate total and preserved rewind state", async () => {
+    const journal = "j".repeat(1_000_000);
+    await db.update(worlds).set({ schema: {
+      name: "Large rewind", entries: [], variables: [
+        { id: "hp", name: "HP", type: "number", defaultValue: 10 },
+        { id: "journal", name: "Journal", type: "string", defaultValue: "" },
+      ],
+    } }).where(eq(worlds.id, testWorldId));
+    const snapshot = { variables: { hp: 7, journal } };
+    const largeIds: string[] = [];
+    for (let i = 0; i < 12; i++) {
+      const [row] = await db.insert(messages).values({
+        sessionId: testSessionId, role: "assistant", content: `large ${i}`,
+        createdAt: new Date(Date.UTC(2026, 0, 2) + i * 1000), stateSnapshot: snapshot,
+        swipes: [{ content: `large ${i}`, createdAt: "now", stateSnapshot: snapshot, generationState: snapshot }],
+      }).returning();
+      largeIds.push(row!.id);
+    }
+    const result = await revertSession({ userId: testUserId, sessionId: testSessionId, messageId: largeIds[10]! });
+    assert.equal(result.status, 200);
+    assert.equal(result.body.data!.messageTotal, 16);
+    const page = result.body.data!.messages as Array<typeof messages.$inferSelect>;
+    assert.ok(page.length < 16 && page.length > 0);
+    assert.ok(Buffer.byteLength(JSON.stringify(page)) < 8 * 1024 * 1024);
+    assert.equal(page.at(-1)!.id, largeIds[10]);
+    assert.equal((page.at(-1)!.stateSnapshot!.variables as any).journal, journal);
+    assert.deepEqual(page.at(-1)!.swipes, [{ content: "large 10", createdAt: "now" }]);
+    assert.equal((result.body.data!.state.variables as any).journal, journal);
+    const [stored] = await db.select().from(messages).where(eq(messages.id, largeIds[10]!));
+    assert.equal((stored!.swipes![0]!.generationState!.variables as any).journal, journal);
+  });
+
   it("reverting onto the very first user turn restores the greeting snapshot, not defaults", async () => {
     // messageIds[1] = "i attack" (user, no snapshot). Walk back finds the
     // greeting snapshot (hp: 10), which happens to equal the default here, but
@@ -233,8 +292,12 @@ describe("revertSession", () => {
       { role: "assistant" as const, content: "reply 2", stateSnapshot: { variables: { hp: 8, selected: [] } } },
     ];
     const ids: string[] = [];
-    for (const f of fixtures) {
-      const [row] = await db.insert(messages).values({ sessionId: s2!.id, ...f }).returning();
+    for (const [index, f] of fixtures.entries()) {
+      // Match the main fixture's explicit turn ordering. With default now(),
+      // adjacent inserts can tie and UUID order can make "again" the last turn.
+      const [row] = await db.insert(messages).values({
+        sessionId: s2!.id, ...f, createdAt: new Date(Date.UTC(2026, 0, 1) + index * 1000),
+      }).returning();
       ids.push(row!.id);
     }
 

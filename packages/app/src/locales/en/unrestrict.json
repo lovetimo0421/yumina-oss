@@ -1,0 +1,227 @@
+{
+  "name": "Unrestrict",
+  "switchLabel": "Unrestrict on/off",
+  "loading": "Loading…",
+  "cancel": "Cancel",
+  "tokensApprox": "~{{n}} tokens",
+  "status": {
+    "off": "Off",
+    "on": "On · {{variant}} · {{strength}} strength",
+    "autoVariant": "Auto ({{variant}})"
+  },
+  "variants": {
+    "gemini": "Gemini edition",
+    "claude": "Claude edition",
+    "deepseek": "DeepSeek edition",
+    "general": "General edition"
+  },
+  "strength": {
+    "title": "Strength",
+    "light": "Light",
+    "standard": "Standard",
+    "strong": "Strong",
+    "hint": {
+      "light": "Only the story frame — the least effect on writing style.",
+      "standard": "The frame plus the usual guidance. Enough in most cases.",
+      "strong": "Adds a self-check reminder before each reply. A few more tokens."
+    }
+  },
+  "card": {
+    "adjust": "Adjust"
+  },
+  "age": {
+    "title": "Confirm your age first",
+    "body": "Confirm your birth year to turn it on.",
+    "placeholder": "Birth year, e.g. 1998",
+    "confirm": "Confirm",
+    "invalid": "Enter a four-digit year.",
+    "under18": "You need to be 18 or older to use Unrestrict."
+  },
+  "errors": {
+    "notEligible": "This account can't use Unrestrict right now",
+    "saveFailed": "Couldn't save — try again",
+    "copyFailed": "Couldn't make a copy — try again"
+  },
+  "prompts": {
+    "title": "Prompts",
+    "newFolder": "New folder",
+    "mine": "My prompts",
+    "mineCount": "· {{total}} total, {{on}} on",
+    "mineCountLong": "{{total}} total, {{on}} on",
+    "new": "New",
+    "none": "No prompts yet.",
+    "hubRow": "Find more in the Prompt Plaza",
+    "manageInSettings": "Manage in Settings › Prompts",
+    "pos": "pos {{n}}",
+    "section": {
+      "system": "System",
+      "inChat": "In-Chat",
+      "final": "Final"
+    },
+    "sectionFull": {
+      "system": "System Prompt",
+      "inChat": "In-Chat",
+      "final": "Final"
+    }
+  },
+  "conflict": {
+    "paused": "“{{name}}” and the official one were both on, so yours is paused for now.",
+    "pausedLong": "Your own “{{name}}” and the official preset were both on, so yours was paused automatically.",
+    "undo": "Undo",
+    "restored": "“{{name}}” is back on. Both now apply and may work against each other.",
+    "repause": "Pause again"
+  },
+  "chips": {
+    "officialCopy": "Official copy",
+    "fromHub": "From the Plaza",
+    "paused": "Paused"
+  },
+  "page": {
+    "breadcrumb": "Breadcrumb",
+    "crumbSettings": "Settings"
+  },
+  "gone": {
+    "title": "This page doesn't exist",
+    "body": "This link doesn't open on this account.",
+    "cta": "Go to Settings › Prompts"
+  },
+  "master": {
+    "currentModel": "Current model",
+    "noModel": "none selected",
+    "autoUses": "uses the “{{variant}}” automatically",
+    "manualUses": "uses the “{{variant}}” (picked by you)",
+    "off": "Off"
+  },
+  "variantsCard": {
+    "title": "Official presets",
+    "auto": "Auto",
+    "autoPicked": "Auto-picked",
+    "verified": "Last checked {{date}}"
+  },
+  "what": {
+    "title": "What it does",
+    "one": "Goes before all other prompts by default and is sent with every message. You can change where it goes and what it contains below.",
+    "two": "Temporarily pauses your own prompts of the same kind so the two don't clash. They come back when you turn this off."
+  },
+  "honest": "Some content is blocked by the model provider itself — no prompt changes that. Switching models helps more in that case.",
+  "adjust": {
+    "title": "your adjustments",
+    "autoPicked": "(auto-picked)",
+    "copyLocked": "Edit the copy's text directly"
+  },
+  "join": {
+    "title": "How it's added",
+    "follow": "Follow official",
+    "default": "Default",
+    "followHint": "Updates automatically when we improve it. The options below still apply.",
+    "copy": "Make my own copy",
+    "copyHint": "Saved to “My prompts” to edit freely. No longer updates automatically.",
+    "copyNote": "Saved to My prompts",
+    "backTitle": "Go back to following official?",
+    "backBody": "The text returns to the official version and updates automatically. Your “{{variant}} (my copy)” will be removed from “My prompts”.",
+    "backOk": "Follow official"
+  },
+  "update": {
+    "banner": "The official version has been updated",
+    "compare": "Compare",
+    "title": "New official “{{variant}}”",
+    "subtitle": "You're using your own copy, so we're asking first",
+    "legend": "What changed (highlighted = added, struck out = removed):",
+    "note": "“Use new version” makes a fresh copy of the latest official text. Your edits will be replaced.",
+    "keepMine": "Keep mine",
+    "useNew": "Use new version"
+  },
+  "position": {
+    "title": "Where it goes",
+    "first": {
+      "label": "First (recommended)",
+      "hint": "The model reads it first. Most reliable."
+    },
+    "after-char": {
+      "label": "After the character",
+      "hint": "The card's setup is read first. Good for cards with very long setups."
+    },
+    "last": {
+      "label": "End of chat",
+      "hint": "Closest to the reply — strongest effect, but can pull the writing style."
+    }
+  },
+  "modules": {
+    "title": "What's included",
+    "coreLocked": "Core, can't turn off",
+    "core": {
+      "name": "Story frame",
+      "desc": "Frames the chat as fiction. Everything else builds on it."
+    },
+    "antiApology": {
+      "name": "No apologizing",
+      "desc": "After a refusal, rephrase and keep writing"
+    },
+    "antiEmpty": {
+      "name": "No empty replies",
+      "desc": "Avoid one-line or blank replies"
+    },
+    "noLecture": {
+      "name": "No lecturing",
+      "desc": "No safety notes or warnings tacked on at the end"
+    },
+    "adultWriting": {
+      "name": "Adult content style",
+      "desc": "How explicit adult content gets"
+    },
+    "strongReminder": {
+      "name": "Pre-reply self-check"
+    }
+  },
+  "explicitness": {
+    "subtle": "Subtle",
+    "normal": "Normal",
+    "explicit": "Explicit"
+  },
+  "fullText": {
+    "open": "View / edit full text",
+    "title": "{{variant}} · full text",
+    "followHint": "Following official — the text is read-only. Tap the text or “Edit” to change it.",
+    "copyHint": "This is your copy — edit it however you like.",
+    "strengthChip": "Strength: {{value}}",
+    "positionChip": "Position: {{value}}",
+    "copyMissing": "Your copy is empty.",
+    "restore": "Restore official",
+    "edit": "Edit",
+    "done": "Done",
+    "saveDone": "Save",
+    "confirmTitle": "Edit the full text",
+    "confirmBody": "Editing turns this into your own copy, which no longer updates automatically. The copy appears in “My prompts”, and you'll be told when there's a new official version.",
+    "confirmOk": "Continue editing"
+  },
+  "scope": {
+    "title": "Which cards use it",
+    "all": "All cards",
+    "some": "Only these cards",
+    "none": "No cards picked — it won't be used anywhere yet.",
+    "unknownWorld": "(card not in your library)",
+    "remove": "Remove",
+    "add": "Add card",
+    "pickTitle": "Pick cards",
+    "search": "Search cards",
+    "empty": "Your library is empty.",
+    "pickSave": "Done ({{n}})"
+  },
+  "footer": {
+    "withCost": "~{{n}} tokens total · about {{cost}} extra mushies per turn",
+    "tokensOnly": "~{{n}} tokens total"
+  },
+  "community": {
+    "title": "Prompts by other players",
+    "myUploads": "My uploads",
+    "toHub": "Go to the Prompt Plaza"
+  },
+  "bindings": {
+    "title": "Auto-enable by model",
+    "hint": "Pick which of your prompts auto-applies on each model family.",
+    "none": "Off",
+    "families": {
+      "other": "Other"
+    }
+  }
+}

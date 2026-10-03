@@ -43,6 +43,7 @@ import { ExportCardMenu } from "../editor/export-card-menu";
 import { ReviewStateControl } from "../editor/review-state-control";
 import { feedback } from "@/lib/feedback";
 import { AudioSection } from "../editor/sections/audio";
+import { SceneImagesSection } from "../editor/sections/scene-images";
 import { BehaviorsSection } from "../editor/sections/behaviors-section";
 import { EntriesSection } from "../editor/sections/entries";
 import { VariablesSection } from "../editor/sections/variables";
@@ -50,6 +51,7 @@ import {
   AiChatPanel,
   AssetsPanel,
   AudioPanel,
+  SceneImagesPanel,
   BundlesPanel,
   CanvasPanel,
   CodeViewPanel,
@@ -77,6 +79,7 @@ type MobileStudioPanelId =
   | "first-message"
   | "assets"
   | "audio"
+  | "scene-images"
   | "canvas"
   | "code-view"
   | "overview"
@@ -119,6 +122,7 @@ const MOBILE_PANEL_COMPONENTS: Record<MobileStudioPanelId, React.FC<IDockviewPan
   "first-message": FirstMessagePanel,
   assets: AssetsPanel,
   audio: AudioPanel,
+  "scene-images": SceneImagesPanel,
   canvas: CanvasPanel,
   "code-view": CodeViewPanel,
   overview: OverviewPanel,
@@ -135,6 +139,7 @@ const MOBILE_PANEL_LABEL_KEYS: Record<MobileStudioPanelId, string> = {
   "first-message": "studio.panels.firstMessage",
   assets: "studio.panels.assets",
   audio: "studio.panels.audio",
+  "scene-images": "studio.panels.sceneImages",
   canvas: "studio.panels.canvas",
   "code-view": "studio.panels.frontEndCode",
   overview: "studio.panels.overview",
@@ -296,6 +301,16 @@ function buildMobileReviewPayload(toolCall: ToolCall): MobileReviewPayload {
     };
   }
 
+  if (toolName === "write_scene_image") {
+    const existing = findExistingEntity(args, draft.sceneImages as unknown[]);
+    return {
+      title,
+      toolName,
+      changed: formatReviewValue(args),
+      original: existing ? formatReviewValue(summarizeEntity(existing)) : noOriginal,
+    };
+  }
+
   if (toolName === "delete_entities") {
     const ids = Array.isArray(args.ids) ? args.ids.filter((id): id is string => typeof id === "string") : [];
     const collections = [
@@ -304,6 +319,7 @@ function buildMobileReviewPayload(toolCall: ToolCall): MobileReviewPayload {
       ...(draft.reactions as unknown[] | undefined ?? []),
       ...(draft.rules as unknown[] | undefined ?? []),
       ...(draft.audioTracks as unknown[] | undefined ?? []),
+      ...(draft.sceneImages as unknown[] | undefined ?? []),
     ];
     const files = (draft.rootComponent as Record<string, unknown> | undefined)?.files as Record<string, string> | undefined;
     const originals = ids.map((id) => {
@@ -340,6 +356,9 @@ function MobilePanelRenderer({ panelId }: { panelId: MobileStudioPanelId }) {
   }
   if (panelId === "audio") {
     return <AudioSection compact mobileListMode />;
+  }
+  if (panelId === "scene-images") {
+    return <SceneImagesSection compact mobileListMode />;
   }
 
   const Component = MOBILE_PANEL_COMPONENTS[panelId];

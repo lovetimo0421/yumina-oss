@@ -52,7 +52,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { feedback } from "@/lib/feedback";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
-import { getAssetCdnUrl, cardImageUrl, fallbackToOriginalOnError } from "@/lib/asset-url";
+import { getAssetCdnUrl, cardImageUrl, thumbnailImageUrl, fallbackToOriginalOnError } from "@/lib/asset-url";
 import { getUploadMetadata } from "@/lib/asset-upload";
 import { planFolderImport, readDroppedAssets } from "@/lib/asset-folder-import";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
@@ -1157,7 +1157,8 @@ function BindToCardDialog({
                 >
                   {w.thumbnailUrl ? (
                     <img
-                      src={w.thumbnailUrl}
+                      src={thumbnailImageUrl(w.thumbnailUrl, 96)}
+                      onError={fallbackToOriginalOnError}
                       alt=""
                       className="h-8 w-8 shrink-0 rounded object-cover ring-1 ring-white/10"
                     />

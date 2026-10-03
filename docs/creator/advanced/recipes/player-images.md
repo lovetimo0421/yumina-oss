@@ -2,242 +2,83 @@
 
 # Player-Uploaded Images
 
-> Let the player pick a picture from their device — an avatar, a custom background, a photo of their character — and have it appear inside the world immediately. The image is stored as a regular variable, persists across sessions, and travels with the bundle when you export.
+Save player pictures with `api.media`, and small related JSON with `api.sessionStorage`. Both belong to the current play session and can be read on another device signed into the same account. Creator-supplied images still use the editor's **Assets** tab and `@asset:` references.
 
----
+## Choose where data belongs
 
-## What you'll build
+| Data | API |
+|------|-----|
+| Player image bytes and gallery metadata | `api.media` |
+| A selected image ID, bounded notes, or other save-specific JSON | `api.sessionStorage` |
+| Browser-only preferences and expendable cache | `api.storage` |
+| Game state that the rules or AI should use | Declared game variables |
 
-A small avatar uploader rendered next to chat:
+Do not put image base64 into JSON, game variables, or browser storage. Cloud saves require a connection. Session images are separate from a world's export bundle; do not promise that exporting a world downloads players' private files.
 
-- Player clicks the avatar slot → file picker opens
-- Picks a `.png` / `.jpg` → image appears instantly in the slot
-- Image survives reloads, session switches, and bundle exports
-- Works completely offline — no network call, no asset upload to the server
+## Upload and display
 
-The pattern generalises to anything image-shaped: backgrounds, NPC portrait overrides, item icons drawn by the player, screenshots they want the AI to react to.
-
-::: info Player upload vs. creator asset
-This recipe is for images **the player provides at play time**. If you (the creator) want to ship a fixed image with your world, upload it in the editor's **Assets** tab and reference it by `@asset:xxx` in your code or styles — that goes through the CDN and isn't stored in the player's session.
-:::
-
-### How it works
-
-The whole thing is three browser primitives plus one SDK call:
-
-```
-Player picks file
-  → <input type="file" accept="image/*"> change event
-  → FileReader.readAsDataURL(file) → "data:image/png;base64,..."
-  → api.setVariable("player-avatar", dataUrl)
-  → variable updates → component re-renders → <img src={dataUrl}> shows the picture
-```
-
-The data URL is just a string. Because Yumina variables can hold any JSON, the string lives inside the variable like any other text — no separate upload pipeline.
-
----
-
-## Step by step
-
-### Step 1: Create the variable
-
-Editor → sidebar → **Variables** tab → **Add Variable**:
-
-| Field | Value | Why |
-|-------|-------|-----|
-| Display Name | Player Avatar | For your own reference |
-| ID | `player-avatar` | The Root Component reads/writes this ID |
-| Type | String | A data URL is just text |
-| Default Value | *empty* | Empty = no avatar yet, show a placeholder |
-| Category | Custom | Organisational |
-| Behavior Rules | `Do not modify this variable. The player provides the image; the AI must never change it.` | Stops the AI from emitting `[player-avatar: set ...]` directives that would corrupt the image |
-
-> **Why a String, not JSON?** A data URL is a single string like `data:image/png;base64,iVBORw...`. JSON would work too — useful when you have multiple slots like `{ avatar: "...", background: "..." }` — but a single image slot is simpler as a String.
-
----
-
-### Step 2: Root Component
-
-Editor → **Custom UI** section → open `index.tsx` → paste:
+In a component, obtain `const api = useYumina()`. Load the list on opening, after changes, and before temporary display URLs expire (five minutes):
 
 ```tsx
-export default function MyWorld() {
-  const api = useYumina();
-  const avatar = String(api.variables["player-avatar"] || "");
+const page = await api.media.list(0);
+// page.items contains { id, entryId, metadata, version, url, thumbnailUrl, deleted, ... }.
+// Load subsequent pages when page.hasMore is true.
 
-  function handlePick(e) {
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = function(ev) {
-      const dataUrl = String(ev.target.result || "");
-      api.setVariable("player-avatar", dataUrl);
-    };
-    reader.readAsDataURL(file);
-
-    // Reset so picking the same file twice still fires onChange
-    e.target.value = "";
-  }
-
-  return (
-    <div style={{ display: "flex", height: "100vh" }}>
-      {/* Left: avatar slot */}
-      <div style={{ width: "200px", padding: "16px", borderRight: "1px solid #333" }}>
-        <label style={{ display: "block", cursor: "pointer" }}>
-          <div style={{
-            width: "168px",
-            height: "168px",
-            borderRadius: "12px",
-            background: avatar ? `url(${avatar}) center/cover` : "#1f2937",
-            border: "1px solid #374151",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#9ca3af",
-            fontSize: "13px",
-          }}>
-            {avatar ? "" : "Click to upload"}
-          </div>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handlePick}
-            style={{ display: "none" }}
-          />
-        </label>
-
-        {avatar && (
-          <button
-            onClick={() => api.setVariable("player-avatar", "")}
-            style={{
-              marginTop: "12px",
-              padding: "6px 12px",
-              fontSize: "12px",
-              background: "transparent",
-              border: "1px solid #4b5563",
-              borderRadius: "6px",
-              color: "#9ca3af",
-              cursor: "pointer",
-              width: "100%",
-            }}
-          >
-            Remove
-          </button>
-        )}
-      </div>
-
-      {/* Right: regular chat */}
-      <div style={{ flex: 1 }}>
-        <Chat />
-      </div>
-    </div>
-  );
-}
-```
-
-**Line-by-line:**
-
-- `api.variables["player-avatar"]` — read the saved data URL (empty string when nothing has been uploaded)
-- `<input type="file" accept="image/*">` — the standard browser file picker. `accept="image/*"` filters to image types in the OS dialog
-- `FileReader.readAsDataURL` — reads the picked file and produces a `data:image/...;base64,...` string asynchronously; the result lands in `ev.target.result`
-- `api.setVariable("player-avatar", dataUrl)` — saves the string into the variable. Because variables are part of the session, the avatar persists across reloads and is included when the player exports the session
-- `e.target.value = ""` — without this, picking the same file twice in a row doesn't fire `onChange` (browsers dedupe identical values on file inputs)
-- The avatar div uses CSS `background-image` rather than an `<img>` tag so we get `cover` cropping for free
-
----
-
-### Step 3: (Optional) Compress before saving
-
-A 4K phone photo can easily exceed 5 MB. Stored as base64 it's ~33% larger again. Loading and serialising a 7 MB string on every render is slow, and the export bundle bloats accordingly. For anything bigger than a thumbnail, downscale on the client first:
-
-```tsx
-function compressToDataUrl(file, maxDim = 512, quality = 0.85) {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = () => { img.src = String(reader.result); };
-    reader.onerror = reject;
-    img.onload = () => {
-      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
-      const w = Math.round(img.width * scale);
-      const h = Math.round(img.height * scale);
-      const canvas = document.createElement("canvas");
-      canvas.width = w;
-      canvas.height = h;
-      const ctx = canvas.getContext("2d");
-      ctx.drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL("image/jpeg", quality));
-    };
-    img.onerror = reject;
-    reader.readAsDataURL(file);
+if (!api.readOnly && page.uploadsEnabled) {
+  const result = await api.media.pick({
+    metadata: { title: "Character portrait" }
   });
-}
-
-async function handlePick(e) {
-  const file = e.target.files && e.target.files[0];
-  if (!file) return;
-  const dataUrl = await compressToDataUrl(file, 512, 0.85);
-  api.setVariable("player-avatar", dataUrl);
-  e.target.value = "";
+  if (result) {
+    // result is { mediaId, entryId }; null means the player canceled.
+    // Reload the list to obtain its temporary display URL.
+  }
 }
 ```
 
-`canvas.toDataURL("image/jpeg", 0.85)` typically lands a 512×512 avatar in 40–80 KB. That's negligible for storage and instant to render.
+Render a non-deleted item's `url` or `thumbnailUrl`. An item may have a null URL if its file was permanently deleted. Catch rejected requests, keep an error state, and show success only after the promise resolves. Honor `api.readOnly` and `uploadsEnabled` when enabling upload controls.
 
-> **Sanity rule of thumb**: keep any single image variable under ~200 KB once base64-encoded. A handful of avatars at that size is fine; a gallery of full-resolution photos is not — at that point use the editor's **Assets** tab and `@asset:xxx` references instead.
+For an existing file input, call `api.media.upload(file, { entryId, uploadId, metadata })`. Keep the selected `File` after a failed request and reuse the same `uploadId` when retrying that file/request. Never fall back to local storage while claiming it was saved to the cloud.
 
----
+## Save a selected image
 
-### Step 4: Save and test
+Keep a stable entry ID in JSON, then resolve it against `media.list()` for display. Do not persist `url` or `thumbnailUrl`:
 
-1. Click **Save** at the top of the editor
-2. Open or start a session
-3. Click the avatar slot, pick a picture — it should appear immediately
-4. Refresh the page — the avatar is still there
-5. Click **Remove** — the slot returns to "Click to upload"
+```tsx
+const previous = await api.sessionStorage.get("selected-portrait");
+const saved = await api.sessionStorage.set(
+  "selected-portrait",
+  { entryId: selectedItem.entryId, mediaId: selectedItem.id },
+  { expectedVersion: previous.version }
+);
+// Keep saved.version for later changes.
+```
 
-**If something goes wrong:**
+All JSON methods return `{ value, version, exists }`. Check `exists` when loading. Every `set` and `remove` requires `{ expectedVersion }`; if another device changed the record, `SESSION_STORAGE_CONFLICT` rejects the write. Keep the draft, reload, and reconcile before resubmitting. Do not blindly retry a stale selection.
 
-| Symptom | Likely cause | Fix |
-|---------|-------------|-----|
-| Picker doesn't open | The `<input>` isn't a child of the `<label>`, or `display: none` is on the label instead | Make sure `<input type="file">` is inside the `<label>` and the label has `cursor: pointer` |
-| Image picks but doesn't show | `setVariable` not called, or the variable ID is misspelled | Confirm the ID in the variable definition matches `player-avatar` exactly |
-| Same file twice doesn't trigger | Missing `e.target.value = ""` after reading | Always reset the input value at the end of the handler |
-| Page feels sluggish after upload | The image is huge | Add the `compressToDataUrl` step from above |
-| AI starts emitting nonsense `[player-avatar: ...]` directives | The behavior rule on the variable wasn't added | Re-open the variable and paste the rule from Step 1 |
+To clear only the selection, use `api.sessionStorage.remove("selected-portrait", { expectedVersion })` with its latest version. To remove an image from the current session, use `api.media.remove(item.entryId, item.version)`. These are separate actions; clearing the selection does not delete the image. Permanent file deletion is managed in **Library → Assets → Save images** and can affect other saves, checkpoints, and shares.
 
----
+## Limits and saved copies
 
-## Quick reference
+- Images: static JPEG/PNG/WebP, up to 16 MiB input and 40 million decoded pixels. The server creates a WebP display image up to 2048 pixels plus a thumbnail. This is not an original-file backup. Images use the account's existing asset capacity.
+- JSON: 32 KiB per serialized UTF-8 value; 256 KiB current values, 128 keys including tombstones, and 16 MiB value history per session; 1,000 mutations/hour across the owner's sessions.
+- A checkpoint restore that changes JSON shares these limits. A quota failure returns HTTP 413 and an hourly rate failure returns 429; the entire restore, including media and story state, rolls back. History is retained. Restoring unchanged values does not duplicate history and can proceed even at these JSON limits.
+- Checkpoints, same-account branches, and shared snapshots capture JSON and media references together. A checkpoint restore restores both. A share retains only its creation-time snapshot and does not receive later private additions.
+- Shared replays are read-only and follow existing visibility, world publication status, hidden/moderation status, and content-level rules. The sharer and card creator are privileged snapshot readers, including for hidden, unpublished, or sensitive snapshots; other viewers must pass the applicable checks. Unlisted shares are accessible by link. This does not grant the creator access to the owner's private live-session data, which remains owner-only.
 
-| What you want | How to do it |
-|---------------|-------------|
-| Player picks an image | `<input type="file" accept="image/*">` inside a `<label>` |
-| File → string | `new FileReader(); reader.readAsDataURL(file)` |
-| Persist the picked image | `api.setVariable("id", dataUrl)` — strings of any size go in like any other variable |
-| Render it | `<img src={dataUrl}>` or `background: url(${dataUrl})` |
-| Reset same-file picking | `e.target.value = ""` after handling |
-| Keep storage small | Downscale via `canvas.toDataURL("image/jpeg", 0.85)` before saving |
-| Player removes it | `api.setVariable("id", "")` |
+## Existing browser galleries
 
----
+The compatibility adapter recognizes validated current Oncin v2/v3/v4 and `gallery_data` formats in any world. Migration runs from the browser that holds the original images and retains its old data. It does not guess from corrupt or ambiguous journals/backups, recover data from another device's browser, fetch remote URLs, or automatically convert arbitrary localStorage keys.
 
-## When **not** to use this pattern
+New cards should use the explicit SDK APIs above. For other legacy formats, keep the local originals until both upload and cloud save are confirmed.
 
-| Situation | Use instead |
-|-----------|-------------|
-| The image is shipped with the world (always the same) | Editor's **Assets** tab + `@asset:xxx` reference |
-| You need many large images and don't want them in every player's session bundle | **Assets** tab — uploaded once, served from CDN |
-| The image needs to be visible to other players in a shared room | **Assets** tab — variables are per-session, assets are per-world |
-| The AI needs to *see* the image (vision models) | Coming soon: chat-message attachments. For now, store a description in another variable and let the AI react to that |
+## Verify the integration
 
-The mental split is simple: **pre-baked content the creator chose** lives in Assets; **content the player produces at runtime** lives in variables.
+1. Upload a small supported image, wait for confirmation, and reload the session.
+2. Open the same session from another device on the same account and confirm the image and selection.
+3. Save a checkpoint, change the selection, then restore it; confirm the image references and JSON return together.
+4. Create a same-account branch and a shared snapshot; verify their captured state and read-only replay behavior.
+5. Exercise canceled selection, failed upload, quota errors, and a conflicting JSON change from another device. Retain the draft and show the failure.
 
----
-
-::: tip This is Recipe #15
-The pattern — *browser file API → string variable* — also works for short audio clips (`readAsDataURL` + `<audio src={dataUrl}>`), small text files (`readAsText`), and JSON imports. Whenever you need the player to bring data *into* the world, this is the shape.
-:::
+See the [API reference](../08-api-reference.md) for signatures. AI image input is a separate chat-attachment feature; displaying an image does not send its pixels to the model.
 
 </div>

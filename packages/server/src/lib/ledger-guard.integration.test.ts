@@ -7,6 +7,7 @@ import { creditTransactions, creditWallets, user } from "../db/schema.js";
 import { deductCredits, refreshMonthlyCredits, syncPlan } from "./credit-service.js";
 import { insertHashedTransaction } from "./transaction-hash.js";
 import { verifyLedger } from "./ledger-verifier.js";
+import { previousGlobalCreditReset } from "./credit-reset-time.js";
 
 after(async () => { await (db as unknown as { $client: { close: () => Promise<void> } }).$client.close(); });
 
@@ -86,7 +87,10 @@ describe("ledger guard (database constraint)", () => {
 
 describe("monthly reset writes the expiry down", () => {
   it("renewal: expiry row for the unused monthly mushies, then the grant, chain intact", async () => {
-    const { userId, walletId } = await makeWallet({ plan: "free", balance: 1240, addon: 100, periodEnd: new Date(Date.now() - 60_000) });
+    // Free cycles align forward to the shared reset boundary. An arbitrary
+    // minute ago can therefore still be an unexpired cycle after alignment.
+    const expiredPeriodEnd = previousGlobalCreditReset(new Date());
+    const { userId, walletId } = await makeWallet({ plan: "free", balance: 1240, addon: 100, periodEnd: expiredPeriodEnd });
     assert.equal(await refreshMonthlyCredits(userId), true);
     const rows = (await ledger(walletId)).slice(1);
     assert.deepEqual(rows.map((r) => [r.type, r.amount, r.balanceAfter, r.description]), [
@@ -95,7 +99,7 @@ describe("monthly reset writes the expiry down", () => {
     ]);
     assert.equal(await balanceOf(walletId), 2100);
     // No expiry row when nothing monthly is left.
-    const empty = await makeWallet({ plan: "free", balance: 100, addon: 100, periodEnd: new Date(Date.now() - 60_000) });
+    const empty = await makeWallet({ plan: "free", balance: 100, addon: 100, periodEnd: expiredPeriodEnd });
     await refreshMonthlyCredits(empty.userId);
     assert.deepEqual((await ledger(empty.walletId)).slice(1).map((r) => r.type), ["plan_grant"]);
   });
@@ -124,8 +128,8 @@ describe("monthly reset writes the expiry down", () => {
   });
 
   it("verifier reports a clean chain after resets and debits", async () => {
-    const { userId } = await makeWallet({ plan: "free", balance: 900, addon: 50, periodEnd: new Date(Date.now() - 60_000) });
-    await refreshMonthlyCredits(userId);
+    const { userId } = await makeWallet({ plan: "free", balance: 900, addon: 50, periodEnd: previousGlobalCreditReset(new Date()) });
+    assert.equal(await refreshMonthlyCredits(userId), true);
     await deductCredits(userId, 40, "usage-v", "model — 10 tokens");
     const result = await verifyLedger(24);
     assert.equal(result.tailMismatches, 0);

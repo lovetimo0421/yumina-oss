@@ -307,6 +307,8 @@ export function LibraryGameGrid({
         thumbnailUrl: li.worldThumbnailUrl,
         coverCrop: li.worldCoverCrop ?? null,
         galleryCoverCrop: li.worldGalleryCoverCrop ?? null,
+        landscapeCoverUrl: li.worldLandscapeCoverUrl ?? null,
+        landscapeCoverCrop: li.worldLandscapeCoverCrop ?? null,
         isPublished: true,
         isNsfw: li.worldIsNsfw,
         // Pass through the variant's actual allow_edit so disabled-fork

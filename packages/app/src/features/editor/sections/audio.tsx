@@ -12,6 +12,7 @@ import {
   Search,
   Settings2,
   ArrowLeft,
+  Sparkles,
 } from "lucide-react";
 import { feedback } from "@/lib/feedback";
 import { useCopyFeedback } from "@/hooks/use-copy-feedback";
@@ -50,6 +51,12 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
   const addAudioTrack = useEditorStore(s => s.addAudioTrack);
   const updateAudioTrack = useEditorStore(s => s.updateAudioTrack);
   const removeAudioTrack = useEditorStore(s => s.removeAudioTrack);
+  const musicRules = useEditorStore(s => s.worldDraft.continuity?.music);
+  const updateContinuity = useEditorStore(s => s.updateContinuity);
+  const setMusicRule = (patch: Partial<NonNullable<typeof musicRules>>) => {
+    const merged = Object.fromEntries(Object.entries({ ...(musicRules ?? {}), ...patch }).filter(([, v]) => v !== undefined));
+    updateContinuity({ music: Object.keys(merged).length > 0 ? merged : undefined });
+  };
 
   const audioTracks = worldDraft.audioTracks ?? [];
 
@@ -255,6 +262,49 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
               </div>
             </button>
 
+            {/* Rules for AI-picked music. Each question appears only once the
+                situation it settles can actually happen in this card — an AI
+                cue on a track plus the thing it could collide with. */}
+            {(() => {
+              const aiBgm = audioTracks.some((tr) => tr.type !== "sfx" && tr.aiNote?.trim());
+              const aiSfx = audioTracks.some((tr) => tr.type === "sfx" && tr.aiNote?.trim());
+              const hasRules = (worldDraft.conditionalBGM?.length ?? 0) > 0;
+              const hasPlaylist = (worldDraft.bgmPlaylist?.tracks?.length ?? 0) > 0;
+              const hasBgm = audioTracks.some((tr) => tr.type !== "sfx");
+              const askConflict = aiBgm && hasRules;
+              const askAfter = aiBgm && hasPlaylist;
+              const askDuck = aiSfx && hasBgm;
+              if (!askConflict && !askAfter && !askDuck) return null;
+              const radio = (name: string, on: boolean, setOn: (v: boolean) => void, offLabel: string, onLabel: string) => (
+                <fieldset className="space-y-1.5">
+                  <legend className="text-xs font-bold text-foreground">{t(name as "audio.musicRuleConflict")}</legend>
+                  {([false, true] as const).map((v) => (
+                    <label key={String(v)} className="flex cursor-pointer items-start gap-2 text-xs text-foreground">
+                      <input type="radio" name={name} className="mt-0.5 accent-primary" checked={on === v} onChange={() => setOn(v)} />
+                      <span>{v ? onLabel : offLabel}</span>
+                    </label>
+                  ))}
+                </fieldset>
+              );
+              return (
+                <div className="mb-3 space-y-4 rounded-xl border border-border bg-card p-4">
+                  {askConflict && radio("audio.musicRuleConflict", musicRules?.overRules === true,
+                    (v) => setMusicRule({ overRules: v ? true : undefined }),
+                    t("audio.musicRuleConflictRules"), t("audio.musicRuleConflictAi"))}
+                  {askAfter && radio("audio.musicRuleAfter", musicRules?.once === true,
+                    (v) => setMusicRule({ once: v ? true : undefined }),
+                    t("audio.musicRuleAfterLoop"), t("audio.musicRuleAfterOnce"))}
+                  {askDuck && (
+                    <label className="flex cursor-pointer items-start gap-2 text-xs text-foreground">
+                      <input type="checkbox" className="mt-0.5 accent-primary" checked={musicRules?.duck !== false}
+                        onChange={(e) => setMusicRule({ duck: e.target.checked ? undefined : false })} />
+                      <span>{t("audio.musicRuleDuck")}</span>
+                    </label>
+                  )}
+                </div>
+              );
+            })()}
+
             {audioTracks.length === 0 && (
               <div className="rounded-xl border border-dashed border-border py-12 text-center">
                 <Music className="mx-auto h-8 w-8 text-muted-foreground/20" />
@@ -293,6 +343,12 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
                   >
                     {track.name || t("audio.unnamed")}
                   </span>
+                  {track.aiNote?.trim() && (
+                    <span title={t("audio.aiPickBadgeTitle")} className="flex shrink-0 items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
+                      <Sparkles className="h-3 w-3" />
+                      AI
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -343,6 +399,42 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
                     {t("audio.delete")}
                   </TwoTapDeleteButton>
                 </div>
+
+                {/* ── AI auto-play ── one sentence is the whole setting: a
+                    track with a cue is played by the judge when the story
+                    matches it; an empty cue keeps the track out. */}
+                {(() => {
+                  const isSfx = selected.type === "sfx";
+                  const hasCue = Boolean(selected.aiNote?.trim());
+                  return (
+                    <div className={cn("rounded-2xl border p-6 transition-colors", hasCue ? "border-primary/40 bg-primary/[0.06]" : "border-border bg-card")}>
+                      <div className="flex items-center gap-2">
+                        <Sparkles className={cn("h-4 w-4", hasCue ? "text-primary" : "text-muted-foreground")} />
+                        <h3 className="text-[15px] font-bold tracking-wide text-foreground">
+                          {isSfx ? t("audio.aiPickSfxTitle") : t("audio.aiPickTitle")}
+                        </h3>
+                      </div>
+                      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                        {isSfx ? t("audio.aiPickSfxHelp") : t("audio.aiPickHelp")}
+                      </p>
+                      <label htmlFor="audio-track-ai-note" className="mt-4 block text-[13px] font-bold text-foreground">
+                        {isSfx ? t("audio.aiNoteSfxLabel") : t("audio.aiNoteLabel")}
+                      </label>
+                      <input
+                        id="audio-track-ai-note"
+                        type="text"
+                        value={selected.aiNote ?? ""}
+                        maxLength={200}
+                        onChange={(e) => updateAudioTrack(selected.id, { aiNote: e.target.value || undefined })}
+                        placeholder={isSfx ? t("audio.aiNoteSfxPlaceholder") : t("audio.aiNotePlaceholder")}
+                        className={cn(inputClass, "mt-1.5")}
+                      />
+                      <p className={cn("mt-2 text-xs", hasCue ? "text-primary" : "text-muted-foreground/60")}>
+                        {hasCue ? t("audio.aiPickOn") : t("audio.aiPickOff")}
+                      </p>
+                    </div>
+                  );
+                })()}
 
                 <div className="space-y-1.5">
                   <label htmlFor="audio-track-id" className="text-[13px] font-bold text-foreground">{t("audio.trackId")}</label>

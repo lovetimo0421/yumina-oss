@@ -17,7 +17,8 @@
     "notifications": "Notifications",
     "display": "Display / Language",
     "wallpaper": "Wallpaper",
-    "about": "About"
+    "about": "About",
+    "prompts": "Prompts"
   },
   "aiConfig": {
     "title": "AI Config"
@@ -48,7 +49,7 @@
     },
     "loginDevices": {
       "title": "Login devices",
-      "description": "Devices currently signed in to your account. Sign out any you don't recognize or forgot to log out of.",
+      "description": "Sign out devices you don't recognize or no longer use.",
       "loading": "Loading devices...",
       "loadError": "Could not load your devices. Try again later.",
       "unknownDevice": "Unknown device",
@@ -236,7 +237,7 @@
       "engagement": "Engagement",
       "engagementDesc": "Favorites, reviews, likes, and tips on your worlds and bundles.",
       "social": "Social",
-      "socialDesc": "New followers and publishes from creators you follow.",
+      "socialDesc": "New followers and new worlds from creators you follow.",
       "creatorPosts": "Creator post notifications",
       "creatorPostsDesc": "Posts from creators you follow or whose cards are in your library. Requires social notifications to be on.",
       "library": "Library",
@@ -246,6 +247,13 @@
     }
   },
   "display": {
+    "experimental": {
+      "title": "Experimental",
+      "turnImages": {
+        "title": "Story illustrations",
+        "description": "Experimental: draws a picture for replies. Your first 5 are free, then 12 mushies each."
+      }
+    },
     "title": "Display",
     "language": {
       "title": "Language",
@@ -261,11 +269,88 @@
     },
     "autoFullscreenOnPlay": {
       "title": "Auto-enter fullscreen when playing",
-      "description": "Automatically enter immersive fullscreen when opening a card with a custom interface. When off, cards open in the normal layout and you can enter fullscreen anytime with the fullscreen button. Saved to your account."
+      "description": "Open worlds with custom interfaces in fullscreen. You can also toggle fullscreen while playing."
     },
     "worldAudio": {
       "title": "World music & sound effects",
-      "description": "When off, worlds play no background music or sound effects at all — fully silent. Saved to your account."
+      "description": "Play background music and sound effects in worlds."
+    },
+    "tts": {
+      "title": "Voice readout",
+      "description": "Tap the speaker on a reply to hear it, or turn on auto-read below.",
+      "offDescription": "Off by default. Turn it on to have replies read aloud; readouts cost mushies.",
+      "autoPlay": {
+        "title": "Auto read-along",
+        "description": "Read new replies as they arrive. Each new reading costs mushies."
+      },
+      "mode": {
+        "full": "Read everything",
+        "fullHint": "Narration and dialogue",
+        "dialogue": "Dialogue only",
+        "dialogueHint": "Only lines inside quotes"
+      },
+      "voice": {
+        "title": "Voice",
+        "poolTitle": "My voice pool",
+        "poolHint": "Tick the voices you like and the AI picks from them for each character. Tick none and it picks from all of them.",
+        "poolAll": "All voices",
+        "poolCount": "{{count}} selected",
+        "poolClear": "Clear",
+        "customGroup": "Custom",
+        "rename": "Rename",
+        "remove": "Remove",
+        "namePlaceholder": "Name this voice",
+        "auto": "Auto (match my language)",
+        "preview": "Preview voice",
+        "customPlaceholder": "Custom voice ID (32 characters, from fish.audio)",
+        "customHint": "Paste the ID of any voice from the fish.audio voice library to add it to your pool.",
+        "invalidId": "That doesn't look like a voice ID — it should be 32 letters and digits."
+      },
+      "volume": "Voice volume",
+      "previewFailed": "Couldn't play the preview. Try again.",
+      "costHint": "Voice synthesis is billed per character (mushies). Replaying a line that was already generated is always free.",
+      "voices": {
+        "zhGentleFemale": "Gentle female",
+        "zhMatureFemale": "Mature female",
+        "zhSweetGirl": "Sweet girl",
+        "zhYoungMale": "Young male",
+        "zhNarratorMale": "Narrator",
+        "enFemale": "Warm female",
+        "enYouthfulMale": "Youthful male",
+        "jaCalmFemale": "Calm female",
+        "jaEnergeticFemale": "Energetic girl",
+        "jaCalmMale": "Calm male",
+        "zhLivelyFemale": "Lively female",
+        "zhLightMatureFemale": "Soft mature female",
+        "zhBrightFemale": "Upbeat female",
+        "zhBroadcastMale": "Broadcast male",
+        "zhDeepMale": "Deep resonant male",
+        "zhSteadyMale": "Steady male",
+        "enNarratorFemale": "Storyteller female",
+        "enSoftFemale": "Soft e-girl",
+        "enDeepMale": "Deep slow male",
+        "enCalmMale": "Composed male",
+        "jaBrightGirl": "Cheerful girl",
+        "jaDeepMale": "Mellow narrator",
+        "esFemale": "Melodic female",
+        "esGirl": "Energetic girl",
+        "esNarratorMale": "Narrator male"
+      }
+    },
+    "voiceInput": {
+      "title": "Voice input",
+      "description": "Hold the mic and speak instead of typing. While the message box is empty, the send button becomes a mic.",
+      "release": "When you let go",
+      "followCard": "Card default",
+      "confirm": "Review first",
+      "auto": "Send right away",
+      "followCardHint": "Card default: each card decides (most let you review first).",
+      "key": "Hold-to-talk key",
+      "keySpace": "Space",
+      "keySpaceHint": "Works when you're not typing in the box",
+      "keyAnyHint": "Works anywhere, even while typing",
+      "keyPress": "Press a key…",
+      "free": "Voice input is free."
     },
     "sendKey": {
       "title": "Press Enter to send",
@@ -274,13 +359,13 @@
   },
   "wallpaper": {
     "title": "Wallpaper",
-    "description": "Choose a different wallpaper for each page and tune how strong the background feels.",
+    "description": "Choose a wallpaper for each page.",
     "visualControls": {
       "title": "Visual Controls"
     },
     "opacity": {
       "title": "Wallpaper Opacity",
-      "description": "Keeps each page's own visual balance, but lets you make the wallpaper fainter or stronger overall.",
+      "description": "Make the wallpaper fainter or more visible.",
       "minLabel": "Subtle",
       "maxLabel": "Vivid",
       "ariaLabel": "Wallpaper opacity",
@@ -288,14 +373,14 @@
     },
     "gradient": {
       "title": "Bottom Gradient Strength",
-      "description": "Controls how strong the dark fade is near the bottom of immersive pages.",
+      "description": "Adjust the dark fade at the bottom of the page.",
       "minLabel": "Lighter",
       "maxLabel": "Darker",
       "ariaLabel": "Bottom gradient strength"
     },
     "cloudyGlass": {
       "title": "Cloudy Glass Strength",
-      "description": "Makes the cloudy glass blurrier and denser without switching over to the clearer glass presets.",
+      "description": "Adjust the blur and opacity of glass panels.",
       "minLabel": "Clearer",
       "maxLabel": "Cloudier",
       "ariaLabel": "Cloudy glass strength"
@@ -307,7 +392,7 @@
     },
     "upload": {
       "title": "Upload Custom Wallpaper",
-      "description": "Uploaded images go into your \"{{folderName}}\" folder, and only images from that folder appear in this gallery.",
+      "description": "This gallery shows images in your \"{{folderName}}\" folder. Uploads are saved there.",
       "loading": "Loading wallpapers...",
       "assetCount_one": "{{count}} uploaded image asset",
       "assetCount": "{{count}} uploaded image assets",

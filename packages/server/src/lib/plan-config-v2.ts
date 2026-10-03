@@ -41,6 +41,7 @@
 // Version-1 wallets (everyone who signed up before launch) keep plan-config.ts.
 
 import type { PlanId } from "./plan-config.js";
+import { CREDIT_DAY_MS, globalCreditResetAtOrAfter } from "./credit-reset-time.js";
 
 export interface PlanDrop {
   /** Days after the cycle start when this drop becomes available (0 = at grant). */
@@ -316,15 +317,19 @@ export function dropsFor(plan: string, schedule: DropScheduleKey | string | null
 
 const asDrops = (source: PlanConfigV2 | PlanDrop[]): PlanDrop[] => (Array.isArray(source) ? source : source.drops);
 
-/** Drops whose day threshold has passed, given the cycle start and now. */
+/** Signup/purchase stays immediate; later drops land at the next global reset. */
+function dropTime(periodStart: Date, day: number): Date {
+  return day === 0 ? periodStart : globalCreditResetAtOrAfter(new Date(periodStart.getTime() + day * CREDIT_DAY_MS));
+}
+
+/** Drops whose global reset has passed, given the cycle start and now. */
 export function dueDrops(source: PlanConfigV2 | PlanDrop[], periodStart: Date, now: Date): PlanDrop[] {
-  const elapsedDays = Math.floor((now.getTime() - periodStart.getTime()) / 86_400_000);
-  return asDrops(source).filter((d) => d.day <= elapsedDays);
+  return asDrops(source).filter((d) => dropTime(periodStart, d.day).getTime() <= now.getTime());
 }
 
 /** The next drop not yet released, or null when the cycle's drops are all out. */
 export function nextDrop(source: PlanConfigV2 | PlanDrop[], periodStart: Date, released: number): { day: number; amount: number; at: Date } | null {
   const drop = asDrops(source)[released];
   if (!drop) return null;
-  return { ...drop, at: new Date(periodStart.getTime() + drop.day * 86_400_000) };
+  return { ...drop, at: dropTime(periodStart, drop.day) };
 }

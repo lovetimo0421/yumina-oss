@@ -1,9 +1,44 @@
 import { Hono } from "hono";
 import { eq, and } from "drizzle-orm";
+import { isModelFamily } from "@yumina/engine";
 import { db } from "../db/index.js";
 import { userPrompts, promptFolders } from "../db/schema.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../lib/types.js";
+import { getUnrestrictEligibility, UNRESTRICT_KIND } from "../lib/unrestrict.js";
+
+const PROMPT_KINDS = new Set([UNRESTRICT_KIND]);
+const API_ROLES = new Set(["system", "user", "assistant"]);
+type ApiRole = "system" | "user" | "assistant";
+
+/** kind: "unrestrict" | null. Anything else is a 400. undefined = not provided. */
+function parseKind(v: unknown): { ok: true; value: string | null | undefined } | { ok: false } {
+  if (v === undefined) return { ok: true, value: undefined };
+  if (v === null) return { ok: true, value: null };
+  return typeof v === "string" && PROMPT_KINDS.has(v) ? { ok: true, value: v } : { ok: false };
+}
+function parseApiRole(v: unknown): { ok: true; value: ApiRole | null | undefined } | { ok: false } {
+  if (v === undefined) return { ok: true, value: undefined };
+  if (v === null) return { ok: true, value: null };
+  return typeof v === "string" && API_ROLES.has(v) ? { ok: true, value: v as ApiRole } : { ok: false };
+}
+
+/**
+ * autoModels: family keys the prompt auto-applies for. null clears the binding
+ * (always-on). An empty array is normalized to null. Any non-family key is a 400.
+ * undefined = not provided.
+ */
+function parseAutoModels(v: unknown): { ok: true; value: string[] | null | undefined } | { ok: false } {
+  if (v === undefined) return { ok: true, value: undefined };
+  if (v === null) return { ok: true, value: null };
+  if (!Array.isArray(v)) return { ok: false };
+  const out: string[] = [];
+  for (const x of v) {
+    if (!isModelFamily(x)) return { ok: false };
+    if (!out.includes(x)) out.push(x);
+  }
+  return { ok: true, value: out.length ? out : null };
+}
 
 const userPromptsRoutes = new Hono<AppEnv>();
 
@@ -13,15 +48,54 @@ userPromptsRoutes.use("/*", authMiddleware);
 userPromptsRoutes.get("/", async (c) => {
   const userId = c.get("user").id;
 
-  const [prompts, folders] = await Promise.all([
+  const [allPrompts, folders, eligibility] = await Promise.all([
     db.select().from(userPrompts).where(eq(userPrompts.userId, userId)),
     db.select().from(promptFolders).where(eq(promptFolders.userId, userId)),
+    getUnrestrictEligibility(userId),
   ]);
+  // 解除限制-type prompts don't exist for safe-mode / minor accounts.
+  const prompts = eligibility.eligible ? allPrompts : allPrompts.filter((p) => p.kind !== UNRESTRICT_KIND);
 
   // These are edited from multiple devices; no cache layer (browser, CF, an
   // in-between proxy) may ever answer for the origin.
   c.header("Cache-Control", "no-store");
   return c.json({ data: { prompts, folders } });
+});
+
+// PUT /api/user-prompts/bindings — set the prompt bound to a model family, exclusively.
+// Body: { family: <MODEL_FAMILIES key>, promptId: string | null }. Adds `family` to the
+// chosen prompt's auto_models and removes it from every other prompt (one prompt per
+// family). promptId=null just clears the family from all prompts. Returns the prompt list.
+userPromptsRoutes.put("/bindings", async (c) => {
+  const userId = c.get("user").id;
+  const body = await c.req.json<{ family?: unknown; promptId?: unknown }>().catch(() => ({} as { family?: unknown; promptId?: unknown }));
+  const { family } = body;
+  const promptId = body.promptId === null || body.promptId === undefined ? null : body.promptId;
+  if (!isModelFamily(family)) return c.json({ error: "Invalid family" }, 400);
+  if (promptId !== null && typeof promptId !== "string") return c.json({ error: "Invalid promptId" }, 400);
+
+  const eligibility = await getUnrestrictEligibility(userId);
+  const updated = await db.transaction(async (tx) => {
+    const all = await tx.select().from(userPrompts).where(eq(userPrompts.userId, userId));
+    if (promptId !== null && !all.some((p) => p.id === promptId)) return null;
+    for (const row of all) {
+      const cur = Array.isArray(row.autoModels) ? row.autoModels : [];
+      const has = cur.includes(family);
+      if (row.id === promptId) {
+        if (!has) {
+          await tx.update(userPrompts).set({ autoModels: [...cur, family], updatedAt: new Date() }).where(eq(userPrompts.id, row.id));
+        }
+      } else if (has) {
+        const next = cur.filter((f) => f !== family);
+        await tx.update(userPrompts).set({ autoModels: next.length ? next : null, updatedAt: new Date() }).where(eq(userPrompts.id, row.id));
+      }
+    }
+    return tx.select().from(userPrompts).where(eq(userPrompts.userId, userId));
+  });
+  if (updated === null) return c.json({ error: "Not found" }, 404);
+  const prompts = eligibility.eligible ? updated : updated.filter((p) => p.kind !== UNRESTRICT_KIND);
+  c.header("Cache-Control", "no-store");
+  return c.json({ data: { prompts } });
 });
 
 // POST /api/user-prompts — create prompt
@@ -34,7 +108,16 @@ userPromptsRoutes.post("/", async (c) => {
     depth?: number;
     position?: number | null;
     folderId?: string | null;
+    kind?: string | null;
+    apiRole?: string | null;
+    autoModels?: unknown;
   }>();
+  const kind = parseKind(body.kind);
+  const apiRole = parseApiRole(body.apiRole);
+  const autoModels = parseAutoModels(body.autoModels);
+  if (!kind.ok) return c.json({ error: "Invalid kind" }, 400);
+  if (!apiRole.ok) return c.json({ error: "Invalid apiRole" }, 400);
+  if (!autoModels.ok) return c.json({ error: "Invalid autoModels" }, 400);
 
   const [prompt] = await db
     .insert(userPrompts)
@@ -46,6 +129,9 @@ userPromptsRoutes.post("/", async (c) => {
       depth: body.depth ?? null,
       position: body.position ?? null,
       folderId: body.folderId ?? null,
+      kind: kind.value ?? null,
+      apiRole: apiRole.value ?? null,
+      autoModels: autoModels.value ?? null,
     })
     .returning();
 
@@ -89,6 +175,21 @@ userPromptsRoutes.patch("/:id", async (c) => {
   if ("depth" in body) updates.depth = body.depth;
   if ("position" in body) updates.position = body.position;
   if ("folderId" in body) updates.folderId = body.folderId;
+  if ("kind" in body) {
+    const kind = parseKind(body.kind);
+    if (!kind.ok) return c.json({ error: "Invalid kind" }, 400);
+    updates.kind = kind.value;
+  }
+  if ("apiRole" in body) {
+    const apiRole = parseApiRole(body.apiRole);
+    if (!apiRole.ok) return c.json({ error: "Invalid apiRole" }, 400);
+    updates.apiRole = apiRole.value;
+  }
+  if ("autoModels" in body) {
+    const autoModels = parseAutoModels(body.autoModels);
+    if (!autoModels.ok) return c.json({ error: "Invalid autoModels" }, 400);
+    updates.autoModels = autoModels.value;
+  }
   updates.updatedAt = new Date();
 
   const [updated] = await db
@@ -172,10 +273,12 @@ userPromptsRoutes.delete("/folders/:id", async (c) => {
 userPromptsRoutes.get("/export", async (c) => {
   const userId = c.get("user").id;
 
-  const [prompts, folders] = await Promise.all([
+  const [allPrompts, folders, eligibility] = await Promise.all([
     db.select().from(userPrompts).where(eq(userPrompts.userId, userId)),
     db.select().from(promptFolders).where(eq(promptFolders.userId, userId)),
+    getUnrestrictEligibility(userId),
   ]);
+  const prompts = eligibility.eligible ? allPrompts : allPrompts.filter((p) => p.kind !== UNRESTRICT_KIND);
 
   c.header("Cache-Control", "no-store");
   return c.json({
@@ -190,6 +293,9 @@ userPromptsRoutes.get("/export", async (c) => {
       depth: p.depth,
       position: p.position,
       folderId: p.folderId,
+      kind: p.kind,
+      apiRole: p.apiRole,
+      autoModels: p.autoModels,
     })),
   });
 });
@@ -206,7 +312,11 @@ userPromptsRoutes.post("/import", async (c) => {
       position?: string | number;  // string = legacy section alias; number = ordering position
       enabled?: boolean;
       priority?: number;
+      depth?: number | null;
       folderId?: string | null;
+      kind?: string | null;
+      apiRole?: string | null;
+      autoModels?: string[] | null;
     }>;
   }>();
 
@@ -240,6 +350,11 @@ userPromptsRoutes.post("/import", async (c) => {
       if (typeof p.position === "number") {
         numericPosition = p.position;
       }
+      // Exported files carry depth (chat-history injection depth); it used to be dropped here.
+      const depth = typeof p.depth === "number" && Number.isFinite(p.depth) ? Math.max(0, Math.round(p.depth)) : null;
+      const kind = parseKind(p.kind);
+      const apiRole = parseApiRole(p.apiRole);
+      const autoModels = parseAutoModels(p.autoModels);
       await db.insert(userPrompts).values({
         userId,
         name: p.name,
@@ -247,7 +362,11 @@ userPromptsRoutes.post("/import", async (c) => {
         section,
         enabled: p.enabled !== false,
         position: numericPosition,
+        depth,
         folderId: mappedFolderId,
+        kind: kind.ok ? kind.value ?? null : null,
+        apiRole: apiRole.ok ? apiRole.value ?? null : null,
+        autoModels: autoModels.ok ? autoModels.value ?? null : null,
       });
       imported++;
     }

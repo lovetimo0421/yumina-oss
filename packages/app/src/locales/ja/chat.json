@@ -108,7 +108,11 @@
     "cardOverview": "カード概要",
     "openCardOverviewFailed": "カード概要を開けませんでした",
     "showAllLanguages": "すべての言語を表示",
-    "showCurrentLanguage": "現在の言語のみ表示"
+    "showCurrentLanguage": "現在の言語のみ表示",
+    "sceneGallery": "シーン画像",
+    "sceneGalleryCount": "{{total}} 枚中 {{unlocked}} 枚が登場",
+    "sceneGalleryLocked": "まだ登場していません",
+    "sceneGalleryEmpty": "この世界にはシーン画像がありません。"
   },
   "branchPopover": {
     "current": "現在",
@@ -318,6 +322,9 @@
     "adjustZoom": "プレイ画面のズームを調整",
     "zoomLabel": "プレイ画面のズーム率"
   },
+  "stateGuard": {
+    "unverified": "状態チェックを完了できませんでした。元の返信どおりに数値を更新しました"
+  },
   "errors": {
     "PROTECTED_WORLD": "このワールドはクリエイターによってプロンプト抽出から保護されています。Yumina 公式 API のモデルのみ利用可能です — プライベート API キーは使用できません。",
     "NO_CREDITS": "mushies を使い切ってしまいました! デイリークエストをクリアして無料クレジットを獲得するか、プランをアップグレードしてください。",
@@ -341,25 +348,42 @@
   "unknownWorld": "不明なワールド",
   "failedLoadGeneric": "読み込みに失敗しました",
   "contextGate": {
-    "title": "コンテキストが不足しています",
-    "body": "「{{world}}」のすべての内容を読み込むには約 {{required}} トークンのコンテキストが必要ですが、現在の設定は {{current}} です。このまま開始すると一部のロアが自動的に省略されます。",
-    "loreLabel": "ロアブック・エントリ",
-    "setupLabel": "ワールド設定・オープニング",
-    "storyRoomLabel": "ストーリー・要約用の余白",
-    "requiredLabel": "推奨最低値",
-    "currentLabel": "現在の設定",
-    "currentShort": "現在 {{value}}",
-    "recommendedShort": "推奨 {{value}}",
-    "retainsLabel": "完全に保持",
-    "retainsValue": "キャラクター設定、ロアブック、冒頭",
-    "impactLabel": "予想される影響",
-    "impactValue": "各ターンでより多くの Mushies を使用",
-    "usageDetails": "使用量の内訳を見る",
-    "planCapNote": "このカードに必要なコンテキストは、現在のプランの上限（{{cap}} トークン）を超えています。プランをアップグレードすると上限が上がり、完全に対応できます。",
-    "ignore": "無視する",
+    "softTitle": "設定が多めのカードです",
+    "softBody": "設定はすべて送られるので、このまま遊べます。キーワード項目が大量に発動したターンだけ、AIが見られる直近の会話が少し短くなります。",
+    "hardTitle": "このカードにはコンテキストが足りません",
+    "hardBody": "「{{world}}」は毎ターン送る内容だけで {{floor}} 必要ですが、現在は {{current}} です。設定は送られますが、会話履歴の余地がほぼなく、AIは直前のやり取りを覚えていられません。",
+    "markFloor": "毎ターン",
+    "markFull": "すべて同時",
+    "yours": "あなたのコンテキスト：{{value}}",
+    "rowAlways": "常駐項目",
+    "rowSetup": "システムプロンプトと冒頭",
+    "rowHistory": "会話履歴と要約",
+    "rowTriggered": "キーワード項目（発動時のみ）",
+    "upTo": "最大",
+    "planCapNote": "現在のプランの上限は {{cap}} です。上げるにはプランをアップグレードしてください。",
     "continueCurrent": "{{value}} で開始",
-    "raise": "コンテキストを {{value}} に上げる",
+    "raise": "{{value}} に上げる",
     "close": "閉じる",
     "upgrade": "プランをアップグレード"
-  }
+  },
+  "voiceInput": {
+    "unsupported": "このブラウザでは録音できません。",
+    "denied": "ブラウザがマイクをブロックしました。アドレスバー左のアイコンから許可してください。",
+    "noMic": "マイクが見つかりません。",
+    "failed": "文字に変換できませんでした。もう一度お試しください。",
+    "rateLimited": "音声メッセージが多すぎます。少し待ってください。",
+    "heardNothing": "何も聞き取れませんでした。マイクを押したまま話してください。"
+  },
+  "tts": {
+    "failed": "音声の生成に失敗しました。もう一度お試しください。",
+    "noCredits": "mushies が足りず、読み上げできません。",
+    "rateLimited": "音声リクエストが多すぎます。少し待ってからお試しください。",
+    "nothingToRead": "このメッセージには読み上げられる内容がありません。",
+    "keyInvalid": "OpenRouter のキーが拒否されました。設定で確認してください。",
+    "noKey": "読み上げには API キーが必要です。設定で追加してください。",
+    "voiceUnavailable": "この音声は利用できなくなりました。別の音声を選んでください。",
+    "needsKeyOrCredits": "読み上げには OpenRouter キーまたは mushies が必要です。",
+    "byokNoBalance": "API キーの残高が不足しています。"
+  },
+  "worldDisplayUnavailable": "このワールドの画面を読み込めませんでした。サポートにお問い合わせください。"
 }

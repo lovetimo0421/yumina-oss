@@ -1,6 +1,8 @@
+import { useDiscoverAccess } from "@/hooks/use-discover-access";
+import { DiscoverCoverFields } from "../components/discover-cover-fields";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { X, Plus, ImageIcon, Loader2, Camera, FolderOpen, Upload, Globe, Type, History } from "lucide-react";
+import { X, Plus, ImageIcon, Loader2, Camera, FolderOpen, Upload, Globe, Type, History, Sparkles, Volume2 } from "lucide-react";
 import { FieldError } from "@/components/ui/field-error";
 import { WorldUpdateHistory } from "@/features/library/world-update-history";
 import { MAX_WORLD_DESCRIPTION, MAX_WORLD_NAME } from "@yumina/shared";
@@ -16,6 +18,7 @@ import {
 } from "@/lib/cover-crop";
 import { getWorldGalleryDisplayCrop } from "@/lib/world-cover-crop";
 import { useEditorStore } from "@/stores/editor";
+import { VoiceField } from "../components/voice-field";
 import { AssetPicker } from "../asset-picker";
 import { CoverCropDialog } from "../components/cover-crop-dialog";
 import { TwoTapDeleteButton } from "@/components/ui/two-tap-delete-button";
@@ -34,6 +37,7 @@ function fetchWithTimeout(input: RequestInfo, init: RequestInit, timeoutMs: numb
 }
 
 export function OverviewSection() {
+  const { enabled: discoverPreview } = useDiscoverAccess();
   const { t } = useTranslation("editor");
   const { t: tLibrary } = useTranslation("library");
   const worldDraft = useEditorStore(s => s.worldDraft);
@@ -47,6 +51,7 @@ export function OverviewSection() {
   const galleryImages = useEditorStore(s => s.galleryImages) ?? [];
   const setGalleryImages = useEditorStore(s => s.setGalleryImages);
   const language = useEditorStore(s => s.language);
+  const continuityEnabled = useEditorStore((s) => s.worldDraft.continuity?.enabled !== false);
 
   const [uploadingCover, setUploadingCover] = useState(false);
   const [uploadingGallery, setUploadingGallery] = useState(false);
@@ -142,7 +147,7 @@ export function OverviewSection() {
           return;
         }
 
-        const data = await uploadAssetWithPresignedUrl<{ thumbnailUrl: string }>({
+        await uploadAssetWithPresignedUrl<{ thumbnailUrl: string }>({
           file,
           preferredType: "image",
           resizeImageMaxDimension: 2048, // card cover — don't store the full original
@@ -151,11 +156,14 @@ export function OverviewSection() {
           registerBody: ({ key }) => ({ key }),
         });
 
-        setField("avatar", data.thumbnailUrl);
+        if (useEditorStore.getState().serverWorldId !== id) return;
+        await useEditorStore.getState().refreshWorldSchema(false, { source: "cover-upload" });
+        if (useEditorStore.getState().serverWorldId !== id) return;
+        const refreshedDraft = useEditorStore.getState().worldDraft;
         setCropDialog({
-          src: data.thumbnailUrl,
-          coverCrop: normalizeCoverCrop(useEditorStore.getState().worldDraft.coverCrop),
-          galleryCoverCrop: normalizeCoverCrop(useEditorStore.getState().worldDraft.galleryCoverCrop),
+          src: refreshedDraft.avatar ?? "",
+          coverCrop: normalizeCoverCrop(refreshedDraft.coverCrop),
+          galleryCoverCrop: normalizeCoverCrop(refreshedDraft.galleryCoverCrop),
         });
       } catch (error) {
         setCoverError(getAssetUploadErrorMessage(error));
@@ -199,12 +207,14 @@ export function OverviewSection() {
           setCoverError((err as { error?: string }).error || t("overview.coverFromAssetFailed"));
           return;
         }
-        const { data } = await res.json();
-        setField("avatar", data.thumbnailUrl);
+        if (useEditorStore.getState().serverWorldId !== id) return;
+        await useEditorStore.getState().refreshWorldSchema(false, { source: "cover-upload" });
+        if (useEditorStore.getState().serverWorldId !== id) return;
+        const refreshedDraft = useEditorStore.getState().worldDraft;
         setCropDialog({
-          src: data.thumbnailUrl,
-          coverCrop: normalizeCoverCrop(useEditorStore.getState().worldDraft.coverCrop),
-          galleryCoverCrop: normalizeCoverCrop(useEditorStore.getState().worldDraft.galleryCoverCrop),
+          src: refreshedDraft.avatar ?? "",
+          coverCrop: normalizeCoverCrop(refreshedDraft.coverCrop),
+          galleryCoverCrop: normalizeCoverCrop(refreshedDraft.galleryCoverCrop),
         });
       } catch {
         setCoverError(t("overview.coverFromAssetFailed"));
@@ -441,7 +451,7 @@ export function OverviewSection() {
         </div>
 
         {/* Cover Image */}
-        <div className="rounded-lg border border-border bg-background p-5">
+        {discoverPreview ? <DiscoverCoverFields /> : <div className="rounded-lg border border-border bg-background p-5">
           <div className="mb-4">
             <h3 className="text-sm font-semibold text-foreground">{t("overview.coverImage")}</h3>
             <p className="mt-0.5 text-xs text-muted-foreground/50">
@@ -570,7 +580,7 @@ export function OverviewSection() {
               e.target.value = "";
             }}
           />
-        </div>
+        </div>}
 
         {/* Gallery Images */}
         <div className="rounded-lg border border-border bg-background p-5">
@@ -732,6 +742,76 @@ export function OverviewSection() {
               <option value="pt">Português</option>
               <option value="ru">Русский</option>
             </select>
+          </div>
+        </div>
+
+        {/* Continuity judge — the one switch authors see. Default on. */}
+        <div className="rounded-lg border border-border bg-background p-5">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+              <Sparkles className="h-4 w-4 text-primary" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-foreground">{t("overview.continuity")}</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground/50">
+                {t("overview.continuityDesc")}
+              </p>
+            </div>
+            <input
+              type="checkbox"
+              aria-label={t("overview.continuity")}
+              checked={continuityEnabled}
+              onChange={(e) => useEditorStore.getState().updateContinuity({ enabled: e.target.checked ? undefined : false })}
+              className="h-5 w-5 shrink-0 accent-primary"
+            />
+          </div>
+        </div>
+
+        {/* Voice — what readout and voice input do on this card */}
+        <div className="rounded-lg border border-border bg-background p-5">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+              <Volume2 className="h-4 w-4 text-primary" />
+            </div>
+            <div className="flex-1">
+              <h3 className="text-sm font-semibold text-foreground">{t("voiceField.cardTitle")}</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground/50">{t("voiceField.cardDesc")}</p>
+            </div>
+          </div>
+          <div className="space-y-5">
+            <VoiceField
+              label={t("voiceField.narratorLabel")}
+              hint={t("voiceField.narratorHint")}
+              title={t("voiceField.narrator")}
+              value={worldDraft.settings?.narratorVoice}
+              onChange={(narratorVoice: string | undefined) => {
+                const store = useEditorStore.getState();
+                store.setField("settings", { ...store.worldDraft.settings, narratorVoice });
+              }}
+            />
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-foreground">{t("voiceField.inputTitle")}</label>
+              <div className="flex flex-wrap gap-2" role="group" aria-label={t("voiceField.inputTitle")}>
+                {(["confirm", "auto"] as const).map((m) => {
+                  const active = (worldDraft.settings?.voiceInputMode ?? "confirm") === m;
+                  return (
+                    <button
+                      key={m}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        const store = useEditorStore.getState();
+                        store.setField("settings", { ...store.worldDraft.settings, voiceInputMode: m });
+                      }}
+                      className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${active ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
+                    >
+                      {t(m === "auto" ? "voiceField.inputAuto" : "voiceField.inputConfirm")}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-xs text-muted-foreground">{t("voiceField.inputHint")}</p>
+            </div>
           </div>
         </div>
 

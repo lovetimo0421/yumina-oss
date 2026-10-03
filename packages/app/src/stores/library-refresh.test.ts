@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import "../lib/vite-env.test-helpers";
 
 const storage = new Map<string, string>();
 const localStorageStub: Storage = {

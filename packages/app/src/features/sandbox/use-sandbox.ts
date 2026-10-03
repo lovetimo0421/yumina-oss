@@ -3,6 +3,7 @@ import { SandboxBridge, type ApiHandler, type StreamHandler } from "./bridge-par
 import type { ChannelDataMap, SandboxMode } from "../../../sandbox/protocol";
 import type { StateChannel } from "@yumina/engine";
 import { SANDBOX_DOC_URL } from "@/lib/sandbox-doc-url";
+import { SandboxBootTiming } from "@/lib/sandbox-boot-timing";
 
 const SANDBOX_URL = SANDBOX_DOC_URL;
 
@@ -22,6 +23,8 @@ function withParentOrigin(url: string): string {
  * to install the root component and push state channel updates.
  */
 export function useSandbox(opts: {
+  /** Diagnostic context only; hidden cached sessions must not count as waits. */
+  active?: boolean;
   onApiCall: ApiHandler;
   onStreamCall?: StreamHandler;
   onError?: (message: string) => void;
@@ -39,6 +42,10 @@ export function useSandbox(opts: {
   const [rendered, setRendered] = useState(false);
   const bridgeRef = useRef<SandboxBridge | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const bootTimingRef = useRef<SandboxBootTiming | null>(null);
+  const loadCleanupRef = useRef<(() => void) | null>(null);
+  const activeRef = useRef(opts.active !== false);
+  activeRef.current = opts.active !== false;
   const onApiCallRef = useRef(opts.onApiCall);
   const onStreamCallRef = useRef(opts.onStreamCall);
   const onErrorRef = useRef(opts.onError);
@@ -55,6 +62,17 @@ export function useSandbox(opts: {
   onPlayInteractionRef.current = opts.onPlayInteraction;
 
   useEffect(() => {
+    const timing = new SandboxBootTiming(() => performance.now(), document.visibilityState !== "hidden");
+    bootTimingRef.current = timing;
+    const onVisibility = () => timing.setVisible(document.visibilityState !== "hidden");
+    document.addEventListener("visibilitychange", onVisibility);
+    let live = true;
+    let reportedRender = false;
+    const reportTiming = (event: string) => {
+      try {
+        onDiagRef.current?.(event, { ...timing.snapshot(), renderer_active: activeRef.current });
+      } catch { /* Measurement must not delay or prevent readiness/painting. */ }
+    };
     const bridge = new SandboxBridge({
       onApiCall: (method, args) => onApiCallRef.current(method, args),
       onStreamCall: (method, args, cbs) => onStreamCallRef.current?.(method, args, cbs),
@@ -63,17 +81,34 @@ export function useSandbox(opts: {
       onDiag: (event, data) => onDiagRef.current?.(event, data),
       onComposerDraft: (text) => onComposerDraftRef.current?.(text),
       onPlayInteraction: () => onPlayInteractionRef.current?.(),
-      onRendered: () => setRendered(true),
+      onRendered: () => {
+        if (!live) return;
+        timing.mark("rendered");
+        if (!reportedRender) {
+          reportedRender = true;
+          reportTiming("boot_rendered");
+        }
+        setRendered(true);
+      },
     });
     bridgeRef.current = bridge;
 
     if (iframeRef.current) {
+      timing.mark("attached");
       bridge.attach(iframeRef.current);
     }
 
-    bridge.waitReady().then(() => setReady(true));
+    bridge.waitReady().then(() => {
+      if (!live) return;
+      timing.mark("ready");
+      reportTiming("boot_ready");
+      setReady(true);
+    });
 
     return () => {
+      live = false;
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (bootTimingRef.current === timing) bootTimingRef.current = null;
       bridge.destroy();
       bridgeRef.current = null;
       setReady(false);
@@ -83,7 +118,15 @@ export function useSandbox(opts: {
 
   const iframeRefCallback = useCallback(
     (el: HTMLIFrameElement | null) => {
+      loadCleanupRef.current?.();
+      loadCleanupRef.current = null;
       iframeRef.current = el;
+      if (el) {
+        bootTimingRef.current?.mark("attached");
+        const onLoad = () => bootTimingRef.current?.mark("loaded");
+        el.addEventListener("load", onLoad);
+        loadCleanupRef.current = () => el.removeEventListener("load", onLoad);
+      }
       if (el && bridgeRef.current) {
         bridgeRef.current.attach(el);
       }
@@ -103,6 +146,7 @@ export function useSandbox(opts: {
       compileError?: string,
       mode?: SandboxMode,
     ) => {
+      bootTimingRef.current?.mark("install_requested");
       bridgeRef.current?.installRoot(entryFile, files, compiledCode, compileError, mode);
     },
     [],
@@ -139,7 +183,12 @@ export function useSandbox(opts: {
     bridgeRef.current?.openMemoryPanel();
   }, []);
 
+  const getBootTiming = useCallback(() => ({
+    ...bootTimingRef.current?.snapshot(), renderer_active: activeRef.current,
+  }), []);
+
   return {
+    getBootTiming,
     ready,
     rendered,
     iframeRefCallback,

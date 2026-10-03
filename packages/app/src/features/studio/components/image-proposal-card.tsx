@@ -3,7 +3,7 @@ import { ImagePlus, Loader2, Sparkles, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { resolveImageUrl } from "@/lib/asset-url";
-import { getSmartImageCapabilities, getSmartImageModel } from "@yumina/shared";
+import { IMAGE_ASPECTS, getPlatformStyle, getSmartImageCapabilities, getSmartImageModel, platformStylePrice } from "@yumina/shared";
 import type { StudioImageProposal } from "../lib/types";
 
 interface ImageProposalCardProps {
@@ -17,7 +17,7 @@ interface ImageProposalCardProps {
 /** The assistant asked for a picture. Money moves only when the creator presses
  * Generate here, and what they press Generate on is what gets drawn. */
 export function ImageProposalCard({ proposal, interactive, onConfirm, onDecline }: ImageProposalCardProps) {
-  const { t, i18n } = useTranslation("editor");
+  const { t, i18n } = useTranslation(["editor", "library"]);
   const [prompt, setPrompt] = useState(proposal.prompt);
   const [aspectRatio, setAspectRatio] = useState(proposal.aspectRatio);
   const [batchSize, setBatchSize] = useState(proposal.batchSize);
@@ -27,10 +27,19 @@ export function ImageProposalCard({ proposal, interactive, onConfirm, onDecline 
   // ratios THAT model accepts. A hardcoded list here used to show seven while
   // the generator had grown to fourteen, which left the assistant's own pick
   // rendering as a blank dropdown.
+  // 自定义生图 runs a platform base model at fixed SDXL sizes, and its price is
+  // exact (the generation route's own formula), so it is quoted as a price,
+  // not an estimate. The base model is named with the creator page's own words.
+  const custom = proposal.mode === "custom" ? getPlatformStyle(proposal.style ?? "anime") : undefined;
   const model = getSmartImageModel(proposal.model);
-  const aspectOptions = getSmartImageCapabilities(proposal.model).aspectRatios;
+  const aspectOptions: Array<{ value: string; label: string }> = custom
+    ? IMAGE_ASPECTS.map(aspect => ({ value: aspect.id, label: `${aspect.width}×${aspect.height}` }))
+    : getSmartImageCapabilities(proposal.model).aspectRatios.map(ratio => ({ value: ratio, label: ratio }));
   const format = (value: number) => new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 1 }).format(value);
-  const estimate = Math.ceil(proposal.unitMushies * batchSize * 10) / 10;
+  const estimate = custom ? platformStylePrice(custom.slug, aspectRatio, batchSize) : Math.ceil(proposal.unitMushies * batchSize * 10) / 10;
+  const generatorName = custom
+    ? `${t("generation.template.image-anime.name", { ns: "library" })} · ${t(`generation.style.${custom.slug}.name`, { ns: "library", defaultValue: custom.slug })}`
+    : model?.name ?? proposal.model;
   const pending = proposal.status === "pending";
   const canConfirm = interactive && pending && prompt.trim().length > 0;
   const buttonClass = "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 [@media(pointer:coarse)]:min-h-11";
@@ -72,7 +81,7 @@ export function ImageProposalCard({ proposal, interactive, onConfirm, onDecline 
               {t("studio.aiChat.imageProposal.aspect")}
               <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)} disabled={!interactive}
                 className="min-h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground">
-                {aspectOptions.map((a) => <option key={a} value={a}>{a}</option>)}
+                {aspectOptions.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)}
               </select>
             </label>
             <label className="flex flex-col gap-1 text-[11px] text-muted-foreground">
@@ -84,11 +93,11 @@ export function ImageProposalCard({ proposal, interactive, onConfirm, onDecline 
             </label>
             <span className="ml-auto flex flex-col items-end gap-0.5 text-right">
               <span className="tabular-nums text-foreground">
-                {t("studio.aiChat.imageProposal.estimate", { amount: format(estimate) })}
+                {t(custom ? "studio.aiChat.imageProposal.price" : "studio.aiChat.imageProposal.estimate", { amount: format(estimate) })}
               </span>
-              <span className="text-[10px] text-muted-foreground">
-                {model?.name ?? proposal.model}
-                {proposal.resolution ? ` · ${proposal.resolution === "512" ? "0.5K" : proposal.resolution}` : ""}
+              <span className="text-[10px] text-muted-foreground" data-image-proposal-generator={custom ? `custom:${custom.slug}` : proposal.model}>
+                {generatorName}
+                {!custom && proposal.resolution ? ` · ${proposal.resolution === "512" ? "0.5K" : proposal.resolution}` : ""}
               </span>
             </span>
           </div>
@@ -97,12 +106,16 @@ export function ImageProposalCard({ proposal, interactive, onConfirm, onDecline 
             // prices differ by more than ten times, and a creator agreeing to
             // spend should not have to dig it out of the assistant's prose.
             <p className="mt-1.5 rounded-md border border-border/60 bg-muted/40 px-2 py-1.5 text-[11px] leading-relaxed text-muted-foreground">
-              <span className="font-medium text-foreground">{model?.name ?? proposal.model}</span>
+              <span className="font-medium text-foreground">{generatorName}</span>
               {" · "}
               {proposal.modelReason}
             </p>
           )}
-          <p className="mt-1 text-muted-foreground">{t("studio.aiChat.imageProposal.estimateNote")}</p>
+          <p className="mt-1 text-muted-foreground">
+            {custom
+              ? t(custom.dialect === "danbooru" ? "studio.aiChat.imageProposal.customNoteTags" : "studio.aiChat.imageProposal.customNoteProse")
+              : t("studio.aiChat.imageProposal.estimateNote")}
+          </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <button type="button" disabled={!canConfirm} onClick={() => onConfirm({ prompt: prompt.trim(), aspectRatio, batchSize })}
               className={cn(buttonClass, "border-transparent bg-primary text-primary-foreground hover:brightness-110")}>

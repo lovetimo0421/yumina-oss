@@ -87,6 +87,11 @@ export function scanWorldForAssets(world: ScanInput): DetectedAsset[] {
     });
   }
 
+  if (typeof world.schema?.landscapeCover === "string" && world.schema.landscapeCover) {
+    push({ source: "thumbnail", raw: world.schema.landscapeCover,
+      location: "schema.landscapeCover", resolvedUrl: resolveImageCdn(world.schema.landscapeCover) });
+  }
+
   if (Array.isArray(world.galleryImages)) {
     world.galleryImages.forEach((g, i) => {
       if (typeof g !== "string" || g.length === 0) return;

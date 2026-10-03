@@ -3,6 +3,7 @@ import { usernameClient } from "better-auth/client/plugins";
 import { useUserProfileStore } from "@/stores/user-profile";
 import { resetHostedStoresOnSignOut } from "@/edition/slots.state";
 import { useLibraryStore } from "@/stores/library";
+import { useWorldsStore } from "@/stores/worlds";
 import { useUiStore } from "@/stores/ui";
 import { useStudioSidebarStore } from "@/stores/studio-sidebar";
 import { resetAnalyticsUser } from "@/lib/analytics";
@@ -76,6 +77,7 @@ export function clearAllStores() {
   // Wallet, check-ins, follows, favorites: hosted-only stores reset behind the seam.
   resetHostedStoresOnSignOut();
   useLibraryStore.setState({ items: [], total: 0, hasMore: false, lastFetchedAt: null });
+  useWorldsStore.getState().clear();
   // Module-level caches outlive the stores; a save list from the account
   // that just signed out must not paint for whoever signs in next.
   clearSessionPickerCache();

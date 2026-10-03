@@ -25,6 +25,10 @@ test("account deletion rollout permits an administrator when another active admi
   assert.deepEqual(evaluateAccountDeletionAccess("admin", 2), { allowed: true });
 });
 
+test("a restricted administrator is not counted as the last active administrator", () => {
+  assert.deepEqual(evaluateAccountDeletionAccess("admin", 0, true), { allowed: true });
+});
+
 test("content, submission and audit history are not deletion eligibility gates", () => {
   const source = readFileSync(new URL("./account-deletion.ts", import.meta.url), "utf8");
   assert.equal(source.includes("hasRewardOrModerationHistory"), false);

@@ -95,10 +95,26 @@ export async function guardTurnOutput(ctx: TurnOutputContext): Promise<Validated
   // ANY state variable, not only "segments". Invalid state-only drafts still
   // get their one correction before we decide whether anything was delivered.
   if (candidate.outcome !== "invalid" && !candidate.cleanText.trim() && !candidate.effects.length) fail("empty_story");
+  // The guard is a helper: a correction that cannot finish (provider down,
+  // rate-limited free router, bad batch) falls back to exactly what the turn
+  // would do with the guard off, using the reply's own parsed commands.
+  // Billing skips unverified corrections.
+  const unverified = (code: string): ValidatedTurnOutput => {
+    if (ctx.signal.aborted) fail("cancelled");
+    const cleanText = stripStateReceipts(ctx.parsed.cleanText);
+    if (!cleanText.trim() && !ctx.parsed.effects.length) fail(code);
+    audit.diagnostics = [...audit.diagnostics, code].slice(-32);
+    audit.outcome = "unverified";
+    audit.parsedCount = ctx.parsed.effects.length;
+    audit.repaired = false;
+    audit.finishedAt = new Date().toISOString();
+    audit.elapsedMs = Date.now() - Date.parse(audit.startedAt);
+    return { parsed: { ...ctx.parsed, cleanText }, audit };
+  };
   if (candidate.outcome === "invalid") {
     if (!await ctx.mayCorrect()) fail("disabled_or_stale");
     const remaining = TURN_DEADLINE_MS - (Date.now() - Date.parse(audit.startedAt));
-    if (remaining < 1000) fail("deadline");
+    if (remaining < 1000) return unverified("deadline");
     audit.outcome = "repairing";
     await ctx.progress(audit);
     const variables = ctx.world.variables.filter((v) => isAiReadable(v, ctx.state));
@@ -175,7 +191,9 @@ export async function guardTurnOutput(ctx: TurnOutputContext): Promise<Validated
         else request().then(resolve, reject).finally(() => controller.signal.removeEventListener("abort", abort));
       });
     } catch (error) {
-      fail(error instanceof StateGuardError ? error.code : providerFailureCode(error instanceof Error ? error.message : ""));
+      const code = error instanceof StateGuardError ? error.code : providerFailureCode(error instanceof Error ? error.message : "");
+      if (code === "cancelled" || code === "disabled_or_stale") fail(code);
+      return unverified(code);
     } finally {
       clearTimeout(timeout);
       ctx.signal.removeEventListener("abort", onAbort);
@@ -190,7 +208,7 @@ export async function guardTurnOutput(ctx: TurnOutputContext): Promise<Validated
         audit.usageLogIds.push(await ctx.recordUsage(usage, servedModel));
       }
     }
-    if (!done || truncated(finalReason) || refused(finalReason)) fail("incomplete_correction");
+    if (!done || truncated(finalReason) || refused(finalReason)) return unverified("incomplete_correction");
     const normalized = normalizeCorrectionJson(output);
     let correctionText = normalized.text;
     let corrected = check(correctionText);
@@ -204,9 +222,9 @@ export async function guardTurnOutput(ctx: TurnOutputContext): Promise<Validated
         corrected = check(correctionText);
       }
     }
-    if (corrected.outcome === "invalid") { audit.diagnostics.push(...corrected.diagnostics.map((d) => d.code)); fail("invalid_correction"); }
+    if (corrected.outcome === "invalid") { audit.diagnostics.push(...corrected.diagnostics.map((d) => d.code)); return unverified("invalid_correction"); }
     if (corrected.outcome === "explicit-none" && !hasCompleteNoUpdateReview(correctionText, writableVariableIds)) {
-      audit.diagnostics.push("missing_no_update_review"); fail("invalid_correction");
+      audit.diagnostics.push("missing_no_update_review"); return unverified("invalid_correction");
     }
     // Only the complete replacement command batch changes; frozen narration and
     // original audio remain unchanged, even if the model ignored the instruction.

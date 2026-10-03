@@ -16,6 +16,7 @@ import {
   ST_V2_KEYWORD,
   ST_V3_KEYWORD,
 } from "./png-metadata";
+import { IMPORT_ORIGIN_KEY } from "./import-origin";
 
 type ImportFormat = "yumina" | "ui-package" | "bundle" | "tavern-card" | "tavern-worldbook" | "unknown";
 
@@ -52,6 +53,7 @@ function isYuminaWorldLike(obj: Record<string, unknown>): boolean {
     Array.isArray(obj.rules) ||
     Array.isArray(obj.components) ||
     Array.isArray(obj.audioTracks) ||
+    Array.isArray(obj.sceneImages) ||
     Array.isArray(obj.customUI) ||
     Array.isArray(obj.customComponents) ||
     obj.settings !== undefined ||
@@ -190,8 +192,13 @@ export function parseImportedJson(
   const format = detectFormat(unwrapped);
 
   switch (format) {
-    case "yumina":
-      return migrateWorldDefinition(unwrapped as WorldDefinition);
+    case "yumina": {
+      const world = migrateWorldDefinition(unwrapped as WorldDefinition);
+      // The export's origin stamp says where the FILE came from; it is not
+      // part of the card and must not be saved into whatever card this becomes.
+      delete (world as unknown as Record<string, unknown>)[IMPORT_ORIGIN_KEY];
+      return world;
+    }
 
     case "ui-package":
       throw new Error(
@@ -294,6 +301,18 @@ export async function parseImportedFile(
   return { world: parseImportedJson(json, options), coverImage: null };
 }
 
+/** The project a downloaded file came from, if it says. Hand-edited files keep
+ *  the stamp as long as the key survives; anything malformed reads as none. */
+export function readImportOrigin(json: unknown): string | null {
+  for (const candidate of [json, extractImportPayload(json)]) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const origin = (candidate as Record<string, unknown>)[IMPORT_ORIGIN_KEY];
+    const id = origin && typeof origin === "object" ? (origin as Record<string, unknown>).worldId : null;
+    if (typeof id === "string" && /^[\w-]{1,100}$/.test(id)) return id;
+  }
+  return null;
+}
+
 /**
  * A parsed import that may be EITHER a full world or a Yumina bundle.
  *
@@ -303,7 +322,7 @@ export async function parseImportedFile(
  * bundle — it just needs to know which kind it got without eating an exception.
  */
 export type FlexibleImport =
-  | { kind: "world"; world: WorldDefinition; coverImage: Blob | null }
+  | { kind: "world"; world: WorldDefinition; coverImage: Blob | null; originWorldId: string | null }
   | { kind: "bundle"; bundle: YuminaBundle };
 
 /**
@@ -344,6 +363,8 @@ export async function parseImportedFileFlexible(
     return { kind: "bundle", bundle: payload };
   }
 
+  // Read before parsing: the parse strips the stamp off the card it returns.
+  const originWorldId = readImportOrigin(json);
   const world = parseImportedJson(json, options);
-  return { kind: "world", world, coverImage };
+  return { kind: "world", world, coverImage, originWorldId };
 }

@@ -43,6 +43,31 @@ export interface SandboxEntry {
 export type SandboxLoreUiBinding = LoreUiBinding;
 export type SandboxWorldbook = Worldbook;
 
+/** The player's own prompt state, for the platform chat UI only (the in-chat
+ * 「提示词」 quick panel and the refusal bar). Null until the host has loaded it,
+ * and for guests. `eligible` mirrors the server's adult-content eligibility:
+ * when it is false the sandbox must not nudge the player toward 解除限制 presets. */
+export interface PlayerPromptsChannelData {
+  eligible: boolean;
+  /** familyOf(current model) — the family the auto-binding is read for. */
+  family: string;
+  /** Display label for `family` (host-computed brand / localized 其他). */
+  familyLabel: string;
+  /** Name of the installed prompt bound to the current model's family and
+   *  auto-applied this turn, or null when nothing is bound to it. */
+  boundPromptName: string | null;
+  prompts: Array<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    section: "system-presets" | "chat-history" | "post-history";
+    /** The folder it sits in (an installed prompt pack is one folder). */
+    group?: string | null;
+    /** Model families this prompt auto-applies on (its auto_models). */
+    autoModels: string[];
+  }>;
+}
+
 /** The player's own machine offered as a model source.
  *
  * Only ever non-null for a browser that turned the local bridge on, so the
@@ -154,6 +179,14 @@ export interface SandboxState {
   composerSendKey: "enter" | "mod-enter";
   /** Send-failure counter — see UIChannelData.sendFailureNonce. */
   sendFailureNonce: number;
+  /** Machine code of the current `error` (e.g. "CONTENT_FILTER"), null otherwise. */
+  errorCode?: string | null;
+  /** See PlayerPromptsChannelData. */
+  playerPrompts?: PlayerPromptsChannelData | null;
+  /** Voice readout state — see UIChannelData.tts. */
+  tts: TtsChannelData;
+  /** Hold-to-talk voice input — see UIChannelData.voiceInput. */
+  voiceInput?: VoiceInputChannelData;
 }
 
 // ── Channel data shapes ─────────────────────────────────────────────
@@ -243,6 +276,55 @@ export interface UIChannelData {
    *  terminally-failed send, including toast-only failures that never set
    *  `error`. The composer restores its swallowed text on change. */
   sendFailureNonce: number;
+  /** Machine code for `error` (e.g. "CONTENT_FILTER" on a blocked regenerate).
+   *  Only meaningful while `error` is set. Optional for older hosts. */
+  errorCode?: string | null;
+  /** The player's prompt summary (platform chat UI only). */
+  playerPrompts?: PlayerPromptsChannelData | null;
+  /** Voice readout (TTS): account prefs + live playback state. `enabled` is
+   *  already gated by the host (setting AND a real session), so the sandbox
+   *  can show/hide speaker buttons on it directly. `playback.key` is the
+   *  messageId (or custom key) currently loading/speaking. */
+  tts: TtsChannelData;
+  /** Hold-to-talk voice input: player prefs resolved against the card's
+   *  default. Optional so an older host simply shows no microphone. */
+  voiceInput?: VoiceInputChannelData;
+}
+
+export interface VoiceInputChannelData {
+  /** A microphone can be offered here (real session + browser support). */
+  available: boolean;
+  /** The player's on/off preference. */
+  enabled: boolean;
+  /** What letting go does, after the player's override is applied. */
+  mode: "confirm" | "auto";
+  /** The card's own default ("confirm" when the card doesn't say). */
+  cardMode: "confirm" | "auto";
+  /** The player's override; "" = follow the card. */
+  playerMode: "" | "confirm" | "auto";
+  /** KeyboardEvent.code held to talk (desktop), e.g. "Space". */
+  key: string;
+}
+
+export interface TtsChannelData {
+  /** Voice readout can run here at all (a real session — billing anchor).
+   *  False in guest preview / replay / Studio canvases: hide ALL voice UI. */
+  available: boolean;
+  /** The player's opt-in (Settings › Display). False: show no readout UI at
+   *  all — readout is only switched on from Settings. */
+  enabled: boolean;
+  /** Legacy single-voice preference ("" = platform default). */
+  voice: string;
+  /** The player's voice pool: the voices AI casting may give characters
+   *  (empty = every voice). Optional so an older host still works. */
+  voicePool?: string[];
+  mode: "full" | "dialogue";
+  autoPlay: boolean;
+  /** Voice volume preference, 0–100. */
+  volume: number;
+  /** `progress` is 0–1 playback position, pushed at ~2Hz while speaking
+   *  (absent until the audio's duration is known). */
+  playback: { key: string; status: "loading" | "playing"; progress?: number } | null;
 }
 
 /** Map channel names to their data types */

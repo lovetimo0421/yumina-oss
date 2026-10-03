@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { Info, X } from "lucide-react";
+import { AlertTriangle, Info, X } from "lucide-react";
 import { formatTokensCompact, roundUpToThousand } from "@/lib/context-budget";
 
 export interface WorldContextRequirement {
@@ -9,6 +9,11 @@ export interface WorldContextRequirement {
   loreTokens: number;
   greetingTokens: number;
   reserveTokens: number;
+  // Added 2026-10 — absent from older servers, so the modal falls back to
+  // treating all lore as every-turn (the old, strict reading).
+  alwaysTokens?: number;
+  triggeredTokens?: number;
+  floorTokens?: number;
 }
 
 export interface ContextGateInfo {
@@ -20,7 +25,7 @@ export interface ContextGateInfo {
 interface ContextGateModalProps {
   worldName: string;
   gate: ContextGateInfo;
-  /** Proceed without changing anything (red option). */
+  /** Proceed without changing anything. */
   onIgnore: () => void;
   /** Raise the context setting, then proceed. */
   onRaise: () => void;
@@ -32,26 +37,77 @@ interface ContextGateModalProps {
 }
 
 /**
- * Pre-play warning shown when a card's estimated context requirement exceeds
- * the user's current context setting — meaning lore would be silently omitted
- * during play.
+ * Pre-play notice shown when a card's full lore doesn't fit the user's context
+ * setting. Two tiers:
+ * - soft: everything sent every turn fits; only a turn that triggers lots of
+ *   keyword entries at once drops a few. Starting as-is is the default.
+ * - hard: even the every-turn content doesn't fit — raising is the default.
  */
 export function ContextGateModal({ worldName, gate, onIgnore, onRaise, onUpgrade, onClose }: ContextGateModalProps) {
   const { t } = useTranslation("chat");
   const { requirement, effective, planCap } = gate;
 
-  const required = requirement.requiredTokens;
-  // When the plan cap is below the card's need, raising the setting can't fix
-  // it — the primary action becomes upgrading the plan instead.
-  const cappedBelowNeed = planCap != null && planCap < required;
-  const raiseTarget = roundUpToThousand(required);
-  const setupTokens = requirement.scaffoldTokens + requirement.greetingTokens;
-  const currentPercent = Math.min(100, Math.max(4, (effective / required) * 100));
+  const full = requirement.requiredTokens;
+  const always = requirement.alwaysTokens ?? requirement.loreTokens;
+  const triggered = requirement.triggeredTokens ?? 0;
+  const floor = requirement.floorTokens ?? full;
+  const setup = requirement.scaffoldTokens + requirement.greetingTokens;
+  const hard = effective < floor;
+
+  // When the plan cap is below what we'd raise to, raising can't fix it — the
+  // action becomes upgrading the plan instead.
+  const raiseTarget = roundUpToThousand(full);
+  const canRaise = planCap == null || planCap >= raiseTarget;
+  // Segments are drawn on the raw sums; the labels use the rounded totals.
+  const segments = [
+    { key: "setup", label: t("contextGate.rowSetup"), value: setup, color: "bg-sub/55", dot: "bg-sub/55" },
+    { key: "always", label: t("contextGate.rowAlways"), value: always, color: "bg-gold", dot: "bg-gold" },
+    { key: "history", label: t("contextGate.rowHistory"), value: requirement.reserveTokens, color: "bg-sky-400/80", dot: "bg-sky-400" },
+    {
+      key: "triggered",
+      label: t("contextGate.rowTriggered"),
+      value: triggered,
+      color: "bg-violet-400/45 bg-[repeating-linear-gradient(135deg,transparent_0_4px,rgba(255,255,255,0.12)_4px_7px)]",
+      dot: "bg-violet-400",
+      prefix: t("contextGate.upTo"),
+    },
+  ];
+  const total = segments.reduce((sum, s) => sum + s.value, 0) || 1;
+  const scale = Math.max(total, effective);
+  const pct = (n: number) => `${Math.min(100, (n / scale) * 100)}%`;
+  const floorRaw = total - triggered;
+
+  const startBtn = (
+    <button
+      onClick={onIgnore}
+      className={
+        hard
+          ? "min-h-11 flex-1 rounded-xl border border-gold/30 bg-gold/[0.06] px-4 text-sm font-semibold text-action-primary/90 transition-colors hover:border-gold/50 hover:bg-gold/15"
+          : "min-h-11 flex-1 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground transition-colors hover:bg-primary-hover"
+      }
+    >
+      {t("contextGate.continueCurrent", { value: formatTokensCompact(effective) })}
+    </button>
+  );
+  const fixBtn = (
+    <button
+      onClick={canRaise ? onRaise : onUpgrade}
+      className={
+        hard
+          ? "min-h-11 flex-1 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground transition-colors hover:bg-primary-hover"
+          : "min-h-11 flex-1 rounded-xl border border-gold/30 bg-gold/[0.06] px-4 text-sm font-semibold text-action-primary/90 transition-colors hover:border-gold/50 hover:bg-gold/15"
+      }
+    >
+      {canRaise
+        ? t("contextGate.raise", { value: formatTokensCompact(raiseTarget) })
+        : t("contextGate.upgrade")}
+    </button>
+  );
 
   return createPortal(
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-2xl border border-gold/35 bg-card p-5 shadow-[0_24px_80px_rgba(201,162,94,0.16)] sm:p-6">
+      <div className="relative w-full max-w-md rounded-2xl border border-gold/35 bg-card p-5 shadow-[0_24px_80px_rgba(0,0,0,0.35)] sm:p-6">
         <button
           onClick={onClose}
           className="absolute right-3 top-3 inline-flex h-10 w-10 items-center justify-center rounded-full text-sub/50 transition-colors hover:bg-gold/10 hover:text-action-primary focus:outline-none focus:ring-2 focus:ring-gold/50"
@@ -60,85 +116,88 @@ export function ContextGateModal({ worldName, gate, onIgnore, onRaise, onUpgrade
           <X className="h-4 w-4" />
         </button>
 
-        <div className="mb-4 flex items-start gap-3">
-          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-gold/35 bg-gold/15">
-            <Info className="h-5 w-5 text-gold" />
+        <div className="mb-4 flex items-start gap-3 pr-8">
+          <div
+            className={
+              hard
+                ? "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-destructive/15 text-destructive"
+                : "mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gold/15 text-gold"
+            }
+          >
+            {hard ? <AlertTriangle className="h-5 w-5" /> : <Info className="h-5 w-5" />}
           </div>
           <div>
-            <h2 className="text-base font-bold text-action-primary">{t("contextGate.title")}</h2>
-            <p className="mt-1 text-xs leading-relaxed text-sub/75">
-              {t("contextGate.body", {
-                world: worldName,
-                required: required.toLocaleString(),
-                current: effective.toLocaleString(),
-              })}
+            <h2 className="text-base font-bold text-action-primary">
+              {t(hard ? "contextGate.hardTitle" : "contextGate.softTitle")}
+            </h2>
+            <p className="mt-1 text-sm leading-relaxed text-sub/80">
+              {hard
+                ? t("contextGate.hardBody", { world: worldName, floor: formatTokensCompact(floor), current: formatTokensCompact(effective) })
+                : t("contextGate.softBody", { world: worldName, current: formatTokensCompact(effective) })}
             </p>
           </div>
         </div>
 
-        <div className="mb-4 rounded-xl border border-gold/25 bg-gold/[0.05] p-3">
-          <div className="mb-2 flex items-center justify-between text-[11px]">
-            <span className="text-sub/60">{t("contextGate.currentShort", { value: formatTokensCompact(effective) })}</span>
-            <span className="font-semibold text-gold">{t("contextGate.recommendedShort", { value: formatTokensCompact(required) })}</span>
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-gold/20">
+        <div className="mb-4 rounded-xl border border-gold/20 bg-gold/[0.04] p-3">
+          {/* Stacked bar: what the card needs, by kind. The line marks your setting;
+              anything to its right won't fit. */}
+          <div className="relative pt-6">
             <div
-              className="h-full rounded-full bg-primary transition-[width] duration-300"
-              style={{ width: `${currentPercent}%` }}
+              className="absolute top-0 -translate-x-1/2 whitespace-nowrap text-[11px] font-semibold"
+              style={{ left: `clamp(2.5rem, ${pct(effective)}, calc(100% - 2.5rem))` }}
+            >
+              <span className={hard ? "text-destructive" : "text-action-primary"}>
+                {t("contextGate.yours", { value: formatTokensCompact(effective) })}
+              </span>
+            </div>
+            <div className="flex h-3 overflow-hidden rounded-full bg-gold/10">
+              {segments.map((seg) =>
+                seg.value > 0 ? <div key={seg.key} className={`h-full ${seg.color}`} style={{ width: pct(seg.value) }} /> : null
+              )}
+            </div>
+            {/* Dim what doesn't fit. */}
+            <div
+              className="absolute bottom-0 right-0 h-3 rounded-r-full bg-card/60"
+              style={{ left: pct(effective) }}
+            />
+            <div
+              className={`absolute bottom-[-4px] h-5 w-0.5 rounded ${hard ? "bg-destructive" : "bg-action-primary"}`}
+              style={{ left: pct(effective) }}
             />
           </div>
-
-          <div className="mt-3 grid gap-2 rounded-lg bg-gold/[0.07] p-3 text-xs sm:grid-cols-2">
-            <div>
-              <p className="text-gold/65">{t("contextGate.retainsLabel")}</p>
-              <p className="mt-1 font-semibold leading-relaxed text-action-primary/90">{t("contextGate.retainsValue")}</p>
-            </div>
-            <div>
-              <p className="text-gold/65">{t("contextGate.impactLabel")}</p>
-              <p className="mt-1 font-semibold leading-relaxed text-action-primary/90">{t("contextGate.impactValue")}</p>
-            </div>
+          <div className="relative mt-1.5 h-4 text-[11px] text-sub/70">
+            <span
+              className="absolute -translate-x-1/2 whitespace-nowrap"
+              style={{ left: `clamp(2.5rem, ${pct(floorRaw)}, calc(100% - 7rem))` }}
+            >
+              {t("contextGate.markFloor")} {formatTokensCompact(floor)}
+            </span>
+            <span className="absolute right-0 whitespace-nowrap">
+              {t("contextGate.markFull")} {formatTokensCompact(full)}
+            </span>
           </div>
 
-          <details className="mt-3 text-xs text-gold/70">
-            <summary className="cursor-pointer select-none py-1 transition-colors hover:text-action-primary">
-              {t("contextGate.usageDetails")}
-            </summary>
-            <div className="mt-2 space-y-1.5 border-t border-gold/20 pt-2">
-              <div className="flex items-center justify-between"><span>{t("contextGate.loreLabel")}</span><span className="tabular-nums text-action-primary/85">~{requirement.loreTokens.toLocaleString()}</span></div>
-              <div className="flex items-center justify-between"><span>{t("contextGate.setupLabel")}</span><span className="tabular-nums text-action-primary/85">~{setupTokens.toLocaleString()}</span></div>
-              <div className="flex items-center justify-between"><span>{t("contextGate.storyRoomLabel")}</span><span className="tabular-nums text-action-primary/85">~{requirement.reserveTokens.toLocaleString()}</span></div>
-            </div>
-          </details>
+          <div className="mt-3 space-y-1.5 border-t border-gold/15 pt-2.5 text-xs text-sub/80">
+            {segments.map((seg) => (
+              <div key={seg.key} className="flex items-center gap-2">
+                <span className={`h-2.5 w-2.5 shrink-0 rounded-sm ${seg.dot}`} />
+                <span className="flex-1">{seg.label}</span>
+                <span className="tabular-nums text-action-primary/85">
+                  {seg.prefix ? `${seg.prefix} ` : ""}~{seg.value.toLocaleString()}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
 
-        {cappedBelowNeed && (
-          <p className="mb-4 rounded-lg border border-gold/25 bg-gold/[0.08] px-3 py-2 text-xs leading-relaxed text-action-primary/90">
-            {t("contextGate.planCapNote", { cap: planCap.toLocaleString() })}
+        {!canRaise && planCap != null && (
+          <p className="mb-4 text-xs leading-relaxed text-sub/70">
+            {t("contextGate.planCapNote", { cap: formatTokensCompact(planCap) })}
           </p>
         )}
 
         <div className="flex flex-col gap-2 sm:flex-row">
-          <button
-            onClick={onIgnore}
-            className="min-h-11 flex-1 rounded-xl border border-gold/30 bg-gold/[0.06] px-4 text-sm font-semibold text-action-primary/90 transition-colors hover:border-gold/50 hover:bg-gold/15 hover:text-action-primary"
-          >
-            {t("contextGate.continueCurrent", { value: formatTokensCompact(effective) })}
-          </button>
-          {cappedBelowNeed ? (
-            <button
-              onClick={onUpgrade}
-              className="min-h-11 flex-1 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground shadow-[0_8px_24px_rgba(201,162,94,0.22)] transition-colors hover:bg-primary-hover"
-            >
-              {t("contextGate.upgrade")}
-            </button>
-          ) : (
-            <button
-              onClick={onRaise}
-              className="min-h-11 flex-1 rounded-xl bg-primary px-4 text-sm font-bold text-primary-foreground shadow-[0_8px_24px_rgba(201,162,94,0.22)] transition-colors hover:bg-primary-hover"
-            >
-              {t("contextGate.raise", { value: formatTokensCompact(raiseTarget) })}
-            </button>
-          )}
+          {hard ? <>{fixBtn}{startBtn}</> : <>{startBtn}{fixBtn}</>}
         </div>
       </div>
     </div>,

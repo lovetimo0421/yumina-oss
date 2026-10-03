@@ -183,6 +183,8 @@ export async function applyWorldCover(args: {
   worldId: string;
   creatorId: string;
   newKey: string;
+  target?: "portrait" | "landscape";
+  discoverPreview?: boolean;
 }): Promise<
   | { ok: true; thumbnailUrl: string; held: boolean }
   | { ok: false; status: 404 | 409; error: string; code?: string }
@@ -192,13 +194,18 @@ export async function applyWorldCover(args: {
   return db.transaction(async (tx) => {
     const live = await lockVersionWorld(tx, worldId, creatorId);
     if (!live) return { ok: false as const, status: 404 as const, error: "World not found or not authorized" };
+    const existing = await getPendingEdit(worldId, tx);
+    const proposedSchema = { ...(existing?.schema ?? live.schema) };
+    const landscape = args.target === "landscape";
+    if (landscape) { proposedSchema.landscapeCover = newKey; delete proposedSchema.landscapeCoverCrop; }
+    else if (args.discoverPreview) { delete proposedSchema.coverCrop; delete proposedSchema.galleryCoverCrop; }
+    const proposedThumbnailUrl = landscape ? (existing?.thumbnailUrl ?? live.thumbnailUrl) : newKey;
     if (live.status === "published") {
-      const existing = await getPendingEdit(worldId, tx);
       const plan = planMaterialHold({
         worldId, creatorId,
         live: { ...live, ageRating: live.ageRating ?? "all" },
-        proposedSchema: existing?.schema ?? live.schema,
-        proposedThumbnailUrl: newKey,
+        proposedSchema,
+        proposedThumbnailUrl,
         proposedAgeRating: existing?.ageRating ?? live.ageRating ?? "all",
         existing: existing ? { ...existing, status: "draft" } : null,
       });
@@ -211,7 +218,7 @@ export async function applyWorldCover(args: {
       await tx.update(worlds).set({ updatedAt: new Date() }).where(eq(worlds.id, worldId));
       return { ok: true as const, thumbnailUrl: resolved, held: !!plan.upsert };
     }
-    await tx.update(worlds).set({ thumbnailUrl: newKey, updatedAt: new Date() }).where(eq(worlds.id, worldId));
+    await tx.update(worlds).set({ thumbnailUrl: proposedThumbnailUrl, ...(args.discoverPreview ? { schema: proposedSchema } : {}), updatedAt: new Date() }).where(eq(worlds.id, worldId));
     return { ok: true as const, thumbnailUrl: resolved, held: false };
   });
 }
@@ -841,6 +848,7 @@ export interface PendingEditDiff {
   diff: WorldDiff;
   ageRating: { before: string; after: string; changed: boolean };
   cover: { before: string | null; after: string | null; changed: boolean };
+  landscapeCover: { before: string | null; after: string | null; changed: boolean };
   /** The "what's new" note that will be posted to library subscribers on
    *  approval — surfaced so the admin reviews the exact text that ships. */
   updateNote: { title: string | null; content: string | null; isMajor: boolean };
@@ -883,6 +891,11 @@ export async function buildGroupPendingDiffs(groupKey: string): Promise<PendingE
         before: resolveImageCdn(liveThumb),
         after: resolveImageCdn(p.thumbnailUrl),
         changed: (liveThumb ?? "").trim() !== (p.thumbnailUrl ?? "").trim(),
+      },
+      landscapeCover: {
+        before: resolveImageCdn((liveSchema as Record<string, unknown>).landscapeCover as string | null ?? null),
+        after: resolveImageCdn(p.schema.landscapeCover as string | null ?? null),
+        changed: ((liveSchema as Record<string, unknown>).landscapeCover ?? "") !== (p.schema.landscapeCover ?? ""),
       },
       updateNote: {
         title: p.updateTitle ?? null,

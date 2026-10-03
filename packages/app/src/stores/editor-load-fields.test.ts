@@ -45,6 +45,8 @@ const SCHEMA = {
     lorebookBudgetCap: 4000,
     structuredOutput: true,
     temperature: 0.7,
+    narratorVoice: "alloy",
+    voiceInputMode: "auto",
   },
 };
 
@@ -74,4 +76,32 @@ test("settings outside the old field list survive, and defaults still fill gaps"
   assert.equal(settings.temperature, 0.7);
   assert.equal(settings.maxTokens, 12000);
   assert.equal(settings.playerName, "User");
+});
+
+test("the continuity judge's settings and scene images survive being loaded", () => {
+  // `continuity` and `sceneImages` are world-level; the per-track cue and the
+  // per-variable precise settings ride inside objects the load copies whole.
+  store.getState().loadWorldFromData({
+    id: "w1", name: "A rainy port", description: null,
+    schema: {
+      ...SCHEMA,
+      sceneImages: [{ id: "img1", name: "The lantern", url: "https://example.test/a.png", scene: "when the lamps come on" }],
+      audioTracks: [{ id: "t1", name: "Rain", type: "bgm", url: "https://example.test/a.mp3", aiNote: "when it rains" }],
+      variables: [{ id: "v1", name: "Trust", type: "number", defaultValue: 0, precise: true, deltaDown: 3, deltaUp: 5 }],
+      continuity: { bgm: true, images: true },
+    } as unknown as Record<string, unknown>,
+    thumbnailUrl: null,
+  });
+  const draft = store.getState().worldDraft;
+  assert.deepEqual(draft.continuity, { bgm: true, images: true }, "continuity was dropped by the load transform");
+  assert.equal(draft.sceneImages?.[0]?.scene, "when the lamps come on");
+  assert.equal(draft.audioTracks?.[0]!.aiNote, "when it rains");
+  assert.equal(draft.variables[0]!.precise, true);
+  assert.equal(draft.variables[0]!.deltaUp, 5);
+});
+
+test("voice settings survive being loaded (the next save would delete them)", () => {
+  const settings = load().settings;
+  assert.equal(settings.narratorVoice, "alloy");
+  assert.equal(settings.voiceInputMode, "auto");
 });

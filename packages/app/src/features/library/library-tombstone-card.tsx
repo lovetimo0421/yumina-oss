@@ -1,5 +1,6 @@
 import { Lock, BookOpen, Download, X, Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { thumbnailImageUrl, fallbackToOriginalOnError } from "@/lib/asset-url";
 
 interface TombstoneCardProps {
   worldName: string;
@@ -49,7 +50,8 @@ export function LibraryTombstoneCard({
         <div className="absolute inset-0 overflow-hidden">
           {thumbnailUrl ? (
             <img
-              src={thumbnailUrl}
+              src={thumbnailImageUrl(thumbnailUrl)}
+              onError={fallbackToOriginalOnError}
               alt={worldName}
               className="h-full w-full object-cover grayscale opacity-30 transition-[transform,filter] duration-700 ease-out group-hover:scale-105 group-hover:blur-[2px]"
             />

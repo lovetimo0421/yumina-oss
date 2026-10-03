@@ -7,6 +7,7 @@ import {
   utf8ToBase64,
   YUMINA_KEYWORD,
 } from "./png-metadata";
+import { IMPORT_ORIGIN_KEY } from "./import-origin";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
@@ -30,11 +31,18 @@ interface WorldDownloadPayload {
 
 async function fetchWorldPayload(worldId: string): Promise<WorldDownloadPayload | null> {
   try {
-    const res = await fetch(`${apiBase}/api/worlds/${worldId}`, { credentials: "include" });
+    // forEdit=1: the owner of a published card downloads what their editor
+    // shows (the held working copy), not the last-approved live version.
+    // Ignored for anyone else.
+    const res = await fetch(`${apiBase}/api/worlds/${worldId}?forEdit=1`, { credentials: "include" });
     if (!res.ok) return null;
     const { data } = await res.json();
+    const schema = data?.schema && typeof data.schema === "object" ? data.schema : {};
     return {
-      schema: data?.schema ?? {},
+      // Stamp which project the file came from, so importing it back offers to
+      // update that same card instead of making another copy. Stripped again
+      // on import (see readImportOrigin) — it never ends up in a saved card.
+      schema: { ...schema, [IMPORT_ORIGIN_KEY]: { worldId } },
       name: data?.name,
       thumbnailUrl: data?.thumbnailUrl ?? null,
     };

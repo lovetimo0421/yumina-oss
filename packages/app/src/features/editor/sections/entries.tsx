@@ -22,6 +22,7 @@ import {
   Tag as TagIcon,
   LayoutGrid,
   List,
+  UserRound,
 } from "lucide-react";
 import { EntriesTriggerBoard } from "../components/entries-trigger-board";
 import { TagManagerDialog } from "../components/tag-manager-dialog";
@@ -44,6 +45,7 @@ import {
 import { useEditorStore } from "@/stores/editor";
 import { HoverHint } from "../components/hover-hint";
 import { EntryPortraitField } from "../components/entry-portrait-field";
+import { VoiceField } from "../components/voice-field";
 import {
   estimateTokens,
   deriveSectionDefaults,
@@ -114,6 +116,26 @@ import { CSS } from "@dnd-kit/utilities";
 type Section = "system-presets" | "examples" | "chat-history" | "post-history";
 
 /** Returns the entry's section (now a required field on WorldEntry). */
+/** Organisational tags that mean "this entry is a person". Creators reach for
+ *  the default "Characters" tag expecting it to make a character; the simple
+ *  editor stamps its own entries with "Character". */
+const CHARACTER_TAGS = ["Characters", "Character"];
+
+/** Whether the "this is a character" switch applies. Greetings and dialogue
+ *  examples are structural (the engine treats those roles specially), and
+ *  official presets are system instructions with a reset-to-official path —
+ *  their roles stay as they are. Every other role (custom, system — which is
+ *  what imported lorebook entries normalise to —, scenario, plot, style) is
+ *  only a label to the prompt builder, so flipping it is safe. */
+function canBeCharacter(entry: WorldEntry): boolean {
+  return (
+    !entry.presetId &&
+    entry.role !== "greeting" &&
+    entry.role !== "example" &&
+    entry.section !== "examples"
+  );
+}
+
 function classifyEntry(entry: WorldEntry): Section {
   return entry.section;
 }
@@ -1351,13 +1373,74 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                   />
                 </div>
 
-                {/* Portrait — only characters have a face to show in chat */}
-                {selected.role === "character" && (
-                  <EntryPortraitField
-                    variant="row"
-                    value={selected.portrait}
-                    onChange={(portrait) => updateEntry(selected.id, { portrait })}
-                  />
+                {/* Character switch — role "character" is what gives an entry a
+                    portrait (chat speaker faces, story illustrations) and a
+                    voice (read-aloud). Without it the classic editor had no way
+                    to make a character at all. */}
+                {canBeCharacter(selected) && (
+                  <div className="space-y-4 rounded-xl border border-border bg-card/40 p-4" data-testid="entry-character-switch">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0 space-y-1">
+                        <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                          <UserRound className="h-4 w-4 text-emerald-400" />
+                          {t("entries.isCharacter")}
+                        </div>
+                        <p className="text-xs text-muted-foreground/70">{t("entries.isCharacterHint")}</p>
+                      </div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={selected.role === "character"}
+                        aria-label={t("entries.isCharacter")}
+                        onClick={() => {
+                          const tags = selected.tags ?? [];
+                          if (selected.role === "character") {
+                            updateEntry(selected.id, {
+                              role: "custom",
+                              tags: tags.filter((tag) => !CHARACTER_TAGS.includes(tag)),
+                            });
+                          } else {
+                            updateEntry(selected.id, {
+                              role: "character",
+                              tags: tags.some((tag) => CHARACTER_TAGS.includes(tag)) ? tags : [...tags, "Characters"],
+                            });
+                          }
+                        }}
+                        className={cn(
+                          "relative mt-0.5 inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors",
+                          selected.role === "character"
+                            ? "border-primary/50 bg-primary"
+                            : "border-muted-foreground/40 bg-muted-foreground/20"
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "inline-block h-5 w-5 rounded-full shadow transition-transform",
+                            selected.role === "character"
+                              ? "translate-x-5 bg-primary-foreground"
+                              : "translate-x-0.5 bg-muted-foreground"
+                          )}
+                        />
+                      </button>
+                    </div>
+
+                    {selected.role === "character" && (
+                      <div className="space-y-6 border-t border-border/50 pt-4">
+                        <EntryPortraitField
+                          variant="row"
+                          value={selected.portrait}
+                          onChange={(portrait) => updateEntry(selected.id, { portrait })}
+                        />
+                        <VoiceField
+                          label={t("voiceField.characterLabel")}
+                          hint={t("voiceField.characterHint")}
+                          title={t("voiceField.character", { name: selected.name })}
+                          value={selected.voice}
+                          onChange={(voice) => updateEntry(selected.id, { voice })}
+                        />
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {/* Worldbook (lore module) membership */}
@@ -1468,7 +1551,17 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                             const newTags = isAssigned
                               ? currentTags.filter((t) => t !== tag)
                               : [...currentTags, tag];
-                            updateEntry(selected.id, { tags: newTags });
+                            // Adding the Characters tag is how creators say
+                            // "this is a character" — make it one. Removing
+                            // the tag does NOT demote: the switch above is the
+                            // source of truth, and demoting would silently hide
+                            // the portrait and voice the creator set.
+                            const promote =
+                              !isAssigned &&
+                              CHARACTER_TAGS.includes(tag) &&
+                              selected.role !== "character" &&
+                              canBeCharacter(selected);
+                            updateEntry(selected.id, promote ? { tags: newTags, role: "character" } : { tags: newTags });
                           }}
                           className={cn(
                             "rounded-full border px-3 py-1 text-xs font-medium transition-all",
@@ -2107,6 +2200,9 @@ const SortableEntryCard = memo(function SortableEntryCard({
           <>
             {entry.presetId && (
               <Shield className="h-3 w-3 shrink-0 text-indigo-400/60" />
+            )}
+            {entry.role === "character" && (
+              <UserRound className="h-3 w-3 shrink-0 text-emerald-400/70" aria-label={t("entries.isCharacter")} />
             )}
             {bundleColor && (
               <span

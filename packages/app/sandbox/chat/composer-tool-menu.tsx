@@ -86,7 +86,15 @@ export function ToolMenuRow({
   );
 }
 
-export function ComposerToolMenu({ onOpenModelPicker }: { onOpenModelPicker: () => void }) {
+export function ComposerToolMenu({
+  onOpenModelPicker,
+  compactBalance = false,
+}: {
+  onOpenModelPicker: () => void;
+  /** Very narrow toolbars (small phones): short balance form (85.3k). The
+   *  balance always shows; the model name truncates instead. */
+  compactBalance?: boolean;
+}) {
   const api = useYumina();
   const t = useMemo(() => makeChatT(api.language), [api.language]);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -168,12 +176,15 @@ export function ComposerToolMenu({ onOpenModelPicker }: { onOpenModelPicker: () 
             {/* No width cap: show the full model name and let flex truncate it
                 only when the toolbar genuinely runs out of room. Everything
                 else in the pill is shrink-0, so the name is what gives. */}
-            <span className="min-w-0 truncate text-[11px] font-medium text-white/75 transition-colors group-hover:text-white">
+            <span
+              title={summary.label}
+              className="min-w-[2.5em] truncate text-[11px] font-medium text-white/75 transition-colors group-hover:text-white"
+            >
               {summary.label}
             </span>
           </>
         )}
-        {balance != null && <BalanceTag balance={balance} language={api.language} />}
+        {balance != null && <BalanceTag balance={balance} language={api.language} compact={compactBalance} />}
         {tools.length > 0 && (
           <span className="flex h-3.5 min-w-[0.875rem] shrink-0 items-center justify-center rounded-full bg-primary/20 px-1 text-[9px] font-semibold text-primary">
             {tools.length}

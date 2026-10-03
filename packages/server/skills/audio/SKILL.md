@@ -27,6 +27,32 @@ Use `write_audio` to create or update a track. Key fields:
 | volume | 0.0–1.0 |
 | fadeIn | Fade-in duration in seconds |
 | fadeOut | Fade-out duration in seconds |
+| aiNote | "When to play" cue for AI music pick (below) |
+| allowAiControl | false = only behaviors/playlists/scripts may play it |
+
+## AI Music Pick (smart tracking) — the default way to score a card
+
+Give a `bgm` or `sfx` track an `aiNote` and it joins smart tracking's pool (editor: 「什么时候放」 for BGM, 「什么事发生时放一次」 for SFX). After every reply a small decision model reads the turn and:
+- **BGM**: picks the track whose note fits the scene now, or keeps the current one. It does not depend on the story model remembering `[audio:]` directives.
+- **SFX**: fires each SFX whose note matches what just happened (a door slams, a sword is drawn).
+
+Write the note as a scene, not a genre: "battle or chase, danger right now", "quiet night alone together", "a door is kicked open". Distinct notes = clean picks; two tracks with near-identical notes make the judge flip between them. Skip it for tracks that only a behavior or custom UI should start.
+
+World-level knobs go through `update_settings { continuity: {...} }`:
+- `music.overRules` (default false): whether an AI pick may override an active conditional-BGM rule.
+- `music.once` (default false): AI-picked track plays once, then the default playlist resumes.
+- `music.duck` (default true): dip BGM while an AI-picked SFX plays.
+- `bgm: false` / `sfx: false` ignore the notes; `enabled: false` turns smart tracking off entirely.
+
+If a reply already contains an `[audio:]` directive, the judge stays out of audio that turn.
+
+## Voice readout (TTS)
+
+Players can turn on voice readout; lines are read by fish.audio voices. Authors can pin voices:
+- A character's voice: `write_entry { id, voice: "<32-hex id>" }` on a `role: "character"` entry. It wins over the player's own pick.
+- The narrator: `update_settings { narratorVoice: "<id>" }` — also used for speaking characters with no voice.
+- Unset = the AI casts voices from the player's voice pool automatically, which is usually fine. Pin voices only when the creator asks.
+Pick ids from the curated catalog in `write_entry.voice`'s description (label says language/gender/tone), or use an id the creator pastes. `voiceInputMode` ("confirm"/"auto") controls hold-to-talk input: fill the box vs. send immediately.
 
 ## AI Audio Directives
 

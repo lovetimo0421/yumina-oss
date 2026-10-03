@@ -216,6 +216,7 @@ const ID_COLLECTIONS = [
   "rules",
   "reactions",
   "audioTracks",
+  "sceneImages",
   "entryFolders",
   "customUI",
 ] as const;
@@ -232,6 +233,8 @@ const FIELD_KEYS = [
   "avatar",
   "coverCrop",
   "galleryCoverCrop",
+  "landscapeCover",
+  "landscapeCoverCrop",
   "characters",
   "components",
   "uiBlueprint",

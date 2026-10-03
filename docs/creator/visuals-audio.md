@@ -42,6 +42,23 @@ A horror world might play tense BGM during exploration, fire a sharp SFX when so
 
 For audio patterns and conditional BGM → [Advanced: Audio Design](/creator/advanced/audio-deep)
 
+## Scene images
+
+Pictures that appear on their own. Each scene image has a short id (`img1`), a picture from your Assets or an https URL, and one or two sentences saying **when to show it** — "the cat Minyu gets startled and jumps straight up". That sentence is the switch and the condition, followed literally: written, the picture appears in every reply that meets it ("after every reply" means every reply); empty, it only appears where you paste its code.
+
+**Who places the images** is one choice at the top of the Scene Images page:
+
+- **Picked after each reply** (default, recommended): once the AI has written its reply, smart tracking checks each image's condition and places every image whose condition holds at the end of that reply. It works the same whichever model the player uses.
+- **The story AI inserts them**: the story AI writes `[image: img1]` in its text, so a picture can sit between paragraphs — but only if the model follows instructions, and some models almost never do.
+
+With smart tracking turned off in Overview, the story AI always inserts them itself.
+
+- Add them under **Scene Images** in the editor (Studio has the same page as a panel). Upload from your computer or pick from Assets; several files at once become several images, named after the files.
+- Write `[image: img1]` in a first message to show a picture from the very start. The same works inside lore entries: the AI carries it into its reply when it uses that entry.
+- Limit an image to certain first messages under **Openings**.
+- Players get a gallery in the play header. Pictures the story has already shown are there in full; the rest show your **unlock hint** instead, so the player knows there is a moment worth reaching.
+- The "when to show it" sentence is followed as written. "When the two sit across from each other in the café" shows the picture only on those replies; "after every reply" shows it on every reply. An image already shown comes back whenever its condition holds again.
+
 ## Assets
 
 You can upload images, audio files, fonts, and other media through the **Assets** section in the editor. Files are hosted on Yumina's CDN and can be referenced anywhere in your custom UI, entries, or audio tracks. No need to host files yourself.

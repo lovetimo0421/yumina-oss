@@ -1,0 +1,15 @@
+.cover-preview-card { position: relative; isolation: isolate; overflow: hidden; border: 1px solid #ffffff0d; border-radius: 8px; background: #242530; color: #f8f3e9; text-align: left; }
+.cover-preview-image { position: relative; display: flex; width: 100%; overflow: hidden; background: #1c1d26; }
+.cover-preview-copy { padding: 12px; }
+.cover-preview-title { display: flex; align-items: center; gap: 8px; }
+.cover-preview-title strong { flex: 1; min-width: 0; overflow: hidden; font: 500 15px/1.5 var(--font-family-ui); white-space: nowrap; text-overflow: ellipsis; }
+.cover-preview-title > svg { flex: 0 0 auto; color: #c4becb; }
+.cover-preview-copy > p { margin-top: 4px; height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 18px; color: #c4becb; }
+.cover-preview-footer { display: flex; align-items: center; gap: 6px; margin-top: 7px; color: #d0c9d6; font-size: 11px; }
+.cover-preview-creator { display: flex; align-items: center; flex: 1; min-width: 0; gap: 4px; }
+.cover-preview-creator > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.cover-preview-creator > img { width: 18px; height: 18px; flex: 0 0 auto; border-radius: 50%; object-fit: cover; }
+.cover-preview-stats { display: flex; align-items: center; flex: 0 0 auto; gap: 3px; }
+.cover-preview-bookmark { position: absolute; right: 16px; top: 16px; color: #f2e7d5; filter: drop-shadow(0 1px 3px #10111b); }
+.cover-preview-card[data-shape=portrait] .cover-preview-copy { position: absolute; bottom: 0; width: 100%; padding: 64px 10px 10px; background: linear-gradient(180deg,#10111900,#10111970 30%,#101119d6 72%,#101119f2); }
+.cover-preview-card[data-shape=portrait] .cover-preview-title strong { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; white-space: normal; overflow-wrap: anywhere; line-height: 20px; }

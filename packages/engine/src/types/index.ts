@@ -28,6 +28,23 @@ export interface Variable {
   min?: number;
   max?: number;
   /**
+   * Fixed set of values a string variable may take. When present the editor
+   * offers precise tracking (the value is picked from this list, never written
+   * freely). Ignored for other types.
+   */
+  options?: string[];
+  /**
+   * Precise tracking ("精准追踪"): after each reply the continuity judge, not
+   * the narrative model, decides this variable's new value. Numbers need
+   * `deltaDown`/`deltaUp`; strings need `options`; booleans need nothing.
+   * See engine/src/continuity.
+   */
+  precise?: boolean;
+  /** Largest decrease the judge may apply in one turn (number vars, ≥ 0). */
+  deltaDown?: number;
+  /** Largest increase the judge may apply in one turn (number vars, ≥ 0). */
+  deltaUp?: number;
+  /**
    * Detailed behavioral instructions for the AI on how to interpret and update this variable.
    * Surfaced to the LLM via the "Variable behavior rules" prompt section.
    */
@@ -93,6 +110,36 @@ export interface Condition {
   valueRef?: string;
 }
 
+/** World-level switches for the continuity judge. */
+export interface ContinuityConfig {
+  /** Master switch (default true). Off = the judge never runs for this world. */
+  enabled?: boolean;
+  /** Opt-out for BGM picking: tracks with an `aiNote` are in the pool unless this is false. */
+  bgm?: boolean;
+  /** Opt-out for one-shot SFX: tracks with an `aiNote` are in the pool unless this is false. */
+  sfx?: boolean;
+  /** Opt-out for scene images: by default the judge picks one from `sceneImages`
+   *  by their `scene` cue and the narrating model is not told about them.
+   *  false = the narrating model places them itself with `[image: id]`. */
+  images?: boolean;
+  /** Author's music rules for the judge's picks. Each is a choice the author
+   *  makes on the Audio page, not a platform constant. */
+  music?: ContinuityMusicConfig;
+}
+
+export interface ContinuityMusicConfig {
+  /** When a conditional-BGM rule is active: false (default) = the rule keeps
+   *  the channel and the judge waits; true = the judge's pick takes over and
+   *  rules stay out until that pick ends or is handed back. */
+  overRules?: boolean;
+  /** What happens after a judge-picked track: false (default) = it loops
+   *  until the judge switches or hands back; true = it plays once and the
+   *  default playlist resumes when it ends. */
+  once?: boolean;
+  /** Dip BGM/ambient while a judge-picked sound effect plays (default true). */
+  duck?: boolean;
+}
+
 /** An audio track that can be played during gameplay */
 export interface AudioTrack {
   /** False defers large tracks until playback is requested. */
@@ -103,6 +150,9 @@ export interface AudioTrack {
   url: string;
   /** False reserves this track for behaviors, playlists and scripts. Defaults to true. */
   allowAiControl?: boolean;
+  /** "What to play this for" — the author's one-line cue. A track with a cue
+   *  joins the continuity judge's pool (see WorldDefinition.continuity). */
+  aiNote?: string;
   loop?: boolean;
   volume?: number;
   fadeIn?: number;
@@ -117,10 +167,41 @@ export interface AudioEffect {
   action: "play" | "stop" | "crossfade" | "volume";
   volume?: number;
   fadeDuration?: number;
+  /** Set on effects the continuity judge produced. The player treats them as
+   *  the lowest-priority music source: a conditional-BGM rule that is active
+   *  keeps its track (the judge's crossfade is ignored), a judge crossfade only
+   *  stops BGM the AI is allowed to control, and a judge `stop` hands the music
+   *  back to the default playlist. */
+  source?: "continuity";
+  /** Lower BGM/ambient while this one-shot plays; restored when it ends. */
+  duckBgm?: boolean;
+  /** Override the track's own loop setting for this playback. */
+  loop?: boolean;
+  /** Judge crossfade only: the author chose "AI over rules" — take the
+   *  channel even while a conditional rule is active and keep rules out
+   *  until this pick ends or is handed back. */
+  overRules?: boolean;
   /** When set, the specified track will auto-play after this track ends (e.g. SFX → BGM transition) */
   chainTo?: string;
   /** When set, auto-stop the track after this many seconds (with fade) */
   maxDuration?: number;
+}
+
+/** An author-registered scene image the AI can show mid-narrative with `[image: id]` */
+export interface SceneImage {
+  /** Short handle the AI writes in the directive, e.g. `img1`. */
+  id: string;
+  name: string;
+  /** `@asset:{uuid}` or an https URL. */
+  url: string;
+  /** When to show it — this sentence is what the AI reads. */
+  scene: string;
+  /** Player-facing teaser for the locked gallery slot. */
+  hint?: string;
+  /** Restrict to these openings (greeting entry ids). Empty/absent = every opening. */
+  greetingIds?: string[];
+  /** False keeps the image out of the AI's list (author triggers it manually). Defaults to true. */
+  allowAiControl?: boolean;
 }
 
 /** Default BGM playlist configuration */
@@ -413,6 +494,10 @@ export interface WorldEntry {
    *  `@asset:<id>` reference (or an absolute URL). Only meaningful on
    *  `role: "character"` entries. */
   portrait?: string;
+  /** The voice this character's lines are read in: a fish.audio reference id
+   *  (32 hex). Set by the author; the player's own voice choice yields to it.
+   *  Only meaningful on `role: "character"` entries. */
+  voice?: string;
   /**
    * When true, this entry is active only while variable conditions match
    * (replaces manual enabled / always-send toggles in the editor).
@@ -589,6 +674,9 @@ export interface WorldDefinition {
   coverCrop?: CoverCropSettings;
   /** Crop framing for the cover when it appears as a gallery preview image. */
   galleryCoverCrop?: CoverCropSettings;
+  /** Separate landscape artwork for wide Discover placements. */
+  landscapeCover?: string;
+  landscapeCoverCrop?: CoverCropSettings;
   entries: WorldEntry[];
   variables: Variable[];
   rules: Rule[];
@@ -603,8 +691,15 @@ export interface WorldDefinition {
   components: import("./components.js").GameComponent[];
   uiBlueprint?: import("./ui-blueprint.js").UIBlueprint;
   audioTracks: AudioTrack[];
+  /** Scene images the AI may surface with `[image: id]` — see SceneImage. */
+  sceneImages?: SceneImage[];
   bgmPlaylist?: BGMPlaylist;
   conditionalBGM?: ConditionalBGM[];
+  /** Continuity judge ("场记" internally, "智能追踪" to authors): after each
+   *  reply a decision model updates precise-tracked variables and picks music,
+   *  sound effects and scene images from the author's cues. Missing = enabled
+   *  for variables, pools off. See engine/src/continuity. */
+  continuity?: ContinuityConfig;
   /** @deprecated Use entries instead */
   lorebookEntries?: LorebookEntry[];
   /** @deprecated v1 surface-based custom UI. Migrated into rootComponent by
@@ -653,6 +748,13 @@ export interface WorldSettings {
   minP?: number;
   /** Player display name for {{user}} macro (default "User") */
   playerName?: string;
+  /** The voice narration is read in (fish.audio reference id). A speaking
+   *  character without a voice of their own is read in this one too. */
+  narratorVoice?: string;
+  /** What happens when the player lets go of the mic (hold-to-talk voice
+   *  input): "confirm" fills the composer for review, "auto" sends it as
+   *  spoken. The player can override it. Absent = "confirm". */
+  voiceInputMode?: "confirm" | "auto";
   /** @deprecated Use an entry with role="system" + position="top" */
   systemPrompt?: string;
   /** @deprecated Use an entry with role="greeting" + position="greeting" */

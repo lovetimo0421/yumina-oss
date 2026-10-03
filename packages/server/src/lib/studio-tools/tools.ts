@@ -1,5 +1,6 @@
 import { getSmartImageCapabilities, SMART_IMAGE_MODEL, SMART_IMAGE_MODELS,
-  SMART_IMAGE_ASPECTS, SMART_IMAGE_RESOLUTIONS, MAX_IMAGE_BATCH_ITEMS } from "@yumina/shared";
+  SMART_IMAGE_ASPECTS, SMART_IMAGE_RESOLUTIONS, MAX_IMAGE_BATCH_ITEMS, IMAGE_ASPECTS,
+  platformStylePrice, TTS_VOICES, type PlatformStyleInfo } from "@yumina/shared";
 import type { ToolDefinition } from "../llm/types.js";
 
 /** The assistant picks its own model, so the schema advertises the union across
@@ -29,6 +30,110 @@ const IMAGE_TOOL_CAPABILITIES = {
     SMART_IMAGE_MODELS.some(model => (model.aspectRatios as readonly string[]).includes(ratio))),
   resolutions: SMART_IMAGE_RESOLUTIONS,
 };
+
+/** The curated voice catalog, one compact line per voice, read from the same
+ *  table the editor's voice picker uses so the two cannot drift. Any other
+ *  fish.audio id (32 hex) the creator pastes works too. */
+const VOICE_CATALOG_LINES = TTS_VOICES.map(v => `${v.id} ${v.labelKey}`).join("; ");
+
+/** One line of verifiable fact per platform base model — derived from
+ *  PLATFORM_STYLES and the same price function the generation route charges
+ *  with. No quality claims: what each base draws best has not been measured
+ *  here, so the assistant only gets the slug, the prompt dialect and the cost. */
+export function customImageStyleLines(styles: readonly PlatformStyleInfo[]): string[] {
+  return styles.map(style => {
+    const sizes = IMAGE_ASPECTS.map(aspect => platformStylePrice(style.slug, aspect.id, 1));
+    const low = Math.min(...sizes), high = Math.max(...sizes);
+    const price = low === high ? `${low}` : `${low}-${high}`;
+    return `${style.slug} — ${style.dialect === "danbooru" ? "prompt as comma-separated Danbooru tags" : "prompt as English natural-language prose"}, ${price} mushies/image`;
+  });
+}
+
+/** generate_image, with or without 自定义生图. `customStyles` is the list of
+ *  platform base models that are ready in this environment right now; null or
+ *  empty means custom generation is off, and the schema does not mention it. */
+export function generateImageTool(customStyles: readonly PlatformStyleInfo[] | null): ToolDefinition {
+  const custom = customStyles && customStyles.length ? customStyles : null;
+  const tool: ToolDefinition = {
+    type: "function",
+    function: {
+      name: "generate_image",
+      description:
+        "Propose a new picture from Yumina's built-in image generator. Nothing is generated and nothing is charged until the creator presses Generate on the card this shows; they can edit the prompt there first. Use ONLY when the creator needs an image that does not exist yet (a map, a portrait, a scene, a cover) and asked for one or clearly wants one — never to decorate on your own initiative. Write `prompt` as a concrete visual description in English: subject, setting, style, lighting, composition. Never ask for text, letters or UI inside the picture. MUST NOT be combined with any other tool call in the same turn. After the creator confirms you receive the delivered @asset ref(s) and can place them with edit_custom_ui or write_entry (a cover is picked by the creator in the editor; no tool sets it).",
+      parameters: {
+        type: "object",
+        properties: {
+          prompt: {
+            type: "string",
+            description: "The visual description to generate from (English, concrete, no text in the image).",
+          },
+          model: {
+            type: "string",
+            enum: IMAGE_TOOL_MODELS.map(model => model.id),
+            description:
+              "Which generator to run. Judge it yourself from what the picture is for; these are the facts, not a ranking:\n"
+              + IMAGE_TOOL_MODELS.map(model => `  ${model.line}`).join("\n")
+              + `\nA size or shape a model does not list falls back to that model's default, so choose the size and shape the picture needs first, then a model that offers them. Default ${SMART_IMAGE_MODEL}. Give your reason in modelReason; the confirmation card shows it to the creator next to the price.`,
+          },
+          modelReason: {
+            type: "string",
+            description: "One short line, in the creator's language, saying why this generator for this picture (e.g. '要 512 的小图标，只有它能直接出' or '普通插画，选了最便宜的'). The confirmation card shows it beside the model name and price, so the creator can judge the spend before agreeing.",
+          },
+          purpose: {
+            type: "string",
+            description: "One short line, in the creator's language, saying what the image is for (e.g. 'Map of the northern kingdom for the travel panel'). Shown on the confirmation card.",
+          },
+          aspectRatio: {
+            type: "string",
+            // Derived, never hand-listed: this enum had drifted to seven ratios
+            // while the generator had grown to thirteen, so the assistant could
+            // not offer shapes the creator could pick themselves.
+            enum: [...IMAGE_TOOL_CAPABILITIES.aspectRatios],
+            description: "Picture shape. Portraits 2:3 or 3:4, maps and scenes 3:2 or 16:9, covers 3:4, icons 1:1, wide banners 21:9 or 2:1, tall side panels 9:21 or 1:2. Default 1:1.",
+          },
+          resolution: {
+            type: "string",
+            enum: [...IMAGE_TOOL_CAPABILITIES.resolutions],
+            description: "Output size. 512 for icons and avatars, 1K for in-card art, 2K for covers and scene art; 4K only when the creator asks for print-scale detail, since it costs more and takes longer. Not every model offers every size — an unsupported pick falls back to that model's default. Default 2K.",
+          },
+          batchSize: {
+            type: "integer",
+            minimum: 1,
+            maximum: 4,
+            description: "How many variations to generate (each one is charged). Default 1; offer more only when the creator wants to choose.",
+          },
+        },
+        required: ["prompt"],
+      },
+    },
+  };
+  if (!custom) return tool;
+  const params = tool.function.parameters as { properties: Record<string, unknown> };
+  tool.function.description += " Two modes: smart (描述生图, the default: the models listed under `model`) and custom (自定义生图: a platform base model on Yumina's own image workers, chosen with `style`). In custom mode the prompt is sent to the base model exactly as written — nothing rewrites it — so write it in that base model's prompt dialect.";
+  params.properties = {
+    mode: {
+      type: "string",
+      enum: ["smart", "custom"],
+      description: "smart = 描述生图 (pick `model`); custom = 自定义生图 (pick `style`; `model` and `resolution` are ignored). Default smart.",
+    },
+    style: {
+      type: "string",
+      enum: custom.map(style => style.slug),
+      description: "Custom mode only: the platform base model. Facts, not a ranking:\n"
+        + customImageStyleLines(custom).map(line => `  ${line}`).join("\n")
+        + `\nFor a Danbooru-tag base write \`prompt\` as comma-separated tags (e.g. "1girl, silver hair, school uniform, cherry blossoms, looking at viewer"); for a prose base write English sentences. Custom renders at fixed sizes (${IMAGE_ASPECTS.map(aspect => `${aspect.id} ${aspect.width}×${aspect.height}`).join(", ")}); aspectRatio snaps to the nearest one. Default ${custom[0]!.slug}.`,
+    },
+    ...params.properties,
+  };
+  return tool;
+}
+
+/** The toolset for one agent run: generate_image re-described for the base
+ *  models this environment can actually run. */
+export function withCustomImageTool(tools: ToolDefinition[], customStyles: readonly PlatformStyleInfo[] | null): ToolDefinition[] {
+  if (!customStyles?.length) return tools;
+  return tools.map(tool => tool.function.name === "generate_image" ? generateImageTool(customStyles) : tool);
+}
 
 // ── Studio AI: 8-tool agent (Claude Code pattern) ──
 //
@@ -164,8 +269,9 @@ export const WRITE_TOOLS: ToolDefinition[] = [
           id: { type: "string", description: "Descriptive kebab-case ID (e.g. 'tavern-lore', 'alice-greeting')." },
           name: { type: "string" },
           content: { type: "string", description: "Entry text sent to the LLM. Supports {{char}}, {{user}}, {{variableId}} macros." },
-          portrait: { type: "string", description: "Character portrait @asset reference. Empty string removes the portrait." },
-          role: { type: "string", enum: ["system", "character", "personality", "scenario", "lore", "plot", "style", "example", "greeting", "custom"] },
+          portrait: { type: "string", description: "Character portrait @asset reference (role 'character' only). Empty string removes the portrait." },
+          voice: { type: "string", description: `Voice this character's dialogue is read aloud in when the player turns on voice readout (role 'character' only; the player's own voice pick yields to it). A fish.audio voice id, 32 lowercase hex. Curated: ${VOICE_CATALOG_LINES}. Match the character's gender/age/temperament and the card's language; set it only when the creator asks for voices or is setting up readout. Empty string removes it (the AI then casts one from the player's pool).` },
+          role: { type: "string", enum: ["system", "character", "personality", "scenario", "lore", "plot", "style", "example", "greeting", "custom"], description: "'character' makes the entry a character: only then do portrait and voice apply (the editor's 「这是一个角色」 switch). Use it for every cast member's main entry." },
           section: { type: "string", enum: ["system-presets", "examples", "chat-history", "post-history"] },
           keywords: { type: "array", items: { type: "string" }, description: "Trigger words for chat-history entries." },
           enabled: { type: "boolean" },
@@ -217,6 +323,10 @@ export const WRITE_TOOLS: ToolDefinition[] = [
           aiAccess: { type: "string", enum: ["write", "read", "none"], description: "What the AI may do with this variable. 'write' (default): in <game-state>, updatable via directives — for state only the AI can judge (affinity, mood). 'read': in <game-state> with a read-only marker; AI directives targeting it are DROPPED — for engine-owned state the AI should narrate but never change (phase, rating, settlement result); drive it from behaviors/UI. 'none': never sent to the AI at all — ledgers, counters, bookkeeping; still fully usable in conditions/behaviors/custom UI. Prefer 'read'/'none' over behaviorRules prose like \"don't touch this\" — the engine enforces it." },
           activation: { type: "object", description: "When the variable is 'in play' (same shape as a worldbook's activation). Omit = always. { mode:'manual' } — gated by `enabled` + runtime @vars.enabled.<id> toggles from behaviors. { mode:'conditions', conditions:[{variableId,operator,value}], conditionLogic:'all'|'any' } — active while conditions match (valueRef supported, incl. self-gating like 'show rage only while > 0'). { mode:'greeting', greetingIds:[...] } — active only in sessions on those openings. An INACTIVE variable leaves <game-state> and the player UI and rejects AI writes, but KEEPS its value — conditions/behaviors/custom UI still read it." },
           enabled: { type: "boolean", description: "Enable-gate default (default true). Mostly for activation mode 'manual': start disabled, then a behavior flips it on via a THEN effect on path '@vars.enabled.<id>'." },
+          precise: { type: "boolean", description: "Precise tracking (the editor's 「精准追踪」): after each reply a small decision model, not the narrator, sets this variable — so it reliably moves with the story. ON BY DEFAULT for a new number/boolean variable and for a string with `options`; pass false only for a value something else owns (a counter a behavior drives, a player's pick). Ignored for aiAccess 'read'/'none', internal and json variables." },
+          deltaDown: { type: "number", description: "Precise tracking, numbers: the most it may fall in one turn (≥ 0). Default 15% of max−min, or 10 without a range." },
+          deltaUp: { type: "number", description: "Precise tracking, numbers: the most it may rise in one turn (≥ 0). Default 15% of max−min, or 10 without a range." },
+          options: { type: "array", items: { type: "string" }, description: "String variables: the fixed values it may take (e.g. mood: 平静/开心/生气). With options the variable is precise-tracked — the judge picks one each turn." },
         },
         required: ["id"],
       },
@@ -310,6 +420,29 @@ export const WRITE_TOOLS: ToolDefinition[] = [
           fadeIn: { type: "number" },
           fadeOut: { type: "number" },
           maxDuration: { type: "number", description: "Auto-stop after N seconds (useful for SFX)." },
+          aiNote: { type: "string", description: "AI music pick (the editor's 「什么时候放」 / 「什么事发生时放一次」 field): one line saying when this track fits, e.g. 'tense fights and chases' / '夜里两人独处、气氛暧昧时'. A bgm/sfx track with a note joins smart tracking's pool — after each reply a decision model plays the BGM whose note fits the scene, and fires an SFX whose note matches what just happened. No note = only rules, playlists and the story model's own directives play it. Empty string removes it." },
+          allowAiControl: { type: "boolean", description: "false reserves the track for behaviors/playlists/scripts: neither the story model nor smart tracking may play it (its aiNote is then ignored). Default true." },
+        },
+        required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "write_scene_image",
+      description:
+        "Create or update a scene image: a picture that appears on its own when the story reaches the moment `scene` describes (picked after the reply by default; an empty `scene` means it only appears where its [image: id] code is pasted). Use short ids like img1. url must be @asset:{id} (an uploaded picture) or an https URL — never a data: URI. The creator picks/uploads the actual picture in the editor; if you have no asset id, create the image with the scene text and leave url empty.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "Short handle the AI reproduces, e.g. img1." },
+          name: { type: "string" },
+          url: { type: "string", description: "@asset:{id} or https URL. Empty until the creator uploads." },
+          scene: { type: "string", description: "The sending CONDITION, one or two sentences. After every reply smart tracking asks, per image, whether this condition holds this turn; if it does the picture is shown (it can repeat whenever the condition holds again). So write it as a checkable condition: 'Aria first takes off her hood in front of {{user}}' — not a caption, and not 'always' unless it should appear every reply." },
+          hint: { type: "string", description: "Optional teaser the player sees in the gallery before the picture is revealed." },
+          greetingIds: { type: "array", items: { type: "string" }, description: "Restrict to these opening (greeting entry) ids. Empty = every opening." },
+          allowAiControl: { type: "boolean", description: "false keeps it out of the AI's list (manual [image:…] use only)." },
         },
         required: ["id"],
       },
@@ -347,6 +480,26 @@ export const WRITE_TOOLS: ToolDefinition[] = [
             type: "number",
             description:
               "Lore injection budget as a percent of maxContext (default 100). Lower it (e.g. 25) to bound lore as a fraction of the window. The effective ceiling is min(lorebookBudgetCap, lorebookBudgetPercent% of maxContext).",
+          },
+          narratorVoice: { type: "string", description: "Voice readout: the fish.audio voice id (32 hex, same catalog as write_entry.voice) narration is read in; a speaking character with no voice of its own falls to it too. Empty string removes it." },
+          voiceInputMode: { type: "string", enum: ["confirm", "auto"], description: "Hold-to-talk voice input on release: 'confirm' (default) fills the input box for the player to review, 'auto' sends it as spoken. The player can override." },
+          continuity: {
+            type: "object",
+            description: "Smart tracking (the editor's 「智能追踪」): after each reply a small decision model updates precise variables and picks music/SFX/scene images from the author's cues. Only pass the keys you change.",
+            properties: {
+              enabled: { type: "boolean", description: "Master switch, default true. false = no precise tracking, no AI music pick, and scene images fall back to the story model's [image: id]." },
+              bgm: { type: "boolean", description: "false = BGM tracks' aiNote is ignored (default true)." },
+              sfx: { type: "boolean", description: "false = SFX tracks' aiNote is ignored (default true)." },
+              images: { type: "boolean", description: "false = the story model places scene images itself with [image: id] instead of the per-image condition check (default true)." },
+              music: {
+                type: "object",
+                properties: {
+                  overRules: { type: "boolean", description: "true = an AI music pick takes over even while a conditional-BGM rule is active. Default false (rules win)." },
+                  once: { type: "boolean", description: "true = an AI-picked track plays once, then the default playlist resumes. Default false (loops until switched)." },
+                  duck: { type: "boolean", description: "Lower BGM while an AI-picked SFX plays. Default true." },
+                },
+              },
+            },
           },
         },
       },
@@ -405,7 +558,7 @@ export const WRITE_TOOLS: ToolDefinition[] = [
     function: {
       name: "delete_entities",
       description:
-        "Delete one or more entities by ID. Each ID is looked up across all entity types (entries, variables, behaviors, rules, customUI, audio, worldbooks, lore bindings). Always requires user approval.",
+        "Delete one or more entities by ID. Each ID is looked up across all entity types (entries, variables, behaviors, rules, customUI, audio, scene images, worldbooks, lore bindings). Always requires user approval.",
       parameters: {
         type: "object",
         properties: {
@@ -448,65 +601,13 @@ const CONTROL_TOOLS: ToolDefinition[] = [
       },
     },
   },
-  {
-    type: "function",
-    function: {
-      name: "generate_image",
-      description:
-        "Propose a new picture from Yumina's built-in image generator. Nothing is generated and nothing is charged until the creator presses Generate on the card this shows; they can edit the prompt there first. Use ONLY when the creator needs an image that does not exist yet (a map, a portrait, a scene, a cover) and asked for one or clearly wants one — never to decorate on your own initiative. Write `prompt` as a concrete visual description in English: subject, setting, style, lighting, composition. Never ask for text, letters or UI inside the picture. MUST NOT be combined with any other tool call in the same turn. After the creator confirms you receive the delivered @asset ref(s) and can place them with edit_custom_ui or write_entry (a cover is picked by the creator in the editor; no tool sets it).",
-      parameters: {
-        type: "object",
-        properties: {
-          prompt: {
-            type: "string",
-            description: "The visual description to generate from (English, concrete, no text in the image).",
-          },
-          model: {
-            type: "string",
-            enum: IMAGE_TOOL_MODELS.map(model => model.id),
-            description:
-              "Which generator to run. Judge it yourself from what the picture is for; these are the facts, not a ranking:\n"
-              + IMAGE_TOOL_MODELS.map(model => `  ${model.line}`).join("\n")
-              + `\nA size or shape a model does not list falls back to that model's default, so choose the size and shape the picture needs first, then a model that offers them. Default ${SMART_IMAGE_MODEL}. Give your reason in modelReason; the confirmation card shows it to the creator next to the price.`,
-          },
-          modelReason: {
-            type: "string",
-            description: "One short line, in the creator's language, saying why this generator for this picture (e.g. '要 512 的小图标，只有它能直接出' or '普通插画，选了最便宜的'). The confirmation card shows it beside the model name and price, so the creator can judge the spend before agreeing.",
-          },
-          purpose: {
-            type: "string",
-            description: "One short line, in the creator's language, saying what the image is for (e.g. 'Map of the northern kingdom for the travel panel'). Shown on the confirmation card.",
-          },
-          aspectRatio: {
-            type: "string",
-            // Derived, never hand-listed: this enum had drifted to seven ratios
-            // while the generator had grown to thirteen, so the assistant could
-            // not offer shapes the creator could pick themselves.
-            enum: [...IMAGE_TOOL_CAPABILITIES.aspectRatios],
-            description: "Picture shape. Portraits 2:3 or 3:4, maps and scenes 3:2 or 16:9, covers 3:4, icons 1:1, wide banners 21:9 or 2:1, tall side panels 9:21 or 1:2. Default 1:1.",
-          },
-          resolution: {
-            type: "string",
-            enum: [...IMAGE_TOOL_CAPABILITIES.resolutions],
-            description: "Output size. 512 for icons and avatars, 1K for in-card art, 2K for covers and scene art; 4K only when the creator asks for print-scale detail, since it costs more and takes longer. Not every model offers every size — an unsupported pick falls back to that model's default. Default 2K.",
-          },
-          batchSize: {
-            type: "integer",
-            minimum: 1,
-            maximum: 4,
-            description: "How many variations to generate (each one is charged). Default 1; offer more only when the creator wants to choose.",
-          },
-        },
-        required: ["prompt"],
-      },
-    },
-  },
+  generateImageTool(null),
   {
     type: "function",
     function: {
       name: "generate_images",
       description:
-        "Prepare one batch of independently described images for ONE creator confirmation. Use for multiple characters, scenes, or freeform requests such as '10 women with different hair colors'. Write one item and distinct English prompt per requested output; these are separate pictures, not a collage or variations of a single prompt. No images are generated or billed before confirmation; assistant preparation still has its normal cost. Default to the least expensive suitable model. Omit target to save in the asset library. For character portraits use an existing entry_portrait target, or first wire custom UI once to the managed characterImages module and use component_image targets. Existing pictures are skipped. The backend generates, saves and binds the entire confirmed batch without calling you per image. Call this tool ALONE and end the turn; do not launch generate_image repeatedly or ask the creator to return for every picture. Maximum 30 images per batch; for a larger request clarify the first batch size rather than silently dropping items.",
+        "Prepare one batch of independently described images for ONE creator confirmation. Use for multiple characters, scenes, or freeform requests such as '10 women with different hair colors'. Write one item and distinct English prompt per requested output; these are separate pictures, not a collage or variations of a single prompt. No images are generated or billed before confirmation; assistant preparation still has its normal cost. Default to the least expensive suitable model. Omit target to save in the asset library. For character portraits use an existing entry_portrait target, or first wire custom UI once to the managed characterImages module and use component_image targets. Existing pictures are skipped. The backend generates, saves and binds the entire confirmed batch without calling you per image. Call this tool ALONE and end the turn; do not launch generate_image repeatedly or ask the creator to return for every picture. Maximum 30 images per batch; for a larger request clarify the first batch size rather than silently dropping items. Batches always use the smart models below; a platform base model (generate_image custom mode) is single-image only.",
       parameters: {
         type: "object",
         properties: {

@@ -4,9 +4,8 @@
  * A v2 wallet's cycle pile is not handed over at once. The grant paths
  * (ensureWallet / syncPlan / refreshMonthlyCredits) pay drop 0 and record
  * `wallet_plan_drops(wallet_id, period_start, drops_released = 1, schedule)`.
- * Later drops are released lazily by `releaseDueDrops` — called from
- * checkBalance (every generation) and the wallet GET — once their day
- * threshold inside the cycle has passed. Drops land in the Monthly bucket only
+ * Later drops are released automatically at the global 20:00 UTC reset;
+ * checkBalance (every generation) and the wallet GET also settle anything due. Drops land in the Monthly bucket only
  * (balance, not addon_balance), so they carry inside the cycle and reset at
  * renewal exactly like the rest of the plan pile.
  *
@@ -111,6 +110,19 @@ export async function dropCycleFor(
 
 export interface ReleasedDrop { index: number; amount: number; balanceAfter: number }
 
+interface DropEligibility {
+  periodEnd?: Date;
+  planExpiresAt?: Date | null;
+  pendingPlan?: string | null;
+  pendingPlanEffective?: Date | null;
+}
+
+function dropCycleUnavailable(wallet: DropEligibility, now: Date): boolean {
+  return !!((wallet.periodEnd && now >= wallet.periodEnd)
+    || (wallet.planExpiresAt && now >= wallet.planExpiresAt)
+    || (wallet.pendingPlan && wallet.pendingPlanEffective && now >= wallet.pendingPlanEffective));
+}
+
 /** The earliest day any schedule pays a paid plan's second drop: before it, no cycle can owe anything. */
 function earliestSecondDropDay(plan: string): number {
   const config = planConfigV2(plan);
@@ -156,6 +168,9 @@ export async function releaseDueDrops(userId: string, now = new Date(), database
   return database.transaction(async (tx) => {
     const [wallet] = await tx.select().from(creditWallets).where(eq(creditWallets.userId, userId)).for("update");
     if (!wallet || (wallet.planVersion ?? 1) !== 2) return [];
+    // A sweep must never revive expired paid/gifted credits or pay the old
+    // plan while a due downgrade is waiting to be enforced.
+    if (dropCycleUnavailable(wallet, now)) return [];
     const config = planConfigV2(wallet.plan);
     if (config.drops.length <= 1) return [];
 
@@ -275,8 +290,8 @@ export async function settleUndeliveredDrops(
 }
 
 /** For the wallet UI: the next scheduled drop of a v2 wallet, or null. */
-export async function nextDropFor(wallet: { id: string; plan: string; planVersion: number; periodStart: Date }, database: LedgerDatabase = db): Promise<{ amount: number; at: string } | null> {
-  if (wallet.planVersion !== 2) return null;
+export async function nextDropFor(wallet: { id: string; plan: string; planVersion: number; periodStart: Date } & DropEligibility, database: LedgerDatabase = db): Promise<{ amount: number; at: string } | null> {
+  if (wallet.planVersion !== 2 || dropCycleUnavailable(wallet, new Date())) return null;
   const { released, drops } = await dropCycleFor(wallet, database);
   const next = nextDrop(drops, wallet.periodStart, released);
   return next ? { amount: next.amount, at: next.at.toISOString() } : null;

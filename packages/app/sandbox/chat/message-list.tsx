@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, useMemo } from "react";
 import { useYumina } from "../sandbox-context";
 import { MessageBubble } from "./message-bubble";
+import { RefusalBar, useRegisterTranscript, useRetryTrailingTurn } from "./player-prompts";
 import { MessageActions } from "./message-actions";
 import { SwipeControls } from "./swipe-controls";
 import { makeChatT } from "./i18n";
@@ -82,6 +83,9 @@ const AT_BOTTOM_THRESHOLD_PX = 80;
 
 export function MessageList({ rendererComponent }: MessageListProps) {
   const api = useYumina();
+  // Tells RefusalHost the transcript shows refusal bars itself.
+  useRegisterTranscript();
+  const retryTrailingTurn = useRetryTrailingTurn();
   const t = useMemo(() => makeChatT(api.language), [api.language]);
   const messages = api.messages as unknown as SandboxMessage[];
   // Warm the portraits: the speaker tag lands with the first token of a reply,
@@ -643,7 +647,14 @@ export function MessageList({ rendererComponent }: MessageListProps) {
             role="alert"
             className="play-message-error flex min-w-0 items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2"
           >
-            <p className="play-message-error__text min-w-0 flex-1 text-xs text-destructive">{error}</p>
+            <div className="min-w-0 flex-1">
+              {/* A regenerate/continue the provider blocked: same next steps as a blocked turn. */}
+              {api.errorCode !== "CONTENT_FILTER" || isStreaming ? (
+                <p className="play-message-error__text min-w-0 flex-1 text-xs text-destructive">{error}</p>
+              ) : (
+                <RefusalBar kind="blocked" onRetry={retryTrailingTurn} className="mt-0 border-0 bg-transparent px-0 py-0" />
+              )}
+            </div>
             <button
               type="button"
               onClick={() => setErrorDismissed(true)}

@@ -58,6 +58,7 @@ export type NotificationType =
   | "world_submitted_for_review"
   | "world_review_approved"
   | "world_review_rejected"
+  | "prompt_pack_reviewed"
   | "new_review_pending"
   | "achievement_earned"
   | "referral_milestone"
@@ -84,6 +85,7 @@ const TYPE_TO_GROUP: Partial<Record<NotificationType, string>> = {
   world_republished: "library",
   world_submitted_for_review: "library",
   world_review_approved: "library",
+  prompt_pack_reviewed: "library",
   thread_reply: "community",
   post_reply: "community",
   thread_like: "community",

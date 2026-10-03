@@ -10,9 +10,12 @@ import { useCreditStore } from "@/edition/slots.state";
 import { useExtensionsStore } from "@/stores/extensions";
 import { EXTENSION_REGISTRY, SESSION_MEMORY_EXTENSION_KEY } from "@yumina/shared";
 import { useAudioStore } from "@/stores/audio";
+import { haltTts } from "@/lib/tts-stop-signal";
+import { cancelVoiceRecording } from "@/lib/voice-input";
 import { stripDirectivesForSandbox } from "@/lib/strip-directives";
 import { GameFrame } from "./game-frame";
 import { SessionHeader } from "./session-header";
+import { SceneGalleryDialog, useSceneGallery } from "./scene-gallery";
 import { type YuminaAPI } from "@/features/studio/lib/custom-component-renderer";
 import { safeParseWorldDef } from "@/lib/utils";
 import { absoluteImageUrl } from "@/lib/asset-url";
@@ -125,6 +128,10 @@ export function ChatView({
   const closePersonaManager = useUiStore((s) => s.closePersonaManager);
   const sharePlaythroughOpen = useUiStore((s) => s.sharePlaythroughOpen);
   const closeSharePlaythrough = useUiStore((s) => s.closeSharePlaythrough);
+  // The scene-image gallery is mounted here, not in SessionHeader, for the
+  // same reason as the tip modal: a fullscreen custom-UI card has no header.
+  const sceneGalleryOpen = useUiStore((s) => s.sceneGalleryOpen);
+  const closeSceneGallery = useUiStore((s) => s.closeSceneGallery);
   // api.openSupport() → same store route → <TipModal>. Mounted here rather than
   // in SessionHeader because a fullscreen custom-UI card hides the header
   // entirely, which is the whole reason a card would ask for this dialog.
@@ -148,12 +155,19 @@ export function ChatView({
   }, [sessionId, isActive]);
 
   useEffect(() => {
-    // Stop audio when hidden (navigated away) or switching sessions
+    // Stop audio when hidden (navigated away) or switching sessions. The
+    // voice readout goes first: cleanup() idles the voice lane, and an idle
+    // lane is what makes a still-queued read-along play (and bill) its next
+    // slice.
     if (!isActive) {
+      haltTts();
+      cancelVoiceRecording();
       useAudioStore.getState().cleanup();
     }
     // Also clean up on unmount or sessionId change
     return () => {
+      haltTts();
+      cancelVoiceRecording();
       useAudioStore.getState().cleanup();
     };
   }, [sessionId, isActive]);
@@ -710,7 +724,7 @@ export function ChatView({
     // silently rendering nothing.
     return (
       <div className="flex h-full items-center justify-center p-8 text-sm text-muted-foreground">
-        World has no rootComponent. This indicates corrupted schema — contact support.
+        {t("worldDisplayUnavailable")}
       </div>
     );
   }
@@ -761,6 +775,12 @@ export function ChatView({
         sessionId={sessionId}
         defaultTitle={worldDef?.name ?? session?.world?.name ?? ""}
         onClose={closeSharePlaythrough}
+      />
+      <SceneGalleryDialog
+        open={sceneGalleryOpen}
+        onOpenChange={(open) => {
+          if (!open) closeSceneGallery();
+        }}
       />
       {billingEnabled && tipCreatorId && tipViewerId && tipCreatorId !== tipViewerId && (
         <TipModal
@@ -1055,6 +1075,9 @@ function FullscreenFloatingBar({
   memorySummaryEnabled?: boolean;
 }) {
   const { t } = useTranslation("chat");
+  const gallery = useSceneGallery();
+  const galleryRevealed = gallery.images.filter((img) => gallery.revealed.has(img.id)).length;
+  const openSceneGallery = useUiStore((s) => s.openSceneGallery);
   const { toggle } = useImmersiveMode();
   const reviewGroupKey = moderationGroupKey;
   const guardInstalled = useExtensionsStore((s) => s.installState["state-update-guard"] === "installed");
@@ -1221,6 +1244,11 @@ function FullscreenFloatingBar({
           stateGuardLabel={guardInstalled ? guardLabels(i18n.language)[0] : undefined}
           onStateGuard={() => {
             window.dispatchEvent(new CustomEvent("yumina:request-state-guard"));
+            setVisible(false);
+          }}
+          galleryLabel={gallery.images.length > 0 ? `${t("header.sceneGallery")} · ${galleryRevealed}/${gallery.images.length}` : undefined}
+          onGallery={() => {
+            openSceneGallery();
             setVisible(false);
           }}
           fullscreenLabel={t("view.returnToFullscreen")}

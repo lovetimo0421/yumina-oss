@@ -105,6 +105,12 @@ export function scanAssets(
       if (id) addTo(deferred, [id]);
     }
   }
+  for (const img of world.sceneImages ?? []) {
+    if (typeof img.url === "string" && img.url.startsWith("@asset:")) {
+      const id = img.url.slice("@asset:".length);
+      if (id) addTo(deferred, [id]);
+    }
+  }
   for (let i = 1; i < Math.min(messages.length, MESSAGE_SCAN_DEPTH); i++) {
     addTo(deferred, extractAssetRefs(messages[i]?.content));
   }

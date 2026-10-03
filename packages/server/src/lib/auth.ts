@@ -1,11 +1,12 @@
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { username } from "better-auth/plugins/username";
+import { usernameAuthPlugin } from "./auth-username.js";
 import { jwt } from "better-auth/plugins/jwt";
 import { and, eq, like } from "drizzle-orm";
 import { env, IS_LOCAL_EDITION, PUBLIC_ORIGIN } from "./env.js";
 import * as schema from "../db/schema.js";
+import { isReservedUsername } from "@yumina/shared";
 import { db } from "../db/index.js";
 import {
   sendEmail,
@@ -22,7 +23,7 @@ import {
 } from "./account-deletion.js";
 import {
   getDeletedIdentity,
-  rejectBannedDeletedIdentityAfterCreate,
+  rejectRestrictedDeletedIdentityAfterCreate,
 } from "./deleted-identity.js";
 import { isDeletedIdentityRegistrationBlocked } from "./deleted-identity-policy.js";
 import { sendRedditConversion } from "./reddit-capi.js";
@@ -147,6 +148,7 @@ async function generateUniqueUsername(name: string | undefined, email: string): 
   const raw = name?.trim() || email.split("@")[0] || "user";
   let base = raw.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 15);
   if (base.length < 3) base = "user" + base;
+  if (isReservedUsername(base)) base = ("creator_" + base).slice(0, 15);
 
   // Check if base is available
   const existing = await db
@@ -357,10 +359,7 @@ export const auth = betterAuth({
     },
   },
   plugins: [
-    username({
-      minUsernameLength: 3,
-      maxUsernameLength: 20,
-    }),
+    usernameAuthPlugin(),
     // Asymmetric signing keys + /api/auth/jwks. Used ONLY by the partner
     // identity token (routes/partners.ts → auth.api.signJWT). RS256 rather
     // than the EdDSA default because krew verifies with `jsonwebtoken`, which
@@ -487,12 +486,12 @@ export const auth = betterAuth({
           }
         },
         after: async (user: any, ctx: any) => {
-          // Re-check after INSERT. A same-email signup can start while a banned
+          // Re-check after INSERT. A same-email signup can start while a restricted
           // deletion transaction is uncommitted, then continue after the old
-          // unique email row disappears. Compensate only banned identities;
+          // unique email row disappears. Compensate only restricted identities;
           // ordinary deleted identities may register again immediately.
           const deletedIdentity = user.email
-            ? await rejectBannedDeletedIdentityAfterCreate(user.id, user.email)
+            ? await rejectRestrictedDeletedIdentityAfterCreate(user.id, user.email)
             : null;
           assertDeletedIdentityCanRegister(deletedIdentity);
 

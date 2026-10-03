@@ -6,6 +6,7 @@ import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { sql } from "drizzle-orm";
 import { armQueryDeadlines, findDatabaseQueryTimeout, withDatabaseQueryTimeout } from "./query-deadline.js";
+import { observePoolQueryTimings } from "./query-timing.js";
 
 // A local PostgreSQL wire peer exercises the real pg driver, pg-pool and
 // Drizzle transaction cleanup. No database credentials or production writes.
@@ -51,6 +52,10 @@ async function wirePeer() {
     user: "test", password: "test", database: "test", ssl: false, max: 1, connectionTimeoutMillis: 1000 });
   pool.on("error", () => {});
   armQueryDeadlines(pool, "test", 60);
+  // Production stacks the passive timing observer outside the deadline guard.
+  // Exercise the real driver with both wrappers, including callback queries,
+  // queued acquisitions, transaction cleanup, and unknown write outcomes.
+  observePoolQueryTimings(pool, () => {});
   return { pool, commands, connections: () => connections, async close() {
     for (const socket of sockets) socket.destroy();
     await pool.end(); await new Promise<void>((resolve) => server.close(() => resolve()));

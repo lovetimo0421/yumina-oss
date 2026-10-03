@@ -219,6 +219,7 @@ authRoutes.post("/delete-user", async (c) => {
             && candidate.is_banned !== true
             && candidate.is_suspended !== true,
         ).length,
+        account?.is_banned === true || account?.is_suspended === true,
       );
       if (!access.allowed) return { kind: "blocked" as const, access };
       if (!account?.id || !account.email || !account.name) {

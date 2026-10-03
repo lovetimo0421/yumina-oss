@@ -1,3 +1,4 @@
+import { discoverAccess } from "../lib/discover-access.js";
 import { Hono } from "hono";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -323,15 +324,19 @@ assetRoutes.post("/worlds/:worldId/thumbnail", async (c) => {
 assetRoutes.post("/worlds/:worldId/thumbnail/confirm", async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("worldId");
-  const body = await c.req.json<{ key: string }>();
+  const body = await c.req.json<{ key: string; target?: "portrait" | "landscape" }>();
 
   if (!body.key || !body.key.startsWith(`worlds/${worldId}/thumbnail/`)) {
     return c.json({ error: "Invalid thumbnail key" }, 400);
   }
 
+  if (body.target !== undefined && body.target !== "portrait" && body.target !== "landscape") return c.json({ error: "Invalid cover target" }, 400);
+  const discoverPreview = (await discoverAccess(currentUser.id)).enabled;
+  if (body.target === "landscape" && !discoverPreview) return c.json({ error: "Discover preview access required" }, 403);
+
   // For a published world the cover is a material change: hold it for re-review
   // instead of overwriting the live cover.
-  const applied = await applyWorldCover({ worldId, creatorId: currentUser.id, newKey: body.key });
+  const applied = await applyWorldCover({ worldId, creatorId: currentUser.id, newKey: body.key, target: body.target, discoverPreview });
   if (!applied.ok) {
     return c.json({ error: applied.error, ...(applied.code ? { code: applied.code } : {}) }, applied.status);
   }
@@ -347,8 +352,11 @@ assetRoutes.post("/worlds/:worldId/thumbnail/from-asset", async (c) => {
 
   const currentUser = c.get("user");
   const worldId = c.req.param("worldId");
-  const body = await c.req.json<{ assetId: string }>();
+  const body = await c.req.json<{ assetId: string; target?: "portrait" | "landscape" }>();
 
+  if (body.target !== undefined && body.target !== "portrait" && body.target !== "landscape") return c.json({ error: "Invalid cover target" }, 400);
+  const discoverPreview = (await discoverAccess(currentUser.id)).enabled;
+  if (body.target === "landscape" && !discoverPreview) return c.json({ error: "Discover preview access required" }, 403);
   if (!body.assetId) {
     return c.json({ error: "assetId is required" }, 400);
   }
@@ -388,7 +396,7 @@ assetRoutes.post("/worlds/:worldId/thumbnail/from-asset", async (c) => {
     return c.json({ error: "Asset not found" }, 404);
   }
 
-  const applied = await applyWorldCover({ worldId, creatorId: currentUser.id, newKey: s3Key });
+  const applied = await applyWorldCover({ worldId, creatorId: currentUser.id, newKey: s3Key, target: body.target, discoverPreview });
   if (!applied.ok) {
     return c.json({ error: applied.error, ...(applied.code ? { code: applied.code } : {}) }, applied.status);
   }

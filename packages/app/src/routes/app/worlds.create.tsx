@@ -14,6 +14,9 @@ import { clampWorldTags } from "@yumina/shared";
 import { useAuthGuard } from "@/hooks/use-auth-guard";
 import { WORLD_TEMPLATES, type WorldTemplate } from "@/lib/world-templates";
 import { parseImportedFileFlexible } from "@/lib/import-world";
+import type { WorldDefinition } from "@yumina/engine";
+import { ApplyChangesDialog } from "@/features/world-changes/apply-changes-dialog";
+import { findImportTargets, type ApplyTarget } from "@/features/world-changes/apply-world-changes";
 import { useCreatePageStore } from "@/stores/create-page";
 import { lazyRouteComponent } from "@/lib/lazy-route-component";
 import i18n from "@/lib/i18n";
@@ -348,6 +351,12 @@ function WorldCreatePage() {
   const [pendingTemplate, setPendingTemplate] = useState<WorldTemplate | null | undefined>(undefined);
   const [showModeDialog, setShowModeDialog] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [applyOffer, setApplyOffer] = useState<{
+    world: WorldDefinition;
+    coverImage: Blob | null;
+    targets: ApplyTarget[];
+    fileName: string;
+  } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const setPickerActive = useCreatePageStore((s: { setPickerActive: (active: boolean) => void }) => s.setPickerActive);
@@ -409,6 +418,42 @@ function WorldCreatePage() {
     }
   }, [pendingTemplate, applyTemplate]);
 
+  // Continue an import as a brand-new card (also the "keep as a new project"
+  // answer when the file turned out to be one of the creator's own cards).
+  const importAsNewWorld = useCallback((worldDef: WorldDefinition, coverImage: Blob | null) => {
+    const store = useEditorStore.getState();
+    store.loadWorldDefinition(worldDef);
+    // Default to UI language if the imported file has none. Re-read state:
+    // `store` is a pre-import snapshot, and loadWorldDefinition just reset
+    // `language` from the imported definition (usually null — exported
+    // schemas don't carry the DB-level language column). Reading the stale
+    // snapshot here skipped the backfill whenever the previous editor
+    // session had a language set, creating language-less worlds that fall
+    // out of the hub's locale filters.
+    if (!useEditorStore.getState().language) {
+      const uiLang = i18n.language?.split("-")[0];
+      if (uiLang) store.setLanguage(uiLang);
+    }
+    // Respect global editor mode preference for imports
+    const globalPref = getGlobalEditorMode();
+    if (globalPref === "simple") {
+      store.setField("editorMode", "simple");
+      setQuickCreate(true);
+    } else if (!globalPref) {
+      // No preference set — show mode dialog after import
+      setPendingTemplate(null);
+      setShowModeDialog(true);
+    }
+    setPicked(true);
+    // Use the PNG card image as the cover. Skipped when the no-preference
+    // mode dialog will run, since choosing a mode calls createNew() and
+    // discards this imported world (the cover would be orphaned).
+    if (coverImage && globalPref) {
+      void store.applyImportedCover(coverImage);
+    }
+    // The editor that appears next is the confirmation; no pill needed.
+  }, []);
+
   const handleFileImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -458,38 +503,15 @@ function WorldCreatePage() {
         return;
       }
 
-      const { world: worldDef, coverImage } = result;
-      const store = useEditorStore.getState();
-      store.loadWorldDefinition(worldDef);
-      // Default to UI language if the imported file has none. Re-read state:
-      // `store` is a pre-import snapshot, and loadWorldDefinition just reset
-      // `language` from the imported definition (usually null — exported
-      // schemas don't carry the DB-level language column). Reading the stale
-      // snapshot here skipped the backfill whenever the previous editor
-      // session had a language set, creating language-less worlds that fall
-      // out of the hub's locale filters.
-      if (!useEditorStore.getState().language) {
-        const uiLang = i18n.language?.split("-")[0];
-        if (uiLang) store.setLanguage(uiLang);
+      // One of the creator's own cards coming back (downloaded, edited
+      // elsewhere, re-imported): offer to update that card rather than
+      // quietly making yet another copy of it.
+      const targets = await findImportTargets(result.world, result.originWorldId);
+      if (targets.length > 0) {
+        setApplyOffer({ world: result.world, coverImage: result.coverImage, targets, fileName: file.name });
+        return;
       }
-      // Respect global editor mode preference for imports
-      const globalPref = getGlobalEditorMode();
-      if (globalPref === "simple") {
-        store.setField("editorMode", "simple");
-        setQuickCreate(true);
-      } else if (!globalPref) {
-        // No preference set — show mode dialog after import
-        setPendingTemplate(null);
-        setShowModeDialog(true);
-      }
-      setPicked(true);
-      // Use the PNG card image as the cover. Skipped when the no-preference
-      // mode dialog will run, since choosing a mode calls createNew() and
-      // discards this imported world (the cover would be orphaned).
-      if (coverImage && globalPref) {
-        void store.applyImportedCover(coverImage);
-      }
-      // The editor that appears next is the confirmation; no pill needed.
+      importAsNewWorld(result.world, result.coverImage);
     } catch (err) {
       // Show WHY it failed, not just a contentless "import failed" — e.g. a
       // Yumina bundle or UI-package (what the editor's export / AI assistant
@@ -499,7 +521,7 @@ function WorldCreatePage() {
       const reason = err instanceof Error ? err.message : null;
       setImportError(reason || i18n.t("toasts:failedImportWorld", { defaultValue: "Import failed" }));
     }
-  }, [isAuthenticated, requireAuth]);
+  }, [isAuthenticated, requireAuth, importAsNewWorld]);
 
   if (!picked) {
     return (
@@ -531,6 +553,20 @@ function WorldCreatePage() {
           onSelect={handleModeSelected}
           onClose={() => setShowModeDialog(false)}
         />
+        {applyOffer && (
+          <ApplyChangesDialog
+            open
+            onClose={() => setApplyOffer(null)}
+            targets={applyOffer.targets}
+            incoming={applyOffer.world}
+            source={{ kind: "file", fileName: applyOffer.fileName }}
+            onSaveAsNew={() => {
+              const offer = applyOffer;
+              setApplyOffer(null);
+              importAsNewWorld(offer.world, offer.coverImage);
+            }}
+          />
+        )}
       </>
     );
   }

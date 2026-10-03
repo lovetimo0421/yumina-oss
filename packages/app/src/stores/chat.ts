@@ -10,6 +10,7 @@ import { floorMushies } from "@/lib/format-mushies";
 import { appendRegenSwipe } from "@/features/chat/turn-swipes";
 import { refreshMessageWindow } from "@/features/chat/refresh-message-window";
 import { kimiRepetitionOverride } from "@/lib/kimi-repetition";
+import { signalTtsUserStop } from "@/lib/tts-stop-signal";
 import { useAudioStore } from "./audio";
 import {
   queueSessionStatePatch,
@@ -21,6 +22,7 @@ import { useUserProfileStore } from "./user-profile";
 import { fallbackDecision, fallbackRecord, parseFallbackError, type ModelFallbackRetry } from "../lib/model-fallback";
 import { DEFAULT_MODEL_FALLBACK_POLICY, type ModelFallbackNotice, type ModelFallbackRecord } from "@yumina/shared";
 import type { WorldDefinition, Effect } from "@yumina/engine";
+import { drawTurnImage } from "@/features/chat/turn-image-drawing";
 
 // ── Streaming Update Batcher ──
 //
@@ -129,6 +131,9 @@ export interface Message {
     tokenCount?: number;
     creditCost?: number;
     creditBalanceAfter?: number;
+    /** The server's refusal-detector judged this reply to be a model policy
+     *  refusal (set on the `done` SSE payload and persisted on the swipe). */
+    refusal?: boolean;
   }>;
   activeSwipeIndex?: number;
   model?: string | null;
@@ -140,6 +145,8 @@ export interface Message {
   compacted?: boolean;
   attachments?: Array<{ type: string; mimeType: string; name: string; url: string }> | null;
   createdAt: string;
+  /** Client-only: the per-turn picture is drawing, or why it wasn't drawn. */
+  turnImage?: import("@/features/chat/turn-image-drawing").TurnImageStatus;
 }
 
 interface CreditsPayload {
@@ -199,6 +206,15 @@ function resolveErrorToast(errorCode: string, errorMsg: string, balance?: number
 /** Pill copy from the chat namespace, clamped to the pill's one line. */
 function chatPill(key: string, fallback: string, vars?: Record<string, unknown>): string {
   return toPillText(i18n.t(key, { ns: "chat", defaultValue: fallback, ...vars }));
+}
+
+/** The guard could not check this turn, so the reply applied as written. The
+ * audit is re-sent on every progress write, so announce each attempt once. */
+const announcedUnverified = new Set<string>();
+function noticeUnverifiedTurn(audit: import("@yumina/shared").StateValidationAudit): void {
+  if (audit.outcome !== "unverified" || announcedUnverified.has(audit.attemptId)) return;
+  announcedUnverified.add(audit.attemptId);
+  feedback.notice(chatPill("stateGuard.unverified", "State check unavailable. Stats updated from the reply as written"));
 }
 
 /** Recipe R7: an unanchored failure the user can ask us to try again. */
@@ -304,6 +320,9 @@ interface PendingSilentChange {
 interface ChatState {
   // Current session
   session: SessionData | null;
+  /** Scene image ids this session has shown: the server's record on load,
+   *  plus whatever this tab's own turns revealed. Read by the gallery. */
+  revealedSceneImages: string[];
   messages: Message[];
   // Full history size server-side. The server returns only a recent window
   // (mega sessions froze it serializing full histories — 2026-08-11 outage);
@@ -334,6 +353,11 @@ interface ChatState {
 
   // Error state
   error: string | null;
+  /** Server action code for `error` (e.g. "CONTENT_FILTER" when the provider's
+   *  safety filter blocked the reply). Only meaningful while `error` is set.
+   *  Send failures ALSO persist it on the user row (`[CODE] msg` errorMessage);
+   *  regenerate/continue don't touch that row, so this is their only channel. */
+  errorCode: string | null;
   /** Bumped on every terminally-failed send (including "transient" toast-only
    *  failures that deliberately do NOT set `error`). The sandbox composer
    *  watches this to restore the swallowed text — a toast-class rejection
@@ -741,6 +765,7 @@ function resumeModelFallback(id: string, model: string, remember: boolean, autom
 
 export const useChatStore = create<ChatState>((set, get) => ({
   session: null,
+  revealedSceneImages: [],
   messages: [],
   messageTotal: 0,
   hasEarlierMessages: false,
@@ -759,6 +784,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   pendingSilentChanges: [],
   checkpoints: [],
   error: null,
+  errorCode: null,
   sendFailureNonce: 0,
   modelFallback: null,
   resolveModelFallback: (id, model, remember = false) => resumeModelFallback(id, model, remember),
@@ -772,7 +798,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     if (session?.id !== get().session?.id) fallbackReplay = null;
     set({ session, ...(session?.id !== get().session?.id && { modelFallback: null }), ...(session === null && { readOnly: false }) });
   },
-  clearError: () => set({ error: null }),
+  clearError: () => set({ error: null, errorCode: null }),
   setMessages: (messages) => set({ messages }),
   setGameState: (gameState) => set({ gameState }),
 
@@ -875,6 +901,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
         // Resume audio from persisted state or start playlist
         const metadata = data.state?.metadata as Record<string, unknown> | undefined;
+        set({
+          revealedSceneImages: Array.isArray(metadata?.sceneImagesUnlocked)
+            ? (metadata!.sceneImagesUnlocked as unknown[]).filter((x): x is string => typeof x === "string")
+            : [],
+        });
         if (metadata?.activeAudio) {
           audioStore.resumeFromState(metadata.activeAudio);
         } else {
@@ -1033,6 +1064,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       pendingChoices: [],
       pendingSilentChanges: [],
       error: null,
+      errorCode: null,
       messages: retry?.userMessageId ? s.messages : [
         ...s.messages,
         {
@@ -1082,6 +1114,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
         callbacks: {
           onStateValidation: (audit) => {
+            noticeUnverifiedTurn(audit);
             set((state) => ({ messages: state.messages.map((message, index) =>
               message.id === audit.targetMessageId || (audit.path === "send" && index === state.messages.length - 1 && message.role === "user")
                 ? { ...message, stateValidation: audit } : message) }));
@@ -1143,6 +1176,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                   tokenCount: (data.tokenCount as number) ?? undefined,
                   creditCost: credits?.cost,
                   creditBalanceAfter: credits?.balance,
+                  ...(data.refusal === true && { refusal: true }),
                 },
               ],
               activeSwipeIndex: 0,
@@ -1188,6 +1222,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
               abortController: null,
               gameState: newGameState,
             }));
+
+            recordRevealedSceneImages(data.sceneImages);
+            // Draw this reply's picture now that the turn is over (see turn-image-drawing).
+            if (data.refusal !== true) void drawTurnImage(assistantMsg.id, true);
 
             // Process audio effects (after message is safely saved)
             try {
@@ -1379,6 +1417,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               streamStartTime: null,
               abortController: null,
               error: localizeChatError(errorMsg),
+              errorCode: errorCode ?? null,
               sendFailureNonce: s.sendFailureNonce + 1,
               // Drop the local-only placeholder; refreshMessages() below will
               // restore the real persisted user row so the user can delete /
@@ -1428,6 +1467,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       streamingBg: null,
       streamStartTime: Date.now(),
       error: null,
+      errorCode: null,
     });
 
     const controller = connectSSE(
@@ -1455,6 +1495,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
         callbacks: {
           onStateValidation: (audit) => {
+            noticeUnverifiedTurn(audit);
             set((state) => ({ messages: state.messages.map((message, index) =>
               message.id === audit.targetMessageId || (audit.path === "send" && index === state.messages.length - 1 && message.role === "user")
                 ? { ...message, stateValidation: audit } : message) }));
@@ -1503,6 +1544,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     tokenCount: (data.tokenCount as number) ?? undefined,
                     creditCost: credits?.cost,
                     creditBalanceAfter: credits?.balance,
+                    ...(data.refusal === true && { refusal: true }),
                   },
                   {
                     serverSwipeIndex: data.swipeIndex as number | undefined,
@@ -1548,6 +1590,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
               get().setPendingChoices(choices);
             }
             syncCreditBalance(credits);
+
+            recordRevealedSceneImages(data.sceneImages);
+            // Draw this reply's picture now that the turn is over (see turn-image-drawing).
+            if (data.refusal !== true) void drawTurnImage(messageId, true);
 
             // Process audio effects (wrapped in try-catch for safety)
             try {
@@ -1620,6 +1666,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               streamStartTime: null,
               abortController: null,
               error: localizeChatError(errorMsg),
+              errorCode: errorCode ?? null,
             });
             reconcileMessagesWithRetry(get().refreshMessages);
           },
@@ -1655,6 +1702,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       streamingBg: null,
       streamStartTime: Date.now(),
       error: null,
+      errorCode: null,
     });
 
     const controller = connectSSE(
@@ -1683,6 +1731,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
         callbacks: {
           onStateValidation: (audit) => {
+            noticeUnverifiedTurn(audit);
             set((state) => ({ messages: state.messages.map((message, index) =>
               message.id === audit.targetMessageId || (audit.path === "send" && index === state.messages.length - 1 && message.role === "user")
                 ? { ...message, stateValidation: audit } : message) }));
@@ -1725,6 +1774,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
               creditCost: credits?.cost ?? null,
               creditBalanceAfter: credits?.balance ?? null,
               createdAt: new Date().toISOString(),
+              // Mirror the one swipe the send route persisted, like sendMessage
+              // does, so swipes[active].refusal is readable without a refetch.
+              swipes: [
+                {
+                  content,
+                  rawContent: (data.rawContent as string) || undefined,
+                  createdAt: new Date().toISOString(),
+                  model: (data.model as string) ?? undefined,
+                  tokenCount: (data.tokenCount as number) ?? undefined,
+                  creditCost: credits?.cost,
+                  creditBalanceAfter: credits?.balance,
+                  ...(data.refusal === true && { refusal: true }),
+                },
+              ],
+              activeSwipeIndex: 0,
             };
 
             set((s) => ({
@@ -1752,6 +1816,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             } catch (audioErr) {
               console.warn("Continue audio effect failed:", audioErr);
             }
+            recordRevealedSceneImages(data.sceneImages);
 
             // Process in-game notifications (from notify-player rule actions)
             try {
@@ -1845,6 +1910,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               streamStartTime: null,
               abortController: null,
               error: localizeChatError(errorMsg),
+              errorCode: errorCode ?? null,
             });
             reconcileMessagesWithRetry(get().refreshMessages);
           },
@@ -1863,6 +1929,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
     // Cancel any connection-loss recovery poll — the user chose to stop.
     _recoveryToken++;
     cancelStreamingBatch();
+    // Stop means stop: the voice read-along must cancel its queue instead of
+    // flushing (and billing) the unread tail. Synchronous — the falling-edge
+    // subscriber below fires inside set().
+    signalTtsUserStop();
     if (abortController) {
       // Tell the server this is an EXPLICIT stop. Closing the SSE connection
       // alone no longer cancels generation (disconnects now finish + persist
@@ -1932,6 +2002,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ?.variables as Record<string, number | string | boolean | Record<string, unknown> | unknown[]>) ?? {};
       set({
         messages: data.messages ?? [],
+        messageTotal: data.messageTotal ?? data.messages?.length ?? 0,
+        hasEarlierMessages: (data.messageTotal ?? 0) > (data.messages?.length ?? 0),
+        isLoadingEarlier: false,
         gameState: newGameState,
         pendingChoices: [],
         pendingSilentChanges: [],
@@ -1968,6 +2041,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ?.variables as Record<string, number | string | boolean | Record<string, unknown> | unknown[]>) ?? {};
       set({
         messages: data.messages ?? [],
+        messageTotal: data.messageTotal ?? data.messages?.length ?? 0,
+        hasEarlierMessages: (data.messageTotal ?? 0) > (data.messages?.length ?? 0),
+        isLoadingEarlier: false,
         gameState: newGameState,
         pendingChoices: [],
         pendingSilentChanges: [],
@@ -2342,3 +2418,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       .catch(() => {});
   },
 }));
+
+/** A turn's `sceneImages` (ids the reply revealed) into the session's gallery set. */
+function recordRevealedSceneImages(raw: unknown): void {
+  const ids = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
+  if (ids.length === 0) return;
+  useChatStore.setState((s) => {
+    const next = new Set(s.revealedSceneImages);
+    for (const id of ids) next.add(id);
+    return next.size === s.revealedSceneImages.length ? {} : { revealedSceneImages: [...next] };
+  });
+}

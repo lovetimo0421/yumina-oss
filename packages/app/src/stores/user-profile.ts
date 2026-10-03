@@ -42,6 +42,8 @@ interface UserProfile {
   createdAt: string | null;
   /** Server-resolved rollout default; null means inherit the effective window. */
   defaultStoryMemory?: number | null;
+  /** The server offers per-turn pictures (experimental; Settings shows the opt-in only then). */
+  turnImagesOffered?: boolean;
 }
 
 interface UserProfileState {
@@ -81,6 +83,7 @@ function mapProfileResponse(data: Record<string, unknown>): UserProfile {
     createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
     defaultStoryMemory: typeof data.defaultStoryMemory === "number" && Number.isFinite(data.defaultStoryMemory)
       ? data.defaultStoryMemory : null,
+    turnImagesOffered: data.turnImagesOffered === true,
   };
 }
 

@@ -400,6 +400,7 @@
     "monthlyExpiryPlanEnded": "Mushies mensuales sin usar caducados al terminar el plan",
     "bonusExpired": "Mushies Bonus sin usar caducados en su fecha",
     "ledgerReconciliation": "Corrección del libro: saldo confirmado; un movimiento anterior no se había registrado",
+    "voiceReadoutDescription": "Lectura en voz alta · {{bytes}} bytes",
     "ledgerOpeningBalance": "Saldo inicial (el libro empieza aquí)",
     "pilePerMonth": "{{amount}} al mes"
   },
@@ -1004,35 +1005,39 @@
     "quests": {
       "play_3": {
         "title": "Juega 3 turnos",
-        "hint": "Envía tres mensajes hoy en cualquier mundo."
+        "hint": "Completa tres turnos de chat hoy. Cuenta enviar, regenerar o continuar una respuesta."
       },
       "favorite": {
         "title": "Marca un mundo",
-        "hint": "Añade cualquier mundo a tus favoritos."
+        "hint": "Añade cualquier mundo a tus favoritos hoy."
       },
       "community": {
         "title": "Visita la comunidad",
-        "hint": "Pasa un minuto en la pestaña Comunidad."
+        "hint": "Abre cualquier publicación de la comunidad hoy para completar esta misión. Publicar, responder o dar me gusta también cuenta."
       },
       "world_depth": {
-        "title": "Juega {{n}} turnos en un mundo",
-        "hint": "Se cuentan todas las partidas de ese mundo."
+        "title": "Juega {{n}} turnos en un mundo hoy",
+        "hint": "Solo cuentan los mensajes que envíes hoy, sumados entre todas las partidas de ese mundo. Los mensajes de días anteriores no cuentan."
       },
       "new_world": {
         "title": "Abre un mundo nuevo",
-        "hint": "Empieza un mundo que nunca hayas jugado."
+        "hint": "Empieza hoy un mundo que nunca hayas jugado."
       },
       "two_models": {
         "title": "Usa dos modelos hoy",
         "hint": "Completa un turno con dos modelos distintos."
       },
       "week_messages": {
-        "title": "Envía {{n}} mensajes esta semana",
-        "hint": "Cuenta todo lo que envíes esta semana."
+        "title": "Juega {{n}} turnos esta semana",
+        "hint": "Completa turnos de chat esta semana. Cuenta enviar, regenerar o continuar una respuesta."
       },
       "week_depth": {
         "title": "Juega {{n}} turnos en un mundo esta semana",
-        "hint": "Se cuentan todas las partidas de ese mundo."
+        "hint": "Solo cuentan los mensajes que envíes esta semana, sumados entre todas las partidas de ese mundo. Los mensajes de semanas anteriores no cuentan."
+      },
+      "week_depth_any_world": {
+        "title": "Juega {{n}} turnos en total en cualquier mundo esta semana",
+        "hint": "Se suman los mensajes que envíes esta semana en todos los mundos y partidas. Los mensajes de semanas anteriores no cuentan."
       },
       "week_days": {
         "title": "Juega {{n}} días esta semana",
@@ -1103,7 +1108,12 @@
     "spendOrder": "Orden de gasto",
     "spendOrderWhy": "(primero lo que caduca antes)",
     "inUse": "en uso",
-    "nextDrop": "Próxima entrega +{{amount}} el {{date}}"
+    "nextDrop": "Próxima entrega +{{amount}} el {{date}}",
+    "nextDropInHours": "Próxima entrega +{{amount}} en ~{{hours}} h",
+    "nextDropInMinutes": "Próxima entrega +{{amount}} en {{minutes}} min",
+    "nextDropDue": "Próxima entrega +{{amount}} · actualizando…",
+    "monthlyInfoDrops": "La asignación de tu plan llega en entregas programadas, abonadas automáticamente incluso sin conectarte. Los Mushies del ciclo que no uses se restablecen a la hora indicada abajo.",
+    "resetSchedule": "Las entregas programadas y los reinicios mensuales del plan gratuito son a las 20:00 UTC (04:00 UTC+8). La primera entrega de cada compra o renovación de pago llega al completar el pago. Las fechas de abajo muestran tu hora local."
   },
   "qualifiedReferral": {
     "perFriend": "Mushies de Bonus por amigo",
@@ -1312,7 +1322,7 @@
     "chooseFailed": "No se pudo guardar tu elección. Inténtalo de nuevo.",
     "rules": "Reglas",
     "rBand": "{{from}} → {{to}} mushies: 1 boleto cada {{per}} ({{n}} boletos)",
-    "estimateNote": "El tablero se actualiza cada 2 minutos y muestra estimaciones. Los importes finales llegan tras 7 días de revisión.",
+    "estimateNote": "Las cantidades son estimadas hasta el final de la carrera. Las recompensas se desbloquean automáticamente al terminar.",
     "unit": {
       "d": "d",
       "h": "h",
@@ -1384,9 +1394,10 @@
     },
     "payout": {
       "title": "Qué puedes recibir",
-      "small": "Menos de {{cash}}: en mushies ($1 = {{rate}} mushies).",
-      "large": "{{cash}} o más: elige mushies o recíbelo por correo a través de Tremendous. Abre el correo y elige lo disponible en tu país: PayPal, Venmo, Starbucks, Cash App, Amazon, Target, Walmart, Google Play, Visa virtual, Roblox, Xbox y más (las opciones varían según el país).",
-      "catalog": "Ver todas las opciones"
+      "small": "Menos de {{cash}}: elige mushies o un mes de membresía si tu recompensa lo cubre. Cada $1 equivale a {{rate}} mushies con el bono.",
+      "large": "Desde {{cash}}: elige mushies, una membresía de un mes disponible o una tarjeta regalo de Tango. El valor restante de la membresía se convierte en mushies.",
+      "catalog": "Ver el catálogo de Tango",
+      "catalogNote": "El catálogo es orientativo. Las marcas y los importes disponibles dependen de tu país y del enlace que te enviemos."
     },
     "friendsTitle": "Amigos que invitaste",
     "friendsCount": "{{n}} en total",
@@ -1434,8 +1445,8 @@
     "tag": "Carrera de invitaciones activa · est. {{usd}}",
     "claim": {
       "title": "Cobra tu premio",
-      "giftCard": "Tarjeta regalo o efectivo de {{usd}}",
-      "giftCardPlus": "{{usd}} en tarjeta o efectivo + {{m}} mushies",
+      "giftCard": "Recompensa de {{usd}} por Tango",
+      "giftCardPlus": "Recompensa de {{usd}} por Tango + {{m}} mushies",
       "allMushies": "Todo en {{m}} mushies"
     },
     "full": {
@@ -1452,16 +1463,16 @@
       "splitTitle": "Cómo se reparte el premio",
       "s1": "El premio de este periodo es de $1,000.",
       "s2": "El top 5 por boletos gana además {{ranks}}. Los empates los gana quien llegó primero.",
-      "s3": "Los otros {{pot}} se reparten por boletos. Las partes de menos de $1 no se pagan y se reparten entre los demás.",
+      "s3": "El fondo compartido de {{pot}} se reparte por boletos. Quienes quedaban fuera por el mínimo original de $1 reciben una recompensa adicional sin reducir las asignaciones existentes. Cada boleto válido obtiene una recompensa.",
       "payTitle": "Cómo se pagan los premios",
-      "p1": "Menos de {{cash}}: se paga automáticamente en mushies a tu cartera ($1 = {{rate}} mushies).",
-      "p2": "{{cash}} o más: elige mushies o recíbelo por correo a través de Tremendous.",
-      "p3": "Los premios los envía nuestro socio Tremendous al correo de tu cuenta. Ábrelo y elige lo disponible en tu país, por ejemplo PayPal, Venmo, Starbucks, Cash App, Amazon, Target, Walmart, Google Play, Visa virtual, Roblox, Xbox; las opciones varían según el país.",
-      "p4": "Las tarjetas y el efectivo se pagan en dólares enteros; los centavos llegan en mushies. Por ejemplo, $23.47 = $23 + 470 mushies.",
+      "p1": "Menos de {{cash}}: elige mushies o un mes de membresía si tu recompensa lo cubre. Cada $1 equivale a {{rate}} mushies con el bono.",
+      "p2": "Desde {{cash}}: elige mushies, una membresía de un mes disponible o una tarjeta regalo de Tango. El valor restante de la membresía se convierte en mushies.",
+      "p3": "Confirma el nombre y correo del destinatario al reclamar una tarjeta regalo. Enviamos la recompensa mediante Tango; la entrega no es instantánea.",
+      "p4": "Las tarjetas regalo usan dólares enteros. Los centavos se convierten en mushies a la tarifa base: $23.47 equivale a una tarjeta de $23 y 470 mushies.",
       "p5": "Si no eliges en {{choose}} días desde el resultado, se paga en mushies.",
       "whenTitle": "Cuándo es definitivo",
       "w1": "La página se actualiza cada 2 minutos y muestra estimaciones.",
-      "w2": "Hay 7 días de revisión al terminar el evento. Después llegan los resultados y premios definitivos.",
+      "w2": "Las recompensas están disponibles al terminar la carrera. No requieren aprobación de un administrador.",
       "fairTitle": "Juego limpio",
       "f1": "Los boletos de pagos reembolsados o disputados se eliminan antes del reparto.",
       "f2": "Los lotes de cuentas falsas creadas para ganar boletos se eliminan; en casos graves el anfitrión pierde todo el evento.",
@@ -1484,7 +1495,7 @@
       "subtitle": "Un premio de US$1,000: cuanto más jueguen tus amigos, mayor tu parte · quedan {{days}} días",
       "cta": "Ver mis boletos"
     },
-    "giftCardHow": "Nuestro socio Tremendous envía un correo a la dirección de tu cuenta; ábrelo y elige PayPal, una tarjeta de regalo, Visa virtual y más (las opciones varían según el país).",
+    "giftCardHow": "Confirma el nombre y correo del destinatario al reclamar una tarjeta regalo. Enviamos la recompensa mediante Tango; la entrega no es instantánea.",
     "eventCard": {
       "status": "En curso",
       "title": "Invita amigos y ganen juntos"
@@ -1492,6 +1503,51 @@
     "rankPrize": {
       "won": "incluye premio de puesto {{usd}}"
     },
-    "worldLinkHint": "Compartir el enlace de cualquier historia también lleva tu invitación."
+    "worldLinkHint": "Compartir el enlace de cualquier historia también lleva tu invitación.",
+    "reward": {
+      "title": "Tu recompensa de Invite Race",
+      "finished": "La carrera ha terminado. Elige cómo usar tu recompensa.",
+      "tickets": "{{count}} boletos",
+      "bonus": "Obtén un 50 % más de valor en mushies o una membresía.",
+      "choose": "Elige una recompensa",
+      "plan": "Membresía de un mes",
+      "planDays": "{{days}} días de {{name}}",
+      "planIncludes": "{{m}} incluidos en la membresía + {{change}} del valor restante de tu recompensa.",
+      "planQueue": "Si tu plan actual es del mismo nivel o superior, el tiempo se guarda hasta que puedas usarlo. Los mushies incluidos se añaden ahora.",
+      "name": "Nombre del destinatario",
+      "email": "Correo de entrega",
+      "delivery": "Te enviaremos por correo un enlace de Tango para elegir tus tarjetas regalo. Nuestro equipo lo envía manualmente; el correo no es inmediato.",
+      "change": "Los centavos restantes añaden {{m}} mushies.",
+      "confirm": "Confirmar recompensa",
+      "alreadyClaimed": "Esta recompensa ya se ha reclamado.",
+      "sent": "Enlace de Tango enviado por correo",
+      "queued": "Enlace de Tango pendiente de envío por correo",
+      "savedPlan": "Guardado para más adelante",
+      "usedPlan": "Tiempo de plan utilizado",
+      "activePlan": "Tiempo de plan activado",
+      "credited": "Se añadieron {{m}} mushies",
+      "estimateMushies": "O unos {{m}} mushies con el bono",
+      "tickets_one": "{{count}} boleto",
+      "tickets_other": "{{count}} boletos",
+      "planMonth": "1 mes de {{name}}",
+      "membershipTerms": "{{days}} días. Sin cobros recurrentes.",
+      "mushiesAmount": "{{m}} mushies",
+      "review": "Revisar recompensa",
+      "confirmTitle": "Confirma tu recompensa",
+      "finalChoice": "No podrás cambiar tu elección después de reclamarla.",
+      "back": "Volver",
+      "confirmCash": "Solicitar recompensa de Tango",
+      "confirmPlan": "Reclamar membresía",
+      "confirmMushies": "Reclamar {{m}} mushies",
+      "claimed": "Recompensa reclamada",
+      "changed": "Tu recompensa ha cambiado. Revísala de nuevo.",
+      "expired": "El plazo para elegir ha terminado. Recibirás tu recompensa en mushies.",
+      "addedImmediately": "Se añaden a tu saldo al instante.",
+      "claimAction": "Reclama tu recompensa"
+    },
+    "support": {
+      "question": "¿Tienes preguntas o alguna inquietud?",
+      "message": "Escribe a {{username}}"
+    }
   }
 }

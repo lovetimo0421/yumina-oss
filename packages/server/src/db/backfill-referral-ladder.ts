@@ -15,7 +15,7 @@ import { and, gte, isNotNull } from "drizzle-orm";
 import { db } from "./index.js";
 import { user } from "./schema.js";
 import {
-  getClaimedMilestones,
+  getClaimedMilestoneThresholds,
   getRewardRawReferralCount,
   processReferralMilestones,
 } from "../lib/referral-service.js";
@@ -64,9 +64,7 @@ async function findCandidates(): Promise<BackfillCandidate[]> {
 
   for (const userId of ids) {
     const referralCount = await getRewardRawReferralCount(userId);
-    const claimed = new Set(
-      (await getClaimedMilestones(userId)).map((milestone) => milestone.milestone),
-    );
+    const claimed = await getClaimedMilestoneThresholds(userId);
     const milestones = selectEarnedMilestones(
       MILESTONES,
       { raw: referralCount, confirmed: referralCount },

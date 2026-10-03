@@ -91,7 +91,11 @@
     "cardOverview": "卡片概览",
     "openCardOverviewFailed": "打开卡片概览失败",
     "showAllLanguages": "显示所有语言",
-    "showCurrentLanguage": "仅显示当前语言"
+    "showCurrentLanguage": "仅显示当前语言",
+    "sceneGallery": "场景图",
+    "sceneGalleryCount": "已出现 {{unlocked}} / {{total}}",
+    "sceneGalleryLocked": "还没出现",
+    "sceneGalleryEmpty": "这个世界没有场景图。"
   },
   "branchPopover": {
     "current": "当前分支",
@@ -312,6 +316,9 @@
     "adjustZoom": "调整游戏缩放",
     "zoomLabel": "游戏缩放百分比"
   },
+  "stateGuard": {
+    "unverified": "状态检查没能完成，已按原回复更新数值"
+  },
   "errors": {
     "PROTECTED_WORLD": "创作者已保护此世界的提示词，防止被窃取。只能使用梦坞官方 API 模型，不支持私有 API 密钥。",
     "NO_CREDITS": "蘑菇币用完了！完成每日任务可领取免费额度，或升级方案获取更多。",
@@ -376,25 +383,42 @@
     "sessionCreateFailed": "无法创建会话"
   },
   "contextGate": {
-    "title": "上下文不足以完整游玩此卡",
-    "body": "「{{world}}」完整加载全部内容约需 {{required}} tokens 上下文，而你当前设置为 {{current}}。直接开始游玩会静默丢失部分设定内容。",
-    "loreLabel": "世界书与条目",
-    "setupLabel": "世界设定与开场",
-    "storyRoomLabel": "剧情与摘要预留",
-    "requiredLabel": "建议最低上下文",
-    "currentLabel": "当前上下文设置",
-    "currentShort": "当前 {{value}}",
-    "recommendedShort": "建议 {{value}}",
-    "retainsLabel": "将完整保留",
-    "retainsValue": "角色设定、世界书与开场内容",
-    "impactLabel": "预计影响",
-    "impactValue": "每轮会使用更多 Mushies",
-    "usageDetails": "查看详细用量",
-    "planCapNote": "此卡所需上下文超过了你的套餐上限（最高 {{cap}} tokens）。升级套餐可提升上限并完整体验此卡。",
-    "ignore": "忽略",
-    "continueCurrent": "仍以 {{value}} 开始",
-    "raise": "上下文提升至 {{value}}",
+    "softTitle": "这张卡设定比较多",
+    "softBody": "设定都会带上，可以直接玩。某一轮触发的关键词条目特别多时，那一轮 AI 能看到的最近聊天会少一些。",
+    "hardTitle": "上下文不够玩这张卡",
+    "hardBody": "「{{world}}」每轮必带的内容就要 {{floor}}，你现在是 {{current}}。设定会带上，但几乎没位置留给聊天记录，AI 会记不住刚聊过什么。",
+    "markFloor": "每轮必带",
+    "markFull": "全部同时触发",
+    "yours": "你的上下文：{{value}}",
+    "rowAlways": "常驻条目",
+    "rowSetup": "系统提示和开场白",
+    "rowHistory": "聊天记录和摘要",
+    "rowTriggered": "关键词条目（触发才发）",
+    "upTo": "最多",
+    "planCapNote": "你的套餐最高 {{cap}}，升级套餐才能调更高。",
+    "continueCurrent": "用 {{value}} 开始",
+    "raise": "调到 {{value}}",
     "close": "关闭",
     "upgrade": "升级套餐"
-  }
+  },
+  "voiceInput": {
+    "unsupported": "这个浏览器不支持录音。",
+    "denied": "麦克风被浏览器拦了，在地址栏左边的图标里允许一下。",
+    "noMic": "没有找到麦克风。",
+    "failed": "没能转成文字，再试一次。",
+    "rateLimited": "语音发得太快了，稍等一下。",
+    "heardNothing": "没听到声音。按住麦克风说话。"
+  },
+  "tts": {
+    "failed": "语音生成失败，请重试。",
+    "noCredits": "mushies 不足，无法朗读这条消息。",
+    "rateLimited": "语音请求太频繁，稍等片刻再试。",
+    "nothingToRead": "这条消息没有可朗读的内容。",
+    "keyInvalid": "你的 OpenRouter key 被拒绝了，请到设置里检查。",
+    "noKey": "语音朗读需要 API key，请到设置里添加。",
+    "voiceUnavailable": "这个音色已经用不了了，请换一个。",
+    "needsKeyOrCredits": "语音朗读需要 OpenRouter key 或蘑菇币",
+    "byokNoBalance": "你的 API key 余额不足"
+  },
+  "worldDisplayUnavailable": "无法加载这个世界的界面，请联系客服。"
 }

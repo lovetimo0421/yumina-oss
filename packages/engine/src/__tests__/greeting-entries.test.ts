@@ -16,6 +16,49 @@ describe("PromptBuilder.buildGreetingEntries", () => {
     expect(pb.buildGreetingEntries(world).map((e) => e.id)).toEqual(["g1", "g2"]);
   });
 
+  it("expands a bare [image: handle] the author typed in an opening", () => {
+    // The author copies a handle out of the Scene Images page into their first
+    // message; the player must see a picture, not the literal bracket text.
+    const world = createMockWorld({
+      entries: [
+        createMockEntry({
+          id: "g1",
+          role: "greeting",
+          enabled: true,
+          position: 1,
+          content: "She is already waiting.\n\n[image: img1]",
+        }),
+      ],
+      sceneImages: [
+        { id: "img1", name: "Rooftop", url: "@asset:abc-123", scene: "the rooftop" },
+      ],
+    });
+    const [greeting] = new PromptBuilder().buildGreetings(world, {
+      worldId: "w",
+      variables: {},
+      turnCount: 0,
+      metadata: {},
+    });
+    expect(greeting).not.toContain("[image: img1]");
+    expect(greeting).toContain("@asset:abc-123");
+    expect(greeting).toContain("alt=Rooftop");
+    expect(greeting).toContain("She is already waiting.");
+  });
+
+  it("drops a handle the author typed for an image that does not exist", () => {
+    const world = createMockWorld({
+      entries: [
+        createMockEntry({ id: "g1", role: "greeting", enabled: true, position: 1, content: "Hi [image: gone] there" }),
+      ],
+      sceneImages: [{ id: "img1", name: "Lamp", url: "https://example.test/a.png", scene: "the lamp" }],
+    });
+    const [greeting] = new PromptBuilder().buildGreetings(world, {
+      worldId: "w", variables: {}, turnCount: 0, metadata: {},
+    });
+    expect(greeting).not.toContain("[image:");
+    expect(greeting).toContain("Hi");
+  });
+
   it("aligns index-for-index with buildGreetings", () => {
     const world = createMockWorld({
       entries: [

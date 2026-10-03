@@ -76,6 +76,64 @@ beforeEach((t) => {
 afterEach(() => { globalThis.fetch = originalFetch; store.getState().stopAutosave(); });
 after(async () => { await vite.close(); });
 
+test("a cover upload refreshes the save baseline without losing local edits or reporting agent changes", async () => {
+  const base = { ...world("A"), avatar: "/old.jpg" };
+  reset(base, { ...base, description: "Unsaved description" });
+  const notices: string[] = [];
+  const originalNotice = feedback.notice;
+  feedback.notice = ((message: string) => { notices.push(message); return () => {}; }) as typeof feedback.notice;
+  let patches = 0;
+  globalThis.fetch = async (_url, init) => {
+    if (init?.method !== "PATCH") return Response.json({ data: {
+      ...serverData({ ...world("Agent edit"), avatar: "/new.jpg" }), thumbnailUrl: "/new.jpg",
+    } });
+    patches++;
+    assert.equal(requestBody(init).baseUpdatedAt, time(2));
+    assert.equal(requestBody(init).schema.avatar, undefined, "thumbnail URLs are stored separately from schema");
+    assert.equal(requestBody(init).schema.description, "Unsaved description");
+    assert.equal(rootSource(requestBody(init).schema), source("Agent edit"));
+    return Response.json({ data: serverData(requestBody(init).schema, time(3)) });
+  };
+  try {
+    await store.getState().refreshWorldSchema(false, { source: "cover-upload" });
+    assert.deepEqual(notices, [], "our own cover upload is not an assistant conflict");
+    assert.equal(store.getState().worldDraft.avatar, "/new.jpg");
+    store.getState().setField("coverCrop", { x: 0, y: -12, zoom: 1, fit: "cover" });
+    assert.equal(await store.getState().saveDraft(), true);
+    assert.equal(patches, 1, "the first crop save should succeed");
+  } finally { feedback.notice = originalNotice; }
+});
+
+test("a failed cover refresh rejects instead of letting the crop editor use an old revision", async () => {
+  reset();
+  globalThis.fetch = async () => Response.json({ error: "Unavailable" }, { status: 503 });
+  await assert.rejects(store.getState().refreshWorldSchema(false, { source: "cover-upload" }));
+  assert.equal(store.getState().baseUpdatedAt, time(1));
+  assert.equal(rootSource(store.getState().worldDraft), source("B"));
+});
+
+for (const target of ["portrait", "landscape"] as const) {
+  test(`cover refresh keeps the authoritative ${target} artwork paired with its crop`, async () => {
+    const oldCrop = { x: 0, y: 0, zoom: 1, fit: "cover" as const };
+    const localCrop = { ...oldCrop, y: 8 };
+    const serverCrop = { ...oldCrop, y: -12 };
+    const imageField = target === "portrait" ? "avatar" : "landscapeCover";
+    const cropField = target === "portrait" ? "coverCrop" : "landscapeCoverCrop";
+    const otherCropField = target === "portrait" ? "landscapeCoverCrop" : "coverCrop";
+    const base = { ...world("A"), [imageField]: "/old.jpg", [cropField]: oldCrop };
+    reset(base, { ...base, [cropField]: localCrop, [otherCropField]: localCrop, description: "Unsaved text" });
+    globalThis.fetch = async () => Response.json({ data: {
+      ...serverData({ ...base, [imageField]: "/newer.jpg", [cropField]: serverCrop }),
+      thumbnailUrl: target === "portrait" ? "/newer.jpg" : null,
+    } });
+    await store.getState().refreshWorldSchema(false, { source: "cover-upload", target });
+    assert.equal(store.getState().worldDraft[imageField], "/newer.jpg");
+    assert.deepEqual(store.getState().worldDraft[cropField], serverCrop, "do not carry an old image's unsaved crop onto the uploaded image");
+    assert.deepEqual(store.getState().worldDraft[otherCropField], localCrop, "preserve the other artwork's unsaved crop");
+    assert.equal(store.getState().worldDraft.description, "Unsaved text");
+  });
+}
+
 test("a successful save advances the ancestor before later agent changes are merged", async () => {
   reset();
   globalThis.fetch = async (_url, init) => Response.json({ data: serverData(requestBody(init).schema) });

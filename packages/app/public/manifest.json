@@ -1,7 +1,7 @@
 {
   "name": "Yumina",
   "short_name": "Yumina",
-  "description": "Play and create AI-powered interactive worlds. Open-source platform for AI-native games, interactive fiction, and roleplay.",
+  "description": "Open-source world engine and community turning entertainment interactive.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

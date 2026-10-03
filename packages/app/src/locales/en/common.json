@@ -21,7 +21,25 @@
     "help": "Help",
     "partner": "Promotion analytics",
     "messages": "Messages",
-    "installApp": "Install App"
+    "installApp": "Install App",
+    "prompts": "Prompts"
+  },
+  "tabTitle": {
+    "home": "Yumina",
+    "discover": "Discover",
+    "community": "Community",
+    "bundles": "Bundles",
+    "create": "Create",
+    "library": "Library",
+    "quests": "Quests",
+    "messages": "Messages",
+    "profile": "Profile",
+    "settings": "Settings",
+    "plans": "Plans",
+    "creator": "Creator",
+    "signIn": "Sign in",
+    "createAccount": "Create account",
+    "krew": "Krew.io"
   },
   "mobile": {
     "menu": "Menu",
@@ -286,7 +304,9 @@
         "many_one": "{{name}} and {{count}} other replied to your review"
       }
     },
-    "giftBonusExpires": "{{amount}} Bonus expires {{date}}"
+    "giftBonusExpires": "{{amount}} Bonus expires {{date}}",
+    "promptPackApproved": "Your prompt \"{{packTitle}}\" was approved and is now in the Prompt Plaza",
+    "promptPackRejected": "Your prompt \"{{packTitle}}\" wasn't approved. See why in Library › Prompts"
   },
   "time": {
     "justNow": "just now",
@@ -391,7 +411,7 @@
     "pickerLoadFailed": "Couldn't load worlds",
     "searchMyWorlds": "Search my works",
     "shareDraftTitle": "Share an unpublished draft?",
-    "shareDraftDescription": "This card isn't published yet. Sharing it gives the recipient real access to it.",
+    "shareDraftDescription": "This card is unpublished. The recipient will be able to open it.",
     "shareDraftConsequencePreview": "They'll see its cover, name and description.",
     "shareDraftConsequenceCopy": "They can copy it into their own projects and edit it.",
     "shareDraftConsequenceRecall": "You can only take this back by recalling the message within 5 minutes.",
@@ -404,6 +424,7 @@
     "imageTooLarge": "Image is too large (max 10MB)",
     "sendImage": "Send Image",
     "shareWorld": "Share World",
+    "shareWorldHint": "They can play it, or copy it to help you edit",
     "sharePlaythrough": "Share a playthrough",
     "playthroughShared": "Playthrough",
     "playthroughBy": "by {{name}}",
@@ -431,7 +452,11 @@
     "blockedDialogOk": "Got it",
     "youBlockedUser": "You blocked this user.",
     "image": "Image",
-    "selectConversation": "Select a conversation"
+    "selectConversation": "Select a conversation",
+    "reviewChanges": "Review changes to your card",
+    "changesToYourCard": "Edited copy of your card",
+    "copyThenSendBack": "Copied. When you’re done, share your copy back here and they can apply it in one click.",
+    "reviewChangesFailed": "Couldn’t open the changes. They may have deleted their copy."
   },
   "planName": {
     "free": "Free",
@@ -488,7 +513,7 @@
     "invited": "Invited ✓",
     "searchPlaceholder": "Search friends",
     "noMatches": "No friends match that search",
-    "emptyTeach": "Friends are people who follow each other on yumina. After a match, open your opponent’s profile and follow back — then they’ll show up here, one click from an invite."
+    "emptyTeach": "Follow each other to become friends. After a game, open the other player's profile to follow them."
   },
   "communityMuted": "You are muted and cannot post in the community or comments until {{date}}.",
   "krew": {

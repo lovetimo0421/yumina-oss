@@ -49,6 +49,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS session_media_document_live_uq ON session_medi
 CREATE INDEX IF NOT EXISTS session_media_document_share_idx ON session_media_documents(share_id);
 CREATE INDEX IF NOT EXISTS session_media_document_checkpoint_idx ON session_media_documents(checkpoint_id);
 
+-- Explicit per-save Custom UI metadata. Tombstones keep deleted keys versioned.
+CREATE TABLE IF NOT EXISTS session_storage (
+  id text PRIMARY KEY,
+  session_id text REFERENCES play_sessions(id) ON DELETE CASCADE,
+  checkpoint_id text REFERENCES checkpoints(id) ON DELETE CASCADE,
+  share_id text REFERENCES shared_playthroughs(id) ON DELETE CASCADE,
+  key text NOT NULL, value jsonb NOT NULL DEFAULT 'null',
+  version integer NOT NULL CHECK(version > 0), deleted boolean NOT NULL DEFAULT false,
+  size_bytes integer NOT NULL CHECK(size_bytes >= 0 AND size_bytes <= 32768),
+  added_at timestamptz NOT NULL DEFAULT clock_timestamp(), removed_at timestamptz,
+  CHECK(num_nonnulls(session_id,checkpoint_id,share_id)=1)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS session_storage_live_key_uq ON session_storage(session_id,key) WHERE session_id IS NOT NULL AND removed_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS session_storage_checkpoint_key_uq ON session_storage(checkpoint_id,key) WHERE checkpoint_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS session_storage_share_key_uq ON session_storage(share_id,key) WHERE share_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS session_storage_history_idx ON session_storage(session_id,key,version);
+CREATE INDEX IF NOT EXISTS session_storage_rate_idx ON session_storage(session_id,added_at);
+
 -- Touch every affected file's revision. Deletion previews therefore detect new
 -- snapshots/references, not merely changes to the filename.
 CREATE OR REPLACE FUNCTION session_media_touch_ref() RETURNS trigger LANGUAGE plpgsql AS $$
@@ -110,6 +128,17 @@ BEGIN
     CASE WHEN TG_TABLE_NAME='play_sessions' THEN d.added_at ELSE clock_timestamp() END,
     CASE WHEN TG_TABLE_NAME='play_sessions' AND d.removed_at<=cutoff THEN d.removed_at END
     FROM session_media_documents d WHERE d.session_id=source_id
+    AND ((TG_TABLE_NAME<>'play_sessions' AND d.removed_at IS NULL)
+      OR (TG_TABLE_NAME='play_sessions' AND d.added_at<=cutoff));
+  INSERT INTO session_storage(id,session_id,checkpoint_id,share_id,key,value,version,deleted,size_bytes,added_at,removed_at)
+  SELECT gen_random_uuid()::text,
+    CASE WHEN TG_TABLE_NAME='play_sessions' THEN NEW.id END,
+    CASE WHEN TG_TABLE_NAME='checkpoints' THEN NEW.id END,
+    CASE WHEN TG_TABLE_NAME='shared_playthroughs' THEN NEW.id END,
+    d.key,d.value,d.version,d.deleted,d.size_bytes,
+    CASE WHEN TG_TABLE_NAME='play_sessions' THEN d.added_at ELSE clock_timestamp() END,
+    CASE WHEN TG_TABLE_NAME='play_sessions' AND d.removed_at<=cutoff THEN d.removed_at END
+  FROM session_storage d WHERE d.session_id=source_id
     AND ((TG_TABLE_NAME<>'play_sessions' AND d.removed_at IS NULL)
       OR (TG_TABLE_NAME='play_sessions' AND d.added_at<=cutoff));
   RETURN NEW;

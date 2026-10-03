@@ -1,7 +1,9 @@
+import { readLegacyGallery } from './legacy-gallery-migration';
 import { ChatAssetPicker } from "./chat-asset-picker";
 import { readChatAsset } from "@/lib/chat-asset-input";
 import { chatImageCopy as chatInputCopy } from "@/lib/chat-image-input";
 import type { ChatImageAttachment, ChatImageInput } from "@yumina/shared";
+import { isTtsOptedIn, readTtsVoicePool } from "@yumina/shared";
 import { toast } from "sonner";
 import { savePreferredProvider } from "@/lib/provider-switch";
 import { notePlayInteraction } from "./play-interaction";
@@ -42,12 +44,14 @@ import type {
   SandboxMode,
 } from "@/../sandbox/protocol";
 import { useLocalModelStore } from "@/features/local-model/store";
+import { useUserProfileStore } from "@/stores/user-profile";
 import { useModelsStore } from "@/stores/models";
 import { useAudioStore, onAudioTrackEnded } from "@/stores/audio";
 import { useUiStore, FONT_SIZE_SCALE } from "@/stores/ui";
 import { useCreditStore } from "@/edition/slots.state";
 import { useChatStore } from "@/stores/chat";
 import { useConfigStore } from "@/stores/config";
+import { handlePlayerPromptsBridgeCall, usePlayerPromptsChannel } from "@/features/chat/player-prompts-channel";
 import { ModelBrowser } from "./model-browser";
 import { fetchApiKeyModelProfiles, resolveOfficialSelectedModel, resolvePrivateSelectedModel } from "@/lib/provider-model-selection";
 import {
@@ -66,7 +70,8 @@ import { toPillText } from "@/lib/feedback-policy";
  * (or trip the DEV copy guard).
  */
 import { listSessionImages, uploadSessionImage, chooseSessionImage, mediaRequest } from "@/lib/session-media";
-import { adaptOncinGalleryFiles, createOncinCloudGallery, isOncinGalleryKey, isOncinGalleryWorld, oncinGallerySessionKey } from "./oncin-cloud-gallery";
+import { readSessionStorage, writeSessionStorage, removeSessionStorage, type SessionStorageWriteOptions } from "@/lib/session-storage";
+import { adaptOncinGalleryFiles, createOncinCloudGallery, isOncinGalleryKey, oncinGallerySessionKey } from "./oncin-cloud-gallery";
 
 const SANDBOX_URL = SANDBOX_DOC_URL;
 const apiBase = import.meta.env.VITE_API_URL || "";
@@ -193,9 +198,52 @@ export function WorldRenderer({
   });
   useEffect(() => { setModelPickerOpen(false); }, [sessionId, isActive]);
   const modelFallback = useChatStore((s) => s.modelFallback?.sessionId === sessionId ? s.modelFallback : null);
+  // Machine code for the current error (e.g. CONTENT_FILTER on a blocked
+  // regenerate) so the sandbox can offer the right next step.
+  const chatErrorCode = useChatStore((s) => (s.session?.id === sessionId ? s.errorCode : null));
+  // The player's prompt summary for the in-chat 「提示词」 panel.
+  const playerPrompts = usePlayerPromptsChannel(
+    mode === "session" && capabilities.canUseSessionApis !== false,
+    selectedModel,
+  );
   const files=useMemo(()=>adaptOncinGalleryFiles(worldId,incomingFiles),[worldId,incomingFiles]);
   const bgmVolume = useAudioStore((s) => s.bgmVolume);
   const sfxVolume = useAudioStore((s) => s.sfxVolume);
+  // Voice readout: live playback (drives per-message speaker button states in
+  // the sandbox) + account prefs. Subscribed so changes re-push the UI channel.
+  const voicePlayback = useAudioStore((s) => s.voicePlayback);
+  // Opt-in: off unless the player turned it on in Settings › Display.
+  const ttsEnabledPref = useUserProfileStore((s) => isTtsOptedIn(s.profile?.preferences));
+  const ttsAutoPlayPref = useUserProfileStore((s) => s.profile?.preferences?.ttsAutoPlay === true);
+  const ttsVoicePref = useUserProfileStore((s) => {
+    const v = s.profile?.preferences?.ttsVoice;
+    return typeof v === "string" ? v : "";
+  });
+  // Serialized so the selector returns a stable primitive (a fresh array would
+  // re-render every store change).
+  const ttsVoicePoolKey = useUserProfileStore((s) => readTtsVoicePool(s.profile?.preferences).join(","));
+  const ttsModePref = useUserProfileStore((s) =>
+    s.profile?.preferences?.ttsMode === "dialogue" ? ("dialogue" as const) : ("full" as const),
+  );
+  const ttsVolumePref = useUserProfileStore((s) => {
+    const v = s.profile?.preferences?.ttsVolume;
+    return typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : 100;
+  });
+  // Voice input (hold-to-talk): account prefs + the card's default.
+  const voiceInputEnabledPref = useUserProfileStore((s) => s.profile?.preferences?.voiceInputEnabled !== false);
+  const voiceInputModePref = useUserProfileStore((s) => {
+    const v = s.profile?.preferences?.voiceInputMode;
+    return v === "confirm" || v === "auto" ? v : ("" as const);
+  });
+  const voiceInputKeyPref = useUserProfileStore((s) => {
+    const v = s.profile?.preferences?.voiceInputKey;
+    return typeof v === "string" && v ? v : "Space";
+  });
+  const cardVoiceInputMode = useChatStore((s) => {
+    if (s.session?.id !== sessionId) return "confirm" as const;
+    const m = (s.session?.world?.schema as { settings?: { voiceInputMode?: unknown } } | undefined)?.settings?.voiceInputMode;
+    return m === "auto" ? ("auto" as const) : ("confirm" as const);
+  });
   const router = useRouter();
   const navigateToStory = useStoryNavigation();
   // Name the namespace so it is actually fetched: `chat` is not in i18n's
@@ -310,6 +358,18 @@ export function WorldRenderer({
           if (imagePickerResolve.current) return null;
           setImagePickerOpen(true);
           return new Promise<ChatImageInput | null>(resolve => { imagePickerResolve.current = resolve; });
+        case "sessionStorage.get": {
+          return readSessionStorage(sessionIdRef.current, String(args[0]), mediaShareIdRef.current);
+        }
+        case "sessionStorage.set": case "sessionStorage.remove": {
+          const sid = sessionIdRef.current;
+          if (!sid || mediaShareIdRef.current || mode !== "session" || !capabilities.canPersistSession || (currentApi as YuminaAPI & { readOnly?: boolean }).readOnly) {
+            throw new Error("This view is read-only");
+          }
+          return method === "sessionStorage.set"
+            ? writeSessionStorage(sid, String(args[0]), args[1], args[2] as SessionStorageWriteOptions)
+            : removeSessionStorage(sid, String(args[0]), args[1] as SessionStorageWriteOptions);
+        }
         case "media.list": {
           const sid=sessionIdRef.current,shareId=mediaShareIdRef.current;
           if(!sid&&!shareId)return Promise.resolve({items:[],hasMore:false});
@@ -447,6 +507,57 @@ export function WorldRenderer({
           return;
         case "getAudioVolume":
           return currentApi.getAudioVolume?.(args[0] as any);
+        case "tts.speak": {
+          // Voice readout: synth runs parent-side (sandbox can't fetch),
+          // playback on the parent audio store — same division of labor as
+          // playAudio. Only real sessions can bill, so preview/replay decline.
+          const sid = sessionIdRef.current;
+          if (!sid || mode !== "session") {
+            return Promise.resolve({ ok: false, reason: "unavailable" });
+          }
+          const opts = (args[0] ?? {}) as { messageId?: string; text?: string; key?: string; voice?: string };
+          if (opts.messageId && isPendingMessageId(opts.messageId)) {
+            return Promise.resolve({ ok: false, reason: "pending" });
+          }
+          return import("@/lib/tts-playback")
+            .then((m) => m.speakMessage(sid, opts))
+            .catch(() => ({ ok: false, reason: "error" }));
+        }
+        case "tts.stop":
+          void import("@/lib/tts-playback").then((m) => m.stopSpeaking()).catch(() => {});
+          return;
+        case "tts.setPrefs": {
+          // These prefs live on the account and spend the player's mushies
+          // on every future reply. Readout itself is only switched on from
+          // Settings (applyTtsPrefs ignores enabled:true and everything while
+          // it is off); auto-read ON takes a real click. User activation
+          // propagates from the sandbox iframe to this frame; card code
+          // running on its own can't produce it.
+          const partial = { ...((args[0] ?? {}) as Record<string, unknown>) };
+          const activation = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation;
+          if (activation && !activation.isActive) {
+            if (partial.autoPlay === true) delete partial.autoPlay;
+          }
+          void import("@/lib/tts-playback").then((m) => m.applyTtsPrefs(partial)).catch(() => {});
+          return;
+        }
+        case "voice.stop":
+          void import("@/lib/voice-input").then((m) => m.stopVoiceRecording()).catch(() => {});
+          return;
+        case "voice.cancel":
+          void import("@/lib/voice-input").then((m) => m.cancelVoiceRecording()).catch(() => {});
+          return;
+        case "voice.setPrefs":
+          void import("@/lib/tts-playback")
+            .then((m) => m.applyVoiceInputPrefs((args[0] ?? {}) as Record<string, unknown>))
+            .catch(() => {});
+          return;
+        case "tts.preview": {
+          const voiceId = typeof args[0] === "string" ? args[0] : "";
+          return import("@/lib/tts-playback")
+            .then((m) => m.previewVoice(voiceId, i18n.language))
+            .catch(() => ({ ok: false, reason: "error" }));
+        }
         case "switchGreeting":
           currentApi.switchGreeting?.(args[0] as number);
           return;
@@ -563,7 +674,11 @@ export function WorldRenderer({
             }
             navigateToStory(chatTarget.sessionId);
           } else {
-            router.navigate({ to: url } as any);
+            // "/app/settings#prompts": the router takes the hash separately.
+            const hashAt = url.indexOf("#");
+            router.navigate(
+              (hashAt >= 0 ? { to: url.slice(0, hashAt), hash: url.slice(hashAt + 1) } : { to: url }) as any,
+            );
           }
           return;
         }
@@ -692,6 +807,32 @@ export function WorldRenderer({
             return true;
           }).catch(() => false);
         }
+        case "illustrateMessage": {
+          const [msgId, note, fine] = args as [string, string | undefined, boolean | undefined];
+          if (!sessionIdRef.current || isPendingMessageId(msgId)) return Promise.resolve(false);
+          // Same path as the after-turn draw: placeholder, picture or a reason
+          // show up on the message itself.
+          return import("./turn-image-drawing").then(({ drawTurnImage }) => drawTurnImage(msgId, false, typeof note === "string" && note ? note : undefined, fine === true))
+            .then((r) => r.ok).catch(() => false);
+        }
+        case "openCreditTopUp": {
+          return import("@/edition/slots.state").then(({ handleStreamCreditError }) => handleStreamCreditError("NO_CREDITS"));
+        }
+        case "getTurnImageSettings": {
+          return fetch(`${apiBase}/api/messages/turn-images/settings`, { credentials: "include" })
+            .then(async (r) => (r.ok ? ((await r.json()) as { data: { available: boolean; auto: boolean } }).data : null))
+            .catch(() => null);
+        }
+        case "setAutoTurnImages": {
+          const [on] = args as [boolean];
+          return fetch(`${apiBase}/api/users/me`, {
+            method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ preferences: { autoTurnImages: on === true } }),
+          }).then(async (r) => {
+            if (r.ok) (await import("./turn-image-drawing")).forgetTurnImageSettings();
+            return r.ok;
+          }).catch(() => false);
+        }
         case "regenerateMessage": {
           const sid = sessionIdRef.current;
           if (!sid) return;
@@ -813,6 +954,10 @@ export function WorldRenderer({
               recentlyUsed: modelsState.recentlyUsed,
             };
           });
+        }
+        case "togglePlayerPrompt": {
+          if (!sessionIdRef.current || mode !== "session") return Promise.resolve({ ok: false });
+          return handlePlayerPromptsBridgeCall(method, args) ?? Promise.resolve({ ok: false });
         }
         case "getStateGuardSettings":
         case "setStateGuardSettings": {
@@ -1135,6 +1280,43 @@ export function WorldRenderer({
         // the compat shims (localStorage/sessionStorage) legitimately send
         // full `yumina:{local|session}:{worldId}:` keys; everything else gets
         // the default namespace applied here, never trusted from the caller.
+        case "legacyGallery.get": return (async () => {
+          const sid = sessionIdRef.current, share = mediaShareIdRef.current;
+          if (!sid && !share) throw new Error("No session available");
+          const adapterKey = `${worldIdRef.current}:${sid}:${share ?? ""}`;
+          if (galleryAdapterRef.current?.key !== adapterKey) galleryAdapterRef.current = {
+            key: adapterKey, adapter: createOncinCloudGallery(sid, share, () => feedback.error("Gallery persistence failed."), undefined,
+              () => readLegacyGallery(() => null, sid, currentApi.variables.gallery_data)),
+          };
+          const adapter = galleryAdapterRef.current.adapter;
+          const raw = await adapter.get(() => readLegacyGallery(key => localStorage.getItem(scopeStorageKey(worldIdRef.current, key)), sid, currentApi.variables.gallery_data), mode === "session" && capabilities.canPersistSession && !(currentApi as YuminaAPI & {readOnly?: boolean}).readOnly);
+          return { raw, writable: !share && mode === "session" && capabilities.canPersistSession && !(currentApi as YuminaAPI & {readOnly?: boolean}).readOnly && adapter.uploadsEnabled };
+        })();
+        case "legacyGallery.refresh": {
+          const adapterKey = `${worldIdRef.current}:${sessionIdRef.current}:${mediaShareIdRef.current ?? ""}`;
+          if (galleryAdapterRef.current?.key !== adapterKey) throw new Error("Load the gallery before refreshing");
+          return galleryAdapterRef.current.adapter.refresh();
+        }
+        case "legacyGallery.stage": {
+          const sid = sessionIdRef.current;
+          if (!sid || mediaShareIdRef.current || mode !== "session" || !capabilities.canPersistSession || (currentApi as YuminaAPI & {readOnly?: boolean}).readOnly) throw new Error("This view is read-only");
+          const adapterKey = `${worldIdRef.current}:${sid}:`;
+          if (galleryAdapterRef.current?.key !== adapterKey) throw new Error("Load the gallery before saving");
+          localStorage.setItem(scopeStorageKey(worldIdRef.current, `oncin:gallery:v2:${sid}:pending-cloud`), String(args[0]));
+          return;
+        }
+        case "legacyGallery.set": return (async () => {
+          const sid = sessionIdRef.current;
+          if (!sid || mediaShareIdRef.current || mode !== "session" || !capabilities.canPersistSession || (currentApi as YuminaAPI & {readOnly?: boolean}).readOnly) throw new Error("This view is read-only");
+          const adapterKey = `${worldIdRef.current}:${sid}:`;
+          if (galleryAdapterRef.current?.key !== adapterKey) throw new Error("Load the gallery before saving");
+          const pendingKey = scopeStorageKey(worldIdRef.current, `oncin:gallery:v2:${sid}:pending-cloud`);
+          const payload = String(args[0]);
+          try { localStorage.setItem(pendingKey, payload); } catch { /* Cloud can succeed with a full browser cache. */ }
+          await galleryAdapterRef.current.adapter.set(payload);
+          try { if (localStorage.getItem(pendingKey) === payload) localStorage.removeItem(pendingKey); } catch { /* Keep recovery data. */ }
+          return;
+        })();
         case "storage.get": {
           if(isOncinGalleryKey(worldIdRef.current,args[0],sessionIdRef.current,mediaShareIdRef.current)){
             const adapterKey=`${worldIdRef.current}:${sessionIdRef.current}:${mediaShareIdRef.current??""}`;
@@ -1142,7 +1324,7 @@ export function WorldRenderer({
               void import("sonner").then(({toast})=>toast.info("Gallery is available this session, but persistent UI storage is temporarily unavailable."));
             })};
             const localKey=scopeStorageKey(worldIdRef.current,args[0]);
-            return galleryAdapterRef.current.adapter.get(()=>localStorage.getItem(`${localKey}:pending-cloud`)??localStorage.getItem(localKey));
+            return galleryAdapterRef.current.adapter.get(()=>localStorage.getItem(`${localKey}:pending-cloud`)??localStorage.getItem(localKey), mode === "session" && capabilities.canPersistSession && !(currentApi as YuminaAPI & {readOnly?: boolean}).readOnly);
           }
           return localStorage.getItem(scopeStorageKey(worldIdRef.current, args[0] as string));
         }
@@ -1151,7 +1333,7 @@ export function WorldRenderer({
             const adapterKey=`${worldIdRef.current}:${sessionIdRef.current}:${mediaShareIdRef.current??""}`;
             if(galleryAdapterRef.current?.key!==adapterKey)throw new Error("Load the gallery before saving");
             if(galleryAdapterRef.current.adapter.usesCloud){
-              if(mediaShareIdRef.current)throw new Error("This gallery is read-only");
+              if(mediaShareIdRef.current || mode !== "session" || !capabilities.canPersistSession || (currentApi as YuminaAPI & {readOnly?: boolean}).readOnly)throw new Error("This gallery is read-only");
               const pendingKey=`${scopeStorageKey(worldIdRef.current,args[0])}:pending-cloud`;
               const payload=String(args[1]);
               // Preserve the original legacy key. Pending writes are best-effort
@@ -1201,6 +1383,28 @@ export function WorldRenderer({
         onError: (error: string) => void;
       },
     ) => {
+      if (method === "voice.record") {
+        // Hold-to-talk: deltas are the live input level, the result is the
+        // transcript (JSON). Only a signed-in real session gets a microphone.
+        if (mode !== "session" || !sessionIdRef.current) {
+          callbacks.onDone(JSON.stringify({ ok: false, reason: "unavailable" }));
+          return;
+        }
+        let lastLevel = -1;
+        void import("@/lib/voice-input")
+          .then((m) =>
+            m.recordVoice((level) => {
+              const q = Math.round(level * 20) / 20;
+              if (q !== lastLevel) {
+                lastLevel = q;
+                callbacks.onDelta(String(q));
+              }
+            }),
+          )
+          .then((result) => callbacks.onDone(JSON.stringify(result)))
+          .catch(() => callbacks.onDone(JSON.stringify({ ok: false, reason: "error" })));
+        return;
+      }
       if (method !== "ai.complete") {
         callbacks.onError(`Unknown streaming method: ${method}`);
         return;
@@ -1413,6 +1617,7 @@ export function WorldRenderer({
 
   const {
     ready: sandboxReady,
+    getBootTiming,
     rendered: worldRendered,
     iframeRefCallback,
     sandboxUrl,
@@ -1425,6 +1630,7 @@ export function WorldRenderer({
     sendRoomFrame,
     openMemoryPanel,
   } = useSandbox({
+    active: isActive,
     onApiCall: handleApiCall,
     onStreamCall: handleStreamCall,
     onError: handleError,
@@ -1541,6 +1747,7 @@ export function WorldRenderer({
       bootShownRef.current = "failed";
       setBootFailed(true);
       posthog.capture("sandbox_boot_timeout", {
+        ...getBootTiming(),
         world_id: worldId,
         attempt: bootAttempt,
         duration_ms: Date.now() - bootStartedAtRef.current,
@@ -1551,7 +1758,7 @@ export function WorldRenderer({
       window.clearTimeout(slow);
       window.clearTimeout(dead);
     };
-  }, [sandboxReady, bootAttempt, worldId]);
+  }, [sandboxReady, bootAttempt, worldId, getBootTiming]);
 
   // A handshake landing after we cried wolf is the measurement that the old
   // single-deadline watchdog could not make: it separates "slow" from "broken",
@@ -1560,6 +1767,7 @@ export function WorldRenderer({
     if (!sandboxReady) return;
     if (bootShownRef.current) {
       posthog.capture("sandbox_boot_recovered", {
+        ...getBootTiming(),
         world_id: worldId,
         attempt: bootAttempt,
         shown: bootShownRef.current,
@@ -1570,7 +1778,7 @@ export function WorldRenderer({
     }
     setBootSlow(false);
     setBootFailed(false);
-  }, [sandboxReady, bootAttempt, worldId]);
+  }, [sandboxReady, bootAttempt, worldId, getBootTiming]);
 
   const retryBoot = useCallback(() => {
     bootShownRef.current = null;
@@ -1688,6 +1896,13 @@ export function WorldRenderer({
     };
   }, []);
 
+  // Voice auto-read: install the streaming read-along watcher (idempotent,
+  // global — it does nothing until a turn streams with auto-read enabled).
+  useEffect(() => {
+    if (mode !== "session") return;
+    void import("@/lib/tts-playback").then((m) => m.ensureStreamReadAlong());
+  }, [mode]);
+
   // Slim the messages payload before it crosses the bridge (see slim-messages.ts):
   // drops swipe data the iframe never renders. Memoized on api.messages so the
   // heavy messages-channel push below only re-runs when messages actually change,
@@ -1765,7 +1980,7 @@ export function WorldRenderer({
       worldId,
       worldName: api.worldName,
       worldCover: api.worldCover ?? null,
-      sessionId: isOncinGalleryWorld(worldId) ? oncinGallerySessionKey(sessionId,mediaShareId) : sessionId,
+      sessionId: oncinGallerySessionKey(sessionId,mediaShareId),
       // Resolved here as well as in chat-view: this effect IS the sandbox
       // boundary, so any caller that hands us a raw S3 key or relative ref
       // still pushes a fetchable absolute URL across the bridge.
@@ -1830,6 +2045,34 @@ export function WorldRenderer({
       composerSendKey,
       uiFontScale,
       sendFailureNonce: (api as any).sendFailureNonce ?? 0,
+      errorCode: (api as any).error ? chatErrorCode : null,
+      playerPrompts,
+      tts: {
+        // Only a real session can synthesize (billing anchor), so voice UI
+        // stays hidden in guest preview / replay / Studio canvases. `enabled`
+        // carries the raw preference so the in-chat panel can re-enable.
+        available: mode === "session" && Boolean(sessionId),
+        enabled: ttsEnabledPref,
+        voice: ttsVoicePref,
+        voicePool: ttsVoicePoolKey ? ttsVoicePoolKey.split(",") : [],
+        mode: ttsModePref,
+        autoPlay: ttsAutoPlayPref,
+        volume: ttsVolumePref,
+        playback: voicePlayback,
+      },
+      voiceInput: {
+        available:
+          mode === "session" &&
+          Boolean(sessionId) &&
+          typeof navigator !== "undefined" &&
+          !!navigator.mediaDevices?.getUserMedia &&
+          typeof MediaRecorder !== "undefined",
+        enabled: voiceInputEnabledPref,
+        mode: voiceInputModePref || cardVoiceInputMode,
+        cardMode: cardVoiceInputMode,
+        playerMode: voiceInputModePref,
+        key: voiceInputKeyPref,
+      },
     };
     pushIfChanged("ui", data);
   });

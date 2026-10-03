@@ -10,3 +10,7 @@ test("prior deletion does not block immediate registration", () => {
 test("deleting an account does not erase an existing ban", () => {
   assert.equal(isDeletedIdentityRegistrationBlocked({ wasBanned: true }), true);
 });
+
+test("deleting an account does not erase an existing suspension", () => {
+  assert.equal(isDeletedIdentityRegistrationBlocked({ wasBanned: false, wasSuspended: true }), true);
+});

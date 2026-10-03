@@ -44,9 +44,17 @@ export const useFavoritesStore: CoreFavoritesStore = create<CoreFavoritesState>(
   removeLocal: noop,
 }));
 
+// ── Prompts (per-model binding; the local edition has no 解除限制 presets) ─────
+export function usePromptPresetEligibility(): boolean { return false; }
+export function ensurePromptPresetMeta(): void {}
+
 // ── Hub ─────────────────────────────────────────────────────────────────────
 export function getWorldShareUrl(origin: string, worldId: string, _gamePath?: unknown): string {
   return `${origin}/app/library?worldId=${encodeURIComponent(worldId)}`;
+}
+export function useWorldShareUrl(world: { id: string; gamePath?: unknown } | null | undefined): string {
+  if (!world || typeof window === "undefined") return "";
+  return `${window.location.origin}/app/library?worldId=${encodeURIComponent(world.id)}`;
 }
 export function invalidateHubWorlds(): void {}
 export function captureHubReturnState(): HubReturnState { return {}; }

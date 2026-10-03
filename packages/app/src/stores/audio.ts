@@ -37,12 +37,23 @@ interface AudioState {
   bgmVolume: number;
   sfxVolume: number;
   muted: boolean;
+  /** Voice readout (TTS) volume — its own category, NOT bgm/sfx. */
+  voiceVolume: number;
+  /** Live voice-readout state (null = idle). Mirrored to the sandbox UI
+   *  channel so per-message speaker buttons can render loading/playing.
+   *  `progress` is 0–1 playback position (absent until duration is known),
+   *  updated at 2Hz — drives the progress ring on the speaker button. */
+  voicePlayback: { key: string; status: "loading" | "playing"; progress?: number } | null;
 
   // Playlist state
   playlist: BGMPlaylist | null;
   playlistState: PlaylistState;
   conditionalRules: ConditionalBGM[];
   activeConditionalId: string | null;
+  /** The continuity judge's current pick when the author chose "AI over
+   *  rules": while it is still sounding, conditional-BGM rules stay out.
+   *  Cleared on hand-back, on a rules-first pick, and by cleanup. */
+  judgeHoldsMusic: string | null;
 
   // Actions
   setTracks: (tracks: AudioTrack[]) => void;
@@ -57,6 +68,17 @@ interface AudioState {
   setMasterVolume: (volume: number) => void;
   setBgmVolume: (volume: number) => void;
   setSfxVolume: (volume: number) => void;
+  setVoiceVolume: (volume: number) => void;
+  /** Mark a voice readout as loading/playing/idle (idle = null). Set to
+   *  "loading" by the synth orchestrator BEFORE the network round-trip so the
+   *  triggering button can show a spinner. */
+  setVoicePlayback: (p: { key: string; status: "loading" | "playing"; progress?: number } | null) => void;
+  /** Play a synthesized voice readout URL. One voice at a time — a new play
+   *  replaces the current one. Ducks BGM/ambient while speaking. Deliberately
+   *  NOT gated by the world-audio kill switch (that means "the world's
+   *  BGM/SFX", not the player's readout voice). */
+  playVoice: (key: string, url: string) => void;
+  stopVoice: () => void;
   toggleMute: () => void;
   resumeFromState: (activeAudio: unknown) => void;
   cleanup: () => void;
@@ -277,6 +299,83 @@ function matchesKeywords(text: string | undefined, keywords: string[] | undefine
   });
 }
 
+// ── Voice readout (TTS) playback ────────────────────────────────────
+// One element at a time, independent of the world-audio kill switch and the
+// track registry (voice URLs are ephemeral synth results, not world tracks).
+let _voiceAudio: HTMLAudioElement | null = null;
+let _voiceSerial = 0;
+let _voiceDuckOriginals: Map<string, number> | null = null;
+let _voiceProgressTimer: ReturnType<typeof setInterval> | null = null;
+
+function stopVoiceProgressTicker(): void {
+  if (_voiceProgressTimer) {
+    clearInterval(_voiceProgressTimer);
+    _voiceProgressTimer = null;
+  }
+}
+
+function computeVoiceVolume(s: { voiceVolume: number; masterVolume: number; muted: boolean }): number {
+  return s.voiceVolume * s.masterVolume * (s.muted ? 0 : 1);
+}
+
+/** Lower BGM/ambient to 20% while a voice line plays. */
+function duckForVoice(): void {
+  if (_voiceDuckOriginals) return; // already ducked (voice replaced mid-line)
+  const s = useAudioStore.getState();
+  const originals = new Map<string, number>();
+  for (const [tid, at] of s.activeTracks) {
+    if (at.type === "bgm" || at.type === "ambient") {
+      originals.set(tid, at.volume);
+      const ducked = at.volume * 0.2;
+      at.volume = ducked;
+      setElVolume(at.audio, computeVolume(ducked, at.type, s));
+    }
+  }
+  if (originals.size > 0) _voiceDuckOriginals = originals;
+}
+
+/** Fade BGM/ambient back to their pre-voice volumes over 1s. */
+function restoreVoiceDuck(): void {
+  const originals = _voiceDuckOriginals;
+  if (!originals) return;
+  _voiceDuckOriginals = null;
+  const s = useAudioStore.getState();
+  for (const [tid, origVol] of originals) {
+    const at = s.activeTracks.get(tid);
+    if (!at) continue;
+    at.volume = origVol;
+    const startVol = getElVolume(at.audio);
+    const targetVol = computeVolume(origVol, at.type, s);
+    const steps = Math.ceil(1000 / FADE_INTERVAL);
+    const step = (targetVol - startVol) / steps;
+    let cur = 0;
+    const fadeTimer = setInterval(() => {
+      cur++;
+      setElVolume(at.audio, cur >= steps ? targetVol : startVol + step * cur);
+      if (cur >= steps) {
+        clearInterval(fadeTimer);
+        _activeFadeIntervals.delete(fadeTimer);
+      }
+    }, FADE_INTERVAL);
+    _activeFadeIntervals.add(fadeTimer);
+  }
+}
+
+/** Tear the voice element down without the duck-restore fade (stopAll path —
+ *  the BGM it would fade back is being stopped in the same breath). */
+function teardownVoiceElement(): void {
+  _voiceSerial++;
+  stopVoiceProgressTicker();
+  if (_voiceAudio) {
+    _cancelledAudios.add(_voiceAudio);
+    _pendingUnlockAudios.delete(_voiceAudio);
+    _voiceAudio.pause();
+    _voiceAudio.src = "";
+    _voiceAudio = null;
+  }
+  _voiceDuckOriginals = null;
+}
+
 function getCategoryVolume(type: "bgm" | "sfx" | "ambient", state: { bgmVolume: number; sfxVolume: number }): number {
   return type === "sfx" ? state.sfxVolume : state.bgmVolume;
 }
@@ -291,11 +390,14 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   masterVolume: 0.7,
   bgmVolume: 0.7,
   sfxVolume: 0.8,
+  voiceVolume: 1,
+  voicePlayback: null,
   muted: false,
   playlist: null,
   playlistState: { currentIndex: 0, isPlaying: false, gapTimer: null, shuffleOrder: [] },
   conditionalRules: [],
   activeConditionalId: null,
+  judgeHoldsMusic: null,
 
   setTracks: (tracks) => {
     set({ tracks });
@@ -311,9 +413,53 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   processAudioEffects: (effects) => {
     const state = get();
     for (const effect of effects) {
+      // ── Continuity judge effects: lowest-priority music source ──
+      // Precedence, highest first: a creator's script on a track the AI may
+      // not control; an active conditional-BGM rule; the AI's own [audio:]
+      // directive or a rule that fires this turn (processed after this and
+      // free to stop what the judge started); the judge; the playlist.
+      if (effect.source === "continuity") {
+        const def = state.tracks.find((t) => t.id === effect.trackId);
+        const isMusic = def?.type === "bgm";
+        // Rules first (the default): a rule that owns the channel wins.
+        // AI over rules (author's choice): the pick takes the channel and
+        // holds it — evaluateConditionalBGM stays out while it sounds.
+        if (isMusic && state.activeConditionalId && !effect.overRules) continue;
+        if (effect.action === "crossfade") {
+          // Only BGM the AI is allowed to control steps aside; a script-only
+          // track keeps playing exactly as the creator's code intended.
+          for (const [id, active] of state.activeTracks) {
+            if (id === effect.trackId || active.type !== "bgm") continue;
+            const activeDef = state.tracks.find((t) => t.id === id);
+            if (activeDef && activeDef.allowAiControl === false) continue;
+            state.stopTrack(id, effect.fadeDuration ?? 1);
+          }
+          if (effect.overRules) set({ judgeHoldsMusic: effect.trackId, activeConditionalId: null });
+          else set({ judgeHoldsMusic: null });
+          state.playTrack(effect.trackId, { volume: effect.volume, fadeDuration: effect.fadeDuration ?? 1, loop: effect.loop });
+          continue;
+        }
+        if (effect.action === "stop") {
+          // Hand-back: the judge's pick ends and the default playlist resumes
+          // from where it stood, exactly like a conditional rule's fallback.
+          state.stopTrack(effect.trackId, effect.fadeDuration);
+          set({ judgeHoldsMusic: null });
+          const ps = state.playlistState;
+          if (ps.isPlaying && !state.activeConditionalId) {
+            const order = ps.shuffleOrder.length > 0 ? ps.shuffleOrder : (state.playlist?.tracks ?? []);
+            const trackId = order[ps.currentIndex];
+            if (trackId && trackId !== effect.trackId) state.playTrack(trackId, { fadeDuration: effect.fadeDuration });
+          }
+          continue;
+        }
+        if (effect.action === "play") {
+          state.playTrack(effect.trackId, { volume: effect.volume, fadeDuration: effect.fadeDuration, maxDuration: effect.maxDuration, duckBgm: effect.duckBgm });
+          continue;
+        }
+      }
       switch (effect.action) {
         case "play":
-          state.playTrack(effect.trackId, { volume: effect.volume, fadeDuration: effect.fadeDuration, chainTo: effect.chainTo, maxDuration: effect.maxDuration });
+          state.playTrack(effect.trackId, { volume: effect.volume, fadeDuration: effect.fadeDuration, chainTo: effect.chainTo, maxDuration: effect.maxDuration, duckBgm: effect.duckBgm });
           break;
         case "stop":
           state.stopTrack(effect.trackId, effect.fadeDuration);
@@ -632,6 +778,10 @@ export const useAudioStore = create<AudioState>((set, get) => ({
 
   stopAll: () => {
     const state = get();
+    // Voice readout dies with everything else — element teardown only, no
+    // duck-restore fade (the BGM it would fade back is stopping right below).
+    teardownVoiceElement();
+    if (state.voicePlayback) set({ voicePlayback: null });
     // Invalidate every in-flight playTrack, including requests that have not
     // created an Audio element or active slot yet.
     _latestPlayIntents.clear();
@@ -687,6 +837,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     for (const [, active] of state.activeTracks) {
       setElVolume(active.audio, computeVolume(active.volume, active.type, state));
     }
+    if (_voiceAudio) setElVolume(_voiceAudio, computeVoiceVolume(state));
   },
 
   setBgmVolume: (volume) => {
@@ -709,6 +860,71 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     }
   },
 
+  setVoiceVolume: (volume) => {
+    set({ voiceVolume: Math.max(0, Math.min(1, volume)) });
+    if (_voiceAudio) setElVolume(_voiceAudio, computeVoiceVolume(get()));
+  },
+
+  setVoicePlayback: (p) => set({ voicePlayback: p }),
+
+  playVoice: (key, url) => {
+    const serial = ++_voiceSerial;
+    // Retire the current voice element (keep duck state — we still need it).
+    if (_voiceAudio) {
+      _cancelledAudios.add(_voiceAudio);
+      _pendingUnlockAudios.delete(_voiceAudio);
+      _voiceAudio.pause();
+      _voiceAudio.src = "";
+      _voiceAudio = null;
+    }
+
+    const audio = new Audio(url);
+    audio.preload = "auto";
+    setElVolume(audio, computeVoiceVolume(get()));
+
+    const finish = () => {
+      if (serial !== _voiceSerial) return; // superseded by a newer voice/stop
+      stopVoiceProgressTicker();
+      _voiceAudio = null;
+      restoreVoiceDuck();
+      set({ voicePlayback: null });
+    };
+    audio.addEventListener("ended", finish);
+    audio.addEventListener("error", finish);
+
+    duckForVoice();
+    _voiceAudio = audio;
+    set({ voicePlayback: { key, status: "playing" } });
+
+    // Progress ticker (2Hz): drives the ring on the speaker button. Only
+    // publishes once duration metadata is known; harmless to run while the
+    // element is still buffering or queued behind the iOS unlock.
+    stopVoiceProgressTicker();
+    _voiceProgressTimer = setInterval(() => {
+      if (serial !== _voiceSerial) {
+        stopVoiceProgressTicker();
+        return;
+      }
+      const duration = audio.duration;
+      if (!Number.isFinite(duration) || duration <= 0) return;
+      const progress = Math.min(1, audio.currentTime / duration);
+      const current = get().voicePlayback;
+      if (current?.key === key && current.status === "playing" && current.progress !== progress) {
+        set({ voicePlayback: { key, status: "playing", progress } });
+      }
+    }, 500);
+
+    // safePlay routes a rejected .play() through the iOS pending-unlock queue,
+    // so a blocked autoplay retries on the next real gesture.
+    safePlay(audio);
+  },
+
+  stopVoice: () => {
+    teardownVoiceElement();
+    restoreVoiceDuck();
+    if (get().voicePlayback) set({ voicePlayback: null });
+  },
+
   toggleMute: () => {
     const state = get();
     const newMuted = !state.muted;
@@ -717,6 +933,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     for (const [, active] of s.activeTracks) {
       setElVolume(active.audio, computeVolume(active.volume, active.type, s));
     }
+    if (_voiceAudio) setElVolume(_voiceAudio, computeVoiceVolume(s));
   },
 
   resumeFromState: (activeAudio) => {
@@ -730,7 +947,9 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     // Guarding here (not only at the write site) heals those existing rows.
     const resumable = filterResumableAudioEffects(state.tracks, activeAudio as AudioEffect[]);
     for (const effect of resumable) {
-      if (effect.action === "play") {
+      // A crossfade in the snapshot is the continuity judge's pick: on
+      // reopen it is simply the music that should be playing.
+      if (effect.action === "play" || effect.action === "crossfade") {
         state.playTrack(effect.trackId, { volume: effect.volume, maxDuration: effect.maxDuration });
       }
     }
@@ -747,6 +966,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
       playlistState: { currentIndex: 0, isPlaying: false, gapTimer: null, shuffleOrder: [] },
       conditionalRules: [],
       activeConditionalId: null,
+      judgeHoldsMusic: null,
     });
   },
 
@@ -810,6 +1030,13 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     const state = get();
     const rules = state.conditionalRules;
     if (rules.length === 0) return;
+    // "AI over rules": the judge's pick holds the channel for as long as it
+    // is actually sounding. Once it ends (play-once) or is handed back, the
+    // rules get their turn again on the next evaluation.
+    if (state.judgeHoldsMusic) {
+      if (state.activeTracks.has(state.judgeHoldsMusic)) return;
+      set({ judgeHoldsMusic: null });
+    }
 
     // Find highest-priority matching rule
     let matchingRule: ConditionalBGM | null = null;

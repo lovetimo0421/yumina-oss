@@ -50,6 +50,33 @@ function rememberFreePoolExhaustion(apiKey: string): void {
  *  this anyway. */
 const CONTEXT_COMPRESSION_PLUGIN = [{ id: "context-compression" }];
 
+/**
+ * Finish reasons that mean the upstream policy layer blocked the reply.
+ * OpenRouter passes Gemini's native reasons through on some routes
+ * (PROHIBITED_CONTENT / BLOCKLIST / SPII), which used to fall into the generic
+ * "stopped unexpectedly" branch and lose the CONTENT_FILTER classification.
+ * RECITATION is copyright, not policy — it stays on the generic path.
+ */
+const CONTENT_FILTER_FINISH_REASONS = new Set([
+  "safety", "content_filter", "prohibited_content", "blocklist", "spii",
+  "image_safety", "image_prohibited_content",
+]);
+export function isContentFilterFinishReason(fr: string | null | undefined): boolean {
+  return !!fr && CONTENT_FILTER_FINISH_REASONS.has(fr.toLowerCase());
+}
+
+/**
+ * finish_reason or OpenRouter's pass-through native_finish_reason says the
+ * policy layer stopped the reply. Vertex reports a Gemini safety stop as
+ * finish_reason "error" + native_finish_reason "SAFETY"; checking only
+ * finish_reason showed players "provider busy" instead of the safety bar.
+ */
+export function isContentFilterChoice(choice: unknown): boolean {
+  const c = choice as { finish_reason?: unknown; native_finish_reason?: unknown } | null | undefined;
+  const str = (v: unknown) => (typeof v === "string" ? v : null);
+  return isContentFilterFinishReason(str(c?.finish_reason)) || isContentFilterFinishReason(str(c?.native_finish_reason));
+}
+
 const GEMINI_SAFETY_SETTINGS = [
   { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
   { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
@@ -919,7 +946,7 @@ export class OpenRouterProvider implements LLMProvider {
 
             // Gemini/OpenRouter safety or content filter interrupted generation
             const fr = choice?.finish_reason;
-            if (fr === "SAFETY" || fr === "content_filter") {
+            if (isContentFilterChoice(choice)) {
               yield {
                 type: "error",
                 content:
@@ -1168,7 +1195,7 @@ export class OpenRouterProvider implements LLMProvider {
     const fr = choice.finish_reason ?? null;
 
     // Safety/content filter — same handling as streaming path
-    if (fr === "SAFETY" || fr === "content_filter") {
+    if (isContentFilterChoice(choice)) {
       yield {
         type: "error",
         content:

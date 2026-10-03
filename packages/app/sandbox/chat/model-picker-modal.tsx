@@ -1,4 +1,3 @@
-import { ImageCapabilityBadge } from "../../src/components/image-capability-badge";
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { X, Search, Star, Clock, Lock, Unlock, Sparkles, ChevronRight, Layers, Shuffle, Plus, Minus, ArrowLeft, Cpu, Loader2 } from "lucide-react";
 import { useModelControls as useYumina } from "./model-controls-context";
@@ -16,16 +15,7 @@ import {
   type ProviderSwitchCopy,
 } from "@/components/provider-switch-confirm-dialog";
 
-/** Compact mushie-balance formatter: full with thousands separators below
- * 100k, then abbreviated (123k / 1.2M) so the model-pill tag never overflows
- * on large balances. */
-function formatBalance(n: number): string {
-  const v = Math.floor(n);
-  if (v < 100_000) return v.toLocaleString();
-  if (v < 1_000_000) return `${Math.round(v / 1_000)}k`;
-  const m = v / 1_000_000;
-  return `${m >= 10 ? Math.round(m) : Math.round(m * 10) / 10}M`;
-}
+import { formatBalance, formatBalanceCompact } from "./balance-format";
 
 /** Small mushroom glyph for the mushie currency. Language-agnostic, so the
  * balance pill needs no translated unit word. Inherits color via currentColor. */
@@ -68,17 +58,17 @@ const STRINGS: Record<Lang, Record<string, string>> = {
     mushieBalance: "Mushie balance",
     free: "Free",
     mixModels: "Mix Models",
-    mixDescription: "Each message randomly picks a model based on these weights.",
+    mixDescription: "Each reply uses a random model, with the chances shown below.",
     addModel: "Add a model...",
-    activate: "Activate Mix Mode",
-    deactivate: "Deactivate Mix Mode",
+    activate: "Turn on model mix",
+    deactivate: "Turn off model mix",
     needTwo: "Add at least 2 models to activate",
     lockWeight: "Lock this ratio",
     unlockWeight: "Unlock this ratio",
     switchToYumina: "Switch to Yumina API?",
     switchToPrivate: "Switch to Private Key?",
-    yuminaSwitchDesc: "Future replies will use Yumina models and spend mushies/credits.",
-    privateSwitchDesc: "Future replies will use your configured provider key and provider billing.",
+    yuminaSwitchDesc: "Replies will use Yumina models and cost mushies.",
+    privateSwitchDesc: "Replies will use your API key. Your provider bills you directly.",
     confirmSwitch: "Confirm switch",
     cancel: "Cancel",
     switchFailed: "Could not switch provider. Please try again.",
@@ -971,13 +961,7 @@ function OfficialPicker({
   title?: string;
   subtitle?: string;
 }) {
-  const { userPlan, language, mixMode, modelPool, getModels } = useYumina();
-  const [imageSupport, setImageSupport] = useState<Record<string, boolean | undefined>>({});
-  useEffect(() => {
-    let active = true;
-    getModels().then(data => { if (active) setImageSupport(Object.fromEntries(data.models.map(m => [m.id, m.supportsImages]))); }).catch(() => {});
-    return () => { active = false; };
-  }, []);
+  const { userPlan, language, mixMode, modelPool } = useYumina();
   const deepSeekPricingCopy: DeepSeekPricingCopy = {
     triggerLabel: t("deepSeekPricingTrigger"),
     title: t("deepSeekPricingTitle"),
@@ -1108,7 +1092,6 @@ function OfficialPicker({
                       <span className={`text-sm font-medium ${locked ? "text-white/30" : isSelected ? "text-white" : "text-white/80"}`}>
                         {m.name}
                       </span>
-                      <ImageCapabilityBadge supported={imageSupport[m.id] ?? m.supportsImages} language={language} />
                       {m.badge && !locked && (
                         <span className="rounded bg-[#f3d361]/15 px-1.5 py-0.5 text-[9px] font-bold text-[#f3d361]/80">
                           {m.badge}
@@ -1200,7 +1183,7 @@ function ByokPicker({
   subtitle?: string;
   independentProvider?: boolean;
 }) {
-  const { getModels, pinModel, unpinModel, mixMode, modelPool, language, localBridge } = useYumina();
+  const { getModels, pinModel, unpinModel, mixMode, modelPool, localBridge } = useYumina();
   const isMixActive = Boolean(onMixMode && mixMode && modelPool && modelPool.length >= 2);
   const [query, setQuery] = useState("");
   const [allModels, setModels] = useState<ByokModel[]>([]);
@@ -1331,7 +1314,6 @@ function ByokPicker({
         <div className="flex-1 min-w-0">
           <p className={`truncate text-sm font-medium ${isSelected ? "text-white" : "text-white/80"}`}>
             {m.name || formatModelId(m.id)}
-            <ImageCapabilityBadge supported={m.supportsImages} language={language} />
           </p>
         </div>
 
@@ -1529,7 +1511,7 @@ function SandboxMixPill({ onClick, t }: { onClick: () => void; t: T }) {
 }
 
 function SandboxMixConfig({ onBack, onClose, t }: { onBack: () => void; onClose: () => void; t: T }) {
-  const { mixMode, modelPool, addToPool, removeFromPool, setPoolWeight, togglePoolLock, setMixMode, getModels, language } = useYumina();
+  const { mixMode, modelPool, addToPool, removeFromPool, setPoolWeight, togglePoolLock, setMixMode, getModels } = useYumina();
   const [addQuery, setAddQuery] = useState("");
   const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; provider: string; supportsImages?: boolean }>>([]);
   const canActivate = modelPool && modelPool.length >= 2;
@@ -1655,7 +1637,7 @@ function SandboxMixConfig({ onBack, onClose, t }: { onBack: () => void; onClose:
                   <button key={m.id} onClick={() => { addToPool(m.id); setAddQuery(""); }}
                     className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left transition-all hover:bg-white/[0.04]">
                     <Plus className="h-3.5 w-3.5 shrink-0 text-primary/60" />
-                    <span className="flex-1 truncate text-xs font-medium text-white/70">{m.name || formatModelId(m.id)}</span><ImageCapabilityBadge supported={m.supportsImages} language={language} />
+                    <span className="flex-1 truncate text-xs font-medium text-white/70">{m.name || formatModelId(m.id)}</span>
                     <span className="shrink-0 text-[10px] text-white/25">{m.provider}</span>
                   </button>
                 ))}
@@ -1799,26 +1781,34 @@ export function BalanceTag({
   balance,
   language,
   dividerClass = "bg-white/10",
+  compact = false,
 }: {
   balance: number;
   language: string;
   dividerClass?: string;
+  /** Narrow toolbars keep full balances through 100k. The model name gives
+   *  up room before the balance does. */
+  compact?: boolean;
 }) {
+  const full = formatBalance(balance);
+  const label = `${full} ${STRINGS[pickLang(language)].mushieBalance}`;
   return (
     <>
       <span aria-hidden className={`h-3 w-px shrink-0 ${dividerClass}`} />
       <span
-        aria-label={`${formatBalance(balance)} ${STRINGS[pickLang(language)].mushieBalance}`}
+        aria-label={label}
+        title={label}
+        data-balance-tag=""
         className="inline-flex shrink-0 items-center gap-0.5 text-[11px] font-semibold text-[#f3d361] tabular-nums whitespace-nowrap"
       >
-        {formatBalance(balance)}
-        <MushroomIcon className="h-3 w-3 text-[#f3d361]/80" />
+        {compact ? formatBalanceCompact(balance) : full}
+        <MushroomIcon className="h-3 w-3 shrink-0 text-[#f3d361]/80" />
       </span>
     </>
   );
 }
 
-export function ModelTrigger({ onClick, model, className, provider, showBalance = true }: { onClick: () => void; model?: string; className?: string; provider?: "official" | "private"; showBalance?: boolean }) {
+export function ModelTrigger({ onClick, model, className, provider, showBalance = true, compactBalance = false }: { onClick: () => void; model?: string; className?: string; provider?: "official" | "private"; showBalance?: boolean; compactBalance?: boolean }) {
   const { selectedModel, preferredProvider: storyProvider, mixMode, modelPool, language, localBridge } = useYumina();
   const preferredProvider = provider ?? storyProvider;
   const currentModel = model || selectedModel;
@@ -1864,12 +1854,13 @@ export function ModelTrigger({ onClick, model, className, provider, showBalance 
         className={[
           // em paddings/gap (= px-3 py-1.5 gap-2 at 16px) so the pill grows
           // with Android textZoom-inflated text instead of losing its padding.
-          "group flex items-center gap-[0.5em] rounded-full border border-primary/25 bg-primary/[0.06] px-[0.75em] py-[0.375em] transition-all hover:border-primary/40 hover:bg-primary/[0.12]",
+          "group flex min-w-0 items-center gap-[0.5em] rounded-full border border-primary/25 bg-primary/[0.06] px-[0.75em] py-[0.375em] transition-all hover:border-primary/40 hover:bg-primary/[0.12]",
           className ?? "mx-auto",
         ].join(" ")}
+        title={`${s.mixModels} · ${modelPool.length}`}
       >
-        <Shuffle className="h-3 w-3 text-primary/70" />
-        <div className="flex h-1.5 w-8 overflow-hidden rounded-full bg-white/[0.08]">
+        <Shuffle className="h-3 w-3 shrink-0 text-primary/70" />
+        <div className="flex h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-white/[0.08]">
           {poolPcts.map((entry: { modelId: string; pct: number }, i: number) => (
             <div
               key={entry.modelId}
@@ -1878,11 +1869,11 @@ export function ModelTrigger({ onClick, model, className, provider, showBalance 
             />
           ))}
         </div>
-        <span className="text-[11px] font-medium text-primary/80 group-hover:text-primary transition-colors">
+        <span className="min-w-[2.5em] truncate text-[11px] font-medium text-primary/80 group-hover:text-primary transition-colors">
           {s.mixModels} · {modelPool.length}
         </span>
-        {showBalance && balance != null && <BalanceTag balance={balance} language={language} dividerClass="bg-primary/20" />}
-        <ChevronRight className="h-3 w-3 text-primary/45 group-hover:text-primary/70 transition-colors" />
+        {showBalance && balance != null && <BalanceTag balance={balance} language={language} dividerClass="bg-primary/20" compact={compactBalance} />}
+        <ChevronRight className="h-3 w-3 shrink-0 text-primary/45 group-hover:text-primary/70 transition-colors" />
       </button>
     );
   }
@@ -1895,18 +1886,22 @@ export function ModelTrigger({ onClick, model, className, provider, showBalance 
         "group flex min-w-0 items-center gap-[0.5em] rounded-full border border-white/[0.12] bg-white/[0.05] px-[0.75em] py-[0.375em] transition-all hover:border-white/20 hover:bg-white/[0.09]",
         className ?? "mx-auto",
       ].join(" ")}
+      title={displayName}
     >
       {localDot ? (
-        <div className={`h-1.5 w-1.5 rounded-full ${localDot} opacity-90`} />
+        <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${localDot} opacity-90`} />
       ) : tierInfo ? (
-        <div className={`h-1.5 w-1.5 rounded-full ${tierInfo.dot} opacity-90`} />
+        <div className={`h-1.5 w-1.5 shrink-0 rounded-full ${tierInfo.dot} opacity-90`} />
       ) : null}
-      <span className="truncate text-[11px] font-medium text-white/75 transition-colors group-hover:text-white">
+      {/* The name is what gives when the toolbar runs out of room: it
+          truncates (full name in the title) but keeps a few glyphs visible.
+          Everything else in the pill is shrink-0, so the balance never hides. */}
+      <span className="min-w-[2.5em] truncate text-[11px] font-medium text-white/75 transition-colors group-hover:text-white">
         {displayName}
       </span>
       {/* A local turn spends nothing — a wallet beside it misstates the next reply's cost. */}
-      {showBalance && !isLocal && balance != null && <BalanceTag balance={balance} language={language} />}
-      <ChevronRight className="h-3 w-3 text-white/45 group-hover:text-white/70 transition-colors" />
+      {showBalance && !isLocal && balance != null && <BalanceTag balance={balance} language={language} compact={compactBalance} />}
+      <ChevronRight className="h-3 w-3 shrink-0 text-white/45 group-hover:text-white/70 transition-colors" />
     </button>
   );
 }

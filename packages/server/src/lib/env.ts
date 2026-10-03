@@ -115,6 +115,18 @@ const envSchema = z.object({
   // Official Yumina API keys (regular = self-signup users, invite = invite code users)
   YUMINA_OPENROUTER_KEY: z.string().default(""),
   YUMINA_INVITE_OPENROUTER_KEY: z.string().default(""),
+  // Continuity judge (decision model after each reply — see lib/continuity).
+  // Key falls back to YUMINA_OPENROUTER_KEY; URL/model default to OpenRouter's
+  // decisions endpoint. CONTINUITY_DISABLED=true is the global kill switch.
+  CONTINUITY_DISABLED: z.string().default(""),
+  CONTINUITY_JEV_KEY: z.string().default(""),
+  /** "off" disables Jev emotion cues on voice readout (lib/tts/emotion.ts). */
+  TTS_EMOTION: z.string().default(""),
+  /** "off" reads each reply in one voice again (lib/tts/cast.ts). */
+  TTS_CAST: z.string().default(""),
+  CONTINUITY_JEV_URL: z.string().default(""),
+  CONTINUITY_JEV_MODEL: z.string().default(""),
+  CONTINUITY_TIMEOUT_MS: z.coerce.number().int().positive().default(1500),
   // Stripe
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().default(""),
@@ -165,6 +177,48 @@ const envSchema = z.object({
   // Daily supplier-cost reservation (USD); isolates image spend from chat.
   OPENROUTER_IMAGE_DAILY_BUDGET_USD: z.coerce.number().positive().default(25),
   RUNPOD_COMFY_ENDPOINT_ID: z.string().default(""),
+  // Comfy Cloud workspace API key. Used only when GENERATION_PROVIDER is
+  // "comfy-cloud"; otherwise RunPod, then COMFY_LOCAL_URL, is picked.
+  COMFY_CLOUD_API_KEY: z.string().default(""),
+  COMFY_CLOUD_URL: z.string().default("https://cloud.comfy.org"),
+  GENERATION_PROVIDER: z.enum(["", "runpod", "local", "comfy-cloud"]).default(""),
+  // Our Comfy API deployments (https://<deployment>.run.comfy.app). The image
+  // one serves 自定义生图 in place of the shared pool; the other is the
+  // per-turn illustration build.
+  COMFY_IMAGE_DEPLOY_URL: z.string().default(""),
+  COMFY_DEPLOY_URL: z.string().default(""),
+  // Per-turn pictures (experimental, opt-in per player in Settings › Display).
+  // Off unless "1"; needs a generation provider and YUMINA_OPENROUTER_KEY.
+  PER_TURN_IMAGES: z.string().default(""),
+  PER_TURN_IMAGE_CHECKPOINT: z.string().default("waiIllustriousSDXL_v170.safetensors"),
+  // "file:weight[:trigger words]" joined by "|". Always applied, e.g. the DMD2 speed LoRA.
+  PER_TURN_IMAGE_LORAS: z.string().default(""),
+  // Same format: the house art style, dropped when an author's portrait sets the style.
+  PER_TURN_IMAGE_STYLE_LORAS: z.string().default(""),
+  // "steps:cfg:sampler:scheduler" for the primary recipe, e.g. "8:2:euler:sgm_uniform"
+  // for SDXL-Lightning. Empty: derived from the LoRAs (speed LoRA → 8 steps lcm).
+  PER_TURN_IMAGE_SAMPLING: z.string().default(""),
+  // Quality tags leading every prompt, and the base negative prompt, for the
+  // configured checkpoint (each model card has its own). Empty: the defaults.
+  PER_TURN_IMAGE_QUALITY: z.string().default(""),
+  PER_TURN_IMAGE_NEGATIVE: z.string().default(""),
+  // "1": append the tagger's plain-English caption after the tags, for
+  // checkpoints trained on natural-language captions (RouWei).
+  PER_TURN_IMAGE_CAPTION: z.string().default(""),
+  // "steps:cfg:sampler:scheduler" for the optional fine redraw: the speed
+  // LoRAs are dropped and the checkpoint runs its full schedule (sharper
+  // lines, ~2x the GPU time). Empty: no fine redraw is offered.
+  PER_TURN_IMAGE_FINE_SAMPLING: z.string().default(""),
+  // What a per-turn picture costs (mushies), and how many each account gets free.
+  PER_TURN_IMAGE_PRICE_MUSHIES: z.coerce.number().min(0).default(12),
+  PER_TURN_IMAGE_FREE_COUNT: z.coerce.number().int().min(0).default(5),
+  // Draw limits: per player per minute, per player at once, and site-wide per
+  // UTC day (0 = no daily ceiling). Over a limit the draw answers "busy"/"unavailable".
+  PER_TURN_IMAGE_MAX_PER_MINUTE: z.coerce.number().int().min(1).default(10),
+  PER_TURN_IMAGE_MAX_ACTIVE_PER_USER: z.coerce.number().int().min(1).default(2),
+  PER_TURN_IMAGE_DAILY_CAP: z.coerce.number().int().min(0).default(20_000),
+  // Tagging models (comma-separated, tried in order). Empty = the built-in list.
+  PER_TURN_TAG_MODEL: z.string().default(""),
   // Direct ComfyUI server (http://127.0.0.1:8188) — local development only.
   COMFY_LOCAL_URL: z.string().default(""),
   // Model-volume regions for user LoRA/checkpoint distribution, as

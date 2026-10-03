@@ -18,10 +18,10 @@ export function getPageTargetTop(scroller: HTMLElement, target: HTMLElement): nu
   return Math.max(0, getPageScrollTop(scroller) + target.getBoundingClientRect().top - inset);
 }
 
-export function scrollPageTo(element: HTMLElement | null, top: number): void {
+export function scrollPageTo(element: HTMLElement | null, top: number, requestedBehavior?: ScrollBehavior): void {
   if (!element) return;
   const view = element.ownerDocument.defaultView;
-  const behavior = view?.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+  const behavior = requestedBehavior ?? (view?.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
   const options: ScrollToOptions = { top: Math.max(0, top), left: 0, behavior };
   if (isDocumentPageScroller(element)) view?.scrollTo(options);
   else element.scrollTo(options);

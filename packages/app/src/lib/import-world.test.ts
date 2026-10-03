@@ -169,3 +169,25 @@ test("parseImportedFileFlexible detects a world JSON as a world", async () => {
     assert.equal(result.coverImage, null);
   }
 });
+
+test("an export's origin stamp is read off the file and never kept in the card", async () => {
+  const card = { id: "lineage", name: "Card", entries: [], variables: [], rules: [], yuminaOrigin: { worldId: "row-123" } };
+  const json = await parseImportedFileFlexible(new File([JSON.stringify(card)], "card.json", { type: "application/json" }));
+  assert.equal(json.kind, "world");
+  if (json.kind !== "world") return;
+  assert.equal(json.originWorldId, "row-123");
+  assert.equal(json.world.id, "lineage");
+  assert.equal("yuminaOrigin" in json.world, false);
+
+  const png = writePngTextChunk(tinyPng(), "yumina", utf8ToBase64(JSON.stringify(card)));
+  const fromPng = await parseImportedFileFlexible(new File([new Uint8Array(png)], "card.png", { type: "image/png" }));
+  assert.equal(fromPng.kind === "world" && fromPng.originWorldId, "row-123");
+
+  // No stamp, or a malformed one, reads as no origin.
+  const { yuminaOrigin: _drop, ...bare } = card;
+  const plain = await parseImportedFileFlexible(new File([JSON.stringify(bare)], "card.json"));
+  assert.equal(plain.kind === "world" && plain.originWorldId, null);
+  const bad = await parseImportedFileFlexible(new File([JSON.stringify({ ...bare, yuminaOrigin: { worldId: "../x y" } })], "card.json"));
+  assert.equal(bad.kind === "world" && bad.originWorldId, null);
+  assert.equal(bad.kind === "world" && "yuminaOrigin" in bad.world, false);
+});

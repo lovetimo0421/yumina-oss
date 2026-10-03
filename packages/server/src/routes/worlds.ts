@@ -1,10 +1,16 @@
+import { discoverAccess } from "../lib/discover-access.js";
+import { libraryWorldScope } from "../lib/library-world-scope.js";
+import { loadFeaturedSlots } from "../lib/editorial.js";
+import { discoverPreviewMiddleware } from "../middleware/discover-preview.js";
 import { worldVersionRoutes } from "./world-versions.js";
 import { captureAutomaticVersion, capturePublishVersion, lockVersionDraft } from "../lib/world-version-history.js";
 import { communityMuteMiddleware } from "../middleware/community-mute.js";
 import { Hono } from "hono";
+import { withWorldPlaytime } from "../lib/world-playtime.js";
 import { reviewPlaytimeQuery } from "../lib/review-playtime.js";
 import { eq, or, and, desc, ilike, sql, inArray, notInArray, isNotNull } from "drizzle-orm";
-import { db, readDb, readOwn, flagWrite } from "../db/index.js";
+import { db, readDb, readOwn, readPublic, flagWrite } from "../db/index.js";
+import { canonicalWorldPath, findWorldById, isPubliclyVisible } from "../lib/world-address.js";
 import { worlds, user, assetReferences, userLibrary, worldPendingEdits, worldUpdates, follows, reviews, worldRatings, contentTranslations, worldReviewSubmissions } from "../db/schema.js";
 import { estimateTokens } from "@yumina/engine";
 import { generateUploadUrl } from "../lib/s3.js";
@@ -40,7 +46,7 @@ import { serveDiscoveryFeed, DISCOVERY_POLICY_VERSION, DiscoveryCursorError, Dis
 import { edition } from "../edition/index.js";
 import { sanitizeContent } from "../lib/sanitize.js";
 import { createWorldSchema, updateWorldSchema } from "@yumina/shared";
-import { hasPublishableCover, isDefaultWorldName } from "@yumina/shared";
+import { hasPublishableCover, hasDiscoverCoverArt, isDefaultWorldName } from "@yumina/shared";
 import { scanWorldSchemaForInlineAssets } from "../lib/asset-validation.js";
 import {
   notify,
@@ -61,7 +67,12 @@ import { captureHubEvent, newFeedRequestId } from "../lib/analytics.js";
 import { feedVariantFor, loadEngagementContext, modelArmEligible, variantUsesEngagement } from "../lib/engagement.js";
 import { loadPublishedRankerModel } from "../lib/ranker-model.js";
 import { logFeedServe } from "../lib/feed-log.js";
-import { loadFeaturedHeroSlots, loadFeaturedSlots } from "../lib/editorial.js";
+import { loadFeaturedHeroSlots } from "../lib/editorial.js";
+import { activeFeaturedSlots, readFeaturedCollection } from "../lib/featured-collection-store.js";
+import { featuredScopeSchema, getAgeFromBirthYear } from "@yumina/shared";
+import { DEFAULT_EDITORIAL_CATEGORIES, resolveEditorialCollection, resolveActiveEditorialHero, type EditorialSlot } from "@yumina/shared";
+import { publishedEditorial, activeEditorialSlots } from "../lib/discover-editorial.js";
+import { resolveProfileContentLevel } from "../lib/profile-content-level.js";
 import { resolveHeroWorlds, type HeroSlot } from "../lib/hero-worlds.js";
 import type { AppEnv, SessionUser } from "../lib/types.js";
 import { blockedJson, getBlockStatus, listBlockedUsersForHiding } from "../lib/blocks.js";
@@ -110,6 +121,7 @@ function normalizeTagsForStorage(tags: string[]): string[] {
 }
 
 const worldRoutes = new Hono<AppEnv>();
+worldRoutes.use("/*", optionalAuthMiddleware, discoverPreviewMiddleware);
 
 /** Compatibility bound for explicit filtered/default feeds. Clean Recommended
  * instead continues through its eligible catalog with bounded page hydration. */
@@ -231,6 +243,8 @@ const hubWorldListSelect = {
   thumbnailUrl: worlds.thumbnailUrl,
   coverCrop: coverCropCols.coverCrop,
   galleryCoverCrop: coverCropCols.galleryCoverCrop,
+  landscapeCoverUrl: worlds.landscapeCoverUrl,
+  landscapeCoverCrop: worlds.landscapeCoverCrop,
   isPublished: worlds.isPublished,
   isNsfw: worlds.isNsfw,
   allowEdit: worlds.allowEdit,
@@ -254,6 +268,8 @@ const hubWorldListSelect = {
   createdAt: worlds.createdAt,
   updatedAt: worlds.updatedAt,
   creatorName: user.name,
+  creatorUsername: user.username,
+  publicId: worlds.publicId,
   creatorImage: user.image,
   messageCount: aggregatedCounters.messageCount,
   favoriteCount: aggregatedCounters.favoriteCount,
@@ -273,12 +289,14 @@ function getOptionalUser(c: { get: (key: "user") => SessionUser }) {
   }
 }
 
-function resolveHubMedia<T extends { thumbnailUrl: string | null; creatorImage: string | null }>(rows: T[]): T[] {
-  return rows.map((row) => ({
+async function resolveHubMedia<T extends { id: string; gamePath?: string | null; thumbnailUrl: string | null; landscapeCoverUrl?: string | null; creatorImage: string | null }>(rows: T[], preview = false) {
+  const resolved = rows.map((row) => ({
     ...row,
     thumbnailUrl: resolveImageCdn(row.thumbnailUrl),
+    landscapeCoverUrl: resolveImageCdn(row.landscapeCoverUrl ?? null),
     creatorImage: resolveImageCdn(row.creatorImage),
   }));
+  return preview ? withWorldPlaytime(resolved) : resolved;
 }
 
 function stripRecommendationInternals<
@@ -304,6 +322,12 @@ function stripRecommendationInternals<
 worldRoutes.get("/", authMiddleware, async (c) => {
   const currentUser = c.get("user");
   const rd = await readOwn(currentUser.id);
+  // Opt-in: existing pickers keep their catalogue contract. Library only needs
+  // owned/saved/favorited metadata plus a directly linked world. Auth and the
+  // existing representative selection below still apply to every returned row.
+  const libraryScope = c.req.query("scope") === "library"
+    ? libraryWorldScope(currentUser.id, c.req.query("worldId"))
+    : undefined;
   // "Orphaned fork" = the source card was LIVE at some point, is not live now,
   // and belongs to someone else. Reading `is_published` alone could not tell
   // "pulled" from "never published", so it struck through every copy of a
@@ -336,6 +360,8 @@ worldRoutes.get("/", authMiddleware, async (c) => {
       thumbnailUrl: worlds.thumbnailUrl,
       coverCrop: coverCropCols.coverCrop,
       galleryCoverCrop: coverCropCols.galleryCoverCrop,
+      landscapeCoverUrl: worlds.landscapeCoverUrl,
+      landscapeCoverCrop: worlds.landscapeCoverCrop,
       isPublished: worlds.isPublished,
       status: worlds.status,
       isNsfw: worlds.isNsfw,
@@ -369,12 +395,15 @@ worldRoutes.get("/", authMiddleware, async (c) => {
       createdAt: worlds.createdAt,
       updatedAt: worlds.updatedAt,
       creatorName: user.name,
+      creatorUsername: user.username,
+      publicId: worlds.publicId,
     })
     .from(worlds)
     .leftJoin(user, eq(worlds.creatorId, user.id))
     .where(
       and(
         or(eq(worlds.creatorId, currentUser.id), eq(worlds.isPublished, true)),
+        libraryScope,
         // Collapse each language group to ONE representative: the 主 of the
         // viewer's language (then oldest), chosen among own-or-published rows so
         // the creator's own drafts still surface. This keeps multi-language groups
@@ -405,6 +434,7 @@ worldRoutes.get("/", authMiddleware, async (c) => {
   const resolved = result.map((w) => ({
     ...w,
     thumbnailUrl: resolveImageCdn(w.thumbnailUrl),
+    landscapeCoverUrl: resolveImageCdn(w.landscapeCoverUrl ?? null),
     pendingEdit: w.creatorId === currentUser.id ? pendingEditMap.get(w.id) ?? null : null,
   }));
 
@@ -599,14 +629,27 @@ worldRoutes.get("/hub/my-filter-tags", authMiddleware, async (c) => {
 // admins should clear via the admin UI, not by code.
 worldRoutes.get("/hub/hero-worlds", optionalAuthMiddleware, async (c) => {
   const currentUser = getOptionalUser(c);
-  const rd = await readDb(currentUser?.id);
+  const rd = db;
   const preferredLang = normalizeHubLanguage(c.req.query("lang")) ?? "en";
   const contentLevelParam = parseContentLevelParam(c.req.query("contentLevel"));
 
   let slots: HeroSlot[];
+  let configuredSlots: EditorialSlot[] | undefined;
+  let configuredContentLevel: "safe" | "r18" | undefined;
   try {
-    const dbSlots = await loadFeaturedHeroSlots(rd, preferredLang);
-    slots = dbSlots;
+    const published = c.get("discoverPreviewEnabled") ? await publishedEditorial(db) : undefined;
+    if (published) {
+      const [profile] = currentUser ? await db.select({ preferences: user.preferences, birthYear: user.birthYear }).from(user).where(eq(user.id, currentUser.id)).limit(1) : [];
+      const minor = profile?.birthYear != null && getAgeFromBirthYear(profile.birthYear) < 18;
+      const mode = minor ? "safe" : resolveProfileContentLevel(!!currentUser, contentLevelParam === "safe" ? "safe" : undefined, profile?.preferences);
+      configuredContentLevel = mode;
+      configuredSlots = activeEditorialSlots(resolveActiveEditorialHero(published.config, preferredLang, mode === "safe" ? "safe" : "sensitive")?.slots ?? []);
+      const pins = configuredSlots.length ? await db.select({ id: worlds.id, languageGroupId: worlds.languageGroupId }).from(worlds).where(inArray(worlds.id, configuredSlots.map(s => s.worldId))) : [];
+      slots = pins.map((w, slot) => ({ slot, kind: "world", id: w.id }));
+      slots.push(...pins.flatMap((w, slot) => w.languageGroupId ? [{ slot, kind: "group" as const, id: w.languageGroupId }] : []));
+    } else {
+      slots = await loadFeaturedHeroSlots(rd, preferredLang);
+    }
   } catch {
     // featured_hero_worlds table missing (migration 0028 hasn't run) — return
     // an empty list. Better to render a blank carousel than reintroduce a
@@ -631,7 +674,7 @@ worldRoutes.get("/hub/hero-worlds", optionalAuthMiddleware, async (c) => {
 
   const baseFilters = await buildHubBaseFilters(currentUser ? db : rd, {
     currentUserId: currentUser?.id,
-    contentLevelParam,
+    contentLevelParam: configuredContentLevel ?? contentLevelParam,
     preferredLang,
     includeLanguageVariants: true,
   });
@@ -644,11 +687,18 @@ worldRoutes.get("/hub/hero-worlds", optionalAuthMiddleware, async (c) => {
     .select({ ...hubWorldListSelect, isPrimaryVariant: worlds.isPrimaryVariant })
     .from(worlds)
     .leftJoin(user, eq(worlds.creatorId, user.id))
-    .where(and(...baseFilters.conditions, slotCondition))
+    .where(and(...baseFilters.conditions, slotCondition, ...(configuredSlots ? [eq(worlds.visibility, "public")] : [])))
     .orderBy(desc(worlds.updatedAt), desc(worlds.createdAt));
 
-  const mediaResolved = resolveHubMedia(result);
-  const ordered = resolveHeroWorlds(slots, mediaResolved, preferredLang);
+  const mediaResolved = await resolveHubMedia(result, c.get("discoverPreviewEnabled"));
+  const configuredWorlds = configuredSlots?.flatMap(slot => {
+    const pinned = mediaResolved.find(w => w.id === slot.worldId);
+    if (!pinned) return [];
+    const matching = pinned.languageGroupId ? mediaResolved.filter(w => w.languageGroupId === pinned.languageGroupId && normalizeWorldLanguage(w.language) === preferredLang)
+      .sort((a, b) => Number(b.isPrimaryVariant) - Number(a.isPrimaryVariant) || Number(a.language !== preferredLang) - Number(b.language !== preferredLang) || a.id.localeCompare(b.id))[0] : undefined;
+    return [matching ?? pinned];
+  });
+  const ordered = configuredWorlds ? configuredWorlds.filter((w, i, all) => all.findIndex(other => (other.languageGroupId ?? other.id) === (w.languageGroupId ?? w.id)) === i) : resolveHeroWorlds(slots, mediaResolved, preferredLang);
 
   c.header("Cache-Control", currentUser ? "private, no-store" : "public, max-age=0, s-maxage=120, stale-while-revalidate=300");
   c.header("Vary", "Cookie");
@@ -678,7 +728,7 @@ worldRoutes.get("/batch", optionalAuthMiddleware, async (c) => {
       ...(currentUser ? [] : [eq(worlds.ageRating, "all")]),
     ));
 
-  const mediaResolved = resolveHubMedia(result);
+  const mediaResolved = await resolveHubMedia(result, c.get("discoverPreviewEnabled"));
 
   // Preserve requested order
   const byId = new Map(mediaResolved.map((w) => [w.id, w]));
@@ -830,7 +880,7 @@ worldRoutes.get("/hub", async (c, next) => {
         userId: currentUser?.id, filters: baseFilters, limit, nsfwOnly, cursor: c.req.query("cursor"), starter,
       });
       const rankingMs = performance.now() - startedAt;
-      const data = resolveHubMedia(page.data.map(stripRecommendationInternals) as any[]);
+      const data = await resolveHubMedia(page.data.map(stripRecommendationInternals) as any[], c.get("discoverPreviewEnabled"));
       let attributionToken: string | undefined;
       const measurementStartedAt = performance.now();
       if (discoveryMeasurementEnabled()) {
@@ -945,7 +995,7 @@ worldRoutes.get("/hub", async (c, next) => {
           });
         }
         c.header("Vary", "Cookie");
-        return c.json({ data: cached.data, total: cached.total, feedRequestId });
+        return c.json({ data: c.get("discoverPreviewEnabled") ? await withWorldPlaytime(cached.data as Array<{ id: string; gamePath?: string | null }>) : cached.data, total: cached.total, feedRequestId });
       }
     }
 
@@ -1022,7 +1072,7 @@ worldRoutes.get("/hub", async (c, next) => {
         : ranking;
 
       const stripped = ranked.data.map((candidate) => stripRecommendationInternals(candidate));
-      const mediaResolved = resolveHubMedia(stripped as any[]);
+      const mediaResolved = await resolveHubMedia(stripped as any[], c.get("discoverPreviewEnabled"));
 
       // Populate the output cache. Fire-and-forget: never add a Redis round-trip
       // to the (already slow) cold path before responding. The helper swallows
@@ -1128,7 +1178,7 @@ worldRoutes.get("/hub", async (c, next) => {
       .where(whereClause),
   ]);
 
-  const mediaResolved = resolveHubMedia(result);
+  const mediaResolved = await resolveHubMedia(result, c.get("discoverPreviewEnabled"));
 
   // Phase 3 analytics: log every served feed — not just the recommended
   // path — so we can compare CTR across surfaces. `tier` is null here
@@ -1176,8 +1226,18 @@ worldRoutes.get("/hub", async (c, next) => {
   }
 });
 
+worldRoutes.get("/featured-categories", async c => {
+  c.header("Cache-Control", "private, no-store");
+  c.header("Vary", "Cookie");
+  if (!c.get("discoverPreviewEnabled")) return c.json({ error: "Not found" }, 404);
+  const published = c.get("discoverPreviewEnabled") ? await publishedEditorial(db) : undefined;
+  c.header("Cache-Control", "private, no-store");
+  return c.json({ data: (published?.config.categories ?? DEFAULT_EDITORIAL_CATEGORIES).filter(category => !category.hidden) });
+});
+
 // GET /api/worlds/featured — public, returns editorial featured worlds in slot order
-worldRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
+worldRoutes.get("/featured", optionalAuthMiddleware, async (c, next) => {
+  if (c.get("discoverPreviewEnabled")) return next();
   const preferredLang = normalizeHubLanguage(c.req.query("lang"));
   let currentUser: { id: string } | null = null;
   try { currentUser = c.get("user"); } catch { /* anonymous */ }
@@ -1254,11 +1314,112 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
     })
     .filter((r): r is NonNullable<typeof r> => !!r);
 
-  const mediaResolved = resolveHubMedia(ordered);
+  const mediaResolved = await resolveHubMedia(ordered);
 
   c.header("Cache-Control", currentUser ? "private, no-store" : "public, max-age=60, s-maxage=60, stale-while-revalidate=300");
   c.header("Vary", "Cookie");
   return c.json({ data: mediaResolved });
+});
+
+worldRoutes.get("/featured", optionalAuthMiddleware, async (c) => {
+  const preferredLang = normalizeHubLanguage(c.req.query("lang"));
+  let currentUser: { id: string } | null = null;
+  try { currentUser = c.get("user"); } catch { /* anonymous */ }
+  const blocks = currentUser ? await listBlockedUsersForHiding(currentUser.id) : null;
+  const hiddenCreatorIds = blocks ? [...new Set([...blocks.hideWorldCreatorIds, ...blocks.hiddenByCreatorIds])] : [];
+  // Resolve audience and collection on primary so an admin save or mode change
+  // cannot be served from a stale replica. This is a small editorial surface.
+  const rd = db;
+  const [profile] = currentUser ? await db.select({ preferences: user.preferences, birthYear: user.birthYear })
+    .from(user).where(eq(user.id, currentUser.id)).limit(1) : [];
+  const minor = profile?.birthYear != null && getAgeFromBirthYear(profile.birthYear) < 18;
+  const effectiveMode = minor ? "safe" : resolveProfileContentLevel(!!currentUser,
+    c.req.query("contentLevel") === "safe" ? "safe" : undefined, profile?.preferences);
+  const safe = effectiveMode === "safe";
+  const published = c.get("discoverPreviewEnabled") ? await publishedEditorial(db) : undefined;
+  const channel = c.req.query("channel") ?? "all";
+  const scope = featuredScopeSchema.safeParse({ channel,
+    language: preferredLang ?? "default", contentMode: safe ? "safe" : "sensitive" });
+  const category = published?.config.categories.find(c => c.id === channel);
+  if (published ? !category : !scope.success) return c.json({ error: "Invalid Featured category" }, 400);
+  const collection = published ? resolveEditorialCollection(published.config, channel, preferredLang ?? "default", safe ? "safe" : "sensitive") : undefined;
+  const layout = collection?.layout ?? "mosaic";
+  const slots = published ? (category?.hidden ? [] : activeEditorialSlots(collection?.slots ?? [])) : activeFeaturedSlots((await readFeaturedCollection(db, scope.success ? scope.data : { channel: "all", language: "default", contentMode: "default" })).slots);
+  c.header("Cache-Control", "private, no-store");
+  c.header("Vary", "Cookie");
+  if (slots.length === 0) return c.json({ data: [], layout });
+  const ids = slots.map((s) => s.worldId);
+
+  const rows = await rd
+    .select(hubWorldListSelect)
+    .from(worlds)
+    .leftJoin(user, eq(worlds.creatorId, user.id))
+    .where(and(
+      eq(worlds.isPublished, true),
+      eq(worlds.status, "published"),
+      inArray(worlds.id, ids),
+      eq(worlds.visibility, "public"),
+      ...(hiddenCreatorIds.length > 0 ? [notInArray(worlds.creatorId, hiddenCreatorIds)] : []),
+      // Guests never receive Limitless rows in the featured rail.
+      ...(safe ? [eq(worlds.ageRating, "all"), eq(worlds.isNsfw, false)] : []),
+    ));
+
+  // Editorial slots historically pin one concrete world ID. When that world
+  // belongs to a language group, select the viewer's real published sibling
+  // row instead of painting that sibling's fields onto the pinned ID. This
+  // keeps the featured card and the preview/detail route on the same variant.
+  const groupIds = [...new Set(rows
+    .map((row) => row.languageGroupId)
+    .filter((groupId): groupId is string => Boolean(groupId)))];
+  const preferredByGroup = new Map<string, (typeof rows)[number]>();
+  if (preferredLang && groupIds.length > 0) {
+    const langPrefix = `${preferredLang}-%`;
+    const preferredRows = await rd
+      .select(hubWorldListSelect)
+      .from(worlds)
+      .leftJoin(user, eq(worlds.creatorId, user.id))
+      .where(and(
+        inArray(worlds.languageGroupId, groupIds),
+        ...(hiddenCreatorIds.length > 0 ? [notInArray(worlds.creatorId, hiddenCreatorIds)] : []),
+        eq(worlds.isPublished, true),
+        eq(worlds.status, "published"),
+        // Featured slots are public surface — never swap in a followers-only
+        // sibling a non-follower can't open.
+        eq(worlds.visibility, "public"),
+        ...(safe ? [eq(worlds.ageRating, "all"), eq(worlds.isNsfw, false)] : []),
+        or(
+          eq(worlds.language, preferredLang),
+          sql`${worlds.language} LIKE ${langPrefix}`,
+        ),
+      ))
+      .orderBy(
+        sql`CASE WHEN ${worlds.language} = ${preferredLang} THEN 0 ELSE 1 END`,
+        desc(worlds.isPrimaryVariant),
+        worlds.createdAt,
+        worlds.id,
+      );
+    for (const row of preferredRows) {
+      if (row.languageGroupId && !preferredByGroup.has(row.languageGroupId)) {
+        preferredByGroup.set(row.languageGroupId, row);
+      }
+    }
+  }
+
+  // Preserve slot order
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const ordered = slots
+    .map((slot) => {
+      const pinned = byId.get(slot.worldId);
+      return pinned?.languageGroupId
+        ? preferredByGroup.get(pinned.languageGroupId) ?? pinned
+        : pinned;
+    })
+    .filter((r): r is NonNullable<typeof r> => !!r);
+
+  const unique = ordered.filter((row, i, all) => all.findIndex(other => (other.languageGroupId ?? other.id) === (row.languageGroupId ?? row.id)) === i);
+  const mediaResolved = await resolveHubMedia(unique, c.get("discoverPreviewEnabled"));
+
+  return c.json({ data: mediaResolved, layout });
 });
 
 // GET /api/worlds/:id/activity — aggregate engagement shown in Library details.
@@ -1339,6 +1500,40 @@ worldRoutes.get("/:id/activity", optionalAuthMiddleware, async (c) => {
 });
 
 // GET /api/worlds/:id — public (for published worlds)
+// The world's current public address, for share buttons on screens whose data
+// predates addresses (library, cached feeds). Published public worlds only, plus
+// the owner's own drafts.
+worldRoutes.get("/:id/address", optionalAuthMiddleware, async (c) => {
+  const world = await findWorldById(c.req.param("id")).catch(() => null);
+  const viewer = c.get("user");
+  if (!world || (!isPubliclyVisible(world) && viewer?.id !== world.creatorId)) return c.json({ error: "World not found" }, 404);
+  const path = canonicalWorldPath(world);
+  if (!path) return c.json({ error: "World not found" }, 404);
+  return c.json({ data: { path } });
+});
+
+// Public address lookup: the permanent short id in /@user/name-<publicId> -> world id.
+// Published public worlds only, plus the owner's own drafts.
+worldRoutes.get("/resolve/:publicId", optionalAuthMiddleware, async (c) => {
+  const publicId = c.req.param("publicId").trim().toLowerCase();
+  if (!/^[0-9a-f]{8,32}$/.test(publicId)) return c.json({ error: "World not found" }, 404);
+  const [row] = await readPublic()
+    .select({
+      id: worlds.id,
+      status: worlds.status,
+      isPublished: worlds.isPublished,
+      visibility: worlds.visibility,
+      creatorId: worlds.creatorId,
+    })
+    .from(worlds)
+    .where(eq(worlds.publicId, publicId))
+    .limit(1);
+  const viewer = c.get("user");
+  const published = Boolean(row) && (row!.status === "published" || Boolean(row!.isPublished)) && row!.visibility === "public";
+  if (!row || (!published && viewer?.id !== row.creatorId)) return c.json({ error: "World not found" }, 404);
+  return c.json({ data: { id: row.id } });
+});
+
 worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
   const worldId = c.req.param("id");
   let currentUser: { id: string } | null = null;
@@ -1363,6 +1558,8 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
         thumbnailUrl: worlds.thumbnailUrl,
         coverCrop: coverCropCols.coverCrop,
         galleryCoverCrop: coverCropCols.galleryCoverCrop,
+        landscapeCoverUrl: worlds.landscapeCoverUrl,
+        landscapeCoverCrop: worlds.landscapeCoverCrop,
         isPublished: worlds.isPublished,
         status: worlds.status,
         submittedForReviewAt: worlds.submittedForReviewAt,
@@ -1391,6 +1588,8 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
         createdAt: worlds.createdAt,
         updatedAt: worlds.updatedAt,
         creatorName: user.name,
+        creatorUsername: user.username,
+        publicId: worlds.publicId,
         creatorImage: user.image,
         sourceWorldId: worlds.sourceWorldId,
         sourceWorldName: sourceWorldCols.sourceWorldName,
@@ -1528,6 +1727,7 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
 
   // Resolve S3 keys → CDN URLs
   world.thumbnailUrl = resolveImageCdn(world.thumbnailUrl);
+  world.landscapeCoverUrl = resolveImageCdn(world.landscapeCoverUrl);
 
   // Resolve gallery S3 keys to CDN URLs
   if (world.galleryImages && Array.isArray(world.galleryImages)) {
@@ -1551,11 +1751,12 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
   // Attach creator info for non-preview mode (preview mode already has it from the JOIN)
   if (!isPreview && world.creatorId) {
     const [creator] = await rd
-      .select({ name: user.name, image: user.image })
+      .select({ name: user.name, image: user.image, username: user.username })
       .from(user)
       .where(eq(user.id, world.creatorId))
       .limit(1);
     (world as any).creatorName = creator?.name ?? null;
+    (world as any).creatorUsername = creator?.username ?? null;
     (world as any).creatorImage = resolveImageCdn(creator?.image ?? null);
   } else if (isPreview) {
     // Preview mode: creatorImage came from the JOIN as a raw column value (possibly
@@ -1564,7 +1765,7 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
   }
 
   c.header("Cache-Control", "no-store, no-cache, must-revalidate");
-  return c.json({ data: world });
+  return c.json({ data: isPreview && c.get("discoverPreviewEnabled") ? (await withWorldPlaytime([world]))[0] : world });
 });
 
 // GET /api/worlds/:id/context-requirement — estimated minimum context (tokens)
@@ -2300,6 +2501,10 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
         error: "Add a cover image before publishing — every published card needs one. Upload it in the editor's Overview section, then submit again.",
         code: "COVER_REQUIRED",
       }, 400);
+    }
+
+    if ((await discoverAccess(currentUser.id)).enabled && submittable.some(s => !hasDiscoverCoverArt(s))) {
+      return c.json({ error: "Set up portrait (2:3) and landscape (16:9) artwork in Overview and confirm both crops before publishing.", code: "COVER_ART_REQUIRED" }, 400);
     }
 
     const groupKey = existing[0]!.languageGroupId ?? worldId;
@@ -3115,6 +3320,8 @@ worldRoutes.get("/:id/updates", optionalAuthMiddleware, async (c) => {
       isMajor: worldUpdates.isMajor,
       createdAt: worldUpdates.createdAt,
       creatorName: user.name,
+      creatorUsername: user.username,
+      publicId: worlds.publicId,
     })
     .from(worldUpdates)
     .innerJoin(worlds, eq(worldUpdates.worldId, worlds.id))

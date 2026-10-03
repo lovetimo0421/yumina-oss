@@ -53,7 +53,13 @@ export interface StudioImageProposal {
    *  has no size knob (GPT Image is sized by `quality`). */
   resolution?: string;
   batchSize: number;
+  /** 描述生图 (smart) or 自定义生图 (custom). Absent on proposals made before
+   *  custom mode existed, which were all smart. */
+  mode?: "smart" | "custom";
   model: string;
+  /** Custom mode: the platform base model slug (PLATFORM_STYLES). In custom
+   *  mode `aspectRatio` holds an IMAGE_ASPECTS id ("portrait"), not a ratio. */
+  style?: string;
   /** Why the assistant picked that generator, in the creator's language. Shown
    *  on the confirmation card in a fixed slot: the disclosure is part of the
    *  card rather than something the assistant has to remember to say. */

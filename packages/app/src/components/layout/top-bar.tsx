@@ -14,6 +14,7 @@ import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useAuthGuard } from "@/hooks/use-auth-guard";
+import { useDiscoverAccess } from "@/hooks/use-discover-access";
 import {
   ContentLevelSwitcher,
   CreditIndicator,
@@ -196,6 +197,7 @@ export function TopBarAccountControls() {
 }
 
 export function TopBar() {
+  const { enabled: discoverPreview } = useDiscoverAccess();
   const { t } = useTranslation();
   const { query: hubQuery, setQuery: setHubQuery } = useHubSearch();
   const libraryQuery = useLibrarySearchStore((s) => s.query);
@@ -205,7 +207,7 @@ export function TopBar() {
   const headerRef = useRef<HTMLDivElement>(null);
   const [scrollHidden, setScrollHidden] = useState(false);
 
-  const isDiscoverPage = location.pathname.startsWith("/app/hub");
+  const isDiscoverPage = location.pathname === "/" || location.pathname.startsWith("/app/hub");
   const isLibraryPage = location.pathname.startsWith("/app/library");
   const isCommunityPage = location.pathname.startsWith("/app/community");
   const isMessagesPage = location.pathname.startsWith("/app/messages");
@@ -232,6 +234,7 @@ export function TopBar() {
   }, [location.pathname, isDiscoverPage, isCommunityPage, isLibraryPage, isMessagesPage, isCreatePicker]);
 
   const handleDiscoverSearchConfirm = () => {
+    if (discoverPreview) headerRef.current?.querySelector<HTMLInputElement>("input[type=search]")?.blur();
     const hubScroller = document.querySelector(".hub-layout-scroll") as HTMLElement | null;
     scrollPageTo(hubScroller, 0);
   };
@@ -255,7 +258,7 @@ export function TopBar() {
       className={`topbar-shell z-50 flex shrink-0 bg-transparent ${
         showSearch ? "topbar-shell--search" : ""
       } ${
-        isDiscoverPage ? "topbar-shell--discover" : ""
+        isDiscoverPage ? `topbar-shell--discover${discoverPreview ? " topbar-shell--discover-preview" : ""}` : ""
       } ${isLibraryPage ? "topbar-shell--library" : ""} ${
         isCommunityPage ? "topbar-shell--community" : ""
       } ${
@@ -297,6 +300,8 @@ export function TopBar() {
                   }}
                   className="topbar-search-input topbar-search-input--glass w-full rounded-full border border-white/5 bg-white/5 pl-11 pr-4 text-sm text-foreground placeholder:text-muted-foreground/60 transition-all focus:border-white/10 focus:bg-white/10 focus:outline-none"
                 />
+                {isDiscoverPage && discoverPreview && <button type="button" className="discover-search-submit" aria-label={searchPlaceholder}
+                  onClick={handleDiscoverSearchConfirm}><Search size={15} aria-hidden="true" /></button>}
               </div>
             ) : null}
           </div>

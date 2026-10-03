@@ -41,6 +41,11 @@ export const variableSchema = z.object({
   description: z.string().optional(),
   min: z.number().optional(),
   max: z.number().optional(),
+  // Precise tracking (continuity judge) — see types/index.ts.
+  options: z.array(z.string()).optional(),
+  precise: z.boolean().optional(),
+  deltaDown: z.number().min(0).optional(),
+  deltaUp: z.number().min(0).optional(),
   behaviorRules: z.string().optional(),
   // Legacy alias for behaviorRules — kept so old exports import cleanly. See types/index.ts.
   updateHints: z.string().optional(),
@@ -85,6 +90,7 @@ export const audioTrackSchema = z.object({
   type: z.enum(["bgm", "sfx", "ambient"]),
   url: z.string(),
   allowAiControl: z.boolean().optional(),
+  aiNote: z.string().optional(),
   loop: z.boolean().optional(),
   volume: z.number().min(0).max(1).optional(),
   fadeIn: z.number().optional(),
@@ -92,11 +98,25 @@ export const audioTrackSchema = z.object({
   maxDuration: z.number().optional(),
 });
 
+export const sceneImageSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  url: z.string(),
+  scene: z.string(),
+  hint: z.string().optional(),
+  greetingIds: z.array(z.string()).optional(),
+  allowAiControl: z.boolean().optional(),
+});
+
 export const audioEffectSchema = z.object({
   trackId: z.string(),
   action: z.enum(["play", "stop", "crossfade", "volume"]),
   volume: z.number().min(0).max(1).optional(),
   fadeDuration: z.number().optional(),
+  source: z.literal("continuity").optional(),
+  duckBgm: z.boolean().optional(),
+  loop: z.boolean().optional(),
+  overRules: z.boolean().optional(),
 });
 
 export const bgmPlaylistSchema = z.object({
@@ -308,6 +328,8 @@ export const worldEntrySchema = z.object({
   variableBound: z.boolean().optional(),
   audience: z.enum(["ai", "player", "both"]).optional(),
   portrait: z.string().optional(),
+  /** fish.audio reference id the character is read in. */
+  voice: z.string().optional(),
   pairId: z.string().optional(),
   worldbookId: z.string().optional(),
   initialVariables: z
@@ -365,6 +387,10 @@ export const worldSettingsSchema = z.object({
   topK: z.number().int().min(0).optional(),
   minP: z.number().min(0).max(1).optional(),
   playerName: z.string().optional().default("User"),
+  /** fish.audio reference id narration is read in; a speaking character without a voice of their own falls to this. */
+  narratorVoice: z.string().optional(),
+  /** Voice input on release: "confirm" (fill composer) or "auto" (send as spoken). */
+  voiceInputMode: z.enum(["confirm", "auto"]).optional(),
   systemPrompt: z.string().optional(),
   greeting: z.string().optional(),
   lorebookTokenBudget: z.number().int().positive().optional(),
@@ -424,6 +450,8 @@ export const worldDefinitionSchema = z.object({
   avatar: z.string().optional(),
   coverCrop: coverCropSettingsSchema.optional(),
   galleryCoverCrop: coverCropSettingsSchema.optional(),
+  landscapeCover: z.string().optional(),
+  landscapeCoverCrop: coverCropSettingsSchema.optional(),
   entries: z.array(worldEntrySchema).default([]),
   variables: z.array(variableSchema).default([]),
   rules: z.array(ruleSchema).default([]),
@@ -434,8 +462,20 @@ export const worldDefinitionSchema = z.object({
   components: z.array(_gameComponentSchema).default([]),
   uiBlueprint: _uiBlueprintSchema.optional(),
   audioTracks: z.array(audioTrackSchema).default([]),
+  sceneImages: z.array(sceneImageSchema).optional(),
   bgmPlaylist: bgmPlaylistSchema.optional(),
   conditionalBGM: z.array(conditionalBGMSchema).optional(),
+  continuity: z.object({
+    enabled: z.boolean().optional(),
+    bgm: z.boolean().optional(),
+    sfx: z.boolean().optional(),
+    images: z.boolean().optional(),
+    music: z.object({
+      overRules: z.boolean().optional(),
+      once: z.boolean().optional(),
+      duck: z.boolean().optional(),
+    }).optional(),
+  }).optional(),
   lorebookEntries: z.array(lorebookEntrySchema).optional(),
   customUI: z.array(customUIComponentSchema).default([]),
   rootComponent: rootComponentSchema.optional(),

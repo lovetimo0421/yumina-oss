@@ -14,7 +14,8 @@
     "games": "ゲーム",
     "myProjects": "マイプロジェクト",
     "assets": "アセット",
-    "bundles": "バンドル"
+    "bundles": "バンドル",
+    "prompts": "プロンプト"
   },
   "sort": {
     "sortBy": "並び替え:",
@@ -464,7 +465,7 @@
     "template": {
       "image-anime": {
         "name": "カスタム生成",
-        "desc": "モデル・LoRA・設定を選ぶ"
+        "desc": "モデルと設定を選ぶ"
       },
       "video-text": {
         "name": "テキスト動画",
@@ -634,7 +635,10 @@
     "loadMore": "もっと見る",
     "makeImage": "画像から画像",
     "enhanceToggle": "AIプロンプト最適化",
-    "enhanceHint": "説明をモデルが理解しやすい形式に書き換えます。オフの場合はそのまま送信します。",
+    "enhanceHint": "説明をモデルが理解しやすい形式に書き換え、入力欄に戻します。確認・修正してから生成できます。使わない場合は入力どおりに送信します。",
+    "enhancing": "最適化中…",
+    "enhanceDone": "最適化したプロンプトに置き換えました。生成前に自由に修正できます。",
+    "enhanceUndo": "元に戻す",
     "useBase": "参考画像",
     "clearReference": "画像を外す",
     "uploadReference": "画像をアップロード",
@@ -690,7 +694,8 @@
         "name": "洋風",
         "desc": "欧米ファンタジー/コミック調（ZavyChroma XL）",
         "detail": "文章プロンプト向き；ドラマチックな光と厚塗りファンタジーが得意。"
-      }
+      },
+      "surchargeChip": "+{{count}} Mushie"
     },
     "videoStyleFromReference": "動画は参照画像の画風をそのまま引き継ぎます。",
     "makeReference": "まず一枚生成する",
@@ -735,7 +740,9 @@
       "PROVIDER_REQUEST": "モデルがこの設定を受け付けませんでした。モデルまたは画像設定を変更してください。",
       "PROVIDER_TIMEOUT": "モデルの生成がタイムアウトしました。課金はされていません。より速いモデルか低い解像度でお試しください。",
       "PROVIDER_REJECTED": "モデル側がこのリクエストを拒否しました。課金はされていません。別のモデルでお試しください。",
-      "CONTENT_FILTERED": "モデル提供元がこの内容を拒否しました（Yumina 側の制限ではありません）。課金は発生していません。別のモデルを選ぶか、説明を変えてお試しください。"
+      "CONTENT_FILTERED": "モデル提供元がこの内容を拒否しました（Yumina 側の制限ではありません）。課金は発生していません。別のモデルを選ぶか、説明を変えてお試しください。",
+      "ENHANCE_REFUSED": "AI がこの説明を最適化できませんでした。入力内容は変更されていません。言い換えて再試行するか、そのまま生成してください。",
+      "ENHANCE_FAILED": "プロンプト最適化は現在利用できません。入力内容は変更されていません。しばらくしてから再試行してください。"
     },
     "queue": {
       "waiting": "順番待ち中…",
@@ -811,7 +818,11 @@
       "baseImage": "ベース画像",
       "editResult": "この画像を編集",
       "chooseEditImage": "編集する画像を選択",
-      "reuseParameters": "設定を再利用"
+      "reuseParameters": "設定を再利用",
+      "baseModelHint": "画風とプロンプトの書き方が決まります",
+      "paramSummary": "{{steps}} ステップ · CFG {{cfg}} · {{seed}}",
+      "seedRandomSummary": "ランダムシード",
+      "seedFixedSummary": "シード {{seed}}"
     },
     "atelier": {
       "title": "AI 画像生成",
@@ -829,7 +840,8 @@
       "tabImage": "画像",
       "tabAudio": "音声",
       "audioTitle": "AI BGM 生成",
-      "audioLead": "音楽は素材ライブラリに保存されます。"
+      "audioLead": "音楽は素材ライブラリに保存されます。",
+      "sectionOutput": "出力サイズ"
     },
     "music": {
       "workshopTitle": "BGM を生成",
@@ -860,6 +872,27 @@
       "estimating": "見積もり中…",
       "estimate": "約 {{count}} マッシー",
       "go": "生成"
+    },
+    "format": {
+      "tags": {
+        "title": "タグ形式",
+        "body": "英語の Danbooru タグをカンマ区切りで",
+        "short": "タグ"
+      },
+      "prose": {
+        "title": "自然文",
+        "body": "英語の文章で画面を説明",
+        "short": "自然文"
+      },
+      "example": "例",
+      "exampleHint": "この例を入力欄に入れる"
+    },
+    "live": {
+      "waiting": "GPU 待ち",
+      "waitingHint": "順番待ち、またはマシン起動中",
+      "generating": "生成中",
+      "generatingSteps": "生成中 約 {{step}}/{{steps}} ステップ",
+      "saving": "保存中"
     }
   },
   "media": {

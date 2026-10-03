@@ -16,7 +16,8 @@
     "games": "Juegos",
     "myProjects": "Mis Proyectos",
     "assets": "Recursos",
-    "bundles": "Paquetes"
+    "bundles": "Paquetes",
+    "prompts": "Prompts"
   },
   "sort": {
     "sortBy": "Ordenar por:",
@@ -481,7 +482,7 @@
     "template": {
       "image-anime": {
         "name": "Generación personalizada",
-        "desc": "Elige modelos, LoRAs y ajustes"
+        "desc": "Elige el modelo y los ajustes"
       },
       "video-text": {
         "name": "Vídeo desde texto",
@@ -654,7 +655,10 @@
     "loadMore": "Cargar más",
     "makeImage": "Imagen a imagen",
     "enhanceToggle": "Pulido de prompt con IA",
-    "enhanceHint": "Reescribe tu descripción al formato nativo del modelo. Desactivado = se envía tal cual.",
+    "enhanceHint": "Reescribe tu descripción al formato nativo del modelo y la deja en el cuadro para que la revises y edites. Si no lo usas, tu texto se envía tal cual.",
+    "enhancing": "Puliendo…",
+    "enhanceDone": "Sustituido por el prompt pulido; puedes editarlo antes de generar.",
+    "enhanceUndo": "Deshacer",
     "useBase": "Imagen de referencia",
     "clearReference": "Quitar imagen",
     "uploadReference": "Subir imagen",
@@ -710,7 +714,8 @@
         "name": "Occidental",
         "desc": "Arte fantástico/cómic occidental (ZavyChroma XL).",
         "detail": "Prompts en prosa; fuerte en iluminación dramática y fantasía pictórica."
-      }
+      },
+      "surchargeChip": "+{{count}} mushies"
     },
     "videoStyleFromReference": "El vídeo conserva el estilo artístico de la imagen de referencia.",
     "makeReference": "Generar una primero",
@@ -755,7 +760,9 @@
       "PROVIDER_REQUEST": "El modelo no aceptó estos ajustes. Cambia el modelo o los ajustes de imagen.",
       "PROVIDER_TIMEOUT": "El modelo tardó demasiado y se agotó el tiempo. No se te cobró. Prueba un modelo más rápido o una resolución menor.",
       "PROVIDER_REJECTED": "El modelo rechazó esta solicitud. No se te cobró. Prueba con otro modelo.",
-      "CONTENT_FILTERED": "El proveedor del modelo rechazó esta imagen, no es una restricción de Yumina. No se te cobró; prueba con otro modelo o reformula la descripción."
+      "CONTENT_FILTERED": "El proveedor del modelo rechazó esta imagen, no es una restricción de Yumina. No se te cobró; prueba con otro modelo o reformula la descripción.",
+      "ENHANCE_REFUSED": "La IA no pudo pulir esta descripción. Tu texto no ha cambiado: reformúlalo e inténtalo de nuevo, o genera con él tal cual.",
+      "ENHANCE_FAILED": "El pulido de prompt no está disponible ahora mismo. Tu texto no ha cambiado; inténtalo de nuevo en un momento."
     },
     "queue": {
       "waiting": "Esperando en la cola…",
@@ -831,7 +838,11 @@
       "baseImage": "Imagen base",
       "editResult": "Editar esta imagen",
       "chooseEditImage": "Elegir imagen para editar",
-      "reuseParameters": "Reutilizar parámetros"
+      "reuseParameters": "Reutilizar parámetros",
+      "baseModelHint": "Define el estilo y cómo se escribe el prompt",
+      "paramSummary": "{{steps}} pasos · CFG {{cfg}} · {{seed}}",
+      "seedRandomSummary": "semilla aleatoria",
+      "seedFixedSummary": "semilla {{seed}}"
     },
     "atelier": {
       "title": "Imágenes con IA",
@@ -849,7 +860,8 @@
       "tabImage": "Imágenes",
       "tabAudio": "Audio",
       "audioTitle": "Música con IA",
-      "audioLead": "La música se guarda en tu biblioteca de recursos."
+      "audioLead": "La música se guarda en tu biblioteca de recursos.",
+      "sectionOutput": "Formato"
     },
     "music": {
       "workshopTitle": "Generar un BGM",
@@ -880,6 +892,27 @@
       "estimating": "Calculando…",
       "estimate": "Unos {{count}} mushies",
       "go": "Generar"
+    },
+    "format": {
+      "tags": {
+        "title": "Formato de etiquetas",
+        "body": "etiquetas Danbooru en inglés, separadas por comas",
+        "short": "Etiquetas"
+      },
+      "prose": {
+        "title": "Lenguaje natural",
+        "body": "describe la imagen con frases en inglés",
+        "short": "Frases"
+      },
+      "example": "Ejemplo",
+      "exampleHint": "Rellenar el cuadro con este ejemplo"
+    },
+    "live": {
+      "waiting": "Esperando una GPU",
+      "waitingHint": "En cola o arrancando una máquina",
+      "generating": "Generando",
+      "generatingSteps": "Generando · ~{{step}}/{{steps}} pasos",
+      "saving": "Guardando"
     }
   },
   "media": {

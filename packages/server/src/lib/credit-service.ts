@@ -5,7 +5,7 @@
 
 import { db } from "../db/index.js";
 import { creditWallets, creditTransactions, studioCreditReservations, user } from "../db/schema.js";
-import { eq, sql, and } from "drizzle-orm";
+import { eq, sql, and, isNull, or } from "drizzle-orm";
 import { getModelPrice } from "./model-price-cache.js";
 import type { PlanId } from "./plan-config.js";
 import { PLANS, planMeetsMinimum, normalizePlan, STRIPE_PRICE_TO_PLAN } from "./plan-config.js";
@@ -26,6 +26,7 @@ import { bonusCompatibilityEnabled, cyclePlanConfig, expireWalletBonus, prepareW
 import { isV2Signup, shouldMigrateToV2 } from "./plan-config-v2.js";
 import { hasDropWork, initialDropAmount, releaseDueDrops, settleUndeliveredDrops, startDropCycle } from "./plan-drops.js";
 import { getAvailableCredits, heldCreditsForWallet, studioCreditReservationsEnabled } from "./credit-reservations.js";
+import { FREE_CREDIT_CYCLE_MS, globalCreditResetAtOrAfter, isFreeCreditCycle } from "./credit-reset-time.js";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -123,7 +124,7 @@ async function restoreLegacyReRegistrationFreeze(
 
   const config = await cyclePlanConfig(existing.userId, "free", now, now);
   const oldDeadline = existing.lastDailyRecovery!;
-  const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const periodEnd = globalCreditResetAtOrAfter(new Date(now.getTime() + FREE_CREDIT_CYCLE_MS));
 
   return db.transaction(async (tx) => {
     const [updated] = await tx
@@ -174,6 +175,23 @@ async function restoreLegacyReRegistrationFreeze(
 
 // ─── Ensure Wallet Exists ───────────────────────────────────────────
 
+/** One-time, forward-only alignment. Keep period_start intact: it identifies paid drops. */
+async function alignFreeWalletReset(existing: CreditWalletRow): Promise<CreditWalletRow> {
+  if (!isFreeCreditCycle(existing)) return existing;
+  const periodEnd = globalCreditResetAtOrAfter(existing.periodEnd);
+  if (periodEnd.getTime() === existing.periodEnd.getTime()) return existing;
+  const [updated] = await db.update(creditWallets).set({ periodEnd, updatedAt: new Date() })
+    .where(and(eq(creditWallets.id, existing.id), eq(creditWallets.plan, "free"),
+      or(isNull(creditWallets.subscriptionSource), eq(creditWallets.subscriptionSource, "comp")), eq(creditWallets.periodStart, existing.periodStart),
+      eq(creditWallets.periodEnd, existing.periodEnd)))
+    .returning();
+  if (updated) return updated;
+  // A renewal/upgrade won the race. Never return the stale Free balance or dates.
+  const [current] = await db.select().from(creditWallets).where(eq(creditWallets.id, existing.id));
+  if (!current) throw new Error("Credit wallet disappeared during reset alignment");
+  return current;
+}
+
 /** Get or create a credit wallet for the user. */
 export async function ensureWallet(userId: string, plan?: PlanId): Promise<CreditWallet> {
   await expireWalletBonus(userId);
@@ -183,7 +201,7 @@ export async function ensureWallet(userId: string, plan?: PlanId): Promise<Credi
     .where(eq(creditWallets.userId, userId));
 
   if (existing) {
-    return toCreditWallet(await restoreLegacyReRegistrationFreeze(existing));
+    return toCreditWallet(await alignFreeWalletReset(await restoreLegacyReRegistrationFreeze(existing)));
   }
 
   // Account deletion removes the old wallet. If the same person later creates
@@ -198,7 +216,8 @@ export async function ensureWallet(userId: string, plan?: PlanId): Promise<Credi
   // v2 pays the cycle pile in drops: only drop 0 lands at signup (plan-drops.ts).
   const initialBalance = planVersion === 2 ? initialDropAmount(effectivePlan) : config.monthlyCredits;
   const initialTrialRemaining = initialGrokTrial(now);
-  const periodEnd = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const cycleEnd = new Date(now.getTime() + FREE_CREDIT_CYCLE_MS);
+  const periodEnd = effectivePlan === "free" ? globalCreditResetAtOrAfter(cycleEnd) : cycleEnd;
 
   const wallet = await db.transaction(async (tx) => {
   const [wallet] = await tx
@@ -234,7 +253,7 @@ export async function ensureWallet(userId: string, plan?: PlanId): Promise<Credi
       .from(creditWallets)
       .where(eq(creditWallets.userId, userId));
     if (!retry) throw new Error("Failed to create or find credit wallet");
-    return toCreditWallet(await restoreLegacyReRegistrationFreeze(retry));
+    return toCreditWallet(await alignFreeWalletReset(await restoreLegacyReRegistrationFreeze(retry)));
   }
 
 
@@ -469,7 +488,9 @@ export async function checkBalance(userId: string): Promise<{
     await refreshMonthlyCredits(userId);
   }
 
-  const refreshed = await ensureWallet(userId);
+  let refreshed = await ensureWallet(userId);
+  // After a long absence the current cycle can already be past a later drop.
+  if (await hasDropWork(refreshed) && (await releaseDueDrops(userId)).length > 0) refreshed = await ensureWallet(userId);
   const effectiveWallet = await withEffectiveEventPlan(refreshed);
   const balance = studioCreditReservationsEnabled() ? (await getAvailableCredits(userId)).availableCredits : effectiveWallet.balance;
   return { ok: balance > 0, balance, wallet: effectiveWallet };
@@ -835,16 +856,18 @@ async function recordMonthlyExpiry(
 export async function refreshMonthlyCredits(
   userId: string,
   options?: { periodStart?: Date; periodEnd?: Date; referenceId?: string },
+  settlement?: { now?: Date; freeOnly?: boolean },
 ): Promise<boolean> {
   const wallet = await ensureWallet(userId);
-  const now = new Date();
+  const now = settlement?.now ?? new Date();
+  if (settlement?.freeOnly && !isFreeCreditCycle(wallet)) return false;
 
   // When called from invoice.paid webhook, always refresh (Stripe says it's time).
   // When called lazily (no options), only refresh if period expired.
   if (!options && now < wallet.periodEnd) return false;
 
   const anchoredStart = new Date(wallet.periodEnd.getTime() + Math.floor((now.getTime()-wallet.periodEnd.getTime())/(30*86400000))*30*86400000);
-  const newPeriodStart = options?.periodStart ?? (bonusCompatibilityEnabled() ? anchoredStart : now);
+  const newPeriodStart = options?.periodStart ?? (wallet.plan === "free" || bonusCompatibilityEnabled() ? anchoredStart : now);
   const newPeriodEnd = options?.periodEnd ?? new Date(newPeriodStart.getTime() + 30 * 24 * 60 * 60 * 1000);
 
   // Every wallet not on a real Stripe subscription joins the version-2 lineup at
@@ -856,7 +879,9 @@ export async function refreshMonthlyCredits(
   const renewalGrant = planVersion === 2 ? initialDropAmount(wallet.plan) : config.monthlyCredits;
   return db.transaction(async (tx) => {
   const [locked] = await tx.select().from(creditWallets).where(eq(creditWallets.id,wallet.id)).for("update");
-  if (!locked || locked.plan !== wallet.plan || (!options && locked.periodEnd.getTime() !== wallet.periodEnd.getTime())) return false;
+  if (!locked || locked.plan !== wallet.plan || locked.planVersion !== wallet.planVersion
+    || locked.subscriptionSource !== wallet.subscriptionSource
+    || (!options && locked.periodEnd.getTime() !== wallet.periodEnd.getTime())) return false;
   if (options?.referenceId) {
     const [prior] = await tx.select({ id: creditTransactions.id }).from(creditTransactions).where(and(
       eq(creditTransactions.walletId, wallet.id), eq(creditTransactions.referenceId, options.referenceId),
@@ -985,7 +1010,8 @@ export async function syncPlan(
     : 1;
   const grantAmount = Math.round(cycleGrant * grantFraction);
   const periodStart = options?.periodStart ?? now;
-  const periodEnd = options?.periodEnd ?? new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const cycleEnd = new Date(periodStart.getTime() + FREE_CREDIT_CYCLE_MS);
+  const periodEnd = options?.periodEnd ?? (newPlan === "free" ? globalCreditResetAtOrAfter(cycleEnd) : cycleEnd);
 
   return db.transaction(async (tx) => {
   const [locked] = await tx.select().from(creditWallets).where(eq(creditWallets.id, wallet.id)).for("update");

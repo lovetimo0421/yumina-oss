@@ -1,7 +1,12 @@
 interface Cursor { id: string; createdAt: string }
 interface Page<T> { data: T[]; meta?: { hasMore?: boolean } }
 function compare(a: Cursor, b: Cursor): number {
+  // Server timestamps preserve PostgreSQL microseconds. Date alone rounds
+  // same-ms turns and can mistake a newer row for an older loaded boundary.
+  const subMillis = (value: string) => Number((value.match(/\.(\d+)Z$/)?.[1] ?? "")
+    .padEnd(6, "0").slice(3, 6));
   return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() ||
+    subMillis(a.createdAt) - subMillis(b.createdAt) ||
     (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 }
 
@@ -13,7 +18,9 @@ export async function refreshMessageWindow<T extends Cursor>(
   load: (before?: Cursor) => Promise<Page<T>>,
 ): Promise<{ messages: T[]; hasEarlierMessages: boolean } | null> {
   const oldest = existing.find((row) => !row.id.startsWith("__pending_"));
-  const maxPages = Math.ceil(existing.length / 200) + 1;
+  // Byte-limited pages can contain a single large turn. Bound by rows rather
+  // than assuming 200 rows per request; cursor progress is checked below.
+  const maxPages = existing.length + 1;
   let before: Cursor | undefined;
   let result: T[] = [];
   for (let page = 0; page < maxPages; page++) {

@@ -1,3 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 /** Shared by isolated tests, manual installation and the deployment preflight. */
-export const SESSION_MEDIA_DDL = readFileSync(new URL("../../scripts/session-media.sql", import.meta.url), "utf8");
+const bundled = new URL("./migrations/session-media.sql", import.meta.url);
+export const SESSION_MEDIA_DDL = readFileSync(existsSync(bundled) ? bundled : new URL("../../scripts/session-media.sql", import.meta.url), "utf8");

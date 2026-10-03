@@ -1,4 +1,5 @@
 import { bodyLimit } from "hono/body-limit";
+import { loadMessagePage, messagePageCursor } from "../lib/message-page.js";
 import { validateChatImages, storeChatImages, restoreChatImages, imagePromptChars } from "../lib/chat-images.js";
 import { assertImageModel } from "../lib/llm/image-capability.js";
 import { usageObservation } from "../lib/usage-observation.js";
@@ -34,7 +35,7 @@ import {
 } from "../lib/turn-failure.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { decryptApiKey } from "../lib/crypto.js";
-import { createProvider } from "../lib/llm/provider-factory.js";
+import { createProvider, inferProvider } from "../lib/llm/provider-factory.js";
 import type { ProviderName } from "../lib/llm/provider-factory.js";
 import { clampMaxContextToModel } from "../lib/llm/context-window.js";
 import { applyModelRedirect } from "../lib/llm/model-redirects.js";
@@ -49,7 +50,8 @@ import {
   antiRepetitionInstructionForModel,
   detectDegenerateRepetitionForModel,
 } from "../lib/llm/repetition-detector.js";
-import { resolveProviderForModel } from "../lib/resolve-provider.js";
+import { detectRefusal } from "../lib/llm/refusal-detector.js";
+import { getUserApiKey, resolveOpenRouterKeyForUser, resolveProviderForModel } from "../lib/resolve-provider.js";
 import { isForkOrphaned } from "../lib/fork-orphan.js";
 import {
   GameStateManager,
@@ -70,17 +72,30 @@ import {
   filterAiEffects,
   filterAiAudioEffects,
   filterResumableAudioEffects,
+  resolveSceneImageDirectives,
+  hasImageVariable,
 } from "@yumina/engine";
 import type { WorldDefinition, GameEvent, Effect, Variable } from "@yumina/engine";
+import { applyJudgeSceneImages, continuityGloballyEnabled, runContinuityTurn } from "../lib/continuity/run.js";
+
+/** Last player line in a history slice — what the continuity judge reads
+ *  alongside the reply on regenerate/continue, where no fresh message exists. */
+function lastUserText(rows: ReadonlyArray<{ role: string; content: string }>): string {
+  for (let i = rows.length - 1; i >= 0; i--) if (rows[i]!.role === "user") return rows[i]!.content;
+  return "";
+}
 
 import type { AppEnv } from "../lib/types.js";
 import { captureServerEvent } from "../lib/analytics.js";
 import { retrieveLorebookEntries } from "../lib/lorebook-retriever.js";
 import { applyPersonaMetadata } from "../lib/persona-metadata.js";
 import { loadUserPrompts } from "../lib/user-prompts.js";
-import { appendPersonaSystemMessage } from "../lib/persona-prompt.js";
+import { appendPersonaSystemMessage, buildPersonaSystemMessage } from "../lib/persona-prompt.js";
 import { resolvePersonaForSession } from "../lib/resolve-persona.js";
-import { checkRateLimit, acquireConcurrency, releaseConcurrency } from "../middleware/rate-limit.js";
+import { checkRateLimit, acquireConcurrency, releaseConcurrency, checkTurnImageRate, claimTurnImageDaily } from "../middleware/rate-limit.js";
+import { fineAvailable, illustrateTurn, stripTurnImages } from "../lib/per-turn-image/illustrate.js";
+import { perTurnImagesEnabled, turnImagePrefs } from "../lib/per-turn-image/availability.js";
+import { refundTurnImage, reserveTurnImage, turnImageQuote } from "../lib/per-turn-image/billing.js";
 import { redis } from "../lib/redis.js";
 import { checkBalance, validateModelAccess, calculateCost, deductCredits, getModelCostRates, estimateCreditsFromChars, estimateTokensFromChars } from "../lib/credit-service.js";
 import { insertHashedTransaction } from "../lib/transaction-hash.js";
@@ -142,6 +157,31 @@ function turnStoryMemory(args: {
   });
 }
 
+
+/** Side calls (the continuity judge) run on the player's own OpenRouter key
+ *  when the turn itself did; custom endpoints and local models keep the
+ *  platform key. Resolved lazily: only a turn the judge actually runs pays
+ *  the lookup. */
+function turnPlayerOpenRouterKey(
+  resolved: { isByok: boolean; providerName: string },
+  userId: string,
+): (() => Promise<string | null>) | undefined {
+  return resolved.isByok && resolved.providerName === "openrouter" ? () => getUserApiKey(userId, "openrouter") : undefined;
+}
+
+/** Per-turn picture tagging runs on the player's own OpenRouter key when they
+ *  play in OpenRouter BYOK mode. A reply from a custom endpoint or a local
+ *  model keeps the platform key. Any lookup failure → platform key. */
+async function illustrationPlayerKey(userId: string, replyModel: string | null): Promise<string | null> {
+  if (replyModel && (inferProvider(replyModel) === "custom" || inferProvider(replyModel) === "local")) return null;
+  try {
+    const own = await resolveOpenRouterKeyForUser(userId);
+    return own?.isByok ? own.apiKey : null;
+  } catch {
+    return null;
+  }
+}
+
 const messageRoutes = new Hono<AppEnv>();
 
 messageRoutes.use("/sessions/*", authMiddleware);
@@ -181,6 +221,8 @@ type SwipeWithUsage = {
   tokenCount?: number;
   creditCost?: number;
   creditBalanceAfter?: number;
+  /** Policy refusal detected on this reply (lib/llm/refusal-detector.ts). */
+  refusal?: boolean;
 };
 
 async function persistSwipeCredits(
@@ -286,6 +328,18 @@ function computeCacheDepthOffset(worldDef: WorldDefinition): number {
 const reactionEvaluator = new ReactionEvaluator();
 const promptBuilder = new PromptBuilder();
 const responseParser = new ResponseParser();
+
+/** The session's gallery record: every scene image the story has shown so
+ *  far, kept in state metadata like `activeAudio` so it survives reloads and
+ *  branches. A repeat showing changes nothing. */
+function rememberRevealedSceneImages(stateManager: GameStateManager, shown: ReadonlyArray<{ id: string }>): void {
+  if (shown.length === 0) return;
+  const prior = stateManager.getMetadata("sceneImagesUnlocked");
+  const unlocked = new Set<string>(Array.isArray(prior) ? (prior as unknown[]).filter((x): x is string => typeof x === "string") : []);
+  const before = unlocked.size;
+  for (const img of shown) unlocked.add(img.id);
+  if (unlocked.size !== before) stateManager.setMetadata("sceneImagesUnlocked", [...unlocked]);
+}
 
 /** Check if user is suspended from generation. Uses session user (already loaded by auth middleware). */
 function checkSuspended(sessionUser: AppEnv["Variables"]["user"]): boolean {
@@ -500,6 +554,14 @@ async function loadSessionContext(sessionId: string, userId: string) {
     }
   }
 
+  // With the judge off (kill switch, or no key) nobody writes precise
+  // variables, yet the prompt would still mark them read-only. Serve the turn
+  // as if the card had continuity off so the narrator writes them again. Copy,
+  // never mutate: worldDef is the shared cache entry.
+  if (worldDef.continuity?.enabled !== false && !continuityGloballyEnabled()) {
+    worldDef = { ...worldDef, continuity: { ...worldDef.continuity, enabled: false } };
+  }
+
   const gameState = normalizeGameState(worldDef, row.session.state);
 
   return {
@@ -556,45 +618,11 @@ messageRoutes.get("/sessions/:sessionId/messages", async (c) => {
   const beforeId = c.req.query("beforeId");
   const before = beforeRaw ? new Date(beforeRaw) : null;
   const cursorCondition = before && !Number.isNaN(before.getTime())
-    ? beforeId
-      ? or(
-          lt(messages.createdAt, before),
-          and(eq(messages.createdAt, before), lt(messages.id, beforeId)),
-        )
-      : lt(messages.createdAt, before)
+    ? messagePageCursor(sessionId, beforeRaw!, beforeId)
     : undefined;
 
-  // limit+1 probe row: tells us whether an older page exists without a count.
-  const pageDesc = await rd
-    .select({
-      id: messages.id,
-      sessionId: messages.sessionId,
-      role: messages.role,
-      content: messages.content,
-      status: messages.status,
-      // Without this the client can render "failed" but never say WHY, and the
-      // one-tap recovery (retry vs switch model) is keyed off the code stored
-      // in this column. See lib/turn-failure.ts.
-      errorMessage: messages.errorMessage,
-      stateChanges: messages.stateChanges,
-      stateValidation: messages.stateValidation,
-      swipes: messages.swipes,
-      activeSwipeIndex: messages.activeSwipeIndex,
-      model: messages.model,
-      tokenCount: messages.tokenCount,
-      generationTimeMs: messages.generationTimeMs,
-      compacted: messages.compacted,
-      stateSnapshot: messages.stateSnapshot,
-      attachments: messages.attachments,
-      createdAt: messages.createdAt,
-    })
-    .from(messages)
-    .where(cursorCondition ? and(eq(messages.sessionId, sessionId), cursorCondition) : eq(messages.sessionId, sessionId))
-    .orderBy(desc(messages.createdAt), desc(messages.id))
-    .limit(limit + 1);
-
-  const hasMore = pageDesc.length > limit;
-  const result = (hasMore ? pageDesc.slice(0, limit) : pageDesc).reverse();
+  const page = await loadMessagePage(rd, sessionId, limit, cursorCondition);
+  const result = page.messages;
 
   // A dead process cannot leave a permanent validation spinner on reload.
   for (const message of result) {
@@ -604,7 +632,7 @@ messageRoutes.get("/sessions/:sessionId/messages", async (c) => {
     }
   }
 
-  return c.json({ data: result, meta: { hasMore } });
+  return c.json({ data: result, meta: { hasMore: page.hasMore } });
 });
 
 /**
@@ -757,7 +785,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
 
   const model = await resolveModel(body.model);
   const [activeUserPrompts] = await Promise.all([
-    loadUserPrompts(currentUser.id),
+    loadUserPrompts(currentUser.id, { modelId: model }),
   ]);
 
   // Protected worlds (allowCustomApi=false) must use official keys to prevent prompt leaking via BYOK
@@ -1010,7 +1038,9 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   appendPersonaSystemMessage(contextMessages, activePersona);
 
   // 2. Static format reference — behavior rules, directive syntax, audio (cacheable, per-world constant)
-  const staticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef);
+  const staticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef, {
+    activeGreetingId: stateManager.getSnapshot().activeGreetingId,
+  });
   if (staticFormatBlock) {
     contextMessages.push({ role: "system", content: staticFormatBlock });
   }
@@ -1447,7 +1477,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           // Parse response — use structured parser for JSON responses, regex for others
           const legacyParsed = structuredParser.isStructuredResponse(fullContent)
             ? structuredParser.parse(fullContent)
-            : responseParser.parse(fullContent);
+            : responseParser.parse(fullContent, undefined, { shieldImages: !hasImageVariable(worldDef) });
           const { parsed: parseResult } = await outputAttempt.validate({
             world: worldDef, state: stateManager.getSnapshot(), raw: fullContent, parsed: legacyParsed,
             provider: provider, model: correctionModel, maxContext: maxContext, signal: abortController.signal,
@@ -1479,6 +1509,27 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
             }
           }
 
+          // Continuity judge: reads the finished reply, decides the values of
+          // precise-tracked variables and (if the card opted in) music, SFX and
+          // scene image. Its variable writes merge in after the AI write filter
+          // below; its image rides the same `[image: id]` expansion as the AI's.
+          const continuity = await runContinuityTurn({
+            world: worldDef, stateManager, playerText: userContent, replyText: cleanText,
+            hasAudioDirective: parseResult.audioEffects.length > 0,
+            userId: currentUser.id, sessionId, path: "send", signal: abortController.signal,
+            playerOpenRouterKey: turnPlayerOpenRouterKey(resolved, currentUser.id),
+          });
+          cleanText = applyJudgeSceneImages(worldDef, cleanText, continuity);
+          // The per-turn picture is drawn after the turn (POST /messages/:id/illustrate);
+          // drop any the model copied from an earlier reply in its history.
+          cleanText = stripTurnImages(cleanText);
+
+          // Expand `[image: handle]` scene directives into the shared embed
+          // syntax before the text is persisted or rendered anywhere.
+          const sceneImageResult = resolveSceneImageDirectives(cleanText, worldDef.sceneImages ?? []);
+          cleanText = sceneImageResult.text;
+          rememberRevealedSceneImages(stateManager, sceneImageResult.shown);
+
           // Whether anything reached the user. Used below to (a) tag the usage_log
           // so we can monitor empty-response rates per model, and (b) skip credit
           // deduction — see the comment on the deduction `if` for the rationale.
@@ -1486,11 +1537,11 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
 
           // AI directives may only touch AI-writable variables (aiAccess
           // "write" + currently active). Behavior/UI writes use other paths.
-          const aiWriteFilter = filterAiEffects(worldDef, stateManager.getSnapshot(), effects);
+          const aiWriteFilter = filterAiEffects(worldDef, stateManager.getSnapshot(), effects, { judgeRan: continuity.ran });
           if (aiWriteFilter.dropped.length > 0) {
             console.log(`[Messages] Dropped ${aiWriteFilter.dropped.length} AI directive(s) to non-AI-writable vars: ${aiWriteFilter.dropped.map((e) => e.variableId).join(", ")}`);
           }
-          const changes = stateManager.applyEffects(aiWriteFilter.kept);
+          const changes = stateManager.applyEffects([...aiWriteFilter.kept, ...continuity.effects]);
           // A refused write is a model fumbling JSON syntax over a whole list
           // (`[items: set delete 1, delete 0]`). The engine keeps the old value;
           // say so, because the failure is otherwise invisible until a player
@@ -1532,7 +1583,10 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           outputAttempt.recordChanges(changes, ruleChanges);
 
           // Collect all audio effects (from parser + from @ system effects)
-          const allAudioEffects = [...parserAudioEffects, ...systemResult.audioEffects];
+          // Judge-picked audio sits between the AI's own directives and the
+          // rules' — later effects win on the client, so an explicit rule still
+          // overrides the judge.
+          const allAudioEffects = [...parserAudioEffects, ...continuity.audioEffects, ...systemResult.audioEffects];
           // The whole list still streams to the client — the SFX should fire on
           // THIS turn. Only the looping subset is persisted: `activeAudio` is
           // the resume snapshot, and a one-shot SFX left in it replays on every
@@ -1646,6 +1700,16 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
             return;
           }
 
+          // A policy refusal ("我无法满足…" / "I can't continue…") is kept and
+          // billed like any reply; the flag only lets the client offer a
+          // switch-model / unrestrict bar under it.
+          const isRefusal = detectRefusal(cleanText);
+          if (isRefusal) {
+            captureServerEvent(currentUser.id, "llm_refusal_detected", {
+              model: actualModel, endpoint: "send", chars: cleanText.length, session_id: sessionId,
+            });
+          }
+
           // Explicit user stop during the parse/effects work above — same as
           // the check at the top of the done handler.
           if (isClientAbort(abortController.signal)) {
@@ -1723,6 +1787,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
                     modelFallback: parseModelFallbackRecord(body.modelFallback, model),
                     model: actualModel,
                     tokenCount: chunk.usage?.totalTokens,
+                    ...(isRefusal && { refusal: true }),
                   },
                 ] satisfies SwipeWithUsage[],
                 activeSwipeIndex: 0,
@@ -1896,8 +1961,10 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
               generationTimeMs,
               choices,
               audioEffects: allAudioEffects.length > 0 ? allAudioEffects : undefined,
+              sceneImages: sceneImageResult.shown.length > 0 ? sceneImageResult.shown.map((img) => img.id) : undefined,
               notifications: systemResult.notifications.length > 0 ? systemResult.notifications : undefined,
               credits: creditsPayload(creditsCost, creditsBalance),
+              ...(isRefusal && { refusal: true }),
             }),
           });
         }
@@ -2052,6 +2119,95 @@ messageRoutes.patch("/messages/:id", async (c) => {
   return c.json({ data: result[0] });
 });
 
+// GET /api/messages/turn-images/settings — can this player use per-turn
+// pictures (server flag AND their experimental opt-in), and is auto on.
+messageRoutes.get("/messages/turn-images/settings", async (c) => {
+  const currentUser = c.get("user");
+  const prefs = await turnImagePrefs(currentUser.id);
+  const available = perTurnImagesEnabled() && prefs.optedIn;
+  const quote = available ? await turnImageQuote(currentUser.id) : null;
+  return c.json({ data: {
+    available,
+    auto: available && prefs.auto,
+    fine: available && fineAvailable(),
+    ...(quote ? { price: quote.listPrice, freeLeft: quote.freeLeft, unlimited: quote.unlimited } : {}),
+  } });
+});
+
+// POST /api/messages/:id/illustrate — draw (or redraw) the picture for one reply.
+// The client calls it with {auto:true} right after a turn finishes (honours the
+// player's switch) and without it from the "draw this scene" button. A picture
+// that couldn't be drawn answers 200 {ok:false, reason} so the player is told why.
+// Players who haven't opted in (Settings › Display › Experimental) are refused
+// with 403 before anything is read, charged or drawn.
+messageRoutes.post("/messages/:id/illustrate", async (c) => {
+  const currentUser = c.get("user");
+  const body = await c.req.json<{ auto?: boolean; note?: string; fine?: boolean }>().catch(() => ({} as { auto?: boolean; note?: string; fine?: boolean }));
+  const note = typeof body.note === "string" ? body.note.trim().slice(0, 200) : "";
+  if (!perTurnImagesEnabled()) return c.json({ data: { ok: false, reason: "unavailable" } });
+  const prefs = await turnImagePrefs(currentUser.id);
+  if (!prefs.optedIn) {
+    return c.json({ error: "Per-turn pictures are off for this account", code: "TURN_IMAGES_OFF", data: { ok: false, reason: "off" } }, 403);
+  }
+  // The auto switch first: a player who has it off never hears about credits.
+  if (body.auto === true && !prefs.auto) return c.json({ data: { ok: false, reason: "off" } });
+  const messageId = c.req.param("id");
+  const [msg] = await db.select().from(messages).where(eq(messages.id, messageId));
+  if (!msg || msg.role !== "assistant") return c.json({ error: "Message not found" }, 404);
+  const [session] = await db.select({ id: playSessions.id }).from(playSessions)
+    .where(and(eq(playSessions.id, msg.sessionId), eq(playSessions.userId, currentUser.id)));
+  if (!session) return c.json({ error: "Not authorized" }, 403);
+  const ctx = await loadSessionContext(msg.sessionId, currentUser.id);
+  if (!ctx?.worldDef) return c.json({ error: "World not found" }, 404);
+  const [prevUser] = await db.select({ content: messages.content }).from(messages)
+    .where(and(eq(messages.sessionId, msg.sessionId), eq(messages.role, "user"), lt(messages.createdAt, msg.createdAt ?? new Date())))
+    .orderBy(desc(messages.createdAt)).limit(1);
+  // Every draw costs a GPU run whether or not it lands, so limits come before
+  // payment: a burst, too many at once, or the site's daily ceiling.
+  if (await checkTurnImageRate(currentUser.id, env.PER_TURN_IMAGE_MAX_PER_MINUTE)) return c.json({ data: { ok: false, reason: "busy" } });
+  const slot = `turn-image:${currentUser.id}`;
+  if (!(await acquireConcurrency(slot, env.PER_TURN_IMAGE_MAX_ACTIVE_PER_USER, 300))) return c.json({ data: { ok: false, reason: "busy" } });
+  try {
+    if (!(await claimTurnImageDaily(env.PER_TURN_IMAGE_DAILY_CAP))) {
+      console.warn("[PerTurnImage] daily draw ceiling reached");
+      return c.json({ data: { ok: false, reason: "unavailable" } });
+    }
+    // Paid before drawing, under the wallet lock; given back unless the picture lands.
+    const reserved = await reserveTurnImage(currentUser.id, crypto.randomUUID());
+    if (!reserved.charge) return c.json({ data: { ok: false, reason: "credits", price: reserved.price, balance: reserved.balance } });
+    const charge = reserved.charge;
+    let delivered = false;
+    try {
+      const replyText = stripTurnImages(msg.content);
+      // Who "you" is (name, sex, looks): cards rarely say, the player's persona often does.
+      const persona = await resolvePersonaForSession(ctx.session).catch(() => null);
+      const result = await illustrateTurn({
+        world: ctx.worldDef, sessionId: msg.sessionId,
+        playerText: prevUser?.content ?? "", replyText, ...(note ? { note } : {}), ...(body.fine === true ? { fine: true } : {}), userId: currentUser.id, auto: false,
+        playerKey: await illustrationPlayerKey(currentUser.id, msg.model),
+        playerPersona: buildPersonaSystemMessage(persona),
+      });
+      if (!result.ok) return c.json({ data: { ok: false, reason: result.reason } });
+      // The reply may have been regenerated, edited or deleted while this drew;
+      // then the picture belongs to text that no longer exists.
+      const [current] = await db.select({ content: messages.content }).from(messages).where(eq(messages.id, messageId));
+      if (!current || stripTurnImages(current.content) !== replyText) return c.json({ data: { ok: false, reason: "stale" } });
+      const content = `${replyText.trimEnd()}\n\n${result.embed}`;
+      const [updated] = await db.update(messages).set(messageContentUpdate(content))
+        .where(and(eq(messages.id, messageId), eq(messages.content, current.content))).returning();
+      if (!updated) return c.json({ data: { ok: false, reason: "stale" } });
+      delivered = true;
+      return c.json({ data: { ok: true, content: updated.content, charged: charge.price, balance: charge.balance, freeLeft: charge.freeLeft } });
+    } finally {
+      if (!delivered) await refundTurnImage(charge).catch((error) => {
+        console.error("[PerTurnImage] refund failed:", charge.referenceId, error instanceof Error ? error.message : error);
+      });
+    }
+  } finally {
+    await releaseConcurrency(slot);
+  }
+});
+
 // DELETE /api/messages/:id
 messageRoutes.delete("/messages/:id", async (c) => {
   const currentUser = c.get("user");
@@ -2181,7 +2337,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   const { worldDef, gameState } = context;
   const model = await resolveModel(body.model);
   const [activeUserPrompts] = await Promise.all([
-    loadUserPrompts(currentUser.id),
+    loadUserPrompts(currentUser.id, { modelId: model }),
   ]);
 
   const isProtectedWorld = context.worldAllowCustomApi === false && context.worldCreatorId !== currentUser.id;
@@ -2357,7 +2513,9 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   appendPersonaSystemMessage(regenContextMessages, activePersona);
 
   // 2. Static format reference — behavior rules, directive syntax, audio (cacheable)
-  const regenStaticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef);
+  const regenStaticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef, {
+    activeGreetingId: stateManager.getSnapshot().activeGreetingId,
+  });
   if (regenStaticFormatBlock) {
     regenContextMessages.push({ role: "system", content: regenStaticFormatBlock });
   }
@@ -2696,14 +2854,25 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           // Parse response — use structured parser for JSON responses, regex for others
           const legacyParsed = structuredParser.isStructuredResponse(fullContent)
             ? structuredParser.parse(fullContent)
-            : responseParser.parse(fullContent);
+            : responseParser.parse(fullContent, undefined, { shieldImages: !hasImageVariable(worldDef) });
           const { parsed: regenParseResult } = await outputAttempt.validate({
             world: worldDef, state: stateManager.getSnapshot(), raw: fullContent, parsed: legacyParsed,
             provider: regenProvider, model: correctionModel, maxContext: regenMaxContext, signal: abortController.signal,
             stopReason: chunk.stopReason, history: providerMessages,
             cacheEnabled: regenBreakpoints.length > 0, stream: body.overrides?.streaming,
           }, async (audit) => { await sse({ event: "state-validation", data: JSON.stringify(audit) }); });
-          const cleanText = regenParseResult.cleanText;
+          // Continuity judge (see the send path).
+          const regenContinuity = await runContinuityTurn({
+            world: worldDef, stateManager, playerText: lastUserText(priorMessages), replyText: regenParseResult.cleanText,
+            hasAudioDirective: regenParseResult.audioEffects.length > 0,
+            userId: currentUser.id, sessionId: msg.sessionId, path: "regenerate", signal: abortController.signal,
+            playerOpenRouterKey: turnPlayerOpenRouterKey(resolved, currentUser.id),
+          });
+          // Per-turn picture: drawn after the turn, as on the send path.
+          const regenTextWithImage = stripTurnImages(applyJudgeSceneImages(worldDef, regenParseResult.cleanText, regenContinuity));
+          const regenSceneImageResult = resolveSceneImageDirectives(regenTextWithImage, worldDef.sceneImages ?? []);
+          const cleanText = regenSceneImageResult.text;
+          rememberRevealedSceneImages(stateManager, regenSceneImageResult.shown);
           const effects = regenParseResult.effects;
           const choices: string[] = [];
           const regenParserAudioEffects = filterAiAudioEffects(worldDef.audioTracks ?? [], regenParseResult.audioEffects);
@@ -2712,11 +2881,11 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           const hasVisibleContent = fullContent.trim().length > 0;
 
           // See main send path: AI directives only touch AI-writable vars.
-          const regenWriteFilter = filterAiEffects(worldDef, stateManager.getSnapshot(), effects);
+          const regenWriteFilter = filterAiEffects(worldDef, stateManager.getSnapshot(), effects, { judgeRan: regenContinuity.ran });
           if (regenWriteFilter.dropped.length > 0) {
             console.log(`[Messages] Dropped ${regenWriteFilter.dropped.length} AI directive(s) to non-AI-writable vars: ${regenWriteFilter.dropped.map((e) => e.variableId).join(", ")}`);
           }
-          const changes = stateManager.applyEffects(regenWriteFilter.kept);
+          const changes = stateManager.applyEffects([...regenWriteFilter.kept, ...regenContinuity.effects]);
           // A refused write is a model fumbling JSON syntax over a whole list
           // (`[items: set delete 1, delete 0]`). The engine keeps the old value;
           // say so, because the failure is otherwise invisible until a player
@@ -2749,7 +2918,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           const allChanges = [...changes, ...ruleChanges];
           outputAttempt.recordChanges(changes, ruleChanges);
 
-          const allRegenAudioEffects = [...regenParserAudioEffects, ...regenSystemResult.audioEffects];
+          const allRegenAudioEffects = [...regenParserAudioEffects, ...regenContinuity.audioEffects, ...regenSystemResult.audioEffects];
           // Persist the looping subset only — see the send path for why.
           const resumableRegenAudio = filterResumableAudioEffects(worldDef.audioTracks ?? [], allRegenAudioEffects);
           if (resumableRegenAudio.length > 0) {
@@ -2806,6 +2975,14 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             return;
           }
 
+          // Policy refusal: kept and billed; flagged for the client bar.
+          const isRefusal = detectRefusal(cleanText);
+          if (isRefusal) {
+            captureServerEvent(currentUser.id, "llm_refusal_detected", {
+              model: actualModel, endpoint: "regenerate", chars: cleanText.length, session_id: msg.sessionId,
+            });
+          }
+
           // Add as new swipe
           const existingSwipes = (msg.swipes ?? []) as SwipeWithUsage[];
           const newSwipe = {
@@ -2822,6 +2999,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             modelFallback: parseModelFallbackRecord(body.modelFallback, model),
             model: actualModel,
             tokenCount: chunk.usage?.totalTokens,
+            ...(isRefusal && { refusal: true }),
           } satisfies SwipeWithUsage;
           const updatedSwipes = [...existingSwipes, newSwipe];
 
@@ -3008,8 +3186,10 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
               generationTimeMs,
               choices,
               audioEffects: allRegenAudioEffects.length > 0 ? allRegenAudioEffects : undefined,
+              sceneImages: regenSceneImageResult.shown.length > 0 ? regenSceneImageResult.shown.map((img) => img.id) : undefined,
               notifications: regenSystemResult.notifications.length > 0 ? regenSystemResult.notifications : undefined,
               credits: creditsPayload(creditsCost, creditsBalance),
+              ...(isRefusal && { refusal: true }),
             }),
           });
         }
@@ -3130,7 +3310,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   }
   const model = await resolveModel(body.model);
   const [activeUserPrompts] = await Promise.all([
-    loadUserPrompts(currentUser.id),
+    loadUserPrompts(currentUser.id, { modelId: model }),
   ]);
 
   const isProtectedWorld = context.worldAllowCustomApi === false && context.worldCreatorId !== currentUser.id;
@@ -3315,7 +3495,9 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   appendPersonaSystemMessage(contextMessages, activePersona);
 
   // 2. Static format reference — behavior rules, directive syntax, audio (cacheable)
-  const contStaticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef);
+  const contStaticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef, {
+    activeGreetingId: stateManager.getSnapshot().activeGreetingId,
+  });
   if (contStaticFormatBlock) {
     contextMessages.push({ role: "system", content: contStaticFormatBlock });
   }
@@ -3623,14 +3805,25 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           // Parse the continuation — use structured parser for JSON responses, regex for others
           const legacyParsed = structuredParser.isStructuredResponse(continuationContent)
             ? structuredParser.parse(continuationContent)
-            : responseParser.parse(continuationContent);
+            : responseParser.parse(continuationContent, undefined, { shieldImages: !hasImageVariable(worldDef) });
           const { parsed: contParseResult } = await outputAttempt.validate({
             world: worldDef, state: stateManager.getSnapshot(), raw: continuationContent, parsed: legacyParsed,
             provider: provider, model: correctionModel, maxContext: maxContext, signal: abortController.signal,
             stopReason: chunk.stopReason, history: providerMessages,
             cacheEnabled: contBreakpoints.length > 0, stream: body.overrides?.streaming,
           }, async (audit) => { await sse({ event: "state-validation", data: JSON.stringify(audit) }); });
-          const cleanContinuation = contParseResult.cleanText;
+          // Continuity judge (see the send path). A continuation is judged on
+          // its own new segment, against the last player line.
+          const contContinuity = await runContinuityTurn({
+            world: worldDef, stateManager, playerText: lastUserText(currentRunHistory), replyText: contParseResult.cleanText,
+            hasAudioDirective: contParseResult.audioEffects.length > 0,
+            userId: currentUser.id, sessionId, path: "continue", signal: abortController.signal,
+            playerOpenRouterKey: turnPlayerOpenRouterKey(resolved, currentUser.id),
+          });
+          const contTextWithImage = applyJudgeSceneImages(worldDef, contParseResult.cleanText, contContinuity);
+          const contSceneImageResult = resolveSceneImageDirectives(contTextWithImage, worldDef.sceneImages ?? []);
+          const cleanContinuation = contSceneImageResult.text;
+          rememberRevealedSceneImages(stateManager, contSceneImageResult.shown);
           const effects = contParseResult.effects;
           const contAudioEffects = filterAiAudioEffects(worldDef.audioTracks ?? [], contParseResult.audioEffects);
 
@@ -3638,11 +3831,11 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           const hasVisibleContent = continuationContent.trim().length > 0;
 
           // See main send path: AI directives only touch AI-writable vars.
-          const contWriteFilter = filterAiEffects(worldDef, stateManager.getSnapshot(), effects);
+          const contWriteFilter = filterAiEffects(worldDef, stateManager.getSnapshot(), effects, { judgeRan: contContinuity.ran });
           if (contWriteFilter.dropped.length > 0) {
             console.log(`[Messages] Dropped ${contWriteFilter.dropped.length} AI directive(s) to non-AI-writable vars: ${contWriteFilter.dropped.map((e) => e.variableId).join(", ")}`);
           }
-          const changes = stateManager.applyEffects(contWriteFilter.kept);
+          const changes = stateManager.applyEffects([...contWriteFilter.kept, ...contContinuity.effects]);
           // A refused write is a model fumbling JSON syntax over a whole list
           // (`[items: set delete 1, delete 0]`). The engine keeps the old value;
           // say so, because the failure is otherwise invisible until a player
@@ -3672,7 +3865,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           const allChanges = [...changes, ...ruleChanges];
           outputAttempt.recordChanges(changes, ruleChanges);
 
-          const allAudioEffects = [...contAudioEffects, ...contSystemResult.audioEffects];
+          const allAudioEffects = [...contAudioEffects, ...contContinuity.audioEffects, ...contSystemResult.audioEffects];
           // Persist the looping subset only — see the send path for why.
           const resumableContAudio = filterResumableAudioEffects(worldDef.audioTracks ?? [], allAudioEffects);
           if (resumableContAudio.length > 0) {
@@ -3730,6 +3923,15 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
 
           const existingSwipes = (freshMsg.swipes ?? []) as SwipeWithUsage[];
           const activeSwipeIndex = freshMsg.activeSwipeIndex ?? 0;
+          // Judge only the new continuation text; a swipe that already opened
+          // with a refusal stays flagged (that text is still on screen).
+          const continuationRefused = detectRefusal(cleanContinuation);
+          const isRefusal = continuationRefused || existingSwipes[activeSwipeIndex]?.refusal === true;
+          if (continuationRefused) {
+            captureServerEvent(currentUser.id, "llm_refusal_detected", {
+              model: actualModel, endpoint: "continue", chars: cleanContinuation.length, session_id: sessionId,
+            });
+          }
           const updatedSwipes =
             existingSwipes.length > 0
               ? existingSwipes.map((swipe, index) =>
@@ -3748,6 +3950,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
                           (chunk.usage?.totalTokens ?? 0),
                         model: actualModel ?? swipe.model,
                         modelFallback: parseModelFallbackRecord(body.modelFallback, model) ?? swipe.modelFallback,
+                        ...(isRefusal && { refusal: true }),
                       }
                     : swipe
                 )
@@ -3764,6 +3967,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
                     modelFallback: parseModelFallbackRecord(body.modelFallback, model),
                     model: actualModel,
                     tokenCount: chunk.usage?.totalTokens,
+                    ...(isRefusal && { refusal: true }),
                   },
                 ];
 
@@ -3950,8 +4154,10 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
               tokenCount: chunk.usage?.totalTokens ?? null,
               generationTimeMs,
               audioEffects: allAudioEffects.length > 0 ? allAudioEffects : undefined,
+              sceneImages: contSceneImageResult.shown.length > 0 ? contSceneImageResult.shown.map((img) => img.id) : undefined,
               notifications: contSystemResult.notifications.length > 0 ? contSystemResult.notifications : undefined,
               credits: creditsPayload(creditsCost, creditsBalance),
+              ...(isRefusal && { refusal: true }),
             }),
           });
         }

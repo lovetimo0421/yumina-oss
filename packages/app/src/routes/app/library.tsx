@@ -16,12 +16,15 @@ export const Route = createFileRoute("/app/library")({
     assetId?: unknown;
     returnTo?: unknown;
     returnKey?: unknown;
+    sub?: unknown;
   } & SearchSchemaInput) => ({
     worldId: (search.worldId as string) || undefined,
     view: (search.view as string) || undefined,
     assetId: (search.assetId as string) || undefined,
     returnTo: parseSafeInternalReturnUrl(search.returnTo),
     returnKey: parseStoryReturnKey(search.returnKey),
+    // 提示词 tab sub-view: installed | mine
+    sub: search.sub === "mine" || search.sub === "installed" ? (search.sub as "mine" | "installed") : undefined,
   }),
   component: () => (
     <Suspense fallback={<RouteFallback />}>

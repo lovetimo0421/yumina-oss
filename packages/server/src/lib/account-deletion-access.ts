@@ -16,9 +16,11 @@ export type AccountDeletionAccessDecision =
 export function evaluateAccountDeletionAccess(
   role: string | null | undefined,
   activeAdministratorCount: number,
+  targetRestricted = false,
 ): AccountDeletionAccessDecision {
   if (
     role === "admin"
+    && !targetRestricted
     && (!Number.isSafeInteger(activeAdministratorCount) || activeAdministratorCount <= 1)
   ) {
     return {

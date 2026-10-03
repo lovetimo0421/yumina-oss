@@ -62,6 +62,14 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   summaryception: "billed",
   // Runs exclusively on the caller's own API key (see memory-extractor.ts).
   "memory-extract": "byok-only",
+  // Continuity judge: one decision-model call per reply, platform key, output
+  // tokens free, ~1e-4 USD per turn. Not charged to the player — it is part
+  // of the card working as authored. Owner-approved 2026-09-21.
+  continuity: "free-by-design",
+  // Per-turn pictures' tagging calls (platform key). The player pays a flat
+  // price per delivered picture (per-turn-image/billing.ts), which covers
+  // these tokens; logged so the spend stays visible per user.
+  "turn-image-tagging": "free-by-design",
   // Community-content translation: the result is cached and served to every
   // viewer, so charging the one user who happened to trigger it would bill
   // them for shared infrastructure. Platform cost, owner-reviewed 2026-08-12.
@@ -71,6 +79,20 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   // preparation is never charged. Register that existing product policy so
   // these internal calls stay observable without inventing a second charge.
   "generation-enhance": "free-by-design",
+  // Voice readout (TTS). Priced per UTF-8 byte of input text; cost is computed
+  // locally (byteLength × per-byte price) and deducted via providerCostUsd —
+  // cache hits (same text+voice replayed) never reach recordUsageLog at all.
+  tts: "billed",
+  // Hold-to-talk transcription: free to every player by owner decision
+  // (2026-09-28), always on the platform key; ~$0.002 per minute of speech,
+  // bounded by the per-user clip rate limit in routes/voice-input.ts.
+  "voice-input": "free-by-design",
+  // Jev emotion cues for voice readout: platform-funded, never charged. The
+  // readout itself bills the player on the text alone (see routes/tts.ts).
+  "tts-emotion": "free-by-design",
+  // Jev casting (who says each line, which voice a new speaker gets):
+  // platform-funded, like the emotion cues it runs alongside.
+  "tts-cast": "free-by-design",
 };
 
 /**

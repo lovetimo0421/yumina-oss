@@ -9,7 +9,8 @@ import { authMiddleware, optionalAuthMiddleware } from "../middleware/auth.js";
 import { optionalAccountBinding } from "../middleware/account-binding.js";
 import { invalidateSessionUser } from "../lib/session-user-cache.js";
 import { rateLimitMiddleware } from "../middleware/rate-limit.js";
-import { updateProfileSchema, getAgeFromBirthYear, aiConfigSchema, MAX_PROFILE_POST_LENGTH, PROFILE_POSTS_PAGE_SIZE, normalizeProfileWorldSort } from "@yumina/shared";
+import { isReservedUsername } from "@yumina/shared";
+import { updateProfileSchema, getAgeFromBirthYear, aiConfigSchema, MAX_PROFILE_POST_LENGTH, PROFILE_POSTS_PAGE_SIZE, normalizeProfileWorldSort, sanitizeTtsVoicePool, sanitizeTtsCustomVoices } from "@yumina/shared";
 import { resolveImageCdn } from "../lib/cdn-url.js";
 import { sanitizeDisplayName } from "../lib/sanitize.js";
 import { aggregatedCounters } from "../lib/world-aggregates.js";
@@ -21,6 +22,7 @@ import {
 } from "../lib/profile-privacy.js";
 import type { AppEnv } from "../lib/types.js";
 import { resolveProfileContentLevel } from "../lib/profile-content-level.js";
+import { perTurnImagesEnabled } from "../lib/per-turn-image/availability.js";
 
 async function readProfileContentLevel(viewerId: string | undefined, requestedLevel: string | undefined) {
   if (!viewerId) return "safe";
@@ -102,6 +104,9 @@ users.get("/me", authMiddleware, async (c) => {
     ...row,
     showcasedAchievement,
     defaultStoryMemory: profileStoryMemoryDefault(row.createdAt, env.STORY_MEMORY_DEFAULT_AT),
+    // Whether this server offers per-turn pictures at all: Settings shows the
+    // experimental opt-in only then.
+    turnImagesOffered: perTurnImagesEnabled(),
   } });
 });
 
@@ -366,6 +371,19 @@ users.get("/search", optionalAuthMiddleware, async (c) => {
 });
 
 // GET /api/users/:id (public profile — optional auth for privacy checks)
+// Creator address lookup: /@username -> user id. Public, case-insensitive.
+users.get("/handle/:username", optionalAuthMiddleware, async (c) => {
+  const handle = c.req.param("username").trim().replace(/^@/, "").toLowerCase();
+  if (!handle) return c.json({ error: "User not found" }, 404);
+  const [row] = await db
+    .select({ id: user.id, username: user.username })
+    .from(user)
+    .where(sql`lower(${user.username}) = ${handle}`)
+    .limit(1);
+  if (!row) return c.json({ error: "User not found" }, 404);
+  return c.json({ data: { id: row.id, username: row.username } });
+});
+
 users.get("/:id", optionalAuthMiddleware, async (c) => {
   c.header("Cache-Control", "private, no-store");
   const userId = c.req.param("id");
@@ -812,6 +830,13 @@ users.on(["POST", "PATCH"], "/me", authMiddleware, rateLimitMiddleware("profile-
   // server-owned; only the authenticated starter endpoint may mutate it.
   if (parsed.data.preferences) {
     const { discoveryStarter: _ownedStarter, ...clientPreferences } = parsed.data.preferences;
+    // The voice pool feeds server-side casting: store only valid voice ids.
+    if ("ttsVoicePool" in clientPreferences) {
+      clientPreferences.ttsVoicePool = sanitizeTtsVoicePool(clientPreferences.ttsVoicePool);
+    }
+    if ("ttsCustomVoices" in clientPreferences) {
+      clientPreferences.ttsCustomVoices = sanitizeTtsCustomVoices(clientPreferences.ttsCustomVoices);
+    }
     parsed.data.preferences = clientPreferences;
   }
   const profilePatch: Partial<typeof user.$inferInsert> = { ...parsed.data };
@@ -822,6 +847,9 @@ users.on(["POST", "PATCH"], "/me", authMiddleware, rateLimitMiddleware("profile-
   if (parsed.data.username) {
     const displayUsername = parsed.data.username;
     const normalizedUsername = displayUsername.toLowerCase();
+    if (isReservedUsername(normalizedUsername)) {
+      return c.json({ error: "Username not available" }, 409);
+    }
     const existing = await db
       .select({ id: user.id })
       .from(user)

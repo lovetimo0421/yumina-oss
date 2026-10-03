@@ -2,37 +2,20 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { adaptOncinGalleryFiles, createOncinCloudGallery, isOncinGalleryKey } from "./oncin-cloud-gallery";
 import type { SessionImage, SessionImagePage } from "@/lib/session-media";
-test('legacy hook refreshes signed URLs and removes its timer on unmount', async () => {
-    const files = { 'index.tsx': `function oswUseGalleryStore(api) {
-      var data = {}, setData = api.received;
-      var warnedRef = React.useRef(false);
-      var lastPersistedRef = React.useRef('{}'), writeChainRef = React.useRef(Promise.resolve()), loadSeqRef = React.useRef(1);
-      function warnOnce() { throw new Error('unexpected refresh failure'); }
-      React.useEffect(function () {
-        var cancelled = false, seq = 1, storageKey = 'gallery';
-        return function () { cancelled = true; };
-      }, []);
-    }
-    function oswVisualEntryKind() {}` };
-    assert.equal(adaptOncinGalleryFiles('another-world', files), files);
-    const patched = adaptOncinGalleryFiles('27483dff-e14f-49ec-864c-37bd85d7d9c4', files)!;
-    let refresh!: () => void, cleanup!: () => void, received: unknown, reads = 0, cleared = false;
-    const hook = new Function('React', 'window', 'setInterval', 'clearInterval', 'oswGalleryPayloadForStorage', 'oswNormalizeGalleryPayload', `${patched['index.tsx']}; return oswUseGalleryStore;`)(
-        { useRef: (current: unknown) => ({ current }), useEffect: (effect: () => () => void) => { cleanup = effect(); } },
-        { addEventListener() {}, removeEventListener() {} },
-        (callback: () => void) => { refresh = callback; return 1; }, () => { cleared = true; }, JSON.stringify, (x: unknown) => x,
-    );
-    hook({ received: (value: unknown) => { received = value; }, storage: { get: async () => { reads++; return '{"fresh":true}'; } } });
-    refresh();
-    await new Promise(resolve => setImmediate(resolve));
-    assert.deepEqual(received, { fresh: true });
-    assert.equal(reads, 1);
-    cleanup();
-    refresh();
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(reads, 1);
-    assert.ok(cleared);
-    assert.ok(!files['index.tsx'].includes('refreshCloudGallery'));
+test('recognizes the gallery format in any world and preserves adjacent helpers', () => {
+    const source = `const prefix = 'oncin:gallery:v3:';
+      function oswGalleryEmptyData() { return {}; }
+      function oswNormalizeGalleryPayload(x) { return x; }
+      function oswUseGalleryStore(api) { throw new Error('old hook'); }
+      function adjacentHelper() { return 42; }`;
+    const files = { 'index.tsx': source };
+    const patched = adaptOncinGalleryFiles('new-world', files)!;
+    const run = new Function(`${patched['index.tsx']}; return [oswUseGalleryStore({__useLegacyGallery: opts => opts.normalize({works:true})}), adjacentHelper()];`);
+    assert.deepEqual(run(), [{works:true}, 42]);
+    assert.equal(adaptOncinGalleryFiles('new-world', patched), patched);
+    assert.equal(files['index.tsx'], source);
+    const unrelated = { 'index.tsx': 'function oswUseGalleryStore(api) {}' };
+    assert.equal(adaptOncinGalleryFiles('any', unrelated), unrelated);
 });
 function harness() {
     const rows: SessionImage[] = [];
@@ -95,7 +78,7 @@ test('migration verifies the current session before reading local data', async (
     const adapter = createOncinCloudGallery('session', undefined, undefined, h.dependencies);
     await assert.rejects(adapter.get(() => { touched = true; return local; }));
     assert.equal(touched, false);
-    assert.equal(isOncinGalleryKey('another-world', 'oncin:gallery:v2:session', 'session'), false);
+    assert.equal(isOncinGalleryKey('another-world', 'oncin:gallery:v2:session', 'session'), true);
     assert.equal(isOncinGalleryKey('27483dff-e14f-49ec-864c-37bd85d7d9c4', 'oncin:gallery:v2:other', 'session'), false);
 });
 test('migrates per item, retains grouping, and does not resurrect removed images', async () => {
@@ -182,4 +165,52 @@ test('a replay never reads the viewer browser cache or writes to the source save
     const a = createOncinCloudGallery('', 'share', undefined, h.dependencies);
     await a.get(() => { throw new Error('must not read local'); });
     await assert.rejects(a.set(local), /read-only/);
+});
+
+test('read-only session views never migrate, even when uploads are enabled', async () => {
+    const h = harness();
+    const a = createOncinCloudGallery('session', undefined, undefined, h.dependencies);
+    let touched = false;
+    await a.get(() => { touched = true; return local; }, false);
+    assert.equal(touched, false);
+    assert.equal(h.uploads, 0);
+    assert.equal(h.document.version, 0);
+});
+
+test('signed URL refresh never adopts unseen metadata versions', async () => {
+    const h = harness();
+    const a = createOncinCloudGallery('session', undefined, undefined, h.dependencies);
+    const data = JSON.parse(await a.get(() => local));
+    h.rows[0]!.url = 'https://example.test/fresh';
+    h.rows[0]!.metadata = { legacy: 'oncin-v2', item: {...h.rows[0]!.metadata.item as object, title: 'Other device'} };
+    h.rows[0]!.version++;
+    const urls = await a.refresh();
+    data.items[0].url = urls[data.items[0].id];
+    data.items[0].title = 'Local edit';
+    await assert.rejects(a.set(JSON.stringify(data)));
+    assert.equal(h.rows[0]!.metadata.item && (h.rows[0]!.metadata.item as {title: string}).title, 'Other device');
+});
+
+test('normalizer transport fields do not force writes across a large gallery', async () => {
+    const h = harness();
+    for (let i = 0; i < 120; i++) h.rows.push({id: `i${i}`, entryId: `i${i}`, filename: 'image', metadata: {legacy: 'oncin-v2', item: {id: `i${i}`, title: 'Image'}}, version: 1, sizeBytes: 3, url: `https://example.test/${i}`, thumbnailUrl: null, deleted: false});
+    const a = createOncinCloudGallery('session', undefined, undefined, h.dependencies);
+    const data = JSON.parse(await a.get(() => null));
+    for (const item of data.items) Object.assign(item, {assetId: '', assetChars: 0, assetHash: '', _assetIntegrityUrl: item.url});
+    data.items[0].title = 'Edited';
+    await a.set(JSON.stringify(data));
+    assert.equal(h.changes.length, 1);
+    assert.ok(!JSON.stringify(h.rows[0]!.metadata).includes('_assetIntegrityUrl'));
+});
+
+test('unrelated shared media does not hide an unmigrated published variable gallery', async () => {
+    const h = harness();
+    h.known.add('avatar');
+    h.rows.push({id: 'avatar', entryId: 'avatar', filename: 'avatar', metadata: {purpose: 'avatar'}, version: 1, sizeBytes: 3, url: 'https://example.test/avatar', thumbnailUrl: null, deleted: false});
+    const a = createOncinCloudGallery('', 'share', undefined, h.dependencies, () => local);
+    const data = JSON.parse(await a.get(() => { throw new Error('must not read viewer cache'); }));
+    assert.equal(data.items[0].id, 'image:one');
+    assert.equal(h.uploads, 0);
+    h.document = {value: {legacyGalleryVersion: 1}, version: 1};
+    assert.equal(JSON.parse(await a.get(() => local)).items.length, 0, 'an emptied cloud gallery never revives the old variable snapshot');
 });

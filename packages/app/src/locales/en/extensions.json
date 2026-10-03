@@ -85,8 +85,8 @@
     },
     "session-memory-summary": {
       "name": "Session Memory & Story Summary (Beta)",
-      "shortDescription": "Keeps your story memory small without losing the plot. Older scenes become a recap, key facts stay on a list. Beta.",
-      "longDescription": "Story memory only keeps the most recent part of your conversation word for word. This extension makes sure the rest is not simply lost: older scenes are compressed into a \"story so far\" recap, and key facts (relationships, items, promises, goals) go onto a running list. Both are sent with every reply.\n\nThat is what lets a small story memory work. Keep it around 16,000 and let this carry everything older.\n\nWriting the notes costs a little, usually well under 1 mushie per update. One tap in the Memory panel switches it to the free model.\n\nBeta: it occasionally gets a detail wrong. Everything it writes can be read and edited in the Memory panel, above the chat box.",
+      "shortDescription": "Summarizes older scenes and keeps notes on key facts. Beta.",
+      "longDescription": "Summarizes older scenes and records key facts such as relationships, items, and promises. The recap and notes are sent to the AI with each reply, so you can keep less of the original conversation in story memory.\n\nUpdating the notes usually costs less than 1 mushie. You can switch to the free model in the Memory panel.\n\nRead and edit the notes in the Memory panel above the chat box. Beta: notes can contain mistakes.",
       "tags": {
         "memory": "memory",
         "context": "context",

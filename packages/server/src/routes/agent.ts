@@ -27,10 +27,11 @@ import { PLANS } from "../lib/plan-config.js";
 import type { AppEnv } from "../lib/types.js";
 import { type SchemaChange, type ToolResult } from "../lib/studio-tools/index.js";
 import { buildToolResultMessages } from "../lib/studio-tools/tool-results.js";
-import { STUDIO_TOOLS, READ_TOOL_NAMES, WRITE_TOOL_NAMES, CONTROL_TOOL_NAMES } from "../lib/studio-tools/tools.js";
+import { STUDIO_TOOLS, READ_TOOL_NAMES, WRITE_TOOL_NAMES, CONTROL_TOOL_NAMES, withCustomImageTool } from "../lib/studio-tools/tools.js";
 import { STUDIO_MODEL_IDS, SMART_IMAGE_MODEL, type ImageBatchProposal } from "@yumina/shared";
 import { isSmartGenerationEnabled, smartImageEstimates, submitSmartGeneration, SmartSubmissionError } from "../lib/generation/smart.js";
-import { IMAGE_TOOL_NAME, imageToolMessages, normalizeImageProposal, waitForGeneratedImage } from "../lib/studio-tools/image-proposal.js";
+import { ALL_PLATFORM_STYLE_SLUGS, IMAGE_TOOL_NAME, customProposalPrice, customSubmissionFor, imageToolMessages, normalizeImageProposal, waitForGeneratedImage } from "../lib/studio-tools/image-proposal.js";
+import { CustomSubmissionError, customSubmissionSchema, isCustomGenerationEnabled, readyPlatformStyles, submitCustomGeneration } from "../lib/generation/custom.js";
 import { IMAGE_BATCH_TOOL_NAME, normalizeImageBatchProposal, editImageBatchProposal, estimateImageBatch, readPersistedImageBatchProposal } from "../lib/studio-tools/image-batch-proposal.js";
 import { createImageBatch, getImageBatch, listImageBatchesForRun, retryImageBatch, resumeImageBatch, isImageBatchEnabled, ImageBatchError } from "../lib/generation/image-batches.js";
 import { getImageBatchBindingState } from "../lib/generation/image-batch-bindings.js";
@@ -849,13 +850,18 @@ agentRoutes.post("/:worldId/agent/generate-image", async (c) => {
     await db.update(agentRuns).set({ status: "awaiting_approval", updatedAt: new Date() }).where(eq(agentRuns.id, body.runId));
     return c.json({ error: "This run is not waiting for an image confirmation", code: "NOT_IMAGE_PROPOSAL" }, 409);
   }
-  const original = normalizeImageProposal(parseToolArgs(call.function.arguments));
+  // The parked arguments were normalized when the run paused, so their mode
+  // (smart or custom) is the one the card showed. Re-read them with every
+  // base model allowed: a mode must never flip between the card and the charge.
+  // A base model that stopped being ready is refused by the submission itself.
+  const storedOptions = { customStyles: ALL_PLATFORM_STYLE_SLUGS };
+  const original = normalizeImageProposal(parseToolArgs(call.function.arguments), storedOptions);
   const proposal = normalizeImageProposal({
     ...original,
     prompt: body.prompt ?? original?.prompt,
     aspectRatio: body.aspectRatio ?? original?.aspectRatio,
     batchSize: body.batchSize ?? original?.batchSize,
-  });
+  }, storedOptions);
   if (!proposal) {
     await db.update(agentRuns).set({ status: "awaiting_approval", updatedAt: new Date() }).where(eq(agentRuns.id, body.runId));
     return c.json({ error: "A prompt is required", code: "INVALID_PROPOSAL" }, 400);
@@ -935,6 +941,28 @@ agentRoutes.post("/:worldId/agent/generate-image", async (c) => {
   const folderId = binding?.folderId ?? null;
 
   let jobId: string;
+  if (proposal.mode === "custom") {
+    // 自定义生图: the exact submission the creator's own generation page makes
+    // for this base model, through the same validation, pricing and charge.
+    try {
+      if (currentUser.isBanned || currentUser.isSuspended) {
+        throw new CustomSubmissionError(400, { error: "Account restricted", code: "ACCOUNT_RESTRICTED" });
+      }
+      const input = customSubmissionSchema.parse(customSubmissionFor(proposal, { requestId: crypto.randomUUID(), folderId }));
+      jobId = (await submitCustomGeneration(currentUser.id, input)).job.id;
+    } catch (error) {
+      const code = error instanceof CustomSubmissionError ? error.code : "SUBMIT_FAILED";
+      console.error("[Agent] generate_image custom submission failed:", error);
+      return resumeWith(imageToolMessages(call, { status: "error", result: null,
+        error: `Image generation could not start (${code}). ${code === "SUBMIT_FAILED" || code === "MODEL_NOT_READY" ? "Any charge was refunded." : "Nothing was charged."} Tell the creator${code === "NO_CREDITS" ? " they need more mushies" : ""} and continue without the image.` }), {
+        oneMoreTurn: true,
+        prelude: async ({ send }) => { await send("image_result", JSON.stringify({ runId: body.runId, toolCallId: call.id, jobId: null, status: "failed", errorCode: code })); return []; },
+      });
+    }
+    return resumeWith([], {
+      prelude: ({ send, progress }) => waitForGeneratedImage({ call, jobId, runId: body.runId, folderId, send, progress }),
+    });
+  }
   try {
     // The dispatcher's claim tick shares the admission lock; a momentary BUSY
     // is not worth handing the creator a failure, so give it a few tries.
@@ -945,7 +973,7 @@ agentRoutes.post("/:worldId/agent/generate-image", async (c) => {
         submitted = await submitSmartGeneration(currentUser.id, {
           prompt: proposal.prompt,
           requestId,
-          cloud: { billing: "actual-v1", model: proposal.model as never, aspectRatio: proposal.aspectRatio,
+          cloud: { billing: "actual-v1", model: proposal.model as never, aspectRatio: proposal.aspectRatio as never,
             ...(proposal.resolution ? { resolution: proposal.resolution as never } : {}), batchSize: proposal.batchSize },
           ...(folderId ? { folderId } : {}),
         });
@@ -1579,6 +1607,11 @@ function extractEntityMeta(
       if (!a) return null;
       return { id: a.id, name: a.name, type: a.type, loop: a.loop };
     }
+    case "sceneImage": {
+      const img = (world.sceneImages ?? []).find((x) => x.id === id);
+      if (!img) return null;
+      return { id: img.id, name: img.name, scene: img.scene, url: img.url };
+    }
     case "settings":
       return { id: "settings", updated: true };
     default:
@@ -1594,6 +1627,10 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       tools,
     } = params;
     if (!isImageBatchEnabled()) tools = tools.filter(tool => tool.function.name !== IMAGE_BATCH_TOOL_NAME);
+    // 自定义生图 is only advertised where it can run: provider configured and
+    // at least one platform base model ready. Otherwise the schema stays smart-only.
+    const customImageStyles = isCustomGenerationEnabled() ? await readyPlatformStyles() : [];
+    tools = withCustomImageTool(tools, customImageStyles);
     const unlimited = params.unlimited ?? false;
     const creditRecovery = studioCreditRecoveryEnabled() && !isByok && (!unlimited || !!params.creditResume);
     const creditScope = { runId, worldId: params.worldId, userId };
@@ -2486,8 +2523,13 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         // resumes the loop with the delivered asset refs as the tool result.
         const imageCall = controlCalls.find((tc) => tc.function.name === IMAGE_TOOL_NAME);
         if (imageCall) {
-          const proposal = normalizeImageProposal(parseToolArgs(imageCall.function.arguments));
-          const unavailable = !isSmartGenerationEnabled();
+          const smartAvailable = isSmartGenerationEnabled();
+          // Custom mode is honoured only for base models ready right now; a
+          // custom request without one becomes a smart proposal (and the card
+          // says so), never a job for a checkpoint the workers do not have.
+          const proposal = normalizeImageProposal(parseToolArgs(imageCall.function.arguments),
+            { customStyles: customImageStyles.map(style => style.slug), smartAvailable });
+          const unavailable = proposal?.mode === "smart" && !smartAvailable;
           if (!proposal || unavailable) {
             // Not a pause: an ordinary error result, and the model carries on.
             messages = [
@@ -2503,11 +2545,21 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             lastTextContent = textContent;
             continue;
           }
-          const estimates = await smartImageEstimates();
           // Price the model the assistant actually picked, so the confirmation
-          // card quotes what pressing Generate will cost.
-          const unitMushies = estimates[proposal.model] ?? estimates[SMART_IMAGE_MODEL] ?? 0;
-          const estimatedMushies = Math.ceil(unitMushies * proposal.batchSize * 10) / 10;
+          // card quotes what pressing Generate will cost. Custom prices are
+          // exact (the generation route's own formula); smart ones estimates.
+          let unitMushies: number;
+          let estimatedMushies: number;
+          if (proposal.mode === "custom") {
+            ({ unitMushies, estimatedMushies } = customProposalPrice(proposal));
+          } else {
+            const estimates = await smartImageEstimates();
+            unitMushies = estimates[proposal.model] ?? estimates[SMART_IMAGE_MODEL] ?? 0;
+            estimatedMushies = Math.ceil(unitMushies * proposal.batchSize * 10) / 10;
+          }
+          // Park the NORMALIZED arguments: the confirm route and a reloaded
+          // card then read the mode and base model this card actually shows.
+          const parkedCall: ToolCall = { ...imageCall, function: { ...imageCall.function, arguments: JSON.stringify(proposal) } };
           console.log(`[Agent] Iteration ${iteration}: generate_image proposed (${proposal.aspectRatio} ×${proposal.batchSize}, est. ${estimatedMushies}) — awaiting creator.`);
           // The assistant's own words stay a real turn; the card renders beneath them.
           await commitTextTurn(iteration, textContent, { lane: "answer" });
@@ -2515,7 +2567,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           await finalizeRun({
             status: "awaiting_approval",
             messages: messages as unknown as Array<Record<string, unknown>>,
-            pendingToolCalls: [imageCall] as unknown as Array<Record<string, unknown>>,
+            pendingToolCalls: [parkedCall] as unknown as Array<Record<string, unknown>>,
             readToolResults: [],
             textContent,
             iteration,

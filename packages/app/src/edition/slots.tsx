@@ -56,6 +56,7 @@ export function WorldPublishModal(_props: WorldPublishModalProps) { return null;
 // ── Library / reviews ───────────────────────────────────────────────────────
 export function WorldReviewsSection(_props: WorldReviewsSectionProps) { return null; }
 export function LibraryBundlesTab() { return null; }
+export function LibraryPromptsTab() { return null; }
 export function GenerationPanel(_props: GenerationPanelProps) { return null; }
 export function ExtensionReviewList(_props: ExtensionReviewsBagBase) { return null; }
 export function useExtensionReviews(_args: { extensionKey: string; enabled: boolean }): ExtensionReviewsBagBase {

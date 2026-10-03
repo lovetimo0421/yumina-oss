@@ -1,47 +1,26 @@
 import { listSessionImages as defaultList, uploadSessionImage as defaultUpload, mediaRequest as defaultRequest, type SessionImage, type SessionImagePage } from "@/lib/session-media";
-const WORLDS = new Set(['27483dff-e14f-49ec-864c-37bd85d7d9c4', '6c559d1d-7dd0-4868-a360-d31d40ea3cd0', '271115e1-7522-49aa-a194-9acfe8a13c4e']);
-export const isOncinGalleryWorld = (id: string) => WORLDS.has(id);
-/** Compatibility patch for the verified hook only; never edits the published card. */
-export function adaptOncinGalleryFiles(worldId: string, files: Record<string, string> | undefined) {
-    if (!files || !WORLDS.has(worldId))
-        return files;
+/** Recognize a known gallery format without depending on a published world ID.
+ * Only insert at the hook entry; adjacent author helpers stay byte-for-byte intact.
+ */
+export function adaptOncinGalleryFiles(_worldId: string, files: Record<string, string> | undefined) {
+    if (!files) return files;
     let changed = false;
     const next = { ...files };
     for (const [name, source] of Object.entries(files)) {
-        const start = source.indexOf('function oswUseGalleryStore(api) {');
-        const end = source.indexOf('function oswVisualEntryKind(', start);
-        if (start < 0 || end < 0)
-            continue;
-        const hook = source.slice(start, end);
-        const cleanup = 'return function () { cancelled = true; };';
-        if (!hook.includes(cleanup) || !hook.includes('var warnedRef = React.useRef(false);'))
-            continue;
-        const patched = hook.replace('var warnedRef = React.useRef(false);', 'var warnedRef = React.useRef(false);\n  var cloudDataRef = React.useRef(data);\n  cloudDataRef.current = data;').replace(cleanup, `
-    function refreshCloudGallery() {
-      if (cancelled || oswGalleryPayloadForStorage(cloudDataRef.current) !== lastPersistedRef.current) return;
-      var before = lastPersistedRef.current;
-      var chain = writeChainRef.current;
-      Promise.resolve(chain).then(function () { return api.storage.get(storageKey); }).then(function (raw) {
-        if (cancelled || loadSeqRef.current !== seq || chain !== writeChainRef.current ||
-            before !== lastPersistedRef.current || oswGalleryPayloadForStorage(cloudDataRef.current) !== before) return;
-        var normalized = oswNormalizeGalleryPayload(raw ? JSON.parse(raw) : {});
-        lastPersistedRef.current = oswGalleryPayloadForStorage(normalized);
-        setData(normalized);
-      }).catch(function () { warnOnce(); });
-    }
-    var refreshTimer = setInterval(refreshCloudGallery, 240000);
-    window.addEventListener("focus", refreshCloudGallery);
-    return function () { cancelled = true; clearInterval(refreshTimer); window.removeEventListener("focus", refreshCloudGallery); };
+        if (!source.includes('oncin:gallery:') || !source.includes('oswGalleryEmptyData') || !source.includes('oswNormalizeGalleryPayload') || source.includes('api.__useLegacyGallery')) continue;
+        const declaration = /function\s+oswUseGalleryStore\s*\(\s*api\s*\)\s*\{/;
+        if (!declaration.test(source)) continue;
+        next[name] = source.replace(declaration, match => match + `
+  if (api && api.__useLegacyGallery) return api.__useLegacyGallery({ empty: oswGalleryEmptyData, normalize: oswNormalizeGalleryPayload });
 `);
-        next[name] = source.slice(0, start) + patched + source.slice(end);
         changed = true;
     }
     return changed ? next : files;
 }
 export const oncinGallerySessionKey = (sessionId: string, shareId?: string) => sessionId || (shareId ? `media-share:${shareId}` : '');
-export function isOncinGalleryKey(worldId: string, key: unknown, sessionId: string, shareId?: string) {
+export function isOncinGalleryKey(_worldId: string, key: unknown, sessionId: string, shareId?: string) {
     const sid = oncinGallerySessionKey(sessionId, shareId);
-    return !!sid && WORLDS.has(worldId) && key === `oncin:gallery:v2:${sid}`;
+    return !!sid && key === `oncin:gallery:v2:${sid}`;
 }
 type Item = Record<string, unknown> & {
     id: string;
@@ -57,7 +36,7 @@ function parse(raw: string | null): Payload {
     return { ...data, items: (data.items ?? []).filter((item: Item) => item && typeof item.id === 'string' && typeof item.url === 'string') };
 }
 function documentOf(payload: Payload) {
-    return Object.fromEntries(Object.entries(payload).filter(([key]) => key !== 'items' && key !== 'version'));
+    return { ...Object.fromEntries(Object.entries(payload).filter(([key]) => key !== 'items' && key !== 'version')), legacyGalleryVersion: 1 };
 }
 function mergeMigratingDocument(cloud: Record<string, unknown>, local: Payload, pending: Item[]) {
     if (!Object.keys(cloud).length)
@@ -80,7 +59,7 @@ function mergeMigratingDocument(cloud: Record<string, unknown>, local: Payload, 
     return result;
 }
 function metadataOf(item: Item) {
-    const { url: _url, ...fields } = item;
+    const { url: _url, _assetIntegrityUrl: _integrity, assetId: _assetId, assetSource: _source, assetChars: _chars, assetHash: _hash, ...fields } = item;
     return { legacy: 'oncin-v2', item: fields };
 }
 function same(a: unknown, b: unknown): boolean {
@@ -113,8 +92,9 @@ export function createOncinCloudGallery(sessionId: string, shareId?: string, onM
     list: typeof defaultList;
     upload: typeof defaultUpload;
     request: typeof defaultRequest;
-}) {
+}, readPublishedSnapshot?: () => string | null) {
     const listSessionImages = dependencies?.list ?? defaultList, uploadSessionImage = dependencies?.upload ?? defaultUpload, mediaRequest = dependencies?.request ?? defaultRequest;
+    const acceptedUrls = new Map<string, Set<string>>();
     let baseline = new Map<string, SessionImage>();
     let loaded: Payload = { items: [] };
     let document = { value: {} as Record<string, unknown>, version: 0 };
@@ -148,11 +128,12 @@ export function createOncinCloudGallery(sessionId: string, shareId?: string, onM
         const cloud = rows.filter(x => !x.deleted && x.metadata.legacy === 'oncin-v2').map(x => ({ ...x.metadata.item as Record<string, unknown>, id: x.entryId, url: x.url! } as Item));
         return { version: 2, ...document.value, items: [...cloud, ...local.filter(x => !rows.some(r => r.entryId === x.id))] };
     }
-    async function load(rawLocal: () => string | null) {
+    async function load(rawLocal: () => string | null, canMigrate: boolean) {
         let rows = await readCloud();
-        if (shareId) {
+        if (shareId || !canMigrate) {
             baseline = new Map(rows.filter(x => x.metadata.legacy === 'oncin-v2').map(x => [x.entryId, x]));
-            loaded = compose(rows);
+            const galleryInitialized = document.version > 0 || rows.some(row => row.metadata.legacy === 'oncin-v2');
+            loaded = !galleryInitialized && readPublishedSnapshot ? parse(readPublishedSnapshot()) : compose(rows);
             hasLoaded = true;
             return JSON.stringify(loaded);
         }
@@ -223,9 +204,9 @@ export function createOncinCloudGallery(sessionId: string, shareId?: string, onM
             }
             if (prior.deleted)
                 throw new Error('This image was permanently deleted');
-            if (item.url !== before.get(entryId)?.url)
+            if (item.url !== before.get(entryId)?.url && !acceptedUrls.get(entryId)?.has(item.url))
                 throw new Error('Replacing an image requires a new gallery item');
-            if (!same(metadataOf(item), prior.metadata))
+            if (!same(metadataOf(item), metadataOf({ ...prior.metadata.item as Item, url: '' })))
                 changes.push({ entryId, version: prior.version, metadata: metadataOf(item) });
         }
         const added: Item[] = [];
@@ -255,7 +236,7 @@ export function createOncinCloudGallery(sessionId: string, shareId?: string, onM
             }
             for (const item of added) {
                 const row = rows.find(x => x.entryId === item.id);
-                if (!row || row.deleted || !same(row.metadata, metadataOf(item))) {
+                if (!row || row.deleted || !same(metadataOf({ ...row.metadata.item as Item, url: '' }), metadataOf(item))) {
                     hasLoaded = false;
                     throw new Error('Gallery changed on another device. Reload before editing.');
                 }
@@ -268,8 +249,23 @@ export function createOncinCloudGallery(sessionId: string, shareId?: string, onM
         // signed URL is transport detail, not a replacement-image operation.
         loaded = next;
     }
+    async function refreshUrls() {
+        const rows = await readCloud(false);
+        const urls: Record<string, string> = {};
+        for (const row of rows) {
+            if (row.deleted || !row.url || !baseline.has(row.entryId)) continue;
+            const known = acceptedUrls.get(row.entryId) ?? new Set<string>();
+            const old = loaded.items.find(item => item.id === row.entryId)?.url;
+            if (old) known.add(old);
+            known.add(row.url);
+            acceptedUrls.set(row.entryId, known);
+            urls[row.entryId] = row.url;
+        }
+        return urls;
+    }
     return {
-        get: (rawLocal: () => string | null) => { const result = tail.catch(() => { }).then(() => load(rawLocal)); tail = result; return result; },
+        refresh: () => { const result = tail.catch(() => {}).then(refreshUrls); tail = result; return result; },
+        get: (rawLocal: () => string | null, canMigrate = true) => { const result = tail.catch(() => { }).then(() => load(rawLocal, canMigrate)); tail = result; return result; },
         set: (raw: string) => { const result = tail.catch(() => { }).then(() => save(raw)); tail = result; return result; },
         get uploadsEnabled() { return enabled; },
         get usesCloud() { return enabled || initialized || !!shareId; },

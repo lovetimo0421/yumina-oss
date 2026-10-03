@@ -20,10 +20,10 @@ test("history read access does not grant update-edit permission", async (t) => {
   const client = new PGlite();
   try {
     await client.exec(`
-      CREATE TABLE "user" (id TEXT PRIMARY KEY, name TEXT);
+      CREATE TABLE "user" (id TEXT PRIMARY KEY, name TEXT, username TEXT);
       CREATE TABLE worlds (
         id TEXT PRIMARY KEY, creator_id TEXT NOT NULL, status TEXT NOT NULL,
-        visibility TEXT NOT NULL, age_rating TEXT, language_group_id TEXT
+        visibility TEXT NOT NULL, age_rating TEXT, language_group_id TEXT, public_id TEXT
       );
       CREATE TABLE follows (follower_id TEXT NOT NULL, following_id TEXT NOT NULL);
       CREATE TABLE world_pending_edits (world_id TEXT PRIMARY KEY, status TEXT NOT NULL);
@@ -31,8 +31,8 @@ test("history read access does not grant update-edit permission", async (t) => {
         id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(id),
         title TEXT NOT NULL, content TEXT, is_major BOOLEAN, created_at TIMESTAMP NOT NULL
       );
-      INSERT INTO "user" VALUES ('author', 'Author');
-      INSERT INTO worlds VALUES
+      INSERT INTO "user" (id, name) VALUES ('author', 'Author');
+      INSERT INTO worlds (id, creator_id, status, visibility, age_rating, language_group_id) VALUES
         ('public', 'author', 'published', 'public', 'all', null),
         ('restricted', 'author', 'published', 'followers', 'all', null),
         ('unpublished', 'author', 'unpublished', 'public', 'all', null),

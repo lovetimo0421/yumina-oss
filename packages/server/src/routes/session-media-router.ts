@@ -5,6 +5,7 @@ import { sql } from "drizzle-orm";
 import type { DrizzleDB } from "../db/index.js";
 import type { AppEnv } from "../lib/types.js";
 import { mediaRows, MediaError, type createSessionMediaService } from "../lib/session-media-service.js";
+import { createSessionStorageService } from "../lib/session-storage-service.js";
 export function createSessionMediaRoutes(deps: {
     db: DrizzleDB;
     authMiddleware: MiddlewareHandler<AppEnv>;
@@ -15,6 +16,7 @@ export function createSessionMediaRoutes(deps: {
 }) {
     const { db, authMiddleware, sessionMedia, sessionMediaLimit, sessionMediaUploadsEnabled, isS3Configured } = deps;
     const sessionMediaRoutes = new Hono<AppEnv>();
+    const sessionStorage = createSessionStorageService(db);
     sessionMediaRoutes.use('*', authMiddleware);
     sessionMediaRoutes.use('*', bodyLimit({maxSize:512*1024,onError:c=>c.json({error:'MEDIA_REQUEST_TOO_LARGE',code:'MEDIA_REQUEST_TOO_LARGE'},413)}));
     sessionMediaRoutes.use('*', async (c, next) => {
@@ -46,6 +48,17 @@ export function createSessionMediaRoutes(deps: {
         const session = await sessionMedia.ownSession(db, userId, sessionId);
         return c.json({ data: { ...await sessionMedia.scopeList({ sessionId }, offsetOf(c.req.query('offset'))), uploadsEnabled: isS3Configured() && await sessionMedia.isReady() && sessionMediaUploadsEnabled(userId, session.world_id) } });
     });
+    const storageVersion = z.object({ expectedVersion: z.number().int().nonnegative() });
+    sessionMediaRoutes.get('/session/:sessionId/storage/:key', async (c) =>
+        c.json({ data: await sessionStorage.get(c.get('user').id, c.req.param('sessionId'), c.req.param('key')) }));
+    sessionMediaRoutes.put('/session/:sessionId/storage/:key', async (c) => {
+        const body = storageVersion.extend({ value: z.unknown() }).parse(await c.req.json());
+        return c.json({ data: await sessionStorage.write(c.get('user').id, c.req.param('sessionId'), c.req.param('key'), body.value, body.expectedVersion) });
+    });
+    sessionMediaRoutes.delete('/session/:sessionId/storage/:key', async (c) => {
+        const body = storageVersion.parse(await c.req.json());
+        return c.json({ data: await sessionStorage.write(c.get('user').id, c.req.param('sessionId'), c.req.param('key'), null, body.expectedVersion, true) });
+    });
     sessionMediaRoutes.post('/uploads', async (c) => {
         const body = z.object({ id: z.string().uuid(), sessionId: z.string().min(1), entryId: z.string().min(1).max(100), filename: z.string().min(1).max(200), contentType: z.string(), size: z.number().int().positive(), metadata: z.record(z.unknown()).optional() }).parse(await c.req.json());
         const userId = c.get('user').id;
@@ -64,7 +77,7 @@ export function createSessionMediaRoutes(deps: {
         return c.json({ data: await sessionMedia.unlink(c.get('user').id, c.req.param('sessionId'), c.req.param('entryId'), version) });
     });
     sessionMediaRoutes.patch('/session/:sessionId/gallery', async (c) => {
-        const body = z.object({ changes: z.array(z.object({ entryId: z.string().max(100), version: z.number().int().positive(), metadata: z.record(z.unknown()).optional(), remove: z.boolean().optional() })).max(100), document: z.object({ version: z.number().int().nonnegative(), value: z.record(z.unknown()) }).optional() }).parse(await c.req.json());
+        const body = z.object({ changes: z.array(z.object({ entryId: z.string().max(100), version: z.number().int().positive(), metadata: z.record(z.unknown()).optional(), remove: z.boolean().optional() })).max(500), document: z.object({ version: z.number().int().nonnegative(), value: z.record(z.unknown()) }).optional() }).parse(await c.req.json());
         await sessionMedia.editGallery(c.get('user').id, c.req.param('sessionId'), body.changes, body.document);
         return c.json({ data: { saved: true } });
     });

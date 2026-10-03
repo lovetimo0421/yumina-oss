@@ -9,8 +9,9 @@ import { estimateTokens } from "./token-utils.js";
 import { filterEntriesByActiveWorldbooks } from "../lorebook/worldbook.js";
 import { filterEntriesByActiveLoreSlots } from "../lorebook/lore-slot.js";
 import { isVariableBoundEntry } from "../lorebook/entry-triggers.js";
-import { isAiReadable } from "../state/variable-activation.js";
+import { isAiReadable, isContinuityOwned, isSceneImageJudgeOn } from "../state/variable-activation.js";
 import { getAiAudioTracks } from "../audio/ai-audio.js";
+import { getAiSceneImages, buildSceneImagePromptBlock, resolveSceneImageDirectives } from "../parser/scene-image-directives.js";
 import { buildSpeakerFormatBlock } from "./speaker-tag.js";
 
 /** Static (state-free) check: could the AI ever see this variable? Used by the
@@ -46,6 +47,8 @@ export interface UserPrompt {
   enabled: boolean;
   /** Depth value for "chat-history" section — how many messages from the end to inject. */
   depth?: number;
+  /** Message role the prompt is sent as. Omitted = "system". */
+  apiRole?: "system" | "user" | "assistant";
 }
 /** Escape special regex characters in a string */
 function escapeRegex(s: string): string {
@@ -183,10 +186,17 @@ export class PromptBuilder {
    * Returns an array of interpolated greeting strings.
    */
   buildGreetings(world: WorldDefinition, state: GameState): string[] {
+    // An opening is player-facing text the author wrote by hand, so a bare
+    // `[image: img1]` in it gets the same expansion an AI reply gets — the
+    // renderer never sees a handle it cannot resolve.
+    const images = world.sceneImages ?? [];
     return world.entries
       .filter((e) => e.role === "greeting" && e.enabled)
       .sort(entrySort)
-      .map((e) => this.interpolate(e.content, world, state));
+      .map((e) => {
+        const text = this.interpolate(e.content, world, state);
+        return images.length > 0 ? resolveSceneImageDirectives(text, images).text : text;
+      });
   }
 
   /** The ordered greeting ENTRIES (same filter + entrySort order as
@@ -249,15 +259,24 @@ export class PromptBuilder {
    * These are per-world constants that never change between turns.
    * Designed to be placed in the system prefix (cacheable).
    */
-  buildStaticFormatBlock(world: WorldDefinition): string {
+  buildStaticFormatBlock(
+    world: WorldDefinition,
+    opts?: { activeGreetingId?: string | null },
+  ): string {
     const hasVariables = world.variables.length > 0;
     const audioTracks = getAiAudioTracks(world.audioTracks ?? []);
     const hasAudio = audioTracks.length > 0;
+    // Scoped to the session's opening — fixed for the session's lifetime, so it
+    // still belongs in the cacheable prefix. Judge-placed images are not the
+    // narrator's business: listing them would only invite a second, less
+    // reliable placement.
+    const sceneImages = isSceneImageJudgeOn(world) ? [] : getAiSceneImages(world.sceneImages ?? [], opts?.activeGreetingId);
+    const hasSceneImages = sceneImages.length > 0;
     // Several characters with portraits: the AI names the speaker up front so
     // the chat can show the right face before the prose streams in.
     const speakerBlock = buildSpeakerFormatBlock(world);
 
-    if (!hasVariables && !hasAudio && !speakerBlock) return "";
+    if (!hasVariables && !hasAudio && !hasSceneImages && !speakerBlock) return "";
 
     const parts: string[] = [];
     if (speakerBlock) parts.push(speakerBlock);
@@ -327,6 +346,10 @@ export class PromptBuilder {
         "Examples: [audio: battle_bgm play], [audio: tavern_ambient stop]\n" +
         "</audio>"
       );
+    }
+
+    if (hasSceneImages) {
+      parts.push(buildSceneImagePromptBlock(sceneImages));
     }
 
     return parts.join("\n\n");
@@ -845,6 +868,7 @@ export class PromptBuilder {
         enabled: true,
         section: p.section,
         ...(p.section === "chat-history" && p.depth !== undefined && { depth: p.depth }),
+        ...(p.apiRole && p.apiRole !== "system" && { apiRole: p.apiRole }),
       }));
 
     const merged = [...alwaysSend, ...matched, ...userEntries];
@@ -942,7 +966,9 @@ export class PromptBuilder {
         // JSON-typed objects are stringified so the AI can target sub-fields by dot-path.
         // Read-only vars are labeled so the model narrates them without trying
         // to write them (directives targeting them are dropped server-side).
-        const suffix = v.aiAccess === "read" ? " (read-only)" : "";
+        // Variables the continuity judge owns get the same label: the judge
+        // sets them after the reply, from the story the model just wrote.
+        const suffix = v.aiAccess === "read" || isContinuityOwned(world, v) ? " (read-only)" : "";
         return `${v.id}: ${renderVariableValueForPrompt(value)}${suffix}`;
       })
       .join("\n");
@@ -1085,6 +1111,18 @@ export class PromptBuilder {
       });
     }
 
+    // Scene image instructions
+    const sceneImages = isSceneImageJudgeOn(world) ? [] : getAiSceneImages(world.sceneImages ?? [], state.activeGreetingId);
+    if (sceneImages.length > 0) {
+      const sceneText = buildSceneImagePromptBlock(sceneImages);
+      blocks.push({
+        label: "Scene Image Instructions",
+        category: "scene-image-instructions",
+        tokens: estimateTokens(sceneText),
+        chars: sceneText.length,
+      });
+    }
+
     const totalTokens = blocks.reduce((sum, b) => sum + b.tokens, 0);
     const totalChars = blocks.reduce((sum, b) => sum + b.chars, 0);
 
@@ -1094,7 +1132,7 @@ export class PromptBuilder {
 
 export interface PromptCostBlock {
   label: string;
-  category: "entry" | "variable-summary" | "format-instructions" | "audio-instructions";
+  category: "entry" | "variable-summary" | "format-instructions" | "audio-instructions" | "scene-image-instructions";
   tokens: number;
   chars: number;
 }

@@ -332,6 +332,10 @@ Call inside any component body. Same API everywhere — no per-surface restricti
 | `storage.get(key)` | Read a value (async) |
 | `storage.set(key, value)` | Write a value (async) |
 | `storage.remove(key)` | Delete a value (async) |
+| **Session JSON** (cloud, per-session; separate from AI variables) | |
+| `sessionStorage.get(key)` | Read `{ value, version, exists }` (async); never-written keys have version 0 |
+| `sessionStorage.set(key, value, { expectedVersion })` | Save JSON with mandatory version check; returns the updated record (async) |
+| `sessionStorage.remove(key, { expectedVersion })` | Remove with mandatory version check; returns a versioned tombstone (async) |
 | **Model Picker** | |
 | `selectedModel` | Currently selected model ID |
 | `userPlan` | User's plan tier (e.g., `"free"`) |
@@ -382,12 +386,38 @@ not made cloud-backed by including `api.sessionId` in a key. Reserve it for
 non-critical preferences/cache. Handle rejected writes; never mark a payload
 saved until the returned promise resolves.
 
+Use `api.sessionStorage` for small JSON that belongs to the save. Read first,
+then pass the returned version as `{ expectedVersion }` to every set/remove.
+On `SESSION_STORAGE_CONFLICT`, keep the draft, reload and reconcile before
+resubmitting; never blindly overwrite with stale data. Missing keys return
+`{ value: null, version: 0, exists: false }`; removed keys retain a version.
+Check `exists` and retain the version even after deletion. Limits: 32 KiB per
+serialized JSON value, 256 KiB current values and 16 MiB value history per
+session, 128 keys including tombstones, 1,000 mutations/hour per owner.
+Checkpoint restores that change JSON share these limits: quota failures return
+HTTP 413 and hourly rate failures 429. The entire restore rolls back, including
+media and story state. Retain history; do not prune it to bypass limits. Restores
+with unchanged values do not duplicate history and can proceed at these limits.
+Keys are 1–128 ASCII letters/digits/`_ . : -`, beginning with a letter or digit.
+JSON and media references travel together in checkpoints, same-account branches
+and shared snapshots; checkpoint restore restores both. Shared reads use existing
+visibility, world publication status, hidden/moderation status and content-level
+rules. The sharer and card creator are privileged snapshot readers, including
+hidden, unpublished or sensitive snapshots. Other viewers must pass applicable
+checks; unlisted shares are accessible by link, not recipient-only. Shared records are read-only. Never
+include secrets in data that can enter a share. The browser `sessionStorage`
+alias remains local; it is not `api.sessionStorage`.
+
 Do not implement a persistent player gallery by putting `FileReader` data URLs
 in `api.storage`, or move those base64 strings into game variables. Player images
 use the private `api.media` service by default. It stores bytes and metadata
-separately from AI variables; world authors do not gain access to players' files.
+separately from AI variables. Private live-session data is owner-only; being the
+world author does not grant access to it. Shared snapshots have the existing
+sharer/card-creator access described above, including their frozen JSON and media.
 Creator assets still use `@asset:`. Do not put a private player image in the
 public creator asset library or save an expiring signed URL as its identity.
+Persist only `entryId`/`mediaId` in cloud JSON. Media is available to every world
+when server S3 storage is configured, unless new uploads are explicitly paused.
 
 ```tsx
 // Load pages; URL values are temporary display URLs. Persist only media/entry IDs.
@@ -417,6 +447,11 @@ Existing local images require migration from the original browser; the server
 cannot recover bytes it never received. Do not delete local originals before
 both the upload and the session save have been confirmed. Do not invent a runtime
 upload SDK method: verify it exists in the target version before using it.
+
+Compatibility migration recognizes validated current Oncin v2/v3/v4 and
+`gallery_data` formats in any world, keeps the original browser data, and skips
+corrupt or ambiguous journals/backups. It does not automatically cloud-sync
+arbitrary localStorage keys. New components should use the explicit SDK APIs.
 
 Binary assets (images, audio, fonts) must go through the asset system, never be embedded directly as data URIs. Inline base64 inflates files by 33% over the raw binary, ships on every page load, and bloats the world JSON so reads can't see the full file without pagination.
 
@@ -812,7 +847,7 @@ export default function PhoneApp() {
 - `includeLorebook: "matched"` — pulls relevant lore for this turn (modes: see the `ai.complete` SDK entry)
 - `injectContext()` — optional, tells main AI about what happened (consumed on next turn)
 - `setVariable()` — for persistent cross-channel state (e.g., gold changed after purchase)
-- History in React state is session-ephemeral. Use `api.storage` for persistence across page reloads.
+- History in React state is session-ephemeral. Use bounded `api.sessionStorage` records for cloud persistence with the save; `api.storage` is only for browser-local drafts/cache.
 
 ### Loading lorebook context into a side call
 

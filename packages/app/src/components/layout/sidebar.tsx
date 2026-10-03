@@ -285,7 +285,8 @@ export function Sidebar() {
             />
 
             {visibleNavItems.map((item) => {
-              const isActive = location.pathname.startsWith(item.to);
+              const isActive = location.pathname === item.to ||
+                (item.to !== "/" && location.pathname.startsWith(`${item.to}/`));
 
               if (!isAuthenticated && item.gate === "profile") {
                 return (
@@ -435,7 +436,7 @@ export function Sidebar() {
                 onClick={() => router.navigate({ to: HOSTED_ROUTES.hub })}
                 className={cn(
                   "mobile-nav-drawer__item",
-                  location.pathname.startsWith("/app/hub") && "mobile-nav-drawer__item--active"
+                  (location.pathname === "/" || location.pathname.startsWith("/app/hub")) && "mobile-nav-drawer__item--active"
                 )}
               >
                 <span className="mobile-nav-drawer__item-icon">

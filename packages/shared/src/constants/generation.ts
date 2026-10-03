@@ -360,6 +360,33 @@ export function getPlatformStyle(slug: string): PlatformStyleInfo | undefined {
   return PLATFORM_STYLES.find((s) => s.slug === slug);
 }
 
+export type ImageAspectId = (typeof IMAGE_ASPECTS)[number]["id"];
+
+/** The recipe a platform base model runs at when nobody tunes it: the style's
+ *  recommended steps/cfg/sampler at one SDXL-native size. This is what the
+ *  creator's own 自定义生图 page starts from after picking a base model, and
+ *  what the Studio assistant submits on the creator's behalf. */
+export function platformStyleRecipe(slug: string, aspectId: string, batchSize = 1) {
+  const style = getPlatformStyle(slug) ?? PLATFORM_STYLES[0]!;
+  const aspect = IMAGE_ASPECTS.find((a) => a.id === aspectId) ?? IMAGE_ASPECTS[0];
+  return {
+    width: aspect.width,
+    height: aspect.height,
+    steps: style.recommended.steps,
+    cfg: style.recommended.cfg,
+    sampler: style.recommended.sampler,
+    batchSize: Math.max(ADVANCED_LIMITS.batchMin, Math.min(ADVANCED_LIMITS.batchMax, Math.round(batchSize) || 1)),
+  };
+}
+
+/** Price of that recipe: computeImagePrice plus the base model's swap
+ *  surcharge — the same sum POST /generation/jobs charges for it. */
+export function platformStylePrice(slug: string, aspectId: string, batchSize = 1): number {
+  const style = getPlatformStyle(slug) ?? PLATFORM_STYLES[0]!;
+  const recipe = platformStyleRecipe(slug, aspectId, batchSize);
+  return computeImagePrice({ ...recipe, loraCount: 0, customCheckpoint: false }) + style.surchargeMushies;
+}
+
 // ── Job failure codes ────────────────────────────────────────────────
 //
 // Stable machine-readable reasons written to generation_jobs.error_code and

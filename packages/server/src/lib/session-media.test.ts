@@ -109,6 +109,18 @@ test("private media: ownership, atomic reservations, immutable snapshots, retrie
         await assert.rejects(service.complete('alice',retryRequest.id,quota),/MEDIA_PROCESSING_FAILED/);
         assert.ok(!(await service.scopeList({sessionId:'save'})).items.some(item=>item.entryId==='retry'),'failed object writes never bind an entry');
         assert.equal((await service.complete('alice',retryRequest.id,quota)).mediaId,complete.mediaId);
+        // Large legacy galleries still commit atomically. A conflict at the end
+        // of a >100-item batch must roll back every earlier removal.
+        await db.execute(sql`INSERT INTO session_media_refs(id,media_id,session_id,entry_id,metadata,version)
+          SELECT 'large-ref-'||n,${complete.mediaId!},'save','large-'||n,'{}'::jsonb,1 FROM generate_series(1,120) n`);
+        const largeChanges = Array.from({length: 120}, (_, i) => ({entryId: `large-${i + 1}`, version: 1, remove: true}));
+        const largePatch = (changes: typeof largeChanges) => routes.request('/session/save/gallery', {
+          method: 'PATCH', headers: {'x-test-user': 'alice', 'content-type': 'application/json'}, body: JSON.stringify({changes}),
+        });
+        assert.equal((await largePatch([...largeChanges, {entryId: 'missing', version: 1, remove: true}])).status, 409);
+        assert.equal((await pg.query<{count: number}>(`SELECT count(*)::int AS count FROM session_media_refs WHERE id LIKE 'large-ref-%' AND removed_at IS NULL`)).rows[0]!.count, 120);
+        assert.equal((await largePatch(largeChanges)).status, 200);
+        assert.equal((await pg.query<{count: number}>(`SELECT count(*)::int AS count FROM session_media_refs WHERE id LIKE 'large-ref-%' AND removed_at IS NULL`)).rows[0]!.count, 0);
         // Exactly one of two concurrent reservations can claim the remaining room.
         const current = await service.usage('alice');
         const limit = current.used + current.reserved + image.length + MEDIA_RESERVATION;

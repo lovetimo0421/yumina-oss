@@ -10,6 +10,7 @@ import {
   reviews,
   threads,
   translationAttempts,
+  promptPacks,
 } from "../db/schema.js";
 import { recordUsageLog } from "./usage-log.js";
 import { requestFormattedTranslation } from "./translate-format.js";
@@ -83,7 +84,7 @@ const LANG_NAMES: Record<SupportedLang, string> = {
   ja: "Japanese",
 };
 
-type TranslationSourceType = "thread" | "post" | "review" | "review_reply" | "event";
+type TranslationSourceType = "thread" | "post" | "review" | "review_reply" | "event" | "prompt_pack";
 
 /**
  * Identity of the exact source text a translation was produced from.
@@ -177,6 +178,16 @@ async function currentSourceHash(
         .for("key share")
         .limit(1);
       return row ? sourceTextHash(row.content ?? "") : null;
+    }
+    case "prompt_pack": {
+      // Title + description only: the prompt body is shown as written.
+      const [row] = await tx
+        .select({ description: promptPacks.description, title: promptPacks.title })
+        .from(promptPacks)
+        .where(eq(promptPacks.id, sourceId))
+        .for("key share")
+        .limit(1);
+      return row ? sourceTextHash(row.description ?? "", withTitle ? row.title : undefined) : null;
     }
     case "event": {
       const [row] = await tx

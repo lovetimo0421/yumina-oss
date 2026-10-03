@@ -43,7 +43,9 @@
     "assets": "アセット",
     "overview": "概要",
     "bundles": "バンドル",
-    "aiGeneration": "AI生成"
+    "aiGeneration": "AI生成",
+    "apps": "ストーリー内アプリ",
+    "sceneImages": "シーン画像"
   },
   "firstMessage": {
     "title": "最初のメッセージ",
@@ -73,6 +75,8 @@
     "all": "すべて",
     "filter": "フィルター",
     "editEntry": "エントリを編集",
+    "isCharacter": "これはキャラクターです",
+    "isCharacterHint": "キャラクターには立ち絵とボイスを設定できます。立ち絵はチャットのセリフ横に表示され、ストーリー挿絵にも使われます。",
     "duplicate": "複製",
     "copySuffix": "コピー",
     "delete": "削除",
@@ -231,12 +235,14 @@
     "aiAccessOptions": {
       "write": "AI が読み書き可能",
       "read": "AI は読み取り専用",
-      "none": "エンジン専用（AI に非表示）"
+      "none": "エンジン専用（AI に非表示）",
+      "precise": "AI は読み取り専用（精密トラッキングが書き込み）"
     },
     "aiAccessHint": {
       "write": "毎ターン AI に表示され、ディレクティブで更新できます — 好感度や感情など、AI にしか判断できない状態向け。",
       "read": "読み取り専用の印付きで AI に表示され、AI はそれに沿って描写しますが、AI からの書き込みディレクティブは破棄されます — ビヘイビアやカスタム UI から動かしてください。",
-      "none": "AI には一切送信されません。条件・ビヘイビア・カスタム UI からは引き続き利用できます — 台帳やカウンターなどの内部状態向け。"
+      "none": "AI には一切送信されません。条件・ビヘイビア・カスタム UI からは引き続き利用できます — 台帳やカウンターなどの内部状態向け。",
+      "precise": "精密トラッキングがオン：読み取り専用として AI に表示され、物語を書く AI からの書き込みディレクティブは破棄されます — 毎ターン、精密トラッキングのアシスタントが変化を決めます。ここの設定は精密トラッキングをオフにすると適用されます。"
     },
     "activationLabel": "有効になる条件",
     "activationModes": {
@@ -257,7 +263,8 @@
       "none": "エンジン",
       "manual": "手動",
       "conditions": "条件",
-      "greeting": "OP"
+      "greeting": "OP",
+      "precise": "精密"
     },
     "invalidJson": "無効なJSON: {{message}}",
     "jsonUndo": "元に戻す",
@@ -279,7 +286,21 @@
       "string": "文字列",
       "boolean": "真偽値",
       "json": "JSON (オブジェクト / 配列)"
-    }
+    },
+    "optionsLabel": "選択肢",
+    "optionsHint": "ここで AI の出力を固定できます。入力すると、この変数はこの中の値にしか変わりません。空のままなら AI が状況に応じて自由に変えますが、安定性は下がることがあります。",
+    "optionsAdd": "値を追加",
+    "optionsPlaceholder": "入力して Enter",
+    "preciseLabel": "精密トラッキング",
+    "preciseHint": "オンにすると、専用のアシスタントが毎ターン、この変数を変えるべきか・どれだけ変えるかを確認します。物語を書く AI に任せるより正確で安定します。",
+    "preciseStringHint": "オンにすると、この変数の変化がより正確で安定し、必ず選択肢のどれかになります",
+    "preciseDown": "1ターンの最大減少",
+    "preciseUp": "1ターンの最大増加",
+    "preciseRange": "毎ターン −{{down}} から +{{up}} の間で、物語に合わせて値が決まります",
+    "preciseUpOnly": "毎ターン増えるだけで、最大 +{{up}}、または変化なし",
+    "preciseDownOnly": "毎ターン減るだけで、最大 −{{down}}、または変化なし",
+    "preciseZero": "両方 0 なので、変化しません",
+    "preciseTooWide": "変化幅が大きすぎて精密トラッキングは使えません。2つの合計が {{max}} 以下なら使えます"
   },
   "components": {
     "title": "カスタムUI",
@@ -338,6 +359,17 @@
     "htmlPlaceholder": "<div>ここにHTMLを記述</div>\n<script>window.yumina.onChange(function() { ... });</script>",
     "markdownCode": "Markdown",
     "markdownPlaceholder": "# 見出し\n\nここにMarkdownコンテンツを記述..."
+  },
+  "appPacks": {
+    "title": "ストーリー内アプリ",
+    "blurb": "チャット横のドックからプレイヤーが開く小さなアプリです：メッセージ、関係、タイムライン、時計……データは変数ひとつに入り、物語に合わせて AI が書き込みます。各カード上部のプレビューが実際のアプリです。作る必要はありません。",
+    "add": "このカードに追加",
+    "added": "ドックに追加しました",
+    "footnote": "アプリ内の文言はカードの言語（中国語・英語・スペイン語）に合わせます。Bundles ページで外すと、ボタン・データ・ルールもまとめて消えます。",
+    "sets": "おすすめセット——このタイプのカードがよく追跡するもの",
+    "addSet": "4つまとめて追加",
+    "setAdded": "すべて追加済み",
+    "installed": "「{{name}}」を追加しました"
   },
   "audio": {
     "title": "オーディオ",
@@ -422,7 +454,25 @@
     "trackIdCopyFailed": "コピーできませんでした。ID を選択して手動でコピーしてください。",
     "trackIdHelp": "スクリプトや音声指示で使う ID です。素材 ID とは異なります。",
     "allowAiControl": "AI による操作を許可",
-    "allowAiControlHelp": "オフの場合、AI はこのトラックの再生・停止・変更ができません。スクリプト、動作ルール、プレイリストからは引き続き操作できます。"
+    "allowAiControlHelp": "オフの場合、AI はこのトラックの再生・停止・変更ができません。スクリプト、動作ルール、プレイリストからは引き続き操作できます。",
+    "aiNoteLabel": "いつ流すか",
+    "aiNoteSfxLabel": "何が起きたら一度鳴らすか",
+    "aiNotePlaceholder": "例：にぎやかで楽しい。祭り、市場、追いかけっこ",
+    "aiPickTitle": "この曲を AI に流させる",
+    "aiPickHelp": "いつ流すかを一言書くと、物語がそれに合ったとき AI が自動でこの曲に切り替えます。空ならプレイリストと条件ルールだけで流れます。",
+    "aiPickSfxTitle": "この効果音を AI に鳴らさせる",
+    "aiPickSfxHelp": "何が起きたら鳴らすかを一言書くと、物語でそれが起きたとき AI が一度鳴らします。空なら条件ルールだけで鳴ります。",
+    "aiNoteSfxPlaceholder": "例：誰かが刀を抜く",
+    "aiPickOn": "オン：物語が合ったとき AI がこの曲を流します",
+    "aiPickOff": "まだオフ。一言書けばオンになります",
+    "aiPickBadgeTitle": "物語が合ったとき AI が流します",
+    "musicRuleConflict": "AI が曲を変えたいのに、条件ルールが自分の曲を流しているとき",
+    "musicRuleConflictRules": "ルール優先：ルールの曲はそのまま、AI はこのターン変えない",
+    "musicRuleConflictAi": "AI 優先：AI の曲に切り替え、終わるか AI が戻すまでルールは手を出さない",
+    "musicRuleAfter": "AI が選んだ曲が終わったら",
+    "musicRuleAfterLoop": "AI が変えるかプレイリストに戻すまでループ",
+    "musicRuleAfterOnce": "一度だけ流し、終わったら既定のプレイリストに戻る",
+    "musicRuleDuck": "AI が効果音を鳴らす間は BGM を下げ、終わったら戻す"
   },
   "overview": {
     "title": "概要",
@@ -479,7 +529,9 @@
     "coverFromAssetFailed": "カバーに設定できませんでした",
     "galleryAddFailed": "画像を追加できませんでした",
     "imageRemoveFailed": "画像を削除できませんでした",
-    "importCoverFailed": "カード画像をカバーに使えませんでした"
+    "importCoverFailed": "カード画像をカバーに使えませんでした",
+    "continuity": "スマートトラッキング",
+    "continuityDesc": "AI が返信を書くたびに、専用のアシスタントがもう一度確認します：変数を変えるべきか、どの曲を流すか、どのシーン画像を出すか。物語を書く AI に任せるよりずっと正確です。オフだと物語を書く AI だけが変えます。"
   },
   "variantBar": {
     "primaryBadge": "メイン",
@@ -569,7 +621,8 @@
     "source": {
       "publish": "保存済みバージョン",
       "live": "保存済みバージョン",
-      "backup": "復元前のバックアップ"
+      "backup": "復元前のバックアップ",
+      "incoming": "変更を適用する前のバックアップ"
     },
     "previousPublished": "以前公開済み",
     "notPublished": "未公開"
@@ -899,7 +952,8 @@
       "canvas": "キャンバス",
       "aiAssistant": "AIアシスタント",
       "playtest": "プレイテスト",
-      "marketplace": "マーケットプレイス"
+      "marketplace": "マーケットプレイス",
+      "sceneImages": "シーン画像"
     },
     "layouts": {
       "writing": "執筆",
@@ -914,6 +968,9 @@
         "count": "枚数",
         "estimate": "約 {{amount}} マッシー",
         "estimateNote": "画像が届いた後に実際の使用量で精算します。届かなければ課金されません。",
+        "price": "{{amount}} マッシー",
+        "customNoteTags": "プロンプトは書いたまま（Danbooru タグ）ベースモデルに送られ、書き換えられません。この金額で課金され、生成に失敗した場合は返金されます。",
+        "customNoteProse": "プロンプトは書いたまま（英語の文章）ベースモデルに送られ、書き換えられません。この金額で課金され、生成に失敗した場合は返金されます。",
         "confirm": "生成",
         "decline": "やめておく",
         "generating": "描いています、約30秒",
@@ -1669,6 +1726,7 @@
     "mergedToast": "アシスタントの変更を統合しました。再度保存",
     "mergedConflictsToast": "統合しました。あなたの版を保持",
     "agentMergedNotice": "エージェントの変更と統合しました",
+    "coverRefreshFailed": "カバーはアップロードされましたが、エディターを更新できませんでした。作品を開き直してから切り抜きを調整してください。",
     "agentMergedConflictsNotice": "統合しました。あなたの版を保持"
   },
   "saveErrors": {
@@ -1723,5 +1781,132 @@
     "library": "アセットから選ぶ",
     "uploading": "アップロード中…",
     "failed": "アップロードに失敗しました：{{name}}"
+  },
+  "sceneImages": {
+    "hintLabel": "解放ヒント",
+    "hintHelp": "画像がまだ出ていないとき、ギャラリーでプレイヤーに見せる一言。気を引くだけで、ネタバレはしない。",
+    "hintPlaceholder": "例：な、なんだニャ！？",
+    "learnMore": "クリエイターガイド →",
+    "uploadFiles": "パソコンからアップロード",
+    "dropHint": "ここに画像をドロップするとまとめて追加できます",
+    "uploading": "アップロード中 {{done}}/{{total}}…",
+    "uploadFailed": "アップロードに失敗しました：{{name}}",
+    "title": "シーン画像",
+    "description": "物語の中で送られる画像です。1枚ごとに送る条件を一文で書くと、AI はそのとおりに従い、条件を満たした返信にこの画像を添えます。",
+    "addImage": "画像を追加",
+    "searchPlaceholder": "画像を検索...",
+    "noImages": "シーン画像はまだありません",
+    "noImagesDesc": "画像をアップロードして、どの場面のものかを書いておくと、物語がそこに着いたときにAIが表示します。",
+    "noImagesMatch": "「{{query}}」に一致する画像はありません",
+    "back": "戻る",
+    "unnamed": "無題の画像",
+    "nameLabel": "タイトル",
+    "namePlaceholder": "例：驚くミニュ",
+    "delete": "削除",
+    "idLabel": "画像ID",
+    "idHelp": "「コードをコピー」で完全なタグが取れます。最初のメッセージやエントリーに貼ると、そこに画像が出ます。",
+    "copyId": "IDをコピー",
+    "copyCode": "コードをコピー",
+    "copyFailed": "コピーに失敗しました",
+    "imageSource": "画像",
+    "urlLabel": "URLまたはアセットID",
+    "urlPlaceholder": "https://... または @asset:id",
+    "browseAssets": "アセットを参照",
+    "sceneLabel": "表示するタイミング",
+    "scenePlaceholder": "例：猫のミニュがびっくりして飛び上がる",
+    "allowAi": "AIにこの画像を自動で表示させる",
+    "scopeLabel": "対象の導入",
+    "scopeHelp": "特定の最初のメッセージでのみこの画像を使います。",
+    "scopeAll": "すべての導入",
+    "scopeNoGreetings": "導入ごとに絞り込むには、先に最初のメッセージを追加してください。",
+    "greetingFallback": "導入 {{index}}",
+    "emptyNoImages": "まず画像を追加してください",
+    "emptySelect": "編集する画像を選んでください",
+    "modeTitle": "画像を出すのは誰か",
+    "modeJudge": "返信のあとで選ぶ",
+    "modeJudgeHelp": "毎ターン AI の返信を読んだあと、各画像の「いつ表示するか」の条件を1枚ずつ判定し、満たしていればその返信の最後に置きます。「毎回の返信のあと」と書けば毎ターン送られます。プレイヤーがどのモデルを使っても同じように動きます。",
+    "modeNarrator": "物語のAIが自分で挿す",
+    "modeNarratorHelp": "段落の間に画像を挟めますが、モデルが指示に従うかどうか次第です。ほとんど出さないモデルもあります。",
+    "modeRecommended": "おすすめ",
+    "modeLocked": "概要でスマートトラッキングがオフなので、物語のAIが自分で画像を挿します。",
+    "autoCount": "{{total}}枚中{{on}}枚が自動で表示",
+    "autoHelpJudge": "送る条件を一文で書いてください。書いたとおりに実行されます。例:「二人がカフェで向かい合って座っているとき」「毎回の返信のあと」。条件を満たした返信には、以前に出した画像でも最後に添えられます。",
+    "autoHelpNarrator": "送る条件を一文で書いてください。書いたとおりに実行されます。例:「二人がカフェで向かい合って座っているとき」「毎回の返信のあと」。条件を満たすと、物語を書く AI が本文に挿入します。",
+    "autoOn": "オン:条件を満たすと自動で送られます",
+    "autoOff": "まだオフ。一言書けばオンになります。書かなければ、コードを貼った場所にだけ出ます。",
+    "autoNoPicture": "画像を入れれば自動で表示されます。",
+    "autoHeld": "自動表示がオフになっているので、この画像はコードを貼った場所にだけ出ます。",
+    "autoReenable": "オンに戻す",
+    "autoBadgeTitle": "条件を満たすと自動で送られます"
+  },
+  "voiceField": {
+    "characterLabel": "声",
+    "characterHint": "プレイヤーが読み上げをオンにしたとき、このキャラのセリフはこの声で読まれます。未設定なら AI がキャラに合う声を選びます。",
+    "custom": "カスタム音声",
+    "customGroup": "カスタム音声",
+    "useCustom": "使う",
+    "customHint": "設定 › 音声で保存したカスタム音声、または fish.audio の音声IDを貼り付け。プレイヤーが読み上げをオンにすると、この声で読まれます。",
+    "clear": "クリア",
+    "cardTitle": "音声",
+    "cardDesc": "読み上げと音声入力の設定",
+    "narratorLabel": "ナレーションの声",
+    "narratorHint": "地の文はこの声で読まれます。未設定ならプレイヤー自身の声設定を使います。",
+    "narrator": "ナレーション音声",
+    "character": "「{{name}}」の音声",
+    "follow": "プレイヤーの設定に従う",
+    "followHint": "このカードでは指定せず、プレイヤーが設定で選んだ音声を使う",
+    "preview": "試聴",
+    "hint": "読み上げは話者ごとに音声を切り替えます。未指定の人物はナレーション音声、それも未指定ならプレイヤー自身の設定で読みます。",
+    "inputTitle": "プレイヤーの音声入力",
+    "inputHint": "マイクを離したとき。人狼や尋問系のカードは「すぐ送信」向き",
+    "inputConfirm": "確認してから",
+    "inputAuto": "すぐ送信",
+    "lang": {
+      "zh": "中国語",
+      "en": "英語",
+      "ja": "日本語",
+      "es": "スペイン語"
+    },
+    "gender": {
+      "female": "女",
+      "male": "男"
+    },
+    "close": "閉じる"
+  },
+  "bundleCounts": {
+    "entries_other": "エントリー {{count}}",
+    "variables_other": "変数 {{count}}",
+    "behaviors_other": "ビヘイビア {{count}}",
+    "components_other": "コンポーネント {{count}}",
+    "empty": "空"
+  },
+  "worldChanges": {
+    "title": "「{{name}}」を更新しますか？",
+    "fromFile": "ファイル {{file}} から",
+    "fromCopy": "{{name}} さんが編集したコピーから",
+    "pickTarget": "このファイルはあなたの複数のカードに対応しています。どれを更新しますか？",
+    "statusPublished": "公開中",
+    "statusDraft": "下書き",
+    "exactOrigin": "このカードからダウンロード",
+    "comparing": "あなたのカードと比較中…",
+    "diffFailed": "カードと比較できませんでした。更新はできます（先にバックアップします）。",
+    "noChanges": "更新する内容はありません。カードと同じです。",
+    "summary": "追加 {{added}} · 変更 {{modified}} · 削除 {{removed}}",
+    "more": "ほか {{count}} 件",
+    "changedSinceCopy": "コピーされた後にカードを編集しています。更新するとその編集も置き換わります（バックアップには残ります）。",
+    "backupLine": "更新前にカードをバックアップします。バージョン履歴からいつでも戻せます。",
+    "publishedLine": "公開中のカードなので、変更は編集中の版に入ります。いつも通り審査に提出すると公開されます。",
+    "apply": "「{{name}}」を更新",
+    "saveAsNew": "新しいプロジェクトとして保存",
+    "applied": "「{{name}}」を更新しました",
+    "appliedHeld": "「{{name}}」の編集中の版を更新しました。審査に提出すると公開されます。",
+    "backupNoteFile": "{{file}} を適用する前",
+    "backupNoteCopy": "{{name}} さんの変更を適用する前",
+    "error": {
+      "otherWorldUnsaved": "エディターで別のカードに未保存の変更があります。先に保存してからやり直してください。",
+      "backup": "バックアップできなかったため、何も変更していません。もう一度お試しください。",
+      "load": "カードを開けませんでした。何も変更していません。",
+      "save": "更新を保存できませんでした。カードは変わっておらず、バックアップはバージョン履歴にあります。"
+    }
   }
 }

@@ -5,6 +5,9 @@ export interface ImageEmbed {
   url: string;
   alt?: string;
   caption?: string;
+  /** Scene image id this embed was expanded from (`scene=` option), so the
+   *  player UI can tell which registered image just got revealed. */
+  scene?: string;
   size: ImageEmbedSize;
   placement: ImageEmbedPlacement;
 }
@@ -60,6 +63,7 @@ function parseOneDirective(inner: string): ImageEmbed | null {
 
     if (key === "alt") embed.alt = value;
     else if (key === "caption") embed.caption = value;
+    else if (key === "scene") embed.scene = value;
     else if (key === "size" && (value === "sm" || value === "md" || value === "lg" || value === "full")) {
       embed.size = value;
     } else if (key === "placement" && (value === "left" || value === "center" || value === "right")) {
@@ -74,7 +78,7 @@ function parseOneDirective(inner: string): ImageEmbed | null {
  * Parse inline image directives from model output.
  * Syntax:
  *   [image:https://example.com/a.png]
- *   [image:@asset:0f1e…|alt=Scene]
+ *   [image:@asset:0f1e…|alt=Scene|scene=img1]
  *   [image:https://...|alt=Scene|caption=A dark forest|size=lg|placement=center]
  */
 export function parseImageEmbeds(text: string): ParsedImageEmbeds {
@@ -117,9 +121,10 @@ export function renderImageEmbedHtml(
   const src = resolveUrl ? resolveUrl(embed.url) : embed.url;
   const alt = escapeHtml(embed.alt || "Embedded image");
   const caption = embed.caption ? `<div class="mt-1 text-xs text-muted-foreground/70">${escapeHtml(embed.caption)}</div>` : "";
+  const sceneAttr = embed.scene ? ` data-scene-image="${escapeHtml(embed.scene)}"` : "";
 
   return (
-    `<div class="my-3 flex ${justify}">` +
+    `<div class="my-3 flex ${justify}"${sceneAttr}>` +
     `<div class="rounded-lg border border-border/60 bg-background/60 p-2" style="${width}">` +
     `<img src="${escapeHtml(src)}" alt="${alt}" referrerpolicy="no-referrer" class="h-auto w-full rounded-md object-cover" />` +
     caption +
