@@ -32,6 +32,28 @@ function makeWorld(overrides?: Partial<WorldDefinition>): WorldDefinition {
 
 // ── executeReadEntities ──
 
+test("entry writes reject non-string content before mutating lore", () => {
+  const original = makeWorld({ entries: [{ id: "lore", name: "Lore", content: "Original", role: "lore", section: "chat-history", position: 0, keywords: [], conditions: [], conditionLogic: "all", enabled: true, alwaysSend: false }] });
+  for (const content of [{ tool_call: { name: "write_entry" } }, ["text"], 42, true, null]) {
+    for (const [action, id] of [["create", "new-lore"], ["create", "lore"], ["update", "lore"]] as const) {
+      const result = executeApplyChanges(original, [{ action, entityType: "entry", id, data: { content } }]);
+      assert.equal(result.success, false);
+      assert.match(result.results[0]!.error ?? "", /content.*string/i);
+      assert.strictEqual(result.world, original);
+      assert.equal(original.entries[0]!.content, "Original");
+    }
+  }
+});
+
+test("entry writes allow empty text and metadata-only updates", () => {
+  const created = executeApplyChanges(makeWorld(), [{ action: "create", entityType: "entry", id: "lore", data: { content: "" } }]);
+  assert.equal(created.success, true);
+  const updated = executeApplyChanges(created.world, [{ action: "update", entityType: "entry", id: "lore", data: { name: "Renamed" } }]);
+  assert.equal(updated.success, true);
+  assert.equal(updated.world.entries[0]!.content, "");
+  assert.equal(updated.world.entries[0]!.name, "Renamed");
+});
+
 test("executeReadEntities returns full entity data for valid IDs", () => {
   const world = makeWorld({
     entries: [{ id: "tavern", name: "Tavern", content: "A cozy tavern", role: "lore", section: "chat-history", position: 0, keywords: ["tavern"], conditions: [], conditionLogic: "all", enabled: true, alwaysSend: false }],

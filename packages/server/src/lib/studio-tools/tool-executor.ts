@@ -1114,6 +1114,12 @@ function applyEntryChange(draft: WorldDefinition, action: string, id: string, da
   const badVoice = invalidVoiceError("write_entry", id, "voice", data.voice);
   if (badVoice) return { ...base, status: "error", error: badVoice };
 
+  // Model output is untrusted even when the outer tool call is valid JSON.
+  // Validate before create/upsert/update so malformed text never reaches lore.
+  if ((action === "create" || action === "update") && data.content !== undefined && typeof data.content !== "string") {
+    return { ...base, status: "error", error: "Entry content must be a string. Send plain text in the content field." };
+  }
+
   if (action === "create") {
     // Duplicate check
     const existing = draft.entries.find((e) => e.id === id);

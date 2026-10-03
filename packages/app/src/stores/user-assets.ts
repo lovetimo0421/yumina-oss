@@ -64,6 +64,8 @@ interface UserAssetState {
   deleteAsset: (assetId: string) => Promise<void>;
   renameAsset: (assetId: string, filename: string) => Promise<void>;
   moveAsset: (assetId: string, folderId: string | null) => Promise<void>;
+  /** Moves each asset in turn without per-asset toasts; resolves to the ids that failed. */
+  moveAssetsQuietly: (assetIds: string[], folderId: string | null, shouldStop?: () => boolean) => Promise<string[]>;
   createFolder: (name: string, parentFolderId?: string, options?: { requestId?: string; silent?: boolean; signal?: AbortSignal }) => Promise<AssetFolder | null>;
   renameFolder: (folderId: string, name: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
@@ -302,6 +304,25 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
         onClick: () => void useUserAssetStore.getState().moveAsset(assetId, folderId),
       });
     }
+  },
+
+  moveAssetsQuietly: async (assetIds, folderId, shouldStop) => {
+    const failed: string[] = [];
+    for (const assetId of assetIds) {
+      if (shouldStop?.()) break;
+      try {
+        const res = await fetch(`${apiBase}/api/user-assets/${assetId}/move`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ folderId }),
+        });
+        if (!res.ok) failed.push(assetId);
+      } catch {
+        failed.push(assetId);
+      }
+    }
+    return failed;
   },
 
   createFolder: async (name, parentFolderId, options) => {

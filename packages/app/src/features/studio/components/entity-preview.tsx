@@ -23,7 +23,9 @@ export function EntityPreview({ toolCall }: { toolCall: ToolCall }) {
   const name = toolCall.function.name;
   let args: Record<string, unknown> = {};
   try {
-    args = JSON.parse(toolCall.function.arguments);
+    const parsed: unknown = JSON.parse(toolCall.function.arguments);
+    if (!isPreviewArgs(parsed)) throw new Error("Invalid preview arguments");
+    args = parsed;
   } catch {
     return (
       <div className="text-[10px] text-red-400">
@@ -118,6 +120,36 @@ export function EntityPreview({ toolCall }: { toolCall: ToolCall }) {
       )}
     </div>
   );
+}
+
+/** Tool arguments are untrusted JSON, including when replaying saved runs. */
+function isPreviewArgs(value: unknown): value is Record<string, unknown> {
+  if (!isRecord(value)) return false;
+  const textFields = [
+    "id", "name", "content", "tsxCode", "tsx_code", "new_code",
+    "behaviorRules", "behavior_rules", "description", "type", "role",
+    "section", "category", "language",
+  ];
+  if (textFields.some((key) => value[key] != null && typeof value[key] !== "string")) return false;
+  for (const key of ["min", "max"]) {
+    if (value[key] != null && typeof value[key] !== "number" && typeof value[key] !== "string") return false;
+  }
+  if (value.ids != null && (!Array.isArray(value.ids) || !value.ids.every((id) => typeof id === "string"))) return false;
+  if (value.when != null && (!isRecord(value.when) || (value.when.eventType != null && typeof value.when.eventType !== "string"))) return false;
+  for (const key of ["conditions", "then"]) {
+    if (value[key] != null && !Array.isArray(value[key])) return false;
+  }
+  if (value.changes != null) {
+    if (!Array.isArray(value.changes)) return false;
+    if (!value.changes.every((change) => isRecord(change)
+      && ["action", "entityType", "id"].every((key) => change[key] == null || typeof change[key] === "string")
+      && (change.data == null || (isRecord(change.data) && (change.data.name == null || typeof change.data.name === "string"))))) return false;
+  }
+  return true;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Extract the primary content string to show when expanded. */

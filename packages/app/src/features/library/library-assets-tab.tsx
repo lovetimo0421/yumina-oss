@@ -95,6 +95,18 @@ function isTextAsset(asset: UserAsset | null): asset is UserAsset {
   return !!asset && (asset.type === "txt" || !!asset.mimeType?.startsWith("text/"));
 }
 
+function folderPathLabel(folder: AssetFolder, folders: AssetFolder[]): string {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  let current: AssetFolder | undefined = folder;
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    names.unshift(current.name);
+    current = folders.find((candidate) => candidate.id === current?.parentFolderId);
+  }
+  return names.join(" / ");
+}
+
 const ROOT_DROP_TARGET = "__root__";
 const BACK_DROP_TARGET = "__back__";
 
@@ -135,6 +147,7 @@ export function LibraryAssetsTab({
   const deleteAsset = useUserAssetStore(s => s.deleteAsset);
   const renameAsset = useUserAssetStore(s => s.renameAsset);
   const moveAsset = useUserAssetStore(s => s.moveAsset);
+  const moveAssetsQuietly = useUserAssetStore(s => s.moveAssetsQuietly);
   const createFolder = useUserAssetStore(s => s.createFolder);
   const renameFolder = useUserAssetStore(s => s.renameFolder);
   const deleteFolder = useUserAssetStore(s => s.deleteFolder);
@@ -165,6 +178,10 @@ export function LibraryAssetsTab({
     setGenerationReferenceId(undefined);
     setGenerationOwner(session?.user.id);
     setCurrentFolderId(null);
+    setBulkMoveOpen(false);
+    setBulkMoving(false);
+    setBulkDownloading(false);
+    setBulkMode(false);
     assetImportStore.getState().resetOwner(session?.user.id ?? null);
     setPendingUploadCount(0);
   }, [session?.user.id]);
@@ -175,8 +192,16 @@ export function LibraryAssetsTab({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(new Set());
+  // Selection belongs to the visible page; changing location or filter must
+  // not leave hidden assets selected for the bulk action.
+  useEffect(() => {
+    setSelectedAssetIds(new Set());
+  }, [currentFolderId, assetFilter, page, session?.user.id]);
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkMoveOpen, setBulkMoveOpen] = useState(false);
+  const [bulkMoving, setBulkMoving] = useState(false);
+  const [bulkDownloading, setBulkDownloading] = useState(false);
   const [moveDragOverId, setMoveDragOverId] = useState<string | null>(null);
   const [fileDragOverId, setFileDragOverId] = useState<DropTargetId | null>(null);
   const [pendingUploadCount, setPendingUploadCount] = useState(0);
@@ -501,6 +526,25 @@ export function LibraryAssetsTab({
     setSelectedAssetIds(new Set());
   }, [deleteAsset, selectedAssetIds, t]);
 
+  const handleBulkMove = useCallback(async (folderId: string | null) => {
+    if (selectedAssetIds.size === 0 || folderId === currentFolderId || bulkMoving) return;
+    const owner = uploadOwner.current;
+    const ids = Array.from(selectedAssetIds);
+    setBulkMoving(true);
+    try {
+      const failed = await moveAssetsQuietly(ids, folderId, () => uploadOwner.current !== owner);
+      if (!mounted.current || uploadOwner.current !== owner) return;
+      setBulkMoveOpen(false);
+      setSelectedAssetIds(new Set(failed));
+      if (failed.length === 0) setBulkMode(false);
+      else feedback.error(t("assets.bulkMoveFailed", { count: failed.length }));
+      refreshCurrentPage.current();
+      void fetchFolders();
+    } finally {
+      if (mounted.current && uploadOwner.current === owner) setBulkMoving(false);
+    }
+  }, [bulkMoving, currentFolderId, fetchFolders, moveAssetsQuietly, selectedAssetIds, t]);
+
   // R2: in the preview dialog the button's icon becomes a check, so nothing is
   // announced. From an asset card's context menu the menu closes and NOTHING on
   // screen changes — that path (announce = true) gets the plain notice pill.
@@ -523,6 +567,15 @@ export function LibraryAssetsTab({
     if (announce) feedback.notice(t("assets.copiedUrl"));
   }, [writeUrl, t]);
 
+  const copySelected = useCallback(async (kind: "ref" | "url") => {
+    const selected = assets.filter((asset) => selectedAssetIds.has(asset.id));
+    if (selected.length === 0) return;
+    const text = selected.map((asset) => kind === "ref" ? `@asset:${asset.id}` : getAssetCdnUrl(asset.id)).join("\n");
+    const ok = await (kind === "ref" ? writeRef(text) : writeUrl(text));
+    if (ok) feedback.notice(t("assets.bulkCopied", { count: selected.length }));
+    else feedback.error(t("assets.copyFailed"));
+  }, [assets, selectedAssetIds, t, writeRef, writeUrl]);
+
   // Force a browser download with the original filename. Cross-origin <a download>
   // is ignored by browsers, so fetch the blob and trigger the download locally.
   const downloadAsset = useCallback(async (asset: UserAsset) => {
@@ -538,12 +591,26 @@ export function LibraryAssetsTab({
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(blobUrl);
+      return true;
     } catch {
       // R7: the browser's download shelf covers the good case; only the miss
       // needs a pill.
       feedback.error(t("toast.failedToDownload"));
+      return false;
     }
   }, [t]);
+
+  const downloadSelected = useCallback(async () => {
+    const selected = assets.filter((asset) => selectedAssetIds.has(asset.id));
+    if (selected.length === 0 || bulkDownloading) return;
+    setBulkDownloading(true);
+    if (selected.length > 1) feedback.notice(t("assets.bulkDownloadNotice"));
+    try {
+      for (const asset of selected) await downloadAsset(asset);
+    } finally {
+      if (mounted.current) setBulkDownloading(false);
+    }
+  }, [assets, bulkDownloading, downloadAsset, selectedAssetIds, t]);
 
   // Font preview
   const fontFaceStyle = useMemo(() => {
@@ -710,14 +777,30 @@ export function LibraryAssetsTab({
         </div>
 
         {/* Actions */}
+        {!bulkMode && <>
+          <button
+            onClick={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } handleCreateFolder(); }}
+            title={t("assets.newFolder")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground border border-border hover:bg-white/5 hover:text-foreground transition-colors"
+          >
+            <FolderPlus size={14} />
+            {t("assets.newFolder")}
+          </button>
+        </>}
         <BulkActionsBar
           active={bulkMode}
           selectedCount={selectedAssetIds.size}
           totalCount={childAssets.length}
+          selectLabel={t("assets.multiSelect")}
           onToggle={() => (bulkMode ? exitBulkMode() : setBulkMode(true))}
           onSelectAll={() => setSelectedAssetIds(new Set(childAssets.map((a) => a.id)))}
           onClear={() => setSelectedAssetIds(new Set())}
           onDelete={() => setConfirmBulkDelete(true)}
+          onMove={() => setBulkMoveOpen(true)}
+          onDownload={() => void downloadSelected()}
+          onCopyRefs={() => void copySelected("ref")}
+          onCopyUrls={() => void copySelected("url")}
+          busy={bulkMoving || bulkDownloading || bulkDeleting}
         />
         {!bulkMode && <>
           {imageGeneration && (
@@ -729,14 +812,6 @@ export function LibraryAssetsTab({
               {t("generation.openButton")}
             </button>
           )}
-          <button
-            onClick={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } handleCreateFolder(); }}
-            title={t("assets.newFolder")}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground border border-border hover:bg-white/5 hover:text-foreground transition-colors"
-          >
-            <FolderPlus size={14} />
-            {t("assets.newFolder")}
-          </button>
           <input
             ref={fileInputRef}
             type="file"
@@ -1046,6 +1121,31 @@ export function LibraryAssetsTab({
             </div>
           </DialogContent>
         )}
+      </Dialog>
+
+      {/* Bulk move destination */}
+      <Dialog open={bulkMoveOpen} onOpenChange={(open) => { if (!bulkMoving) setBulkMoveOpen(open); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("assets.moveSelectedTitle", { count: selectedAssetIds.size })}</DialogTitle>
+            <DialogDescription>{t("assets.moveSelectedDescription")}</DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[50vh] space-y-1 overflow-y-auto">
+            <button type="button" disabled={bulkMoving || currentFolderId === null}
+              onClick={() => void handleBulkMove(null)}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-40">
+              <Folder size={15} />{t("assets.rootNoFolder")}
+            </button>
+            {folders.map((folder) => <button key={folder.id} type="button"
+              disabled={bulkMoving || folder.id === currentFolderId}
+              onClick={() => void handleBulkMove(folder.id)}
+              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm hover:bg-accent disabled:opacity-40">
+              <Folder size={15} />
+              <span className="truncate">{folderPathLabel(folder, folders)}</span>
+            </button>)}
+          </div>
+          {bulkMoving && <p className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 size={14} className="animate-spin" />{t("assets.movingSelected")}</p>}
+        </DialogContent>
       </Dialog>
 
       {/* Bulk delete confirmation */}
@@ -1416,7 +1516,7 @@ function AssetCard({
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger asChild disabled={isRenaming}>
+      <ContextMenuTrigger asChild disabled={isRenaming || selectable}>
         <div
           draggable={!selectable}
           onDragStart={onDragStart}
@@ -1442,6 +1542,8 @@ function AssetCard({
           {/* Thumbnail / Icon area — click to preview */}
           <button
             onClick={selectable ? (e) => { e.stopPropagation(); onSelectChange?.(!selected); } : onPreview}
+            aria-pressed={selectable ? !!selected : undefined}
+            aria-label={selectable ? asset.filename : undefined}
             className="library-overview-surface library-overview-surface--inset flex h-28 items-center justify-center cursor-pointer"
           >
             {asset.type === "image" ? (
@@ -1486,10 +1588,11 @@ function AssetCard({
               <p
                 className="mb-0.5 whitespace-normal break-words text-xs font-medium leading-snug text-foreground cursor-text"
                 onDoubleClick={(e) => {
+                  if (selectable) return;
                   e.stopPropagation();
                   onStartRename();
                 }}
-                title={`${asset.filename} - ${t("assets.doubleClickRename")}`}
+                title={selectable ? asset.filename : `${asset.filename} - ${t("assets.doubleClickRename")}`}
               >
                 {asset.filename}
               </p>
@@ -1499,7 +1602,7 @@ function AssetCard({
             </p>
 
             {/* Primary actions — always visible */}
-            <div className="flex gap-1.5">
+            {!selectable && <div className="flex gap-1.5">
               <button
                 onClick={onCopyRef}
                 title={t("assets.copyAssetRef")}
@@ -1516,7 +1619,7 @@ function AssetCard({
                 <Link size={10} />
                 URL
               </button>
-            </div>
+            </div>}
           </div>
 
           {/* Hover overlay actions */}
