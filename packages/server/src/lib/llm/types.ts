@@ -161,6 +161,6 @@ export interface LLMProvider {
   generateStream(params: GenerateParams): AsyncIterable<StreamChunk>;
   listModels(): Promise<Model[]>;
   /** Account/endpoint context cap, which may be lower than the model's advertised window. */
-  getContextWindow?(): Promise<number | undefined>;
+  getContextWindow?(modelId?: string): Promise<number | undefined>;
   verify?(): Promise<boolean>;
 }

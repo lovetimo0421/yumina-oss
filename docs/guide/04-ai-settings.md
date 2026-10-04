@@ -140,6 +140,17 @@ With BYOK, you have no context size cap and access to whatever models your provi
 
 When you open a private model picker, Yumina shows your saved list and refreshes it in the background when its five-minute cache expires. Failed or empty provider responses keep the saved list; manually added models and your default model are preserved. Older saved entries without a recorded source are also kept. Use the connection's **Connect** action to force a refresh. If the provider changes a model ID, select the new model; if it changes its API base URL, update the connection address yourself.
 
+## Run it on your own computer
+
+**Settings > AI Configuration > Run it on your own computer** plays on a model running on your own machine: nothing is sent anywhere to generate, and no Mushies are spent. Yumina looks for **Ollama**, **LM Studio**, **Jan** and **llama.cpp** on their default ports. When more than one is running, all of their models show up in the model picker and each turn goes to the app that has the model you picked. Keep the Yumina tab open while you play — the page is what carries each turn to your model.
+
+On the self-hosted edition, opened on the computer it runs on, this happens by itself: Yumina connects as soon as it finds one of them, and keeps looking if none is running yet. Turn it off and it stays off.
+
+**LM Studio:**
+- Start its server from the Developer tab. If Yumina says LM Studio doesn't allow it yet, turn on **Enable CORS** in Server Settings.
+- Embedding models are left out of the picker, and models that aren't loaded are marked. Yumina loads one at a 32K context the first time you play on it, and unloads it again when you switch to another model it loaded. A model you loaded yourself is never unloaded; Yumina fits the prompt to the context you loaded it with.
+- Thinking is switched off for models that allow it, so replies start right away.
+
 ## Custom prompts
 
 An advanced feature for tuning AI behavior across all worlds. Found in **Settings > AI Configuration** at the bottom.
