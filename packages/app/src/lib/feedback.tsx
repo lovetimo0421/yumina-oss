@@ -63,19 +63,25 @@ export const feedback = {
   },
 
   /** Unanchored failure (network, stream). Field validation never comes here. */
-  error(text: string, action?: FeedbackAction): () => void {
-    guard(text);
+  error(text: string, action?: FeedbackAction, options?: { expanded?: boolean; id?: string }): () => void {
+    // Full save diagnostics may contain multiple field errors and instructions.
+    // They must not pass through the one-line copy policy.
+    if (!options?.expanded) guard(text);
     captureHubEvent("feedback_pill_shown", { kind: "error", text: forAnalytics(text) });
     const id = toast.custom(
       (t) => (
         <Pill
           kind="error"
           text={text}
+          expanded={options?.expanded}
+          showClose={options?.expanded}
           action={
             action && {
               label: action.label,
               onClick: () => {
-                toast.dismiss(t);
+                // A fast save rejection updates this same ID. Starting its exit
+                // animation here would hide the new error; success retires it.
+                if (!options?.expanded) toast.dismiss(t);
                 action.onClick();
               },
             }
@@ -83,7 +89,10 @@ export const feedback = {
           onClose={() => toast.dismiss(t)}
         />
       ),
-      { duration: durationFor("error") },
+      {
+        duration: options?.expanded ? Infinity : durationFor("error"),
+        ...(options?.id ? { id: options.id } : {}),
+      },
     );
     return dismissAfter(id);
   },

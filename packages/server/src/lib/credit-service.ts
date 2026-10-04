@@ -596,12 +596,17 @@ export function estimateCreditsFromChars(
  * Handles tiered pricing (e.g., Grok models charge 2x above context threshold).
  * Returns credits rounded up to 1 decimal place.
  */
+/** Studio agent platform fee. Chat models carry their own markup_multiplier
+ * (flat 1.20 since 2026-09-14); Studio turns are charged 1.10 instead. */
+export const STUDIO_AGENT_MARKUP = 1.1;
+
 export async function calculateCost(
   modelId: string,
   promptTokens: number,
   completionTokens: number,
   opts?: {
-    skipMarkup?: boolean;
+    /** Replaces the model's own markup_multiplier (e.g. STUDIO_AGENT_MARKUP). */
+    markup?: number;
     /** Actual USD-denominated account charge returned as OpenRouter `usage.cost`. */
     providerCostUsd?: number;
   },
@@ -609,7 +614,7 @@ export async function calculateCost(
   const price = await getModelPrice(modelId);
   const providerCostUsd = normalizeProviderCostUsd(opts?.providerCostUsd);
   if (providerCostUsd !== undefined) {
-    const markup = opts?.skipMarkup ? 1.0 : (price?.markupMultiplier ?? 1.0);
+    const markup = opts?.markup ?? price?.markupMultiplier ?? 1.0;
     return providerCostUsdToCredits(providerCostUsd, markup);
   }
 
@@ -629,7 +634,7 @@ export async function calculateCost(
   }
 
   const rawCostDollars = (promptTokens * inputPrice + completionTokens * outputPrice) / 1_000_000;
-  const markup = opts?.skipMarkup ? 1.0 : (price.markupMultiplier ?? 1.0);
+  const markup = opts?.markup ?? price.markupMultiplier ?? 1.0;
   return providerCostUsdToCredits(rawCostDollars, markup);
 }
 

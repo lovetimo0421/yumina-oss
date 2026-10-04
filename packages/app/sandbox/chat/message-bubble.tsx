@@ -289,7 +289,20 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
             speaking, otherwise the plain role label on role changes. */}
         {speaker ? (
           <div className="play-message-speaker mb-1.5 flex items-center gap-2">
-            {speaker.portrait && (
+            {speaker.video && (speaker.video.idle || speaker.video.speaking) ? (
+              // The talking clip plays while this line is still being written;
+              // after that the idle loop takes over.
+              <video
+                key={isStreaming && speaker.video.speaking ? "speaking" : "idle"}
+                src={(isStreaming && speaker.video.speaking) || speaker.video.idle || speaker.video.speaking || undefined}
+                poster={speaker.portrait ?? undefined}
+                autoPlay
+                muted
+                loop
+                playsInline
+                className="h-8 w-8 shrink-0 rounded-full border border-border object-cover"
+              />
+            ) : speaker.portrait && (
               <img
                 src={speaker.portrait}
                 alt=""

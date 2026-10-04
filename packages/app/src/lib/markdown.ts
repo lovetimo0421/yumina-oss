@@ -228,7 +228,7 @@ export function renderMessage(raw: string): string {
   // Restore rich image cards.
   html = html.replace(/\x00IM(\d+)\x00/g, (_match, idx) => {
     const embed = imageEmbeds[Number(idx)];
-    return embed ? renderImageEmbedHtml(embed, resolveMarkdownImageSrc) : "";
+    return embed ? renderImageEmbedHtml(embed, resolveMarkdownImageSrc, resolveMarkdownImageSrc) : "";
   });
 
   // Restore iframe-based html ui blocks.
@@ -254,6 +254,7 @@ export function renderMessage(raw: string): string {
       "i",
       "a",
       "iframe",
+      "video",
     ],
     ALLOWED_ATTR: [
       "class",
@@ -267,6 +268,7 @@ export function renderMessage(raw: string): string {
       "target",
       "sandbox",
       "loading",
+      "autoplay", "muted", "loop", "playsinline", "controls", "preload",
     ],
   });
 
@@ -685,7 +687,7 @@ export function renderCommunityMarkdown(
   // Restore image embeds
   html = html.replace(/\x00IM(\d+)\x00/g, (_match, idx) => {
     const embed = imageEmbeds[Number(idx)];
-    return embed ? renderImageEmbedHtml(embed, resolveMarkdownImageSrc) : "";
+    return embed ? renderImageEmbedHtml(embed, resolveMarkdownImageSrc, resolveMarkdownImageSrc) : "";
   });
 
   // Restore html embeds
@@ -700,13 +702,14 @@ export function renderCommunityMarkdown(
   html = DOMPurify.sanitize(html, {
     ALLOWED_TAGS: [
       "span", "div", "img", "strong", "em", "br", "hr", "button", "p",
-      "pre", "code", "b", "i", "a", "iframe",
+      "pre", "code", "b", "i", "a", "iframe", "video",
       "h1", "h2", "h3", "ul", "ol", "li", "blockquote",
       "table", "thead", "tbody", "tr", "th", "td",
     ],
     ALLOWED_ATTR: [
       "class", "style", "src", "srcdoc", "alt", "referrerpolicy",
       "data-yumina-choice", "href", "target", "sandbox", "loading",
+      "autoplay", "muted", "loop", "playsinline", "controls", "preload",
     ],
   });
 

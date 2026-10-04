@@ -54,7 +54,8 @@ describe("revertSession + session-memory keep-when-valid", () => {
     testSessionId = s!.id;
 
     // m0..m2 are the compacted early block the summary stands in for; m3..m6 are
-    // the uncompacted recent tail. Inserted one at a time for distinct createdAt.
+    // the uncompacted recent tail. Explicit times keep this coverage test from
+    // depending on how many inserts fit within one database clock tick.
     const fixtures = [
       { role: "assistant" as const, content: "greeting", stateSnapshot: { variables: { hp: 10 } }, compacted: true },
       { role: "user" as const, content: "a" },
@@ -65,8 +66,12 @@ describe("revertSession + session-memory keep-when-valid", () => {
       { role: "assistant" as const, content: "r3", stateSnapshot: { variables: { hp: 7 } } },
     ];
     messageIds = [];
-    for (const f of fixtures) {
-      const [row] = await db.insert(messages).values({ sessionId: testSessionId, ...f }).returning();
+    for (const [index, f] of fixtures.entries()) {
+      const [row] = await db.insert(messages).values({
+        sessionId: testSessionId,
+        ...f,
+        createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)),
+      }).returning();
       messageIds.push(row!.id);
     }
     // Record that the summary covers up to r1 (the last compacted message).

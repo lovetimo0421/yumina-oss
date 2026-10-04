@@ -50,6 +50,7 @@
     "hono": "^4.12.9",
     "ioredis": "^5.10.1",
     "jsonrepair": "^3.13.3",
+    "marked": "^15.0.12",
     "opencc-js": "^1.0.5",
     "pg": "^8",
     "posthog-node": "^5.29.1",

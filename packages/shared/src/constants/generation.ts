@@ -53,6 +53,14 @@ export const GENERATION_TEMPLATES: GenerationTemplateInfo[] = [
     requiresReferenceImage: true,
     durationSeconds: 5,
     etaMinutes: 8,
+  },  {
+    // The video lane: price, wait and inputs depend on the chosen model
+    // (constants/video-models.ts). The three drafts above stay closed.
+    id: "video",
+    kind: "video",
+    priceMushies: 0,
+    requiresReferenceImage: false,
+    etaMinutes: 2,
   },
 ];
 
@@ -61,7 +69,7 @@ export function getGenerationTemplate(id: string): GenerationTemplateInfo | unde
 }
 
 /** Public submission allowlist. Historical video jobs remain readable. */
-export const ENABLED_GENERATION_TEMPLATES = GENERATION_TEMPLATES.filter((t) => t.kind === "image");
+export const ENABLED_GENERATION_TEMPLATES = GENERATION_TEMPLATES.filter((t) => t.kind === "image" || t.id === "video");
 export function getEnabledGenerationTemplate(id: string): GenerationTemplateInfo | undefined {
   return ENABLED_GENERATION_TEMPLATES.find((t) => t.id === id);
 }

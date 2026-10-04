@@ -451,6 +451,8 @@ export interface SandboxedYuminaAPI {
        *   plus any keyword hits — leaner, but content depends on wording.
        */
       includeLorebook?: boolean | "all" | "matched";
+      /** Request a JSON object from supporting providers; validate its schema before use. */
+      responseFormat?: { type: "json_object" };
     }) => Promise<string>;
   };
 
@@ -1349,6 +1351,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
                 maxTokens: params.maxTokens,
                 temperature: params.temperature,
                 includeLorebook: params.includeLorebook,
+                responseFormat: params.responseFormat,
               }],
               params.onDelta ?? (() => {}),
             )

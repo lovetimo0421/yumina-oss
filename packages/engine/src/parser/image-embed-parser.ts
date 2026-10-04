@@ -2,6 +2,12 @@ export type ImageEmbedSize = "sm" | "md" | "lg" | "full";
 export type ImageEmbedPlacement = "left" | "center" | "right";
 
 export interface ImageEmbed {
+  /** `[video:…]` embeds share the image options and sizing. Absent = image. */
+  kind?: "image" | "video";
+  /** Video only: play on a loop (default) or once (`once`). */
+  loop?: boolean;
+  /** Video only: with sound (`sound`: controls, waits for a tap) or muted autoplay (default). */
+  sound?: boolean;
   url: string;
   alt?: string;
   caption?: string;
@@ -40,7 +46,7 @@ export function isImageEmbedSource(url: string): boolean {
   );
 }
 
-function parseOneDirective(inner: string): ImageEmbed | null {
+function parseOneDirective(inner: string, kind: "image" | "video"): ImageEmbed | null {
   const tokens = inner.split("|").map((t) => t.trim()).filter(Boolean);
   if (!tokens.length) return null;
 
@@ -51,12 +57,23 @@ function parseOneDirective(inner: string): ImageEmbed | null {
     url,
     size: "md",
     placement: "center",
+    ...(kind === "video" ? { kind, loop: true, sound: false } : {}),
   };
 
   for (let i = 1; i < tokens.length; i++) {
     const token = tokens[i]!;
     const eq = token.indexOf("=");
-    if (eq === -1) continue;
+    if (eq === -1) {
+      // Bare video flags: loop | once | sound | muted.
+      if (kind === "video") {
+        const flag = token.toLowerCase();
+        if (flag === "loop") embed.loop = true;
+        else if (flag === "once") embed.loop = false;
+        else if (flag === "sound") embed.sound = true;
+        else if (flag === "muted") embed.sound = false;
+      }
+      continue;
+    }
     const key = token.slice(0, eq).trim().toLowerCase();
     const value = token.slice(eq + 1).trim();
     if (!value) continue;
@@ -75,16 +92,17 @@ function parseOneDirective(inner: string): ImageEmbed | null {
 }
 
 /**
- * Parse inline image directives from model output.
+ * Parse inline image and video directives from model output.
  * Syntax:
  *   [image:https://example.com/a.png]
  *   [image:@asset:0f1e…|alt=Scene|scene=img1]
  *   [image:https://...|alt=Scene|caption=A dark forest|size=lg|placement=center]
+ *   [video:@asset:0f1e…|once|sound|size=lg]   (default: looping, muted, autoplay)
  */
 export function parseImageEmbeds(text: string): ParsedImageEmbeds {
   const embeds: ImageEmbed[] = [];
-  const cleanText = text.replace(/\[image:([^\]\n]+)\]/gi, (match, body: string) => {
-    const parsed = parseOneDirective(body);
+  const cleanText = text.replace(/\[(image|video):([^\]\n]+)\]/gi, (match, kind: string, body: string) => {
+    const parsed = parseOneDirective(body, kind.toLowerCase() === "video" ? "video" : "image");
     if (!parsed) return match;
     const idx = embeds.length;
     embeds.push(parsed);
@@ -97,10 +115,13 @@ export function parseImageEmbeds(text: string): ParsedImageEmbeds {
  * @param resolveUrl Optional mapper from the stored source (e.g. `@asset:…`)
  *   to a loadable URL. Renderers that leave `@asset:` refs for a DOM pass
  *   can omit it.
+ * @param resolveVideoUrl The same for videos, which must not go through an
+ *   image resizer. Without it a library ref is served as-is from `/cdn/`.
  */
 export function renderImageEmbedHtml(
   embed: ImageEmbed,
   resolveUrl?: (url: string) => string,
+  resolveVideoUrl?: (url: string) => string,
 ): string {
   const justify =
     embed.placement === "left"
@@ -118,15 +139,28 @@ export function renderImageEmbedHtml(
       ? "max-width: 32rem;"
       : "max-width: 100%;";
 
-  const src = resolveUrl ? resolveUrl(embed.url) : embed.url;
-  const alt = escapeHtml(embed.alt || "Embedded image");
   const caption = embed.caption ? `<div class="mt-1 text-xs text-muted-foreground/70">${escapeHtml(embed.caption)}</div>` : "";
   const sceneAttr = embed.scene ? ` data-scene-image="${escapeHtml(embed.scene)}"` : "";
+
+  let media: string;
+  if (embed.kind === "video") {
+    const asset = /^@asset:([0-9a-f-]{36})$/i.exec(embed.url);
+    const src = resolveVideoUrl ? resolveVideoUrl(embed.url) : asset ? `/cdn/${asset[1]}` : embed.url;
+    // Browsers only autoplay muted video; a clip with sound waits for the player's tap.
+    const playback = embed.sound
+      ? `controls preload="metadata"${embed.loop ? " loop" : ""}`
+      : `autoplay muted playsinline preload="auto"${embed.loop !== false ? " loop" : ""}`;
+    media = `<video src="${escapeHtml(src)}" ${playback} class="h-auto w-full rounded-md"></video>`;
+  } else {
+    const src = resolveUrl ? resolveUrl(embed.url) : embed.url;
+    const alt = escapeHtml(embed.alt || "Embedded image");
+    media = `<img src="${escapeHtml(src)}" alt="${alt}" referrerpolicy="no-referrer" class="h-auto w-full rounded-md object-cover" />`;
+  }
 
   return (
     `<div class="my-3 flex ${justify}"${sceneAttr}>` +
     `<div class="rounded-lg border border-border/60 bg-background/60 p-2" style="${width}">` +
-    `<img src="${escapeHtml(src)}" alt="${alt}" referrerpolicy="no-referrer" class="h-auto w-full rounded-md object-cover" />` +
+    media +
     caption +
     `</div>` +
     `</div>`

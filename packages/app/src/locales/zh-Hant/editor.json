@@ -341,7 +341,14 @@
     "advanced": "高階",
     "advancedKeywords": "關鍵詞",
     "emptyTitle": "暫無條目",
-    "emptyFolder": "空 — 將條目拖放到這裡"
+    "emptyFolder": "空 — 將條目拖放到這裡",
+    "portraitVideo": "動態立繪",
+    "portraitVideoHint": "可選。放了影片，聊天裡會用它代替靜態立繪：平時播「待機」，這個角色說話時播「說話」。",
+    "portraitVideoRemove": "移除",
+    "portraitVideoClip": {
+      "idle": "待機",
+      "speaking": "說話"
+    }
   },
   "variables": {
     "title": "變數",
@@ -1978,7 +1985,7 @@
     }
   },
   "imageInsert": {
-    "button": "插入圖片",
+    "button": "插入圖片或影片",
     "upload": "從電腦上傳",
     "library": "從素材庫選",
     "uploading": "上傳中…",

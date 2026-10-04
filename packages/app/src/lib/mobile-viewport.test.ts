@@ -344,7 +344,7 @@ test("the mobile navigation trigger replaces the native touch focus outline", ()
   );
 });
 
-function viewportHarness(t: test.TestContext, pageScrollId?: import("./mobile-reading-route").MobileReadingPageId, messageCanvas = false, standalone = false) {
+function viewportHarness(t: test.TestContext, pageScrollId?: import("./mobile-reading-route").MobileReadingPageId, messageCanvas = false, standalone = false, retainKeyboardUntilResize = false) {
   const dom = new JSDOM('<input id="input"><div id="feed"></div>', { pretendToBeVisual: true });
   const win = dom.window;
   const frames = new Map<number, FrameRequestCallback>();
@@ -364,7 +364,7 @@ function viewportHarness(t: test.TestContext, pageScrollId?: import("./mobile-re
   t.after(() => dom.window.close());
   assert.equal(typeof mobileViewport.installMobileViewport, "function", "the shell must install lifecycle-aware viewport recovery");
   const recoveries: mobileViewport.ViewportRecovery[] = [];
-  const cleanup = mobileViewport.installMobileViewport(win as unknown as Window, (recovery) => recoveries.push(recovery), pageScrollId, messageCanvas);
+  const cleanup = mobileViewport.installMobileViewport(win as unknown as Window, (recovery) => recoveries.push(recovery), pageScrollId, messageCanvas, { retainKeyboardUntilResize });
   t.after(cleanup);
   return {
     win, vv, root, cleanup, frames, timers, recoveries, mobileQuery, displayMode,
@@ -415,6 +415,186 @@ test("idle shell uses native CSS sizing and a focused field uses the visible vie
   h.frame();
   assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "524px");
   assert.equal(h.root.style.getPropertyValue("--keyboard-inset"), "320px");
+});
+
+test("an opted-in standalone canvas keeps its visible area during keyboard dismissal and releases it on recovery", (t) => {
+  const h = viewportHarness(t, undefined, false, false, true);
+  const input = h.win.document.querySelector("input")!;
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "", "idle chrome cannot opt in");
+  input.focus();
+  h.vv.height = 300;
+  h.vv.offsetTop = 40;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  input.blur();
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "300px");
+  assert.equal(h.root.style.getPropertyValue("--mobile-viewport-top"), "40px");
+  h.vv.height = 420;
+  h.vv.offsetTop = 0;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "420px");
+  h.vv.height = 844;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "");
+  assert.equal(h.root.style.getPropertyValue("--mobile-viewport-top"), "");
+  h.vv.height = 300;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "", "unfocused contraction cannot restart keyboard retention");
+});
+
+test("Home Screen retains an opted-in closing keyboard until full height returns", (t) => {
+  const h = viewportHarness(t, undefined, false, true, true);
+  Object.defineProperty(h.root, "clientHeight", { configurable: true, value: 852 });
+  h.height(793);
+  const input = h.win.document.querySelector("input")!;
+  input.focus();
+  h.vv.height = 300;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  input.blur();
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "300px");
+  h.vv.height = 793;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "852px");
+});
+
+test("Home Screen uses a panned iframe keyboard without losing its full-height recovery", (t) => {
+  const h = viewportHarness(t, undefined, false, true);
+  h.mobileQuery.matches = false;
+  Object.defineProperty(h.root, "clientHeight", { configurable: true, value: 852 });
+  h.height(793);
+  const iframe = h.win.document.createElement("iframe");
+  h.win.document.body.appendChild(iframe);
+  iframe.focus();
+  h.vv.height = 300;
+  h.vv.offsetTop = 552;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "300px");
+  assert.equal(h.root.style.getPropertyValue("--mobile-viewport-top"), "552px");
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), true);
+  h.vv.height = 793;
+  h.vv.offsetTop = 0;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "852px");
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), false);
+});
+
+test("a focused iframe opts the wide shell into keyboard sizing only after substantial occlusion", (t) => {
+  const h = viewportHarness(t);
+  h.mobileQuery.matches = false;
+  h.height(390);
+  h.win.document.body.insertAdjacentHTML("beforeend", '<iframe title="Yumina Sandbox"></iframe>');
+  const iframe = h.win.document.querySelector("iframe")!;
+  iframe.focus();
+  h.vv.height = 290;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), false, "browser chrome must not reposition a wide shell");
+  h.vv.height = 390;
+  h.vv.offsetTop = 50;
+  h.vv.dispatchEvent(new h.win.Event("scroll"));
+  h.frame();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), false, "panning alone is not keyboard occlusion");
+  h.vv.height = 230;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), true, "the first keyboard measurement can already be panned");
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "230px");
+  assert.equal(h.root.style.getPropertyValue("--mobile-viewport-top"), "50px");
+  h.vv.offsetTop = 0;
+  h.vv.dispatchEvent(new h.win.Event("scroll"));
+  h.frame();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), true);
+  h.vv.offsetTop = 50;
+  h.vv.dispatchEvent(new h.win.Event("scroll"));
+  h.frame();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), true, "panning an established keyboard must not restore the full-height shell");
+  assert.equal(h.root.style.getPropertyValue("--mobile-viewport-top"), "50px");
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "230px");
+  h.vv.height = 390;
+  h.vv.offsetTop = 0;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), false, "dismissal restores CSS sizing even while iframe focus remains");
+  h.vv.height = 230;
+  h.win.document.querySelector("input")!.focus();
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), false, "ordinary host inputs do not opt into the iframe-only wide rule");
+});
+
+test("iframe keyboard geometry survives zoom and invalid measurements but clears on focus loss and suspend", (t) => {
+  const h = viewportHarness(t);
+  h.mobileQuery.matches = false;
+  h.win.document.body.insertAdjacentHTML("beforeend", '<iframe></iframe>');
+  const iframe = h.win.document.querySelector("iframe")!;
+  iframe.focus();
+  h.vv.height = 340;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), true);
+  h.vv.scale = 2;
+  h.vv.height = 170;
+  h.vv.offsetTop = 50;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "340px", "zoom magnifies the established frame");
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), true);
+  iframe.blur();
+  h.frame();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), false, "blur clears the opt-in even during zoom");
+  h.vv.scale = 1;
+  h.vv.height = 340;
+  h.vv.offsetTop = 0;
+  iframe.focus();
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  for (const height of [0, NaN]) {
+    h.vv.height = height;
+    h.vv.dispatchEvent(new h.win.Event("resize"));
+    h.frame();
+    assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), true);
+    assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "340px");
+  }
+  h.visibility("hidden");
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), false);
+  h.vv.height = 420;
+  h.visibility("visible");
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), true);
+  assert.equal(h.root.style.getPropertyValue("--mobile-vh"), "420px");
+  h.cleanup();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), false);
+});
+
+test("reading and notification surfaces clear an earlier iframe keyboard opt-in", (t) => {
+  const h = viewportHarness(t, "community-main");
+  h.mobileQuery.matches = false;
+  h.win.document.body.insertAdjacentHTML("beforeend", '<iframe></iframe>');
+  h.win.document.querySelector("iframe")!.focus();
+  h.vv.height = 340;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), true);
+  h.mobileQuery.matches = true;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), false);
+  h.mobileQuery.matches = false;
+  h.vv.dispatchEvent(new h.win.Event("resize"));
+  h.frame();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), true);
+  h.root.setAttribute("data-mobile-notification-page", "");
+  h.mobileQuery.dispatchEvent(new h.win.Event("change"));
+  h.frame();
+  assert.equal(h.root.hasAttribute("data-sandbox-keyboard"), false);
 });
 
 test("resume remeasures the shell even without a resize event and preserves feed position", (t) => {

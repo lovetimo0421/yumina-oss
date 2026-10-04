@@ -76,6 +76,28 @@ beforeEach((t) => {
 afterEach(() => { globalThis.fetch = originalFetch; store.getState().stopAutosave(); });
 after(async () => { await vite.close(); });
 
+test("an oversized save exposes its full measured error and keeps the unsaved draft", async (t) => {
+  const draft = world("large");
+  draft.rootComponent!.files["App.tsx"] = `/*${"x".repeat(Math.ceil(10.1 * 1024 * 1024))}*/\nexport default function App() { return null; }`;
+  reset(world("A"), draft);
+  const errors: Array<Parameters<typeof feedback.error>> = [];
+  let dismissed = 0;
+  t.mock.method(feedback, "error", (...args: Parameters<typeof feedback.error>) => {
+    errors.push(args);
+    return () => { dismissed++; };
+  });
+  globalThis.fetch = async () => { throw new Error("Oversized saves must not be sent"); };
+  assert.equal(await store.getState().saveDraft(), false);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0]![0], /10\.1 MB.*10\.0 MB/);
+  assert.match(errors[0]![0], /Asset Library.*edits are still here/);
+  assert.deepEqual(errors[0]![2], { expanded: true, id: "world-save-error" });
+  assert.equal(store.getState().worldDraft, draft);
+  assert.equal(store.getState().isDirty, true);
+  store.getState().clearDraft();
+  assert.equal(dismissed, 1, "switching editor sessions retires the previous world's error");
+});
+
 test("a cover upload refreshes the save baseline without losing local edits or reporting agent changes", async () => {
   const base = { ...world("A"), avatar: "/old.jpg" };
   reset(base, { ...base, description: "Unsaved description" });

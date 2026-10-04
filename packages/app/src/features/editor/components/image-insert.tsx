@@ -36,6 +36,11 @@ export function insertAtCaret(el: HTMLTextAreaElement, text: string): void {
   el.setSelectionRange(caret, caret);
 }
 
+/** The shared `[video:…]` embed: a muted autoplay loop unless edited (`|once`, `|sound`). */
+export function videoEmbedTag(ref: string): string {
+  return `[video:${ref}]`;
+}
+
 /** The shared `[image:…]` embed for a library asset or URL. */
 export function imageEmbedTag(ref: string, alt?: string): string {
   const clean = (alt ?? "").replace(/[|\]\n]/g, " ").trim();
@@ -62,7 +67,8 @@ export interface ImageInsert {
  * Everything a text field needs to take pictures like a mail composer does:
  * a toolbar button (upload from the computer, or pick from the world's
  * assets), drag-and-drop, and paste. Files go through the world asset
- * library and land in the text as `[image:@asset:…]` at the caret.
+ * library and land in the text as `[image:@asset:…]` (or `[video:@asset:…]`
+ * for a clip) at the caret.
  */
 export function useImageInsert(getTextarea: () => HTMLTextAreaElement | null): ImageInsert {
   const { t } = useTranslation("editor");
@@ -80,26 +86,27 @@ export function useImageInsert(getTextarea: () => HTMLTextAreaElement | null): I
     return store().serverWorldId;
   };
 
-  const insertRef = (ref: string, alt?: string) => {
+  const insertRef = (ref: string, alt?: string, type = "image") => {
     const el = getTextarea();
     if (!el) return;
-    insertAtCaret(el, imageEmbedTag(ref, alt));
+    insertAtCaret(el, type === "video" ? videoEmbedTag(ref) : imageEmbedTag(ref, alt));
   };
 
   const insertFiles = async (files: FileList | File[]) => {
-    const list = [...files].filter((f) => f.type.startsWith("image/"));
+    const list = [...files].filter((f) => f.type.startsWith("image/") || f.type === "video/mp4" || f.type === "video/webm");
     if (list.length === 0) return;
     const worldId = await ensureWorldId();
     if (!worldId) return;
     setBusy(true);
     try {
       for (const file of list) {
-        const asset = await uploadAsset(worldId, file, "image");
+        const type = file.type.startsWith("video/") ? "video" : "image";
+        const asset = await uploadAsset(worldId, file, type);
         if (!asset) {
           feedback.error(t("imageInsert.failed", { name: file.name }));
           continue;
         }
-        insertRef(`@asset:${asset.id}`, file.name.replace(/\.[^.]+$/, ""));
+        insertRef(`@asset:${asset.id}`, file.name.replace(/\.[^.]+$/, ""), type);
       }
     } finally {
       setBusy(false);
@@ -125,7 +132,7 @@ export function useImageInsert(getTextarea: () => HTMLTextAreaElement | null): I
       void insertFiles(e.dataTransfer.files);
     },
     onPaste: (e) => {
-      const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/"));
+      const files = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith("image/") || f.type.startsWith("video/"));
       if (files.length === 0) return;
       e.preventDefault();
       void insertFiles(files);
@@ -137,7 +144,7 @@ export function useImageInsert(getTextarea: () => HTMLTextAreaElement | null): I
       <input
         ref={fileRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/mp4,video/webm"
         multiple
         className="hidden"
         onChange={(e) => {
@@ -148,9 +155,9 @@ export function useImageInsert(getTextarea: () => HTMLTextAreaElement | null): I
       {picker && serverWorldId && (
         <AssetPicker
           worldId={serverWorldId}
-          filterType="image"
-          onSelect={(ref) => {
-            insertRef(ref);
+          filterType="media"
+          onSelect={(ref, type) => {
+            insertRef(ref, undefined, type);
             setPicker(false);
           }}
           onClose={() => setPicker(false)}

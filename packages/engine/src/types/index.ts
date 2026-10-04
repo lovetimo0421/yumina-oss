@@ -494,6 +494,11 @@ export interface WorldEntry {
    *  `@asset:<id>` reference (or an absolute URL). Only meaningful on
    *  `role: "character"` entries. */
   portrait?: string;
+  /** A moving portrait: short clips (`@asset:` refs) that replace the still
+   *  one where a renderer can play video. `idle` loops while the character is
+   *  on screen; `speaking` plays while their line is being written, then the
+   *  idle loop returns. Either may be absent. */
+  portraitVideo?: { idle?: string; speaking?: string };
   /** The voice this character's lines are read in: a fish.audio reference id
    *  (32 hex). Set by the author; the player's own voice choice yields to it.
    *  Only meaningful on `role: "character"` entries. */

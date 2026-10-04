@@ -19,6 +19,9 @@ import type { WorldDefinition } from "@yumina/engine";
 /** Asset IDs are UUIDv4 or base64url of an S3 key. Tight enough to avoid matching
  *  accidental text like "@asset:TODO" but loose enough to handle both formats. */
 const ASSET_REF_PATTERN = /@asset:([A-Za-z0-9_-]{8,})/g;
+/** `[video:@asset:…]` embeds. A `<video>` streams its file in ranges; an
+ *  image-typed preload of it is never reused and downloads the clip twice. */
+const VIDEO_EMBED_PATTERN = /\[video:\s*@asset:([A-Za-z0-9_-]{8,})/g;
 
 const MAX_PRIORITY = 30;
 const MAX_DEFERRED = 200;
@@ -34,8 +37,9 @@ export interface AssetManifest {
 
 export function extractAssetRefs(text: string | null | undefined): string[] {
   if (!text) return [];
+  const videos = new Set([...text.matchAll(VIDEO_EMBED_PATTERN)].map((m) => m[1]!));
   const matches = [...text.matchAll(ASSET_REF_PATTERN)];
-  return matches.map((m) => m[1]!).filter(Boolean);
+  return matches.map((m) => m[1]!).filter((id) => id && !videos.has(id));
 }
 
 interface ScannableMessage {

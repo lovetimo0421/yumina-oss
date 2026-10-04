@@ -3984,6 +3984,18 @@ html.dm-mobile-selection-locked body * {
 }
 
 /* ── Mobile landscape: maximize play area ── */
+/* An opaque iframe can own a keyboard beyond the portrait breakpoint. The
+   viewport installer enables this only while that iframe has keyboard-sized
+   occlusion; ordinary wide layouts keep their existing CSS sizing. */
+@media (min-width: 768px) {
+  html[data-sandbox-keyboard]:not([data-mobile-page-scroll]):not([data-mobile-notification-page]) .app-shell-root {
+    position: fixed;
+    top: var(--mobile-viewport-top);
+    inset-inline: 0;
+    height: var(--mobile-vh);
+  }
+}
+
 @media (max-width: 926px) and (orientation: landscape) {
   :root {
     --mobile-topbar-height: 2.75rem;

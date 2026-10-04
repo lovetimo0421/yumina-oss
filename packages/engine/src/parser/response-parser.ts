@@ -3,12 +3,12 @@ import { ThinkingTagFilter } from "./thinking-tag-filter.js";
 import { parseLeadingSpeakerTag } from "../prompts/speaker-tag.js";
 import { stripStateReceipts } from "./state-receipt.js";
 
-/** `[image:…]` bodies the directive scanners must leave intact: the render
- *  form (URL / asset ref / cdn path, optional `|key=value` options) and the
- *  bare scene handle the AI writes. Anything else (e.g. `[image: set x]`) is
- *  still a plain variable directive. */
+/** `[image:…]` / `[video:…]` bodies the directive scanners must leave intact:
+ *  the render form (URL / asset ref / cdn path, optional `|key=value` options)
+ *  and the bare scene handle the AI writes. Anything else (e.g.
+ *  `[image: set x]`) is still a plain variable directive. */
 const IMAGE_EMBED_RE =
-  /\[\s*image:\s*(?:https?:\/\/[^\]\n]+|@asset:[^\]\n]+|\/cdn\/[^\]\n]+|[\p{L}\p{N}_-]+)\s*\]/giu;
+  /\[\s*(?:image:\s*(?:https?:\/\/[^\]\n]+|@asset:[^\]\n]+|\/cdn\/[^\]\n]+|[\p{L}\p{N}_-]+)|video:\s*(?:https?:\/\/[^\]\n]+|@asset:[^\]\n]+|\/cdn\/[^\]\n]+))\s*\]/giu;
 
 export interface ParseResult {
   cleanText: string;

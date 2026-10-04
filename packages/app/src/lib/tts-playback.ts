@@ -279,7 +279,7 @@ export async function speakMessage(
   // A paid synth changed the wallet — refresh so the model pill's mushie
   // count reflects it instead of going stale until the next chat turn.
   if (credits > 0) {
-    void import("@/stores/credits")
+    void import("@/edition/slots.state")
       .then((m) => m.useCreditStore.getState().fetchCredits())
       .catch(() => {});
   }
@@ -470,7 +470,7 @@ export async function previewVoice(
       return { ok: false, reason: "error" };
     }
     if ((body.credits ?? 0) > 0) {
-      void import("@/stores/credits")
+      void import("@/edition/slots.state")
         .then((m) => m.useCreditStore.getState().fetchCredits())
         .catch(() => {});
     }
@@ -768,7 +768,7 @@ function pumpSynth(s: StreamReadSession, text: string, initialState: DialogueSca
         s.results.set(index, url);
         s.sliceUrls[index] = url;
         if ((payload.credits ?? 0) > 0) {
-          void import("@/stores/credits")
+          void import("@/edition/slots.state")
             .then((m) => m.useCreditStore.getState().fetchCredits())
             .catch(() => {});
         }

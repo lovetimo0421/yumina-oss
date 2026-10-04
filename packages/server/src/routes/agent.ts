@@ -9,7 +9,7 @@ import { isShutdownAbort, registerStream } from "../lib/stream-registry.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { LLMProvider, StreamChunk, ChatMessage, ToolCall, ContentPart, ToolDefinition } from "../lib/llm/types.js";
 import { resolveProviderForModel, type ApiKeyTier } from "../lib/resolve-provider.js";
-import { calculateCost, deductCredits, ensureWallet } from "../lib/credit-service.js";
+import { calculateCost, deductCredits, ensureWallet, STUDIO_AGENT_MARKUP } from "../lib/credit-service.js";
 import { resolveEffectivePlanWithEventEntitlements } from "../lib/event-plan-entitlements.js";
 import { guardGeneration } from "../lib/credit-guard.js";
 import { getModelPrice } from "../lib/model-price-cache.js";
@@ -2044,7 +2044,9 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         let outputBudget = MAX_OUTPUT;
         if (creditRecovery && !replayGenerated && sourceRevision) {
           const balances = await getAvailableCredits(userId);
-          const price = await getModelPrice(model);
+          const modelPrice = await getModelPrice(model);
+          // Reserve at the same fee settlement charges.
+          const price = modelPrice && { ...modelPrice, markupMultiplier: STUDIO_AGENT_MARKUP };
           const planBudget = () => planStudioCreditBudget({ messages: llmMessages, tools, price,
             availableCredits: balances.availableCredits, previousCompletionTokens,
             // Ask for the model's full ceiling and let the balance be the only
@@ -2255,12 +2257,11 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
 
           if (!isByok && (creditRecovery || (!unlimited && (pTokens > 0 || cTokens > 0 || (observedUsage.providerCostUsd ?? 0) > 0)) || replay)) {
             try {
-              // Studio turns are priced exactly like chat turns: the model's
-              // flat platform fee on OpenRouter's reported cost. The former
-              // skipMarkup + 0.8× "creator discount" applied to every plan and
-              // was 23% of the provider bill at 0.8× cost (audit 2026-09-14);
-              // creator support now lives in the internal plan's allowance.
+              // Studio turns are OpenRouter's reported cost × STUDIO_AGENT_MARKUP
+              // (1.10), below chat's flat 1.20. The pre-2026-09-14 skipMarkup +
+              // 0.8× discount billed under cost and is not coming back.
               const cost = replay?.cost ?? await calculateCost(model, pTokens, cTokens, {
+                markup: STUDIO_AGENT_MARKUP,
                 providerCostUsd: observedUsage.providerCostUsd,
               });
               if (creditRecovery && controller.signal.aborted && !isShutdownAbort(controller.signal)) {

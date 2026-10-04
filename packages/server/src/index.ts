@@ -9,6 +9,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { preloadTokenizer } from "@yumina/engine";
 import { env } from "./lib/env.js";
 import { privateStateCache } from "./middleware/private-state-cache.js";
+import { requestBodyLimit } from "./middleware/request-body-limit.js";
 import {
   db,
   ensureAccountDeletionForeignKeys,
@@ -209,17 +210,8 @@ app.use("/api/*", corsMiddleware);
 app.use("/api/*", privateStateCache);
 app.use("/health", corsMiddleware);
 
-// Global body size limit — reject payloads over 5 MB before route handlers parse them.
-// S3 uploads bypass this (client uploads directly to S3 via presigned URLs).
-// Stripe webhooks need raw body parsing so they get a generous limit too.
-app.use("/api/*", async (c, next) => {
-  if (c.req.path.startsWith("/api/stripe/webhook")) return next();
-  const contentLength = c.req.header("content-length");
-  if (contentLength && parseInt(contentLength, 10) > 5 * 1024 * 1024) {
-    return c.json({ error: "Request body too large (max 5 MB)" }, 413);
-  }
-  return next();
-});
+// World create/save: 10 MiB; other API requests: 5 MiB.
+app.use("/api/*", requestBodyLimit);
 
 // Legacy cookie cleanup removed 2026-05-15 (was scheduled for ~2026-05-17).
 // All active users have had their old __Secure-better-auth.* cookies expired.

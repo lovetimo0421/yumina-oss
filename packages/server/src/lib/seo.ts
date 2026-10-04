@@ -4,6 +4,7 @@ import { readPublic } from "../db/index.js";
 import { PUBLIC_ORIGIN } from "./env.js";
 import { resolveImageCdn } from "./cdn-url.js";
 import { summarizeText, stripLeadingTitle } from "./seo-text.js";
+import { listBlogPosts } from "./blog.js";
 import {
   canonicalProfilePath,
   canonicalWorldPath,
@@ -600,6 +601,15 @@ export async function generateSitemap(): Promise<string> {
 
   for (const page of staticPages) {
     xml += `  <url>\n    <loc>${SITE_URL}${page.url}</loc>\n    <changefreq>${page.changefreq}</changefreq>\n    <priority>${page.priority}</priority>\n  </url>\n`;
+  }
+
+  // Blog: the index and every post, with the post's last change as lastmod.
+  const posts = listBlogPosts();
+  if (posts.length) {
+    xml += `  <url>\n    <loc>${SITE_URL}/blog</loc>\n    <changefreq>weekly</changefreq>\n    <priority>0.6</priority>\n  </url>\n`;
+    for (const post of posts) {
+      xml += `  <url>\n    <loc>${SITE_URL}/blog/${post.slug}</loc>\n    <lastmod>${post.updated ?? post.date}</lastmod>\n    <changefreq>monthly</changefreq>\n    <priority>0.7</priority>\n  </url>\n`;
+    }
   }
 
   // Creator pages: one per creator with at least one public world. They are

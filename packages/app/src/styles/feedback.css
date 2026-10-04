@@ -128,6 +128,41 @@
   background: rgba(232, 226, 210, 0.12);
   color: var(--color-foreground);
 }
+/* Save failures are actionable diagnostics, not disposable one-line notices.
+   Keep the complete reason readable on touch screens and until dismissed. */
+.yp-pill[data-expanded="true"] {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 20px;
+  align-items: start;
+  height: auto;
+  min-height: 40px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  cursor: default;
+}
+.yp-pill[data-expanded="true"] .yp-pill-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: visible;
+  line-height: 1.5;
+  max-height: min(50dvh, 24rem);
+  overflow-y: auto;
+  user-select: text;
+}
+.yp-pill[data-expanded="true"] .yp-pill-icon {
+  margin-top: 3px;
+}
+.yp-pill[data-expanded="true"] .yp-pill-action {
+  grid-column: 2;
+  grid-row: 2;
+  justify-self: start;
+  margin: 0 0 -6px -6px;
+}
+.yp-pill[data-expanded="true"] .yp-pill-close {
+  grid-column: 3;
+  grid-row: 1;
+  margin: 0;
+}
 @media (max-width: 600px) {
   .yp-pill {
     height: 44px;

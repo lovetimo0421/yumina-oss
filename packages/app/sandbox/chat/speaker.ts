@@ -27,6 +27,7 @@ export interface SpeakerEntry {
   role?: string;
   enabled?: boolean;
   portrait?: string | null;
+  portraitVideo?: { idle: string | null; speaking: string | null } | null;
   /** The voice the author gave this character (fish.audio reference id). */
   voice?: string | null;
 }
@@ -36,6 +37,8 @@ export interface Speaker {
   /** null when the tagged character exists but has no portrait — the name
    *  still beats a generic "Narrator" label. */
   portrait: string | null;
+  /** Moving portrait clips, when the author made them. */
+  video: { idle: string | null; speaking: string | null } | null;
   /** The character's own voice, or null: the readout falls to the narrator's. */
   voice: string | null;
 }
@@ -53,6 +56,7 @@ function toSpeaker(e: SpeakerEntry): Speaker {
   return {
     name: displayCharacterName(e.name),
     portrait: typeof e.portrait === "string" && e.portrait.length > 0 ? e.portrait : null,
+    video: e.portraitVideo && (e.portraitVideo.idle || e.portraitVideo.speaking) ? e.portraitVideo : null,
     voice: typeof e.voice === "string" && e.voice.length > 0 ? e.voice : null,
   };
 }
@@ -86,7 +90,7 @@ export function resolveSpeaker(
   }
 
   // 2. Heuristics on the prose.
-  const candidates = characters.filter((c) => typeof c.portrait === "string" && c.portrait.length > 0);
+  const candidates = characters.filter((c) => (typeof c.portrait === "string" && c.portrait.length > 0) || !!c.portraitVideo?.idle);
   if (candidates.length === 0) return null;
   if (characters.length === 1) return toSpeaker(characters[0]!);
 

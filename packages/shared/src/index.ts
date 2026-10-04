@@ -284,6 +284,7 @@ export {
   MAX_COMPLETION_MESSAGES,
   MAX_COMPLETION_TOTAL_CHARS,
   MAX_REQUEST_BODY_BYTES,
+  MAX_WORLD_SAVE_BODY_BYTES,
   MAX_ASSET_SIZE_IMAGE,
   MAX_ASSET_SIZE_AUDIO,
   MAX_ASSET_SIZE_FONT,
@@ -390,6 +391,24 @@ export type {
   ImageAspectId,
   GenerationErrorCode,
 } from "./constants/generation.js";
+export {
+  VIDEO_TEMPLATE_ID,
+  VIDEO_ASPECTS,
+  VIDEO_MODELS,
+  VIDEO_MODEL_IDS,
+  VIDEO_TUNING_LIMITS,
+  VIDEO_LORA_PRICE_MUSHIES,
+  VIDEO_STYLE_FRAME_MUSHIES,
+  VIDEO_STYLE_FRAME_SECONDS,
+  getVideoModel,
+  videoDurationOptions,
+  videoDimensions,
+  videoRequestProblem,
+  computeVideoModelPrice,
+  estimateVideoSeconds,
+  videoUsesFast,
+} from "./constants/video-models.js";
+export type { VideoAspect, VideoProvider, VideoModelSpec, VideoRequest } from "./constants/video-models.js";
 
 export { blendModelPopularity, type ModelPopularitySnapshot } from "./types/model-popularity.js";
 export { DISCOVERY_INTEREST_IDS, DISCOVERY_INTEREST_GROUPS, DISCOVERY_INTEREST_TAGS,

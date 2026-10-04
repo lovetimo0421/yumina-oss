@@ -350,7 +350,14 @@
     "advanced": "Advanced",
     "advancedKeywords": "Keywords",
     "emptyTitle": "No entries",
-    "emptyFolder": "Empty — drag entries here"
+    "emptyFolder": "Empty — drag entries here",
+    "portraitVideo": "Moving portrait",
+    "portraitVideoHint": "Optional. With a clip here, chat shows it instead of the still portrait: “Idle” loops, “Speaking” plays while this character talks.",
+    "portraitVideoRemove": "Remove",
+    "portraitVideoClip": {
+      "idle": "Idle",
+      "speaking": "Speaking"
+    }
   },
   "variables": {
     "title": "Variables",
@@ -2041,7 +2048,7 @@
     }
   },
   "imageInsert": {
-    "button": "Insert image",
+    "button": "Insert image or video",
     "upload": "Upload from computer",
     "library": "From assets",
     "uploading": "Uploading…",

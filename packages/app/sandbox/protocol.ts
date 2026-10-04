@@ -38,6 +38,8 @@ export interface SandboxEntry {
   /** Character portrait as an absolute URL (host resolves `@asset:` refs before
    *  pushing), or null when the entry has none. */
   portrait?: string | null;
+  /** Moving portrait clips as absolute URLs (host-resolved), or null. */
+  portraitVideo?: { idle: string | null; speaking: string | null } | null;
 }
 
 export type SandboxLoreUiBinding = LoreUiBinding;

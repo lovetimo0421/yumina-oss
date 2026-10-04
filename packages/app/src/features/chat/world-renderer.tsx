@@ -162,6 +162,7 @@ interface WorldRendererProps {
     conditions?: Condition[];
     conditionLogic?: "all" | "any";
     portrait?: string;
+    portraitVideo?: { idle?: string; speaking?: string };
   }>;
   loreUiBindings?: LoreUiBinding[];
   worldbooks?: Worldbook[];
@@ -1416,6 +1417,7 @@ export function WorldRenderer({
         maxTokens?: number;
         temperature?: number;
         includeLorebook?: boolean | "all" | "matched";
+        responseFormat?: { type: "json_object" };
       } | undefined;
 
       if (!params?.messages?.length) {
@@ -1442,6 +1444,7 @@ export function WorldRenderer({
               maxTokens: params.maxTokens,
               temperature: params.temperature,
               includeLorebook: params.includeLorebook,
+              responseFormat: params.responseFormat,
             }),
           });
 
@@ -1975,6 +1978,11 @@ export function WorldRenderer({
         // Resolved here (the sandbox boundary) so the bubble can drop it straight
         // into an <img src> — the sandbox never sees a raw @asset: ref.
         portrait: e.portrait ? absoluteImageUrl(e.portrait) : null,
+        // Clips go through the same /cdn/ path; the resolver adds no image transform.
+        portraitVideo: e.portraitVideo?.idle || e.portraitVideo?.speaking
+          ? { idle: e.portraitVideo.idle ? absoluteImageUrl(e.portraitVideo.idle) : null,
+              speaking: e.portraitVideo.speaking ? absoluteImageUrl(e.portraitVideo.speaking) : null }
+          : null,
       }));
     const data: SessionChannelData = {
       worldId,

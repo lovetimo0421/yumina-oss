@@ -85,9 +85,17 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
     maxTokens?: number;
     temperature?: number;
     includeLorebook?: IncludeLorebookMode;
+    responseFormat?: { type: 'json_object' };
   }>();
 
   // ── Validate input ──
+  if (body.responseFormat !== undefined && (
+    body.responseFormat === null || typeof body.responseFormat !== 'object' ||
+    Array.isArray(body.responseFormat) || body.responseFormat.type !== 'json_object' ||
+    Object.keys(body.responseFormat).length !== 1
+  )) {
+    return c.json({ error: 'responseFormat must be { type: "json_object" }' }, 400);
+  }
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     return c.json({ error: "messages array is required" }, 400);
   }
@@ -258,6 +266,7 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
         messages: providerMessages,
         maxTokens,
         temperature,
+        ...(body.responseFormat && { responseFormat: { type: 'json_object' as const } }),
         signal: abortController.signal,
       })) {
         if (chunk.type === "text") {

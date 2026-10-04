@@ -210,7 +210,14 @@
     "advanced": "Avanzado",
     "advancedKeywords": "Palabras clave",
     "emptyTitle": "Sin entradas",
-    "emptyFolder": "Vacía: arrastra entradas aquí"
+    "emptyFolder": "Vacía: arrastra entradas aquí",
+    "portraitVideo": "Retrato animado",
+    "portraitVideoHint": "Opcional. Con un vídeo aquí, el chat lo muestra en lugar del retrato fijo: “En reposo” en bucle, “Hablando” mientras el personaje habla.",
+    "portraitVideoRemove": "Quitar",
+    "portraitVideoClip": {
+      "idle": "En reposo",
+      "speaking": "Hablando"
+    }
   },
   "variables": {
     "title": "Variables",
@@ -1785,7 +1792,7 @@
     }
   },
   "imageInsert": {
-    "button": "Insertar imagen",
+    "button": "Insertar imagen o vídeo",
     "upload": "Subir desde el ordenador",
     "library": "Desde recursos",
     "uploading": "Subiendo…",

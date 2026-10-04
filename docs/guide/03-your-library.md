@@ -39,7 +39,7 @@ The second tab shows worlds you've created or copied, split into In Development 
 
 ## Assets
 
-The third tab manages your uploaded files -- images (PNG, JPG, WebP, SVG), audio (MP3, WAV, OGG), and fonts (TTF, OTF, WOFF). Organized in a folder tree with drag-and-drop. Storage limit depends on your plan: 100 MB on Free, 500 MB on Gold, 2 GB on Platinum, 5 GB on Diamond, 20 GB on Ascendant.
+The third tab manages your uploaded files -- images (PNG, JPG, WebP, SVG), audio (MP3, WAV, OGG), and fonts (TTF, OTF, WOFF). Organized in a folder tree with drag-and-drop. Storage limit depends on your plan: 1 GB on Free, 5 GB on Gold, 20 GB on Platinum, 50 GB on Diamond, 100 GB on Ascendant.
 
 ## Bundles
 

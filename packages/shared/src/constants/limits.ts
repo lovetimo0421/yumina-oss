@@ -98,6 +98,8 @@ export const MAX_ASSET_SIZE_OTHER = 10 * 1024 * 1024;  // 10 MB
 
 // ── Request body ─────────────────────────────────────────
 export const MAX_REQUEST_BODY_BYTES = 5 * 1024 * 1024; // 5 MB
+/** World create/save requests contain the complete project JSON. */
+export const MAX_WORLD_SAVE_BODY_BYTES = 10 * 1024 * 1024; // 10 MiB
 
 // ── Rate limit tiers ─────────────────────────────────────
 export type RateLimitTier =

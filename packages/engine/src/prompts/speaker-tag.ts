@@ -21,14 +21,14 @@ export const NARRATOR_SPEAKER = "narrator";
 const LEADING_SPEAKER_TAG = /^\s*\[\s*speaker\s*:\s*([^\]\n]*?)\s*\]/i;
 
 /** Character entries that can put a face on a line: enabled, `role:
- *  "character"`, with a portrait set. */
+ *  "character"`, with a portrait (still or moving) set. */
 export function portraitCharacters(entries: ReadonlyArray<WorldEntry> | undefined): WorldEntry[] {
   return (entries ?? []).filter(
     (e) =>
       e.role === "character" &&
       e.enabled !== false &&
-      typeof e.portrait === "string" &&
-      e.portrait.length > 0,
+      ((typeof e.portrait === "string" && e.portrait.length > 0) ||
+        (typeof e.portraitVideo?.idle === "string" && e.portraitVideo.idle.length > 0)),
   );
 }
 

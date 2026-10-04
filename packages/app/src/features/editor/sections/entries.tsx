@@ -45,6 +45,7 @@ import {
 import { useEditorStore } from "@/stores/editor";
 import { HoverHint } from "../components/hover-hint";
 import { EntryPortraitField } from "../components/entry-portrait-field";
+import { EntryPortraitVideoField } from "../components/entry-portrait-video-field";
 import { VoiceField } from "../components/voice-field";
 import {
   estimateTokens,
@@ -1430,6 +1431,10 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                           variant="row"
                           value={selected.portrait}
                           onChange={(portrait) => updateEntry(selected.id, { portrait })}
+                        />
+                        <EntryPortraitVideoField
+                          value={selected.portraitVideo}
+                          onChange={(portraitVideo) => updateEntry(selected.id, { portraitVideo })}
                         />
                         <VoiceField
                           label={t("voiceField.characterLabel")}

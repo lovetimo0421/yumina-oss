@@ -285,6 +285,13 @@ const text = await api.ai.complete({
 
 Returns `Promise<string>` with the full response. 120-second client-side timeout.
 
+For machine-readable responses, pass `responseFormat: { type: "json_object" }`
+and explicitly request JSON in your messages. The SDK forwards this option to
+the provider. Support depends on the chosen provider/model; this does not enforce
+your game schema. Parse the result and validate every action before applying it.
+Omitting the option preserves ordinary text completion. Other format shapes are
+rejected with HTTP 400 before inference.
+
 #### Limits and costs
 
 | Limit | Value | Source |
@@ -692,7 +699,7 @@ useYumina()
 │   ├── entries (ReadonlyArray<SandboxEntry>)  // sorted by position, enabled only
 │   └── getEntry(name) → SandboxEntry | null
 ├── AI
-│   └── ai.complete({ messages, onDelta?, model?, maxTokens?, temperature?, includeLorebook? }) → Promise<string>
+│   └── ai.complete({ messages, onDelta?, model?, maxTokens?, temperature?, includeLorebook?, responseFormat? }) → Promise<string>
 │        // includeLorebook: true | "all" | "matched" — auto-inject world lore
 ├── Context injection
 │   └── injectContext(message, { role? })

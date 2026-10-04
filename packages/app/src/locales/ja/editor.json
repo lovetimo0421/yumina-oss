@@ -206,7 +206,14 @@
     "advanced": "詳細設定",
     "advancedKeywords": "キーワード",
     "emptyTitle": "エントリがありません",
-    "emptyFolder": "空 — エントリをここにドラッグ"
+    "emptyFolder": "空 — エントリをここにドラッグ",
+    "portraitVideo": "動く立ち絵",
+    "portraitVideoHint": "任意。動画を置くと、チャットで静止画の代わりに使われます：普段は「待機」、このキャラが話す間は「会話」。",
+    "portraitVideoRemove": "外す",
+    "portraitVideoClip": {
+      "idle": "待機",
+      "speaking": "会話"
+    }
   },
   "variables": {
     "title": "変数",
@@ -1776,7 +1783,7 @@
     }
   },
   "imageInsert": {
-    "button": "画像を挿入",
+    "button": "画像・動画を挿入",
     "upload": "パソコンからアップロード",
     "library": "アセットから選ぶ",
     "uploading": "アップロード中…",

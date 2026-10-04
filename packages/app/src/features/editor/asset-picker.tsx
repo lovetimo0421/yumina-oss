@@ -3,6 +3,7 @@ import {
   X,
   Upload,
   Image as ImageIcon,
+  Film,
   Music,
   Type,
   File,
@@ -15,17 +16,19 @@ import { useTranslation } from "react-i18next";
 import { useAssetStore, type Asset } from "@/stores/assets";
 import { useUserAssetStore, type UserAsset } from "@/stores/user-assets";
 import { getUploadMetadata } from "@/lib/asset-upload";
-import { cardImageUrl, fallbackToOriginalOnError } from "@/lib/asset-url";
+import { cardImageUrl, fallbackToOriginalOnError, getAssetCdnUrl } from "@/lib/asset-url";
 
 interface AssetPickerProps {
   worldId: string;
-  filterType?: "image" | "video" | "audio" | "font" | "txt" | "other";
-  onSelect: (assetRef: string) => void;
+  /** "media" = a picture or a video (the second argument of onSelect says which). */
+  filterType?: "image" | "video" | "audio" | "font" | "txt" | "other" | "media";
+  onSelect: (assetRef: string, type: string) => void;
   onClose: () => void;
 }
 
 const TYPE_ICONS: Record<string, typeof ImageIcon> = {
   image: ImageIcon,
+  video: Film,
   audio: Music,
   font: Type,
   txt: FileText,
@@ -48,14 +51,14 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
 
   useEffect(() => {
     fetchAssets(worldId);
-    fetchGlobalAssets(filterType ? { type: filterType } : undefined);
+    fetchGlobalAssets(filterType && filterType !== "media" ? { type: filterType } : undefined);
   }, [worldId, fetchAssets, fetchGlobalAssets, filterType]);
 
   const uploadSingleFile = useCallback(async (file: File) => {
-    const { type } = getUploadMetadata(file, filterType);
+    const { type } = getUploadMetadata(file, filterType === "media" ? undefined : filterType);
     const asset = await uploadAsset(worldId, file, type);
     if (asset) {
-      onSelect(`@asset:${asset.id}`);
+      onSelect(`@asset:${asset.id}`, type);
     }
   }, [filterType, onSelect, uploadAsset, worldId]);
 
@@ -110,7 +113,7 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
   })();
 
   const filtered = allAssets.filter((a) => {
-    if (filterType && a.type !== filterType) return false;
+    if (filterType === "media" ? a.type !== "image" && a.type !== "video" : filterType && a.type !== filterType) return false;
     if (search.trim()) {
       return a.filename.toLowerCase().includes(search.toLowerCase());
     }
@@ -133,7 +136,7 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
           // Best-effort
         }
       }
-      onSelect(`@asset:${asset.id}`);
+      onSelect(`@asset:${asset.id}`, asset.type);
     },
     [worldId, assets, onSelect]
   );
@@ -217,6 +220,8 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
           type="file"
           accept={
             filterType === "image" ? "image/*" :
+            filterType === "video" ? "video/mp4,video/webm" :
+            filterType === "media" ? "image/*,video/mp4,video/webm" :
             filterType === "audio" ? "audio/*" :
             filterType === "font" ? ".woff,.woff2,.ttf,.otf" :
             filterType === "txt" ? "text/plain,text/markdown,text/csv,application/json,.txt,.log,.md,.markdown,.csv,.json" :
@@ -261,6 +266,9 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
                           loading="lazy"
                           onError={fallbackToOriginalOnError}
                         />
+                      ) : asset.type === "video" ? (
+                        <video src={getAssetCdnUrl(asset.id)} muted playsInline preload="metadata"
+                          className="h-full w-full object-cover" />
                       ) : (
                         <Icon className="h-6 w-6 text-muted-foreground/20" />
                       )}

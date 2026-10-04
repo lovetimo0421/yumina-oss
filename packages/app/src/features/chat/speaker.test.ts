@@ -22,6 +22,7 @@ test("the speaker tag wins outright and is stripped from the text", () => {
   assert.deepEqual(resolveSpeaker([mia, balder], "[speaker: Balder]\nMia sighs. Balder grins."), {
     name: "Balder",
     portrait: "https://cdn/balder.png",
+    video: null,
     voice: null,
   });
   assert.equal(stripLeadingSpeakerTag("[speaker: Balder]\nMia sighs."), "Mia sighs.");
@@ -34,7 +35,7 @@ test("a narrator tag means no face even when names appear", () => {
 });
 
 test("a tagged character without a portrait still gets their name", () => {
-  assert.deepEqual(resolveSpeaker([mia, rex], "[speaker: Rex] Grr."), { name: "Rex", portrait: null, voice: null });
+  assert.deepEqual(resolveSpeaker([mia, rex], "[speaker: Rex] Grr."), { name: "Rex", portrait: null, video: null, voice: null });
 });
 
 test("the tag matches the label-stripped name and is case-insensitive", () => {
@@ -57,6 +58,7 @@ test("a one-character world is that character's voice on every line", () => {
   assert.deepEqual(resolveSpeaker([mia, lore], "The rain kept falling."), {
     name: "Mia",
     portrait: "https://cdn/mia.png",
+    video: null,
     voice: null,
   });
 });
@@ -95,6 +97,16 @@ test("a character's authored voice rides along with the face", () => {
   assert.deepEqual(resolveSpeaker([voiced, balder], "[speaker: Mia] Hi."), {
     name: "Mia",
     portrait: "https://cdn/mia.png",
+    video: null,
     voice: "faccba1a8ac54016bcfc02761285e67f",
   });
+});
+
+test("a moving portrait is a face too, and its clips ride along", () => {
+  const clips = { idle: "https://cdn/ink-idle.mp4", speaking: "https://cdn/ink-talk.mp4" };
+  const ink = { name: "Ink", role: "character", enabled: true, portrait: null, portraitVideo: clips };
+  // Untagged prose: only characters with a face are candidates, and a clip counts.
+  assert.deepEqual(resolveSpeaker([ink, rex], "Ink: hello."), { name: "Ink", portrait: null, video: clips, voice: null });
+  assert.deepEqual(resolveSpeaker([{ ...mia, portraitVideo: clips }, balder], "[speaker: Mia] Hi."),
+    { name: "Mia", portrait: "https://cdn/mia.png", video: clips, voice: null });
 });

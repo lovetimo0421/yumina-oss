@@ -2729,7 +2729,7 @@ function TtsSettingsCard({
       // First-ever preview of a voice is a paid synth — keep the header's
       // mushie count honest. Cache hits report credits: 0 and skip this.
       if (typeof body.credits === "number" && body.credits > 0) {
-        void import("@/stores/credits")
+        void import("@/edition/slots.state")
           .then((m) => m.useCreditStore.getState().fetchCredits())
           .catch(() => {});
       }

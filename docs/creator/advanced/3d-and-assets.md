@@ -47,7 +47,7 @@ if (res.ok) {
 ### Sizes worth knowing
 
 - **32 MB** — ceiling for one `fetchAsset` call.
-- **5 MB** — ceiling on a world save. Your card's *source files* live inside the world, so a base64-inlined model or a wall of embedded audio will eventually make your world unsaveable. Art belongs in the asset library; code belongs in the card.
+- **10 MB** — ceiling on a world save. Your card's *source files* live inside the world, so a base64-inlined model or a wall of embedded audio will eventually make your world unsaveable. Art belongs in the asset library; code belongs in the card.
 - `/cdn` intentionally serves assets with `max-age=0`. The browser will re-validate an image you loaded five minutes ago unless **you are still holding a reference to it**. For anything you want to appear instantly (a teleport target, a character portrait), keep the loaded `Image` or `Texture` in a `Map` for the life of the session.
 
 ---
@@ -234,7 +234,7 @@ Players are on phones, and a 3D card that cooks a phone gets closed, not reporte
 | Card white-screens: `Cannot use import statement outside a module` | A multi-line `import` |
 | "This device doesn't support 3D" on a good device | A real error swallowed by the WebGL fallback branch |
 | Teleports stutter the second time | Textures were garbage-collected — hold references |
-| World won't save | The card's own files exceed the 5 MB world body — move data into assets |
+| World won't save | The card's own files exceed the 10 MB world body — move data into assets |
 
 ---
 

@@ -115,6 +115,7 @@ export function installMobileViewport(
   onRecovery?: (recovery: ViewportRecovery) => void,
   pageScrollId?: import("./mobile-reading-route").MobileReadingPageId,
   messageCanvas = false,
+  options: { retainKeyboardUntilResize?: boolean } = {},
 ): () => void {
   const document = view.document;
   const root = document.documentElement;
@@ -155,6 +156,7 @@ export function installMobileViewport(
   let disposed = false;
   let suspended = document.visibilityState === "hidden";
   let previousFocus: Element | null = null;
+  let retainingKeyboardViewport = false;
 
   const write = (property: string, value: string) => {
     if (root.style.getPropertyValue(property) !== value) root.style.setProperty(property, value);
@@ -224,10 +226,14 @@ export function installMobileViewport(
   const apply = (repairImmediately = false) => {
     frame = null;
     if (disposed || suspended || document.visibilityState === "hidden") return;
-    if (root.hasAttribute("data-mobile-notification-page")) return;
+    if (root.hasAttribute("data-mobile-notification-page")) {
+      root.removeAttribute("data-sandbox-keyboard");
+      return;
+    }
     // Reading pages use native document flow. WebKit owns focus/caret panning
     // and toolbar motion; chasing offsetTop/height here makes the page shake.
     if (usesDocumentScroll()) {
+      root.removeAttribute("data-sandbox-keyboard");
       // Native pages retain their full-height canvas while WebKit pans a field.
       if (!hasTextEntryFocus(document.activeElement)) updateIdleHeight();
       root.style.removeProperty("--mobile-viewport-top");
@@ -236,6 +242,12 @@ export function installMobileViewport(
       repairScrollPending = revealFocusPending = false;
       return;
     }
+    const activeElement = document.activeElement;
+    const IFrameElement = document.defaultView?.HTMLIFrameElement;
+    const iframeFocused = Boolean(IFrameElement && activeElement instanceof IFrameElement);
+    // Focus can leave the iframe while zoomed or during a transient zero-size
+    // restore. Clear its wide-shell opt-in before those geometry guards return.
+    if (!iframeFocused || activeElement !== previousFocus) root.removeAttribute("data-sandbox-keyboard");
     // Zoom must magnify the existing layout, not resize it to the zoomed viewport.
     if (vv && vv.scale !== 1) return;
     const layoutHeight = getLayoutHeight();
@@ -244,29 +256,42 @@ export function installMobileViewport(
     if (!Number.isFinite(layoutHeight) || layoutHeight <= 0 ||
         !Number.isFinite(visualHeight) || visualHeight <= 0) return;
 
-    const activeElement = document.activeElement;
     const textEntryFocused = hasTextEntryFocus(activeElement);
-    const inset = calculateSoftKeyboardInset({
+    const measurement = {
       layoutHeight,
       visualHeight,
       visualOffsetTop: vv?.offsetTop ?? 0,
       safeAreaBottom: safeAreaProbe.getBoundingClientRect().height,
       scale: vv?.scale ?? 1,
       hasTextEntryFocus: textEntryFocused,
-    });
+    };
+    const inset = calculateSoftKeyboardInset(measurement);
+    // Standalone game canvases may open a menu while the keyboard is still
+    // closing. Retain only a previously observed keyboard, until its geometry
+    // recovers. Normal app inputs keep the existing immediate-blur contract.
+    retainingKeyboardViewport = Boolean(options.retainKeyboardUntilResize &&
+      (textEntryFocused || retainingKeyboardViewport) &&
+      calculateSoftKeyboardInset({ ...measurement, visualOffsetTop: 0, hasTextEntryFocus: true }) > 0);
+    const ownsVisualViewport = textEntryFocused || retainingKeyboardViewport;
+    // An iframe's first keyboard measurement may already be panned. Detect its
+    // substantial height contraction independently of that pan; top is applied
+    // separately below. Pan alone or ordinary browser chrome cannot opt in.
+    const iframeKeyboard = iframeFocused &&
+      calculateSoftKeyboardInset({ ...measurement, visualOffsetTop: 0 }) > 0;
+    root.toggleAttribute("data-sandbox-keyboard", iframeKeyboard);
     const height = Math.round(visualHeight);
     const previousHeight = Number.parseFloat(root.style.getPropertyValue("--mobile-vh"));
     write("--keyboard-inset", `${inset}px`);
     // Home Screen's visual viewport can exclude the home indicator even with
     // no keyboard. Focus can survive keyboard dismissal (including in a game
     // iframe); only a real keyboard may shorten its full-window shell.
-    if (textEntryFocused && vv && (!isStandalone() || inset > 0)) {
+    if (ownsVisualViewport && vv && (!isStandalone() || inset > 0 || iframeKeyboard || retainingKeyboardViewport)) {
       write("--mobile-vh", `${height}px`);
       // iOS can pan the visual viewport to reveal a field. Keep the fixed
       // shell at that origin without transforming its fixed/portal children.
       const offset = Number.isFinite(vv.offsetTop) ? Math.max(0, vv.offsetTop) : 0;
       write("--mobile-viewport-top", `${offset}px`);
-      revealFocusPending ||= previousHeight !== height || previousFocus !== activeElement;
+      revealFocusPending = textEntryFocused && (revealFocusPending || previousHeight !== height || previousFocus !== activeElement);
       if (!touchActive && revealFocusPending) {
         revealFocusPending = false;
         // Only opt-in page scrollers move. scrollIntoView() would also scroll
@@ -294,10 +319,10 @@ export function installMobileViewport(
       root.style.removeProperty("--mobile-viewport-top");
     }
     previousFocus = activeElement;
-    if (textEntryFocused && vv && keyboardTimer === null) {
+    if (ownsVisualViewport && vv && keyboardTimer === null) {
       // Some webviews omit the keyboard's final resize; only poll while needed.
       keyboardTimer = view.setInterval(schedule, 1000);
-    } else if (!textEntryFocused || !vv) {
+    } else if (!ownsVisualViewport || !vv) {
       stopKeyboardTimer();
     }
     if (repairScrollPending || Date.now() < repairScrollUntil) repairOuterScroll(repairImmediately);
@@ -337,7 +362,9 @@ export function installMobileViewport(
     write("--keyboard-inset", "0px");
     root.style.removeProperty("--mobile-vh");
     root.style.removeProperty("--mobile-viewport-top");
+    root.removeAttribute("data-sandbox-keyboard");
     previousFocus = null;
+    retainingKeyboardViewport = false;
     revealFocusPending = false;
   };
   const resume = () => {
@@ -376,6 +403,7 @@ export function installMobileViewport(
     // The notification page owns scrollY until it closes. Change the restored
     // layout at the breakpoint without copying the inbox's offset into it.
     if (root.hasAttribute("data-mobile-notification-page")) {
+      root.removeAttribute("data-sandbox-keyboard");
       if (usesDocumentScroll()) root.setAttribute("data-mobile-page-scroll", pageScrollId);
       else root.removeAttribute("data-mobile-page-scroll");
       return;
@@ -452,5 +480,6 @@ export function installMobileViewport(
     root.removeAttribute("data-mobile-viewport");
     root.removeAttribute("data-mobile-page-scroll");
     root.removeAttribute("data-mobile-message-canvas");
+    root.removeAttribute("data-sandbox-keyboard");
   };
 }

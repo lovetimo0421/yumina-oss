@@ -341,7 +341,14 @@
     "advanced": "高级",
     "advancedKeywords": "关键词",
     "emptyTitle": "暂无条目",
-    "emptyFolder": "空 — 将条目拖放到这里"
+    "emptyFolder": "空 — 将条目拖放到这里",
+    "portraitVideo": "动态立绘",
+    "portraitVideoHint": "可选。放了视频，聊天里会用它代替静态立绘：平时播“待机”，这个角色说话时播“说话”。",
+    "portraitVideoRemove": "移除",
+    "portraitVideoClip": {
+      "idle": "待机",
+      "speaking": "说话"
+    }
   },
   "variables": {
     "title": "变量",
@@ -2024,7 +2031,7 @@
     }
   },
   "imageInsert": {
-    "button": "插入图片",
+    "button": "插入图片或视频",
     "upload": "从电脑上传",
     "library": "从素材库选",
     "uploading": "上传中…",

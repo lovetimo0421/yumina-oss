@@ -328,6 +328,7 @@ export const worldEntrySchema = z.object({
   variableBound: z.boolean().optional(),
   audience: z.enum(["ai", "player", "both"]).optional(),
   portrait: z.string().optional(),
+  portraitVideo: z.object({ idle: z.string().optional(), speaking: z.string().optional() }).optional(),
   /** fish.audio reference id the character is read in. */
   voice: z.string().optional(),
   pairId: z.string().optional(),
