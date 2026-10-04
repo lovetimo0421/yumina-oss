@@ -167,7 +167,7 @@ export interface ExtensionInvalidation {
 
 export interface ExtensionHookHandlers {
   /** Trusted final instructions, reserved outside the trimmable history. */
-  turnOutputInstructions?: () => string;
+  turnOutputInstructions?: (ctx: Pick<TurnOutputContext, "world" | "state">) => string;
   /** Awaited, fail-closed, before effects/reactions. Returns data only. */
   validateTurnOutput?: (ctx: TurnOutputContext) => Promise<ValidatedTurnOutput>;
   /** Which of the extension's capabilities are active for this session. */
@@ -217,8 +217,8 @@ export interface TurnHookDispatch {
   outputModels?: Map<string, string>;
 }
 
-export function turnOutputInstructions(dispatch: TurnHookDispatch): string {
-  return [...dispatch.activeExtensions.keys()].map((key) => registeredHooks.get(key)?.turnOutputInstructions?.() ?? "").filter(Boolean).join("\n\n");
+export function turnOutputInstructions(dispatch: TurnHookDispatch, ctx: Pick<TurnOutputContext, "world" | "state">): string {
+  return [...dispatch.activeExtensions.keys()].map((key) => registeredHooks.get(key)?.turnOutputInstructions?.(ctx) ?? "").filter(Boolean).join("\n\n");
 }
 
 export async function validateTurnOutput(dispatch: TurnHookDispatch, ctx: TurnOutputContext): Promise<ValidatedTurnOutput> {

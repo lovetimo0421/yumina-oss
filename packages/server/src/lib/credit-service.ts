@@ -1101,7 +1101,7 @@ export async function syncPlan(
   const periodChanged = locked.periodStart.getTime() !== periodStart.getTime();
   if (isV2 && (!additive || cycleReset || periodChanged)) await startDropCycle(tx, wallet.id, periodStart);
   const description = additive
-    ? `Upgrade to ${newPlan} — +${grantAmount} mushies${cycleReset ? " (new billing cycle)" : grantFraction < 1 ? " (prorated for remaining cycle)" : ""}${isV2 ? " (drop 1)" : ""}`
+    ? `${cycleReset && normalizePlan(locked.plan) === newPlan ? `Early ${newPlan} renewal` : `Upgrade to ${newPlan}`} — +${grantAmount} mushies${cycleReset ? " (new billing cycle)" : grantFraction < 1 ? " (prorated for remaining cycle)" : ""}${isV2 ? " (drop 1)" : ""}`
     : isV2 ? `${newPlan} plan — ${cycleGrant} of ${config.monthlyCredits} monthly mushies (drop 1)${migrate ? " — moved to the 2026-09 lineup" : ""}` : `${newPlan} plan — ${config.monthlyCredits} monthly mushies`;
 
   // A zero-amount additive grant (delta-only admin flip to the same or a lower
@@ -1139,6 +1139,44 @@ export async function syncPlan(
     periodEnd,
   };
   });
+}
+
+const WECHAT_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Book one paid WeChat month (a one-time payment, no subscription).
+ *
+ * An early same-plan renewal (the plans page allows it within 14 days of
+ * expiry) restarts the cycle NOW and keeps the days already paid for:
+ * periodEnd = old periodEnd + 30 days, every mushie held stays, and a
+ * version-2 wallet's undelivered drops are paid out first — the same rules as
+ * a cycle-reset upgrade (owner 2026-10-04). It used to start the new cycle at
+ * the old periodEnd, which put periodStart in the future while drop 1 landed
+ * today: the forge counted burn from a date that had not come yet, the quest
+ * cycle never turned over, and drops 2/3 slipped by the stacked days.
+ */
+export async function fulfillWechatPlanPurchase(
+  userId: string,
+  plan: PlanId,
+  referenceId: string,
+  now: Date = new Date(),
+): Promise<"early_renewal" | "renewal" | "plan_change"> {
+  const wallet = await ensureWallet(userId);
+  const isSamePlan = wallet.plan === plan && wallet.subscriptionSource === "wechat";
+  if (isSamePlan && wallet.periodEnd > now) {
+    await syncPlan(userId, plan, {
+      additive: true, cycleReset: true, source: "wechat", referenceId,
+      periodStart: now, periodEnd: new Date(wallet.periodEnd.getTime() + WECHAT_MONTH_MS),
+    });
+    return "early_renewal";
+  }
+  const periodEnd = new Date(now.getTime() + WECHAT_MONTH_MS);
+  if (isSamePlan) {
+    await refreshMonthlyCredits(userId, { periodStart: now, periodEnd, referenceId }, { now });
+    return "renewal";
+  }
+  await syncPlan(userId, plan, { additive: true, periodStart: now, periodEnd, referenceId, source: "wechat" });
+  return "plan_change";
 }
 
 // ─── Pending Plan Management ────────────────────────────────────────

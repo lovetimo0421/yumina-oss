@@ -10,6 +10,8 @@
 
 import type { Condition, LoreUiBinding, Worldbook, StateChannel } from "@yumina/engine";
 import type { TranscriptPosition } from "./chat/transcript-position-types";
+import type { VoicePlaybackFrame } from "../src/lib/voice-playback-performance";
+export type { VoicePlaybackFrame } from "../src/lib/voice-playback-performance";
 
 export type SandboxMode = "session" | "guest-preview";
 
@@ -409,6 +411,12 @@ export interface AudioEventMessage {
   trackId: string;
 }
 
+/** Small measured voice output sample; kept out of the full UI channel. */
+export interface VoicePlaybackFrameMessage {
+  type: 'voice-playback-frame';
+  frame: VoicePlaybackFrame;
+}
+
 /** Put a previously saved composer draft back into the chat composer.
  *  Sent once after the sandbox signals ready, when the host has a stored draft
  *  for this session (see src/lib/composer-draft.ts for why the host is the one
@@ -446,6 +454,7 @@ export type ParentMessage =
   | ApiStreamMessage
   | SuspendMediaMessage
   | AudioEventMessage
+  | VoicePlaybackFrameMessage
   | RestoreComposerDraftMessage
   | RoomFrameMessage
   | OpenMemoryPanelMessage;

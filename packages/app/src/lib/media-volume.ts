@@ -16,8 +16,9 @@
  * keep this from ever making things worse than they are today:
  *
  *  1. **Feature-detect, never UA-sniff.** If `el.volume` is actually writable
- *     (all desktop browsers, Android Chrome), we do the plain assignment and no
- *     AudioContext is ever created. That path is byte-for-byte the old behaviour.
+ *     (all desktop browsers, Android Chrome), volume uses the plain assignment.
+ *     Explicit output measurement can request a safe graph; volume alone never
+ *     creates an AudioContext on that path.
  *  2. **Same-origin media only.** A cross-origin element without CORS routed
  *     into Web Audio outputs silence. Those keep the plain assignment (still
  *     broken on iOS, but no worse than today).
@@ -43,7 +44,14 @@ export function isVolumeWritable(): boolean {
 }
 
 let ctx: AudioContext | null = null;
-const gains = new WeakMap<HTMLMediaElement, GainNode>();
+interface MediaGraph {
+  context: AudioContext;
+  source: MediaElementAudioSourceNode;
+  gain: GainNode;
+  analyser?: AnalyserNode;
+  samples?: Float32Array<ArrayBuffer>;
+}
+const graphs = new WeakMap<HTMLMediaElement, MediaGraph>();
 /** Elements we know can never be routed (cross-origin, no Web Audio). Don't retry. */
 const unroutable = new WeakSet<HTMLMediaElement>();
 /** Last value we were asked for, so `getElVolume` is truthful on iOS. */
@@ -88,8 +96,8 @@ function isSameOriginMedia(el: HTMLMediaElement): boolean {
 }
 
 function gainFor(el: HTMLMediaElement): GainNode | null {
-  const existing = gains.get(el);
-  if (existing) return existing;
+  const existing = graphs.get(el);
+  if (existing) return existing.gain;
   if (unroutable.has(el)) return null;
 
   if (!isSameOriginMedia(el) || !getAudioContextCtor()) {
@@ -102,11 +110,16 @@ function gainFor(el: HTMLMediaElement): GainNode | null {
   if (!c) return null;
 
   try {
-    const source = c.createMediaElementSource(el);
+    // Prepare the playable destination before capturing irreversibly. If gain
+    // allocation/connection fails, the element keeps its ordinary output.
     const gain = c.createGain();
-    gain.gain.value = wanted.get(el) ?? 1;
-    source.connect(gain).connect(c.destination);
-    gains.set(el, gain);
+    // Desktop still uses the element's volume: adding analysis must not apply
+    // that same volume again through the gain.
+    gain.gain.value = isVolumeWritable() ? 1 : wanted.get(el) ?? 1;
+    gain.connect(c.destination);
+    const source = c.createMediaElementSource(el);
+    source.connect(gain);
+    graphs.set(el, { context: c, source, gain });
     return gain;
   } catch {
     unroutable.add(el);
@@ -136,9 +149,55 @@ export function setElVolume(el: HTMLMediaElement, volume: number): void {
  */
 export function getElVolume(el: HTMLMediaElement): number {
   if (isVolumeWritable()) return el.volume;
-  const gain = gains.get(el);
+  const gain = graphs.get(el)?.gain;
   if (gain) return gain.gain.value;
   return wanted.get(el) ?? el.volume;
+}
+
+/** Measured output RMS, scaled/clamped to 0–1. Undefined means unavailable,
+ * never an inferred level. Reuse the iOS volume graph rather than capturing
+ * its element a second time. Cross-origin and suspended contexts stay on the
+ * existing playable path. The analyser is a tap; it cannot alter playback. */
+export function getElAudioLevel(el: HTMLMediaElement): number | undefined {
+  if (!gainFor(el)) return undefined;
+  const graph = graphs.get(el)!;
+  if (graph.context.state !== 'running') return undefined;
+  try {
+    if (!graph.analyser) {
+      const analyser = graph.context.createAnalyser();
+      analyser.fftSize = 512;
+      graph.gain.connect(analyser);
+      graph.analyser = analyser;
+      graph.samples = new Float32Array(analyser.fftSize);
+    }
+    const samples = graph.samples!;
+    graph.analyser.getFloatTimeDomainData(samples);
+    let sum = 0;
+    for (const value of samples) {
+      if (!Number.isFinite(value)) return undefined;
+      sum += value * value;
+    }
+    return Math.min(1, Math.sqrt(sum / samples.length) * 4);
+  } catch { return undefined; }
+}
+
+/** Once routed, a suspended context also suspends this element's output. */
+export function isElAudioOutputRunning(el: HTMLMediaElement): boolean {
+  const graph = graphs.get(el);
+  return !graph || graph.context.state === 'running';
+}
+
+/** Release only a retired element, after its owner pauses it and clears src.
+ * Other elements retain the shared context and their independent graphs. */
+export function releaseMediaElement(el: HTMLMediaElement): void {
+  const graph = graphs.get(el);
+  if (!graph) return;
+  graph.source.disconnect();
+  graph.gain.disconnect();
+  graph.analyser?.disconnect();
+  graphs.delete(el);
+  // MediaElementSource ownership is irreversible even after disconnecting.
+  unroutable.add(el);
 }
 
 /** Test seam: forget the cached feature-detect and graph state. */

@@ -124,6 +124,7 @@ export async function streamS3Object(
   s3Key: string,
   errorLogPrefix: string,
   readObject: typeof getObject = getObject,
+  options: { preserveBytes?: boolean } = {},
 ): Promise<Response> {
   const range = c.req.header("range");
   try {
@@ -153,7 +154,10 @@ export async function streamS3Object(
     // long-lived response would then be cached under that URL for everyone.
     // Doing it safely means a Cloudflare-side rule (strip inbound Via, or set a
     // secret header), so it stays out of this change.
-    c.header("Cache-Control", publicAssetCacheControl(s3Key));
+    // Material data (normal/roughness maps) must not be recompressed by an
+    // intermediary. The explicit original route keeps the same deletion-aware TTL.
+    const cacheControl = publicAssetCacheControl(s3Key);
+    c.header("Cache-Control", options.preserveBytes ? `${cacheControl}, no-transform` : cacheControl);
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Accept-Ranges", "bytes");
     if (etag) c.header("ETag", etag);
@@ -183,12 +187,10 @@ export async function streamS3Object(
 
 // GET /cdn/:assetId — public, permanent URL for any asset
 // No auth required — UUID is unguessable. CDN-friendly cache headers.
-cdnRoutes.get("/:assetId", async (c) => {
+async function serveAssetById(c: Context, assetId: string, preserveBytes = false): Promise<Response> {
   if (!isS3Configured()) {
     return c.json({ error: "Asset storage not configured" }, 503);
   }
-
-  const assetId = c.req.param("assetId");
 
   // Check in-memory cache first
   const s3Key = await resolvePublicCdnKey(getCachedS3Key(assetId) ?? null, async () => {
@@ -208,7 +210,12 @@ cdnRoutes.get("/:assetId", async (c) => {
     return c.json({ error: "Asset not found" }, 404);
   }
 
-  return streamS3Object(c, s3Key, "CDN proxy error:");
-});
+  return streamS3Object(c, s3Key, "CDN proxy error:", getObject, { preserveBytes });
+}
+
+cdnRoutes.get("/:assetId", (c) => serveAssetById(c, c.req.param("assetId")));
+// A distinct path keeps original bytes separate from previously optimized cache
+// entries, including installations whose cache key ignores query parameters.
+cdnRoutes.get("/:assetId/original", (c) => serveAssetById(c, c.req.param("assetId"), true));
 
 export { cdnRoutes };

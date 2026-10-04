@@ -9,14 +9,12 @@ import { estimateTokens } from "./token-utils.js";
 import { filterEntriesByActiveWorldbooks } from "../lorebook/worldbook.js";
 import { filterEntriesByActiveLoreSlots } from "../lorebook/lore-slot.js";
 import { isVariableBoundEntry } from "../lorebook/entry-triggers.js";
-import { isAiReadable, isContinuityOwned, isSceneImageJudgeOn } from "../state/variable-activation.js";
+import { isAiReadable, isAiWritable, isContinuityOwned, isSceneImageJudgeOn } from "../state/variable-activation.js";
 import { getAiAudioTracks } from "../audio/ai-audio.js";
 import { getAiSceneImages, buildSceneImagePromptBlock, resolveSceneImageDirectives } from "../parser/scene-image-directives.js";
 import { buildSpeakerFormatBlock } from "./speaker-tag.js";
 
-/** Static (state-free) check: could the AI ever see this variable? Used by the
- *  cached prefix blocks, which must not depend on per-turn activation — the
- *  dynamic <game-state> block applies the full isAiReadable/isAiWritable gate. */
+/** State-free compatibility check for callers without a runtime snapshot. */
 function isAiExposedStatic(v: { internal?: boolean; aiAccess?: "write" | "read" | "none" }): boolean {
   return !v.internal && (v.aiAccess ?? "write") !== "none";
 }
@@ -255,13 +253,14 @@ export class PromptBuilder {
   }
 
   /**
-   * Build the STATIC format reference block — behavior rules, directive syntax, audio tracks.
-   * These are per-world constants that never change between turns.
-   * Designed to be placed in the system prefix (cacheable).
+   * Build the format reference — authored rules, syntax, audio tracks.
+   * With a snapshot, variable eligibility follows the same gate as game state.
+   * Values are excluded: prefix bytes remain stable while eligibility is unchanged.
+   * State-free callers retain the original per-world reference.
    */
   buildStaticFormatBlock(
     world: WorldDefinition,
-    opts?: { activeGreetingId?: string | null },
+    opts?: { activeGreetingId?: string | null; state?: GameState },
   ): string {
     const hasVariables = world.variables.length > 0;
     const audioTracks = getAiAudioTracks(world.audioTracks ?? []);
@@ -282,7 +281,7 @@ export class PromptBuilder {
     if (speakerBlock) parts.push(speakerBlock);
 
     // Behavior rules section — variables with detailed AI instructions
-    const behaviorRulesSection = this.buildBehaviorRulesSection(world);
+    const behaviorRulesSection = this.buildBehaviorRulesSection(world, opts?.state);
     if (behaviorRulesSection) {
       parts.push(`<behavior-rules>\n${behaviorRulesSection}\n</behavior-rules>`);
     }
@@ -291,11 +290,9 @@ export class PromptBuilder {
     // something. A card whose variables are all engine-owned (aiAccess read/
     // none) skips the whole block — fewer tokens, and no invitation to emit
     // directives that would just be dropped.
-    const hasWritableVariables = world.variables.some(isAiWritableStatic);
-    if (hasWritableVariables) {
-      const hasJsonVar = world.variables.some(
-        (v) => v.type === "json" && isAiWritableStatic(v)
-      );
+    const writableVariables = world.variables.filter(v => opts?.state ? isAiWritable(v, opts.state) : isAiWritableStatic(v));
+    if (writableVariables.length > 0) {
+      const hasJsonVar = writableVariables.some(v => v.type === "json");
       const lines = [
         "<directive-format>",
         "State changes ONLY happen through directives. Describing a change in prose alone does nothing.",
@@ -980,13 +977,12 @@ export class PromptBuilder {
    * `updateHints` is the pre-rename field name; we read it as a fallback so
    * worlds exported before the rename still expose their rules to the LLM.
    */
-  private buildBehaviorRulesSection(world: WorldDefinition): string {
+  private buildBehaviorRulesSection(world: WorldDefinition, state?: GameState): string {
     const lines: string[] = [];
     for (const v of world.variables) {
-      // Engine-only variables never surface their rules to the AI. (Static
-      // block — activation is per-turn, so currently-inactive vars keep their
-      // rules here for cache stability; the dynamic block gates their values.)
-      if (!isAiExposedStatic(v)) continue;
+      // Runtime prompts expose rules only for currently readable variables.
+      // Design-time/state-free callers preserve their broader reference.
+      if (!(state ? isAiReadable(v, state) : isAiExposedStatic(v))) continue;
       const rules = v.behaviorRules || v.updateHints;
       if (rules) {
         // Compact header: [id | display-name] or just [id] if they match

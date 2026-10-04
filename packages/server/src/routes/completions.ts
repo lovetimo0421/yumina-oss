@@ -5,10 +5,12 @@ import { turnNeedsVision } from "../lib/llm/fallback-models.js";
 import type { ImageCompletionMessage } from "@yumina/shared";
 import { recordWallHit } from "../lib/wall-events.js";
 import { usageObservation } from "../lib/usage-observation.js";
+import { buildSessionCompletionMessages, resolveSessionCompletionSettings, sessionCompletionSettingsSchema } from "../lib/completion-session-context.js";
 /**
  * Raw LLM completions endpoint — lightweight proxy for side calls from custom UI.
  *
- * Skips: PromptBuilder, ResponseParser, state effects, message persistence.
+ * Opt-in context:'session' shares narrative prompt assembly and preferences.
+ * Always skips: ResponseParser, state effects, message persistence.
  * Reuses: auth, provider resolution, credit check, rate limiting.
  *
  * POST /api/sessions/:sessionId/completions
@@ -19,7 +21,8 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { playSessions, worlds } from "../db/schema.js";
+import { playSessions, worlds, worldPendingEdits } from "../db/schema.js";
+import { viewerSeesWorkingCopy } from "../lib/working-copy.js";
 import { recordUsageLog } from "../lib/usage-log.js";
 import { registerStream } from "../lib/stream-registry.js";
 import { authMiddleware } from "../middleware/auth.js";
@@ -40,7 +43,7 @@ import {
   estimateTokensFromChars,
 } from "../lib/credit-service.js";
 import { PLANS } from "../lib/plan-config.js";
-import type { ChatMessage } from "../lib/llm/types.js";
+import type { ChatMessage, GenerateParams } from "../lib/llm/types.js";
 import { captureServerEvent } from "../lib/analytics.js";
 import type { AppEnv } from "../lib/types.js";
 import {
@@ -85,10 +88,19 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
     maxTokens?: number;
     temperature?: number;
     includeLorebook?: IncludeLorebookMode;
+    context?: 'session';
+    overrides?: import('@yumina/shared').AiGenerationConfig;
     responseFormat?: { type: 'json_object' };
   }>();
 
   // ── Validate input ──
+  if (body.context !== undefined && body.context !== 'session') {
+    return c.json({ error: 'context must be "session" when provided' }, 400);
+  }
+  const sessionSettings = body.context === 'session' ? sessionCompletionSettingsSchema.safeParse(body) : undefined;
+  if (sessionSettings && !sessionSettings.success) {
+    return c.json({ error: 'Invalid session completion settings', details: sessionSettings.error.flatten() }, 400);
+  }
   if (body.responseFormat !== undefined && (
     body.responseFormat === null || typeof body.responseFormat !== 'object' ||
     Array.isArray(body.responseFormat) || body.responseFormat.type !== 'json_object' ||
@@ -114,7 +126,9 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   // Pull worldId in the same query so a later includeLorebook resolution
   // doesn't need a second round-trip.
   const [session] = await db
-    .select({ id: playSessions.id, userId: playSessions.userId, worldId: playSessions.worldId })
+    .select({ id: playSessions.id, userId: playSessions.userId, worldId: playSessions.worldId,
+      ...(body.context === 'session' ? { state: playSessions.state, sessionPersona: playSessions.sessionPersona, personaLocked: playSessions.personaLocked } : {}),
+    })
     .from(playSessions)
     .where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, currentUser.id)));
 
@@ -182,10 +196,22 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   // assembled from enabled entries. This mirrors what the main chat's
   // PromptBuilder does, but in stripped-down form (no chat-history depth, no
   // post-history zone) since side calls own their own message list.
-  const lorebookSystem = await resolveLorebookSystemMessage(
+  let generationSettings: Partial<GenerateParams> = {};
+  if (body.context === 'session' && sessionSettings?.success) {
+    const worldDef = await loadWorldDef(session.worldId, currentUser.id);
+    if (!worldDef) return c.json({ error: 'World not found' }, 404);
+    generationSettings = resolveSessionCompletionSettings(sessionSettings.data, worldDef);
+    providerMessages = await buildSessionCompletionMessages({
+      session: { ...session, state: session.state ?? {}, sessionPersona: session.sessionPersona ?? null, personaLocked: session.personaLocked ?? false },
+      account: currentUser, world: worldDef, model, messages: providerMessages,
+      settings: sessionSettings.data, json: body.responseFormat?.type === 'json_object',
+    });
+  }
+  const lorebookSystem = body.context === 'session' ? null : await resolveLorebookSystemMessage(
     body.includeLorebook,
     session.worldId,
     providerMessages.map(m => ({ role: m.role, content: typeof m.content === "string" ? m.content : m.content.filter(p => p.type === "text").map(p => p.text).join("\n") })),
+    currentUser.id,
   );
 
   // ── Build provider messages ──
@@ -266,6 +292,7 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
         messages: providerMessages,
         maxTokens,
         temperature,
+        ...generationSettings,
         ...(body.responseFormat && { responseFormat: { type: 'json_object' as const } }),
         signal: abortController.signal,
       })) {
@@ -386,32 +413,51 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-/** Tiny per-process cache for migrated world definitions used by lorebook
- *  injection. The main chat has a richer cache in messages.ts; this one is
- *  intentionally separate to avoid cross-route coupling and stays small since
- *  side calls only fire when a card UI is mounted. */
-const sideCallWorldCache = new Map<string, { worldDef: WorldDefinition; expiresAt: number }>();
-const SIDE_CALL_CACHE_TTL = 5 * 60_000; // 5 minutes — same as main chat
+/** Cache migration work, never the decision about which revision a viewer sees.
+ * Probe current metadata on every call; keep approved and working copies apart. */
+const sideCallWorldCache = new Map<string, { worldDef: WorldDefinition; updatedAt: number; expiresAt: number }>();
+const SIDE_CALL_CACHE_TTL = 5 * 60_000;
 const SIDE_CALL_CACHE_MAX = 100;
 
-async function loadWorldDef(worldId: string): Promise<WorldDefinition | null> {
-  const cached = sideCallWorldCache.get(worldId);
-  if (cached && cached.expiresAt > Date.now()) return cached.worldDef;
-  if (cached) sideCallWorldCache.delete(worldId);
-
-  const [row] = await db
-    .select({ schema: worlds.schema })
-    .from(worlds)
-    .where(eq(worlds.id, worldId));
-  if (!row?.schema) return null;
+function cachedSideWorld(key: string, updatedAt: Date | null): WorldDefinition | undefined {
+  const cached = sideCallWorldCache.get(key);
+  if (updatedAt && cached?.updatedAt === updatedAt.getTime() && cached.expiresAt > Date.now()) return cached.worldDef;
+  sideCallWorldCache.delete(key);
+}
+function cacheSideWorld(key: string, row: { schema: Record<string, unknown>; updatedAt: Date | null }): WorldDefinition {
   const worldDef = migrateWorldDefinition(row.schema as unknown as WorldDefinition);
-
   if (sideCallWorldCache.size >= SIDE_CALL_CACHE_MAX) {
     const oldest = sideCallWorldCache.keys().next().value;
     if (oldest) sideCallWorldCache.delete(oldest);
   }
-  sideCallWorldCache.set(worldId, { worldDef, expiresAt: Date.now() + SIDE_CALL_CACHE_TTL });
+  // Cache the version read with the schema, not the earlier metadata probe.
+  if (row.updatedAt) sideCallWorldCache.set(key, { worldDef, updatedAt: row.updatedAt.getTime(), expiresAt: Date.now() + SIDE_CALL_CACHE_TTL });
   return worldDef;
+}
+
+async function loadWorldDef(worldId: string, viewerId: string): Promise<WorldDefinition | null> {
+  const [meta] = await db.select({ updatedAt: worlds.updatedAt, status: worlds.status, creatorId: worlds.creatorId })
+    .from(worlds).where(eq(worlds.id, worldId)).limit(1);
+  if (!meta) return null;
+  if (viewerSeesWorkingCopy(meta.status, meta.creatorId, viewerId)) {
+    const key = `working:${worldId}`;
+    const [pending] = await db.select({ updatedAt: worldPendingEdits.updatedAt })
+      .from(worldPendingEdits).where(eq(worldPendingEdits.worldId, worldId)).limit(1);
+    if (pending) {
+      const cached = cachedSideWorld(key, pending.updatedAt);
+      if (cached) return cached;
+      const [full] = await db.select({ schema: worldPendingEdits.schema, updatedAt: worldPendingEdits.updatedAt })
+        .from(worldPendingEdits).where(eq(worldPendingEdits.worldId, worldId)).limit(1);
+      if (full) return cacheSideWorld(key, full);
+    }
+    sideCallWorldCache.delete(key);
+  }
+  const key = `live:${worldId}`;
+  const cached = cachedSideWorld(key, meta.updatedAt);
+  if (cached) return cached;
+  const [full] = await db.select({ schema: worlds.schema, updatedAt: worlds.updatedAt })
+    .from(worlds).where(eq(worlds.id, worldId)).limit(1);
+  return full ? cacheSideWorld(key, full) : null;
 }
 
 /** Build the lorebook system message. Returns null when the caller didn't
@@ -420,11 +466,12 @@ async function resolveLorebookSystemMessage(
   mode: IncludeLorebookMode | undefined,
   worldId: string,
   messages: Array<{ role: string; content: string }>,
+  viewerId: string,
 ): Promise<string | null> {
   if (!mode) return null;
   const resolvedMode: "all" | "matched" = mode === "matched" ? "matched" : "all";
 
-  const worldDef = await loadWorldDef(worldId);
+  const worldDef = await loadWorldDef(worldId, viewerId);
   if (!worldDef) return null;
   const allEntries = worldDef.entries ?? [];
   if (allEntries.length === 0) return null;

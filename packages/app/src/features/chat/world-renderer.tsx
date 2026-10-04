@@ -46,11 +46,12 @@ import type {
 import { useLocalModelStore } from "@/features/local-model/store";
 import { useUserProfileStore } from "@/stores/user-profile";
 import { useModelsStore } from "@/stores/models";
-import { useAudioStore, onAudioTrackEnded } from "@/stores/audio";
+import { useAudioStore, onAudioTrackEnded, onVoicePlaybackFrame } from "@/stores/audio";
 import { useUiStore, FONT_SIZE_SCALE } from "@/stores/ui";
 import { useCreditStore } from "@/edition/slots.state";
 import { useChatStore } from "@/stores/chat";
 import { useConfigStore } from "@/stores/config";
+import { buildSideCompletionRequest, type SideCompletionParams } from "./side-completion-request";
 import { handlePlayerPromptsBridgeCall, usePlayerPromptsChannel } from "@/features/chat/player-prompts-channel";
 import { ModelBrowser } from "./model-browser";
 import { fetchApiKeyModelProfiles, resolveOfficialSelectedModel, resolvePrivateSelectedModel } from "@/lib/provider-model-selection";
@@ -62,6 +63,7 @@ import {
 import { chatSessionTarget, createdSessionId } from "@/lib/session-navigation";
 import { SANDBOX_DOC_URL, SANDBOX_DOC_RETRY_URL } from "@/lib/sandbox-doc-url";
 import { feedback } from "@/lib/feedback";
+import { haltTts, loadTtsUnlessHalted } from "@/lib/tts-stop-signal";
 import { toPillText } from "@/lib/feedback-policy";
 
 /**
@@ -279,6 +281,12 @@ export function WorldRenderer({
   apiRef.current = api;
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
+  const voiceHostAvailableRef = useRef(isActive && mode === "session");
+  voiceHostAvailableRef.current = isActive && mode === "session";
+  useEffect(() => {
+    voiceHostAvailableRef.current = isActive && mode === "session";
+    return () => { voiceHostAvailableRef.current = false; };
+  }, [isActive, mode, sessionId]);
   const mediaShareIdRef = useRef(mediaShareId);
   mediaShareIdRef.current = mediaShareId;
   const galleryAdapterRef = useRef<{key:string;adapter:ReturnType<typeof createOncinCloudGallery>} | null>(null);
@@ -513,19 +521,21 @@ export function WorldRenderer({
           // playback on the parent audio store — same division of labor as
           // playAudio. Only real sessions can bill, so preview/replay decline.
           const sid = sessionIdRef.current;
-          if (!sid || mode !== "session") {
+          if (!sid || !voiceHostAvailableRef.current) {
             return Promise.resolve({ ok: false, reason: "unavailable" });
           }
           const opts = (args[0] ?? {}) as { messageId?: string; text?: string; key?: string; voice?: string };
           if (opts.messageId && isPendingMessageId(opts.messageId)) {
             return Promise.resolve({ ok: false, reason: "pending" });
           }
-          return import("@/lib/tts-playback")
-            .then((m) => m.speakMessage(sid, opts))
+          return loadTtsUnlessHalted(() => import("@/lib/tts-playback"))
+            .then((m) => m && voiceHostAvailableRef.current && sessionIdRef.current === sid
+              ? m.speakMessage(sid, opts)
+              : { ok: false, reason: "superseded" })
             .catch(() => ({ ok: false, reason: "error" }));
         }
         case "tts.stop":
-          void import("@/lib/tts-playback").then((m) => m.stopSpeaking()).catch(() => {});
+          haltTts();
           return;
         case "tts.setPrefs": {
           // These prefs live on the account and spend the player's mushies
@@ -555,8 +565,8 @@ export function WorldRenderer({
           return;
         case "tts.preview": {
           const voiceId = typeof args[0] === "string" ? args[0] : "";
-          return import("@/lib/tts-playback")
-            .then((m) => m.previewVoice(voiceId, i18n.language))
+          return loadTtsUnlessHalted(() => import("@/lib/tts-playback"))
+            .then((m) => m ? m.previewVoice(voiceId, i18n.language) : { ok: false, reason: "superseded" })
             .catch(() => ({ ok: false, reason: "error" }));
         }
         case "switchGreeting":
@@ -1411,14 +1421,7 @@ export function WorldRenderer({
         return;
       }
 
-      const params = args[0] as {
-        messages?: Array<{ role: string; content: string }>;
-        model?: string;
-        maxTokens?: number;
-        temperature?: number;
-        includeLorebook?: boolean | "all" | "matched";
-        responseFormat?: { type: "json_object" };
-      } | undefined;
+      const params = args[0] as SideCompletionParams | undefined;
 
       if (!params?.messages?.length) {
         callbacks.onError("messages array is required");
@@ -1438,14 +1441,7 @@ export function WorldRenderer({
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({
-              messages: params.messages,
-              model: params.model,
-              maxTokens: params.maxTokens,
-              temperature: params.temperature,
-              includeLorebook: params.includeLorebook,
-              responseFormat: params.responseFormat,
-            }),
+            body: JSON.stringify(buildSideCompletionRequest(params, useConfigStore.getState())),
           });
 
           if (!res.ok) {
@@ -1628,6 +1624,7 @@ export function WorldRenderer({
     pushChannel,
     setMediaSuspended,
     sendAudioEnded,
+    sendVoicePlaybackFrame,
     restoreComposerDraft,
     restoreTranscriptPosition,
     sendRoomFrame,
@@ -1815,6 +1812,10 @@ export function WorldRenderer({
   // Forward SDK track-ended notifications into the sandbox so creator code
   // (api.onAudioEnded) can react — e.g. a music player auto-advancing.
   useEffect(() => onAudioTrackEnded(sendAudioEnded), [sendAudioEnded]);
+  useEffect(() => {
+    if (!isActive || mode !== 'session') return;
+    return onVoicePlaybackFrame(sendVoicePlaybackFrame);
+  }, [isActive, mode, sessionId, sendVoicePlaybackFrame]);
 
   // ── Install root component when files change ──
   // Fire in parallel with iframe boot — SandboxBridge queues messages sent before

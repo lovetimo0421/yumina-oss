@@ -9,7 +9,7 @@ import type {
   SessionSummaryMode,
   SessionSummaryPayload,
 } from "@yumina/shared";
-import type { SandboxCapabilities, SandboxEntry, SandboxLoreUiBinding, SandboxWorldbook, SandboxMode, SandboxState, LocalBridgeChannelData, TtsChannelData, VoiceInputChannelData } from "./protocol";
+import type { SandboxCapabilities, SandboxEntry, SandboxLoreUiBinding, SandboxWorldbook, SandboxMode, SandboxState, LocalBridgeChannelData, TtsChannelData, VoiceInputChannelData, VoicePlaybackFrame } from "./protocol";
 import { wrapMessage, postToParentWindow, type ApiCallMessage } from "./protocol";
 import { renderMarkdown } from "./chat/markdown";
 import type { SessionImage } from "../src/lib/session-media";
@@ -437,11 +437,20 @@ export interface SandboxedYuminaAPI {
       model?: string;
       maxTokens?: number;
       temperature?: number;
+      /** Opt into the session's current/locked persona (never private notes),
+       * enabled narrative prompts and player generation preferences. Native
+       * lore defaults to matched against all supplied user messages; depth and
+       * examples use this call's history, not saved chat or summary memory.
+       * Explicit maxTokens/temperature override preferences (8192-token cap).
+       * Caller system instructions/JSON protocol follow narrative presets. */
+      context?: "session";
       /**
        * Auto-inject the world's lorebook entries as a system message before
        * `messages`. Use this when a side call (phone chat, NPC dialogue) needs
        * the same world lore the main chat gets. This does not import the
-       * player's Persona; use getPersonaProfile() for an explicit import.
+       * player's Persona unless context:'session' is also supplied.
+       * In session context, omitted means matched, false excludes world lore,
+       * and all/matched honor saved-state activation and interpolate macros.
        *
        * - omitted / `false`: no injection (default — raw LLM proxy).
        * - `true` / `"all"`: inject every enabled non-greeting entry, sorted by
@@ -495,6 +504,10 @@ export interface SandboxedYuminaAPI {
   tts: {
     speak: (opts: { messageId?: string; text?: string; key?: string; voice?: string }) => Promise<{ ok: boolean; reason?: string }>;
     stop: () => void;
+    /** Measured output frames (~15Hz). Match key/generation to the active
+     * line; audible alone is not an amplitude measurement. Unsubscribe on
+     * unmount. Older hosts do not implement this additive capability. */
+    onPlaybackFrame: (cb: (frame: VoicePlaybackFrame) => void) => () => void;
     /** Update the player's voice-readout preferences (in-chat voice panel).
      *  Persists to the account; the new values flow back via `ttsState`. */
     setPrefs: (prefs: {
@@ -865,6 +878,7 @@ const defaultAPI: SandboxedYuminaAPI = {
   tts: {
     speak: () => noopPromise({ ok: false, reason: "unavailable" }),
     stop: () => {},
+    onPlaybackFrame: () => () => {},
     setPrefs: () => {},
     preview: () => noopPromise({ ok: false, reason: "unavailable" }),
   },
@@ -888,6 +902,7 @@ export const COMPOSER_DRAFT_EVENT = "yumina:set-composer-draft";
  *  `window` inside the sandbox iframe by component-host when the parent
  *  forwards a track-ended notification; api.onAudioEnded subscribers listen. */
 export const AUDIO_ENDED_EVENT = "yumina:audio-ended";
+export const VOICE_PLAYBACK_FRAME_EVENT = 'yumina:voice-playback-frame';
 
 /** Sandbox-local event name for a multiplayer room frame. Dispatched on
  *  `window` by component-host when the parent relays a frame from the game
@@ -1117,10 +1132,12 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     // does — otherwise the editor always shows the untextured version.
     // A callParent timeout rejects; fold it into {ok:false} so card code never
     // needs a try/catch around it.
+    // Give large model downloads a bounded 30-second response window.
     fetchAsset: (ref) =>
       callParent<{ ok: boolean; bytes?: ArrayBuffer; contentType?: string; error?: string }>(
         "fetchAsset",
         [ref],
+        30_000,
       ).catch((e) => ({ ok: false, error: String(e?.message ?? e).slice(0, 120) })),
     switchGreeting: (index) => postToParent("switchGreeting", [index]),
     copyToClipboard: (text) => postToParent("copyToClipboard", [text]),
@@ -1350,6 +1367,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
                 model: params.model || state.selectedModel || undefined,
                 maxTokens: params.maxTokens,
                 temperature: params.temperature,
+                context: params.context,
                 includeLorebook: params.includeLorebook,
                 responseFormat: params.responseFormat,
               }],
@@ -1382,6 +1400,11 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
             .catch(() => ({ ok: false as const, reason: "timeout" }))
           : guardedCall({ ok: false as const, reason: "unavailable" }, true),
       stop: () => postToParent("tts.stop", []),
+      onPlaybackFrame: (cb) => {
+        const handler = (event: Event) => cb((event as CustomEvent<VoicePlaybackFrame>).detail);
+        window.addEventListener(VOICE_PLAYBACK_FRAME_EVENT, handler);
+        return () => window.removeEventListener(VOICE_PLAYBACK_FRAME_EVENT, handler);
+      },
       setPrefs: (prefs) => postToParent("tts.setPrefs", [prefs]),
       preview: (voice) =>
         sessionApisAvailable

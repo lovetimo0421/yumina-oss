@@ -36,6 +36,7 @@ import { isPartialLeadingSpeakerTag } from "@yumina/engine";
 const apiBase = import.meta.env.VITE_API_URL || "";
 
 let _speakSerial = 0;
+let _speakController: AbortController | null = null;
 
 // The chat store is imported lazily everywhere in this module (it imports
 // this one); once loaded, the read-along path needs it synchronously.
@@ -166,6 +167,23 @@ export async function speakMessage(
   sessionId: string,
   opts: SpeakOptions,
 ): Promise<{ ok: boolean; reason?: string }> {
+  const serial = ++_speakSerial;
+  _speakController?.abort();
+  const controller = new AbortController();
+  _speakController = controller;
+  try {
+    return await speakMessageOwned(sessionId, opts, serial, controller);
+  } finally {
+    if (_speakController === controller) _speakController = null;
+  }
+}
+
+async function speakMessageOwned(
+  sessionId: string,
+  opts: SpeakOptions,
+  serial: number,
+  controller: AbortController,
+): Promise<{ ok: boolean; reason?: string }> {
   const audio = useAudioStore.getState();
   const prefs = getTtsPrefs();
   // The master switch is the player's "never spend on voice" — card code
@@ -173,11 +191,11 @@ export async function speakMessage(
   if (!prefs.enabled) return { ok: false, reason: "disabled" };
   const key = opts.key ?? opts.messageId ?? "custom";
   await chatStore();
+  if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
   // A card's explicit per-call voice, then the voice the card gave the
   // speaker (or its narrator), then the player's own choice.
   const cardVoice = cardVoiceFor(opts.text ?? messageTextFor(opts.messageId));
   const voice = opts.voice && isValidTtsVoice(opts.voice) ? opts.voice : cardVoice ?? prefs.voice;
-  const serial = ++_speakSerial;
 
   // Free replay: if this exact message was just auto-read with the same
   // voice and reading mode, replay the recorded slice sequence from the CDN
@@ -213,6 +231,7 @@ export async function speakMessage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
+      signal: controller.signal,
       body: JSON.stringify({
         messageId: opts.messageId,
         text: opts.text,
@@ -227,13 +246,14 @@ export async function speakMessage(
       }),
     });
   } catch {
+    if (serial !== _speakSerial || controller.signal.aborted) return { ok: false, reason: "superseded" };
     if (serial === _speakSerial) audio.setVoicePlayback(null);
     toast.error(i18n.t("chat:tts.failed", "Voice generation failed. Please try again."));
     return { ok: false, reason: "network" };
   }
 
-  // Stopped or replaced while the synth was in flight — the audio (if any)
-  // landed in the CDN cache, so a retry is free. Just don't play it now.
+  // Cancellation prevents obsolete client work and playback. A provider
+  // request already accepted by the server can still complete and be billed.
   if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
 
   if (!res.ok) {
@@ -245,6 +265,7 @@ export async function speakMessage(
       code = body.code ?? "";
       message = body.error ?? "";
     } catch { /* non-JSON error body */ }
+    if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
 
     if (code === "INSUFFICIENT_CREDITS" || res.status === 402) {
       toast.error(ttsPaymentMessage(code));
@@ -271,6 +292,7 @@ export async function speakMessage(
     rememberCast(sessionId, body.cast);
     credits = typeof body.credits === "number" ? body.credits : 0;
   } catch { /* fall through to the empty guard */ }
+  if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
   if (urls.length === 0) {
     useAudioStore.getState().setVoicePlayback(null);
     return { ok: false, reason: "error" };
@@ -340,6 +362,8 @@ function playSequence(
 
 export function stopSpeaking(): void {
   _speakSerial++;
+  _speakController?.abort();
+  _speakController = null;
   cancelStreamRead();
   useAudioStore.getState().stopVoice();
 }
@@ -443,6 +467,12 @@ export async function previewVoice(
   opts: { purpose?: "editor" } = {},
 ): Promise<{ ok: boolean; reason?: string }> {
   if (opts.purpose !== "editor" && !getTtsPrefs().enabled) return { ok: false, reason: "disabled" };
+  const serial = ++_speakSerial;
+  _speakController?.abort();
+  const controller = new AbortController();
+  _speakController = controller;
+  cancelStreamRead();
+  useAudioStore.getState().stopVoice();
   const key = `preview:${voiceId || "auto"}`;
   const voice = voiceId && isValidTtsVoice(voiceId) ? voiceId : defaultTtsVoiceForLang(lang);
   try {
@@ -450,13 +480,16 @@ export async function previewVoice(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
+      signal: controller.signal,
       body: JSON.stringify({ voice, lang, ...(opts.purpose ? { purpose: opts.purpose } : {}) }),
     });
+    if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
     if (!res.ok) {
       let code = "";
       try {
         code = ((await res.json()) as { code?: string }).code ?? "";
       } catch { /* non-JSON error body */ }
+      if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
       if (res.status === 402) {
         toast.error(ttsPaymentMessage(code));
         return { ok: false, reason: "insufficient" };
@@ -465,6 +498,7 @@ export async function previewVoice(
       return { ok: false, reason: "error" };
     }
     const body = (await res.json()) as { url?: string; credits?: number };
+    if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
     if (!body.url) {
       toastSynthFailure(res.status, "");
       return { ok: false, reason: "error" };
@@ -477,8 +511,11 @@ export async function previewVoice(
     useAudioStore.getState().playVoice(key, `${apiBase}${body.url}`);
     return { ok: true };
   } catch {
+    if (serial !== _speakSerial || controller.signal.aborted) return { ok: false, reason: "superseded" };
     toastSynthFailure(0, "");
     return { ok: false, reason: "network" };
+  } finally {
+    if (_speakController === controller) _speakController = null;
   }
 }
 

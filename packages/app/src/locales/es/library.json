@@ -696,35 +696,29 @@
       "surcharge": "+{{count}}",
       "anime": {
         "name": "Anime",
-        "desc": "Ilustración anime nítida (Animagine XL). Por defecto.",
-        "detail": "Basado en etiquetas Danbooru; ideal para retratos de personajes y líneas limpias."
+        "variant": "Clásica"
       },
       "nsfw-anime": {
-        "name": "Anime NSFW",
-        "desc": "Anime sin censura basado en Illustrious — ideal para arte adulto de rol.",
-        "detail": "Entiende etiquetas Danbooru explícitas; combínalo con LoRAs de personaje."
+        "name": "Anime NSFW"
       },
       "realistic": {
-        "name": "Realista",
-        "desc": "Personas y escenas fotorrealistas (Juggernaut XL).",
-        "detail": "Escribe frases naturales, no etiquetas — palabras de luz y lente (luz suave, 85mm) ayudan mucho."
+        "name": "Realista"
       },
       "semireal": {
-        "name": "2.5D",
-        "desc": "Entre anime y foto — acabado pictórico tipo CG de juego.",
-        "detail": "Funcionan etiquetas o frases; ideal para escenas atmosféricas de personajes."
+        "name": "2.5D"
       },
       "guofeng": {
-        "name": "Guofeng",
-        "desc": "Estética china — hanfu, tinta china, escenas clásicas.",
-        "detail": "Describe vestuario y escenario en frases (hanfu, pabellón de tinta) para más sabor."
+        "name": "Guofeng"
       },
       "western": {
-        "name": "Occidental",
-        "desc": "Arte fantástico/cómic occidental (ZavyChroma XL).",
-        "detail": "Prompts en prosa; fuerte en iluminación dramática y fantasía pictórica."
+        "name": "Occidental"
       },
-      "surchargeChip": "+{{count}} mushies"
+      "surchargeChip": "+{{count}} mushies",
+      "version": "Versión",
+      "anime-new": {
+        "name": "Anime · Nueva",
+        "variant": "Nueva"
+      }
     },
     "videoStyleFromReference": "El vídeo conserva el estilo artístico de la imagen de referencia.",
     "makeReference": "Generar una primero",
@@ -788,7 +782,8 @@
       "VIDEO_STYLE_PROMPT": "No se pudo convertir esta descripción en un primer fotograma con estilo. Prueba a describirlo en inglés o elige “Sin estilo”. No se te cobró.",
       "VIDEO_BAD_STYLE": "Ese estilo no está disponible para este vídeo. Elige otro.",
       "VIDEO_NO_STYLE": "Ese estilo no está disponible para este vídeo. Elige otro.",
-      "VIDEO_STYLE_WITH_FRAME": "Ese estilo no está disponible para este vídeo. Elige otro."
+      "VIDEO_STYLE_WITH_FRAME": "Ese estilo no está disponible para este vídeo. Elige otro.",
+      "QUALITY_BATCH": "4K genera una imagen cada vez. Pon la cantidad en 1 y vuelve a intentarlo."
     },
     "queue": {
       "waiting": "Esperando en la cola…",
@@ -1037,13 +1032,26 @@
       },
       "style": "Estilo",
       "styleCost": "Para vídeos solo con texto · primer fotograma +{{count}} mushies",
-      "styleHint": "El primer fotograma se dibuja en este estilo y luego se anima, así todo el clip lo conserva.",
       "styleNone": "Sin estilo",
-      "styleNoneHint": "{{model}} genera directamente desde el texto; tiende a lo realista.",
       "styleFromFrame": "Has puesto un primer o último fotograma, así que el vídeo conserva el estilo de esa imagen.",
       "howStyle": "Estilo {{style}}"
     },
-    "folderLoadFallback": "No se pudo cargar la carpeta de esta carta; por ahora se genera en Todos los recursos."
+    "folderLoadFallback": "No se pudo cargar la carpeta de esta carta; por ahora se genera en Todos los recursos.",
+    "quality": {
+      "label": "Calidad",
+      "included": "Incluido",
+      "standard": {
+        "name": "Estándar"
+      },
+      "hd": {
+        "name": "HD"
+      },
+      "4k": {
+        "name": "4K"
+      },
+      "redo": "Versión 4K · {{count}} mushies",
+      "redoNote": "Cada imagen terminada a la derecha tiene un botón para rehacerla en 4K."
+    }
   },
   "media": {
     "assets": "Recursos de creación",

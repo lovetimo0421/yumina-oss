@@ -18,8 +18,8 @@ type Target = Pick<typeof messages.$inferSelect, "id" | "content" | "activeSwipe
 const fingerprint = (value: unknown) => createHash("sha256").update(JSON.stringify(value) ?? "undefined").digest("hex");
 const targetFingerprint = (row: Target) => fingerprint([row.id, row.content, row.activeSwipeIndex, row.swipes]);
 
-export function guardPrompt(dispatch: TurnHookDispatch): { content: string; reserve: number } {
-  const content = turnOutputInstructions(dispatch);
+export function guardPrompt(dispatch: TurnHookDispatch, ctx: Pick<TurnOutputContext, "world" | "state">): { content: string; reserve: number } {
+  const content = turnOutputInstructions(dispatch, ctx);
   return { content, reserve: content ? estimateTokens(content) + 64 : 0 };
 }
 

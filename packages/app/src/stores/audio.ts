@@ -4,7 +4,8 @@ import { filterResumableAudioEffects } from "@yumina/engine";
 // Relative (not "@/") so the store is importable under the Node test runner,
 // which resolves modules without Vite's path-alias config.
 import { resolveAssetUrl } from "../lib/asset-url";
-import { setElVolume, getElVolume } from "../lib/media-volume";
+import { setElVolume, getElVolume, releaseMediaElement } from "../lib/media-volume";
+import { createVoicePlaybackMonitor, type VoicePlaybackFrame } from "../lib/voice-playback-performance";
 
 /** Extended evaluation context for conditional BGM */
 export interface BGMEvalContext {
@@ -305,7 +306,28 @@ function matchesKeywords(text: string | undefined, keywords: string[] | undefine
 let _voiceAudio: HTMLAudioElement | null = null;
 let _voiceSerial = 0;
 let _voiceDuckOriginals: Map<string, number> | null = null;
+// A new readout cancels only voice restore fades, preserving unrelated fades.
+const _voiceRestoreIntervals = new Set<ReturnType<typeof setInterval>>();
 let _voiceProgressTimer: ReturnType<typeof setInterval> | null = null;
+let _voiceMonitor: ReturnType<typeof createVoicePlaybackMonitor> | null = null;
+let _voiceFinish: (() => void) | null = null;
+let _voiceFrame: VoicePlaybackFrame | null = null;
+const _voiceFrameListeners = new Set<(frame: VoicePlaybackFrame) => void>();
+
+/** Small output frames bypass React/store snapshots and the full UI channel. */
+export function onVoicePlaybackFrame(cb: (frame: VoicePlaybackFrame) => void): () => void {
+  _voiceFrameListeners.add(cb);
+  if (_voiceFrame) {
+    try { cb(_voiceFrame); } catch { /* same isolation as subsequent frames */ }
+  }
+  return () => { _voiceFrameListeners.delete(cb); };
+}
+function emitVoiceFrame(frame: VoicePlaybackFrame): void {
+  _voiceFrame = Object.freeze(frame);
+  for (const cb of [..._voiceFrameListeners]) {
+    try { cb(_voiceFrame); } catch { /* one subscriber cannot stop playback */ }
+  }
+}
 
 function stopVoiceProgressTicker(): void {
   if (_voiceProgressTimer) {
@@ -320,6 +342,7 @@ function computeVoiceVolume(s: { voiceVolume: number; masterVolume: number; mute
 
 /** Lower BGM/ambient to 20% while a voice line plays. */
 function duckForVoice(): void {
+  cancelVoiceRestoreFades();
   if (_voiceDuckOriginals) return; // already ducked (voice replaced mid-line)
   const s = useAudioStore.getState();
   const originals = new Map<string, number>();
@@ -332,6 +355,15 @@ function duckForVoice(): void {
     }
   }
   if (originals.size > 0) _voiceDuckOriginals = originals;
+}
+
+/** Retire the prior voice's restore without cancelling unrelated track fades. */
+function cancelVoiceRestoreFades(): void {
+  for (const timer of _voiceRestoreIntervals) {
+    clearInterval(timer);
+    _activeFadeIntervals.delete(timer);
+  }
+  _voiceRestoreIntervals.clear();
 }
 
 /** Fade BGM/ambient back to their pre-voice volumes over 1s. */
@@ -350,13 +382,21 @@ function restoreVoiceDuck(): void {
     const step = (targetVol - startVol) / steps;
     let cur = 0;
     const fadeTimer = setInterval(() => {
+      if (!_voiceRestoreIntervals.has(fadeTimer) || useAudioStore.getState().activeTracks.get(tid)?.audio !== at.audio) {
+        clearInterval(fadeTimer);
+        _voiceRestoreIntervals.delete(fadeTimer);
+        _activeFadeIntervals.delete(fadeTimer);
+        return;
+      }
       cur++;
       setElVolume(at.audio, cur >= steps ? targetVol : startVol + step * cur);
       if (cur >= steps) {
         clearInterval(fadeTimer);
+        _voiceRestoreIntervals.delete(fadeTimer);
         _activeFadeIntervals.delete(fadeTimer);
       }
     }, FADE_INTERVAL);
+    _voiceRestoreIntervals.add(fadeTimer);
     _activeFadeIntervals.add(fadeTimer);
   }
 }
@@ -364,16 +404,29 @@ function restoreVoiceDuck(): void {
 /** Tear the voice element down without the duck-restore fade (stopAll path —
  *  the BGM it would fade back is being stopped in the same breath). */
 function teardownVoiceElement(): void {
+  cancelVoiceRestoreFades();
   _voiceSerial++;
+  retireVoiceElement();
+  _voiceDuckOriginals = null;
+}
+
+function retireVoiceElement(): void {
   stopVoiceProgressTicker();
+  _voiceMonitor?.dispose();
+  _voiceMonitor = null;
   if (_voiceAudio) {
+    if (_voiceFinish) {
+      _voiceAudio.removeEventListener('ended', _voiceFinish);
+      _voiceAudio.removeEventListener('error', _voiceFinish);
+    }
     _cancelledAudios.add(_voiceAudio);
     _pendingUnlockAudios.delete(_voiceAudio);
     _voiceAudio.pause();
     _voiceAudio.src = "";
+    releaseMediaElement(_voiceAudio);
     _voiceAudio = null;
   }
-  _voiceDuckOriginals = null;
+  _voiceFinish = null;
 }
 
 function getCategoryVolume(type: "bgm" | "sfx" | "ambient", state: { bgmVolume: number; sfxVolume: number }): number {
@@ -838,6 +891,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
       setElVolume(active.audio, computeVolume(active.volume, active.type, state));
     }
     if (_voiceAudio) setElVolume(_voiceAudio, computeVoiceVolume(state));
+    _voiceMonitor?.refresh();
   },
 
   setBgmVolume: (volume) => {
@@ -863,6 +917,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   setVoiceVolume: (volume) => {
     set({ voiceVolume: Math.max(0, Math.min(1, volume)) });
     if (_voiceAudio) setElVolume(_voiceAudio, computeVoiceVolume(get()));
+    _voiceMonitor?.refresh();
   },
 
   setVoicePlayback: (p) => set({ voicePlayback: p }),
@@ -870,13 +925,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   playVoice: (key, url) => {
     const serial = ++_voiceSerial;
     // Retire the current voice element (keep duck state — we still need it).
-    if (_voiceAudio) {
-      _cancelledAudios.add(_voiceAudio);
-      _pendingUnlockAudios.delete(_voiceAudio);
-      _voiceAudio.pause();
-      _voiceAudio.src = "";
-      _voiceAudio = null;
-    }
+    retireVoiceElement();
 
     const audio = new Audio(url);
     audio.preload = "auto";
@@ -884,16 +933,17 @@ export const useAudioStore = create<AudioState>((set, get) => ({
 
     const finish = () => {
       if (serial !== _voiceSerial) return; // superseded by a newer voice/stop
-      stopVoiceProgressTicker();
-      _voiceAudio = null;
+      retireVoiceElement();
       restoreVoiceDuck();
       set({ voicePlayback: null });
     };
     audio.addEventListener("ended", finish);
     audio.addEventListener("error", finish);
+    _voiceFinish = finish;
 
     duckForVoice();
     _voiceAudio = audio;
+    _voiceMonitor = createVoicePlaybackMonitor(audio, key, serial, emitVoiceFrame);
     set({ voicePlayback: { key, status: "playing" } });
 
     // Progress ticker (2Hz): drives the ring on the speaker button. Only
@@ -920,7 +970,8 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   },
 
   stopVoice: () => {
-    teardownVoiceElement();
+    _voiceSerial++;
+    retireVoiceElement();
     restoreVoiceDuck();
     if (get().voicePlayback) set({ voicePlayback: null });
   },
@@ -934,6 +985,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
       setElVolume(active.audio, computeVolume(active.volume, active.type, s));
     }
     if (_voiceAudio) setElVolume(_voiceAudio, computeVoiceVolume(s));
+    _voiceMonitor?.refresh();
   },
 
   resumeFromState: (activeAudio) => {

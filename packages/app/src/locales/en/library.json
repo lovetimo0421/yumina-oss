@@ -695,35 +695,29 @@
       "surcharge": "+{{count}}",
       "anime": {
         "name": "Anime",
-        "desc": "Crisp anime illustration (Animagine XL). The default.",
-        "detail": "Danbooru-tag driven; strongest at character portraits and clean line art."
+        "variant": "Classic"
       },
       "nsfw-anime": {
-        "name": "NSFW Anime",
-        "desc": "Illustrious-based, uncensored anime — best for adult roleplay art.",
-        "detail": "Understands explicit Danbooru tags and natural anime bodies; pair with character LoRAs for specific looks."
+        "name": "NSFW Anime"
       },
       "realistic": {
-        "name": "Realistic",
-        "desc": "Photorealistic people and scenes (Juggernaut XL).",
-        "detail": "Write natural sentences, not tags — lighting and lens words (soft light, 85mm) help a lot."
+        "name": "Realistic"
       },
       "semireal": {
-        "name": "2.5D",
-        "desc": "Between anime and photo — painterly game-CG look.",
-        "detail": "Tags or sentences both work; great for atmospheric character scenes."
+        "name": "2.5D"
       },
       "guofeng": {
-        "name": "Guofeng",
-        "desc": "Chinese aesthetic — hanfu, ink-wash moods, classical scenes.",
-        "detail": "Describe costume and setting in sentences (hanfu, ink-wash pavilion) for stronger flavor."
+        "name": "Guofeng"
       },
       "western": {
-        "name": "Western",
-        "desc": "Western fantasy/comic art (ZavyChroma XL).",
-        "detail": "Prose prompts; strong at dramatic lighting and painterly fantasy scenes."
+        "name": "Western"
       },
-      "surchargeChip": "+{{count}} mushies"
+      "surchargeChip": "+{{count}} mushies",
+      "version": "Version",
+      "anime-new": {
+        "name": "Anime · New",
+        "variant": "New"
+      }
     },
     "videoStyleFromReference": "The video keeps the reference image’s art style.",
     "makeReference": "Generate one first",
@@ -787,7 +781,8 @@
       "VIDEO_STYLE_PROMPT": "This description couldn't be turned into a styled first frame. Try describing it in English, or pick “No style”. You weren't charged.",
       "VIDEO_BAD_STYLE": "That style isn't available for this video. Pick another.",
       "VIDEO_NO_STYLE": "That style isn't available for this video. Pick another.",
-      "VIDEO_STYLE_WITH_FRAME": "That style isn't available for this video. Pick another."
+      "VIDEO_STYLE_WITH_FRAME": "That style isn't available for this video. Pick another.",
+      "QUALITY_BATCH": "4K makes one picture at a time. Set the count to 1 and try again."
     },
     "queue": {
       "waiting": "Waiting in queue…",
@@ -1036,13 +1031,26 @@
       },
       "style": "Art style",
       "styleCost": "For text-only videos · first frame +{{count}} mushies",
-      "styleHint": "The first frame is drawn in this style, then animated, so the whole clip keeps it.",
       "styleNone": "No style",
-      "styleNoneHint": "{{model}} draws straight from the text; it leans realistic.",
       "styleFromFrame": "You've added a first or last frame, so the video keeps that picture's style.",
       "howStyle": "{{style}} style"
     },
-    "folderLoadFallback": "Couldn't load this card's folder; generating into All assets for now."
+    "folderLoadFallback": "Couldn't load this card's folder; generating into All assets for now.",
+    "quality": {
+      "label": "Quality",
+      "included": "Included",
+      "standard": {
+        "name": "Standard"
+      },
+      "hd": {
+        "name": "HD"
+      },
+      "4k": {
+        "name": "4K"
+      },
+      "redo": "4K version · {{count}} mushies",
+      "redoNote": "Any finished picture on the right has a 4K version button that redoes it at 4K."
+    }
   },
   "media": {
     "assets": "Creative assets",

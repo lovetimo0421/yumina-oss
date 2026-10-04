@@ -167,6 +167,10 @@ export function useSandbox(opts: {
     bridgeRef.current?.sendAudioEnded(trackId);
   }, []);
 
+  const sendVoicePlaybackFrame = useCallback((frame: import('../../../sandbox/protocol').VoicePlaybackFrame) => {
+    bridgeRef.current?.sendVoicePlaybackFrame(frame);
+  }, []);
+
   const restoreComposerDraft = useCallback((text: string) => {
     bridgeRef.current?.restoreComposerDraft(text);
   }, []);
@@ -198,6 +202,7 @@ export function useSandbox(opts: {
     pushChannel,
     setMediaSuspended,
     sendAudioEnded,
+    sendVoicePlaybackFrame,
     restoreComposerDraft,
     restoreTranscriptPosition,
     sendRoomFrame,

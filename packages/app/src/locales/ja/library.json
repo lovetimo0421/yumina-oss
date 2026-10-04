@@ -676,35 +676,29 @@
       "surcharge": "+{{count}}",
       "anime": {
         "name": "アニメ",
-        "desc": "クリアなアニメイラスト（Animagine XL）。デフォルト。",
-        "detail": "Danbooruタグ駆動；キャラ立ち絵と綺麗な線画が得意。"
+        "variant": "クラシック"
       },
       "nsfw-anime": {
-        "name": "NSFWアニメ",
-        "desc": "Illustrious系の無修正アニメ——成人向けキャラアートに最適",
-        "detail": "成人向けDanbooruタグを完全理解；キャラLoRAとの併用が効果的。"
+        "name": "NSFWアニメ"
       },
       "realistic": {
-        "name": "リアル",
-        "desc": "フォトリアルな人物と風景（Juggernaut XL）",
-        "detail": "タグではなく自然な文章で；光やレンズの語（柔らかい光、85mm）が効きます。"
+        "name": "リアル"
       },
       "semireal": {
-        "name": "2.5D",
-        "desc": "アニメと実写の中間——厚塗り/ゲームCG質感",
-        "detail": "タグでも文章でもOK；雰囲気のあるキャラシーンが得意。"
+        "name": "2.5D"
       },
       "guofeng": {
-        "name": "国風",
-        "desc": "中華美学——漢服、水墨の情緒、古典的な情景",
-        "detail": "衣装や舞台を文章で（漢服、水墨、東屋）描写すると味が出ます。"
+        "name": "国風"
       },
       "western": {
-        "name": "洋風",
-        "desc": "欧米ファンタジー/コミック調（ZavyChroma XL）",
-        "detail": "文章プロンプト向き；ドラマチックな光と厚塗りファンタジーが得意。"
+        "name": "洋風"
       },
-      "surchargeChip": "+{{count}} Mushie"
+      "surchargeChip": "+{{count}} Mushie",
+      "version": "バージョン",
+      "anime-new": {
+        "name": "アニメ · 新作",
+        "variant": "新作"
+      }
     },
     "videoStyleFromReference": "動画は参照画像の画風をそのまま引き継ぎます。",
     "makeReference": "まず一枚生成する",
@@ -768,7 +762,8 @@
       "VIDEO_STYLE_PROMPT": "この説明から画風つきの最初のフレームを作れませんでした。英語で書き直すか、画風を「指定しない」にしてください。料金はかかっていません。",
       "VIDEO_BAD_STYLE": "この画風はこの動画では使えません。別の画風を選んでください。",
       "VIDEO_NO_STYLE": "この画風はこの動画では使えません。別の画風を選んでください。",
-      "VIDEO_STYLE_WITH_FRAME": "この画風はこの動画では使えません。別の画風を選んでください。"
+      "VIDEO_STYLE_WITH_FRAME": "この画風はこの動画では使えません。別の画風を選んでください。",
+      "QUALITY_BATCH": "4Kは1回に1枚だけです。枚数を1にしてもう一度お試しください。"
     },
     "queue": {
       "waiting": "順番待ち中…",
@@ -1011,13 +1006,26 @@
       },
       "style": "画風",
       "styleCost": "テキストのみの動画で選択可 · 最初のフレーム +{{count}} マッシー",
-      "styleHint": "まずこの画風で最初のフレームを描き、それを動かすので、動画全体がこの画風になります。",
       "styleNone": "指定しない",
-      "styleNoneHint": "{{model}} がテキストから直接生成します。写実寄りになります。",
       "styleFromFrame": "最初か最後のフレームを入れているので、動画はその画像の画風になります。",
       "howStyle": "{{style}}画風"
     },
-    "folderLoadFallback": "このカードのフォルダを読み込めませんでした。いまは「すべての素材」に生成します。"
+    "folderLoadFallback": "このカードのフォルダを読み込めませんでした。いまは「すべての素材」に生成します。",
+    "quality": {
+      "label": "画質",
+      "included": "追加料金なし",
+      "standard": {
+        "name": "標準"
+      },
+      "hd": {
+        "name": "高画質"
+      },
+      "4k": {
+        "name": "4K"
+      },
+      "redo": "4K版 · {{count}} Mushie",
+      "redoNote": "右の生成済みの画像は「4K版」で同じ構図のまま4Kにできます。"
+    }
   },
   "media": {
     "assets": "制作素材",

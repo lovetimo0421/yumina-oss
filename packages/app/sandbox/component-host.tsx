@@ -95,7 +95,7 @@ import type {
   SandboxMode,
   UIChannelData,
 } from "./protocol";
-import { YuminaContext, buildAPI, useYumina, resolveApiCall, receiveStreamChunk, AUDIO_ENDED_EVENT, COMPOSER_DRAFT_EVENT, ROOM_FRAME_EVENT, OPEN_MEMORY_PANEL_EVENT } from "./sandbox-context";
+import { YuminaContext, buildAPI, useYumina, resolveApiCall, receiveStreamChunk, AUDIO_ENDED_EVENT, VOICE_PLAYBACK_FRAME_EVENT, COMPOSER_DRAFT_EVENT, ROOM_FRAME_EVENT, OPEN_MEMORY_PANEL_EVENT } from "./sandbox-context";
 import { withVariableNameAliases } from "./variable-alias";
 import { installCompatShims, resolveShimCall, updateShimState } from "./compat-shims";
 import { syncInstalledExtensions } from "./extensions";
@@ -1236,6 +1236,11 @@ export function ComponentHost() {
             new CustomEvent(AUDIO_ENDED_EVENT, { detail: { trackId: msg.trackId } }),
           );
         }
+        break;
+      }
+
+      case 'voice-playback-frame': {
+        window.dispatchEvent(new CustomEvent(VOICE_PLAYBACK_FRAME_EVENT, { detail: msg.frame }));
         break;
       }
 

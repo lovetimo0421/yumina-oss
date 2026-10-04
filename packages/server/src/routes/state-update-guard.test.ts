@@ -2,6 +2,7 @@ import "../test/database-fixture.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Hono } from "hono";
+import { GameStateManager, type WorldDefinition } from "@yumina/engine";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { user, worlds, playSessions } from "../db/schema.js";
@@ -80,10 +81,14 @@ test("guard off removes prompt and validation dispatch; old chats stay enabled; 
     assert.equal(running.outputModels?.get("state-update-guard"), "custom/correction");
     const next = await resolveTurnHooks(args);
     assert.equal(next.activeExtensions.has("state-update-guard"), false);
-    assert.equal(turnOutputInstructions(next), "");
+    const world: WorldDefinition = { id: "settings-prompt", version: "1.0.0", name: "Settings prompt", description: "", author: "unit",
+      entries: [], rules: [], components: [], audioTracks: [], customUI: [], settings: { maxTokens: 4000, temperature: 1 },
+      variables: [{ id: "hp", name: "health", type: "number", defaultValue: 100 }] };
+    const promptContext = { world, state: new GameStateManager(world).getSnapshot() };
+    assert.equal(turnOutputInstructions(next, promptContext), "");
     const legacy = await resolveTurnHooks({ ...args, session: {} });
     assert.ok(legacy.activeExtensions.has("state-update-guard"));
-    assert.ok(turnOutputInstructions(legacy).includes("yumina-state"));
+    assert.ok(turnOutputInstructions(legacy, promptContext).includes("yumina-state"));
   } finally { __setInstalledLookupForTests(null); }
 });
 

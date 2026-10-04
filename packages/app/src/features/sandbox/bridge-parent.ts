@@ -6,6 +6,7 @@ import {
   type SandboxMessage,
   type ChannelDataMap,
   type SandboxMode,
+  type VoicePlaybackFrame,
 } from "../../../sandbox/protocol";
 import type { StateChannel } from "@yumina/engine";
 import { loadTranscriptPosition, saveTranscriptPosition } from "../../lib/transcript-position-storage";
@@ -165,6 +166,13 @@ export class SandboxBridge {
    *  subscribed via `api.onAudioEnded` can react (e.g. play the next track). */
   sendAudioEnded(trackId: string): void {
     this.send({ type: "audio-event", event: "ended", trackId });
+  }
+
+  sendVoicePlaybackFrame(frame: VoicePlaybackFrame): void {
+    // Samples describe now. Never accumulate historical mouth motion while
+    // the iframe boots; an active voice will send a fresh sample next tick.
+    if (!this.ready || !this.iframe?.contentWindow) return;
+    this.send({ type: 'voice-playback-frame', frame });
   }
 
   /** Put a draft this tab typed before a reload back into the composer. */

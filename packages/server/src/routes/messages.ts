@@ -961,7 +961,6 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     session: context.session,
     suppressSummaryBlocks: Boolean(characterCreation),
   });
-  const outputContract = guardPrompt(turnMemory.dispatch);
   // No awaited compaction anywhere on this path: the post-turn background job
   // owns threshold compaction (a one-turn summary lag by design), and the
   // final-budget overflow pass below only SCHEDULES background compaction —
@@ -994,6 +993,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   });
 
   const snapshot = stateManager.getSnapshot();
+  const outputContract = guardPrompt(turnMemory.dispatch, { world: worldDef, state: snapshot });
 
   // Deterministic entry retrieval (engine-level matching)
   const scanDepth = worldDef.settings?.lorebookScanDepth ?? 2;
@@ -1037,9 +1037,10 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   // 1.5. Auto-inject active persona description into prompt
   appendPersonaSystemMessage(contextMessages, activePersona);
 
-  // 2. Static format reference — behavior rules, directive syntax, audio (cacheable, per-world constant)
+  // 2. Authored format reference — stable while runtime eligibility is unchanged.
   const staticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef, {
-    activeGreetingId: stateManager.getSnapshot().activeGreetingId,
+    activeGreetingId: snapshot.activeGreetingId,
+    state: snapshot,
   });
   if (staticFormatBlock) {
     contextMessages.push({ role: "system", content: staticFormatBlock });
@@ -2427,8 +2428,6 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     session: context.session,
   });
 
-  const outputContract = guardPrompt(regenTurnMemory.dispatch);
-
   // Get non-compacted messages up to (but not including) the one being
   // regenerated. Bounded window — `upTo` anchors it at the target message's
   // timestamp so the target is always inside the window even on mega sessions.
@@ -2459,6 +2458,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   });
 
   const snapshot = stateManager.getSnapshot();
+  const outputContract = guardPrompt(regenTurnMemory.dispatch, { world: worldDef, state: snapshot });
 
   // Deterministic entry retrieval (engine-level matching)
   const regenClamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
@@ -2514,7 +2514,8 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
 
   // 2. Static format reference — behavior rules, directive syntax, audio (cacheable)
   const regenStaticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef, {
-    activeGreetingId: stateManager.getSnapshot().activeGreetingId,
+    activeGreetingId: snapshot.activeGreetingId,
+    state: snapshot,
   });
   if (regenStaticFormatBlock) {
     regenContextMessages.push({ role: "system", content: regenStaticFormatBlock });
@@ -3425,7 +3426,6 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     sessionId,
     session: context.session,
   });
-  const outputContract = guardPrompt(contTurnMemory.dispatch);
   // No awaited pre-history compaction here — same rationale as the send path:
   // background owns threshold compaction; the final-budget overflow pass below
   // only schedules background compaction (this turn trims).
@@ -3453,6 +3453,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   });
 
   const snapshot = stateManager.getSnapshot();
+  const outputContract = guardPrompt(contTurnMemory.dispatch, { world: worldDef, state: snapshot });
 
   // Entry retrieval
   const scanDepth = worldDef.settings?.lorebookScanDepth ?? 2;
@@ -3496,7 +3497,8 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
 
   // 2. Static format reference — behavior rules, directive syntax, audio (cacheable)
   const contStaticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef, {
-    activeGreetingId: stateManager.getSnapshot().activeGreetingId,
+    activeGreetingId: snapshot.activeGreetingId,
+    state: snapshot,
   });
   if (contStaticFormatBlock) {
     contextMessages.push({ role: "system", content: contStaticFormatBlock });

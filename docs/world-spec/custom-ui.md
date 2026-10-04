@@ -163,11 +163,15 @@ ai.complete(params: {
   model?: string;
   maxTokens?: number;
   temperature?: number;
+  context?: "session";
   includeLorebook?: boolean | "all" | "matched";
+  responseFormat?: { type: "json_object" };
 }): Promise<string>;
 ```
 
 Make raw LLM calls with optional streaming and lorebook injection. Use for NPC generators, dynamic descriptions, hint systems, or any AI logic outside the main chat flow.
+
+`context: "session"` opts into the session's current/locked persona (excluding private notes), applicable enabled player prompts, player generation preferences and state-aware native lore assembly. Explicit `maxTokens`/`temperature` override player settings, then world settings, with an 8192-token output ceiling. In this mode, omitted lore selection means `"matched"`, scanning all supplied user messages; `false` excludes world lore and `"all"` bypasses keywords while retaining activation/condition gates. Macros and native prompt sections use saved state and the caller's history. Caller system instructions and the JSON protocol follow narrative preferences. Saved chat/summaries are not loaded, and responses do not apply effects or persist messages. Omitting `context` preserves raw behavior. See the [full completion contract](../creator/advanced/08-api-reference.md#context-session--shared-narrative-context) for limits.
 
 User messages can include images through `attachments` in either API. Pass bare base64 in `data` (remove the `data:...;base64,` prefix); `sendMessage("", attachments)` sends images without text. A request accepts up to four PNG/JPEG/WebP/GIF images, 8 MB each and 16 MB total. For `ai.complete`, ordered `text`/`image_url` parts also work; image URLs must be data URLs or Yumina's public `/cdn/key/` URLs. Rendering an `<img>` or placing its URL in plain text does not send the image to the model. Use an image-capable model, handle failures and retain the draft. `supportsImages` is present only when capability is known; an omitted value does not establish support.
 

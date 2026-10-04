@@ -191,6 +191,7 @@ export type GenerationJobStatus =
 
 export const IMAGE_SAMPLERS = [
   "euler_ancestral",
+  "res_multistep",
   "euler",
   "dpmpp_2m",
   "dpmpp_2m_sde",
@@ -208,7 +209,8 @@ export const IMAGE_ASPECTS = [
 ] as const;
 
 export const ADVANCED_LIMITS = {
-  stepsMin: 10,
+  // Z-Image Turbo (写实) runs at 9 steps.
+  stepsMin: 4,
   stepsMax: 40,
   cfgMin: 1,
   cfgMax: 12,
@@ -288,21 +290,31 @@ export function computeImagePrice(opts: {
 }
 
 // ── Platform styles (multi-checkpoint image generation) ─────────────
-// Each style maps to a checkpoint on the worker volumes. "anime" is the
-// baked-in default (no generation_models row, zero surcharge); the rest are
-// platform models (generation_models.userId = null) seeded from Civitai and
-// distributed by model-sync. Filenames here MUST match the seeded rows.
+// Each style maps to a base model baked into the warm Comfy deployment's
+// build (and imported by the shared pool from `sourceUri` when it overflows
+// there). A style with a `family` is a second base model under that
+// family's card (动漫 · 经典 / 新番): same card, a variant switch.
+export type PlatformStyleArch = "sdxl" | "zimage";
+
 export interface PlatformStyleInfo {
   slug: string;
-  /** Worker-side checkpoint filename (models/checkpoints/<filename>). */
+  /** Worker-side model filename: a checkpoint (sdxl) or a diffusion model (zimage). */
   checkpointFilename: string;
+  /** "zimage" = Z-Image Turbo: its own text encoder and VAE, no SDXL LoRAs. */
+  arch?: PlatformStyleArch;
+  /** Variant of another style's card (that style's slug). */
+  family?: string;
   /** Prompt dialect the enhance layer should emit. */
   dialect: "danbooru" | "prose";
   /** Added to the image price — covers the checkpoint swap's GPU load time. */
   surchargeMushies: number;
   defaultNegative: string;
-  recommended: { steps: number; cfg: number; sampler: ImageSampler };
-  /** Civitai model id the seed script imports (absent for baked-in styles). */
+  /** Tags placed before the creator's words (a style made from a general base). */
+  promptPrefix?: string;
+  recommended: { steps: number; cfg: number; sampler: ImageSampler; scheduler?: string };
+  /** Where the shared Comfy pool imports the file from. */
+  sourceUri?: string;
+  /** Civitai model id (license audit trail). */
   civitaiModelId?: number;
 }
 
@@ -314,6 +326,20 @@ export const PLATFORM_STYLES: PlatformStyleInfo[] = [
     surchargeMushies: 0,
     defaultNegative: "",
     recommended: { steps: 28, cfg: 5.5, sampler: "euler_ancestral" },
+    sourceUri: "https://huggingface.co/cagliostrolab/animagine-xl-4.0/resolve/main/animagine-xl-4.0.safetensors",
+  },
+  {
+    // 动漫 · 新番: an Illustrious model trained through mid-2026 characters.
+    slug: "anime-new",
+    family: "anime",
+    checkpointFilename: "plat_anime_raehoshi11.safetensors",
+    dialect: "danbooru",
+    surchargeMushies: 10,
+    defaultNegative: "bad quality, worst quality, jpeg artifacts, sketch, bad anatomy, signature, watermark",
+    promptPrefix: "masterpiece, best quality, very aesthetic, absurdres",
+    recommended: { steps: 28, cfg: 6, sampler: "euler_ancestral" },
+    sourceUri: "https://civitai.com/api/download/models/3141506",
+    civitaiModelId: 846917, // Raehoshi illust XL v11.0
   },
   {
     slug: "nsfw-anime",
@@ -322,47 +348,85 @@ export const PLATFORM_STYLES: PlatformStyleInfo[] = [
     surchargeMushies: 10,
     defaultNegative: "worst quality, bad quality, sketch, jpeg artifacts, signature",
     recommended: { steps: 28, cfg: 6, sampler: "euler_ancestral" },
+    sourceUri: "https://civitai.com/api/download/models/2883731",
     civitaiModelId: 827184, // WAI-NSFW-illustrious-SDXL
   },
   {
     slug: "realistic",
-    checkpointFilename: "plat_realistic.safetensors",
+    checkpointFilename: "z_image_turbo_bf16.safetensors",
+    arch: "zimage",
     dialect: "prose",
     surchargeMushies: 10,
-    defaultNegative: "cartoon, anime, illustration, painting, cgi, deformed iris, bad hands",
-    recommended: { steps: 30, cfg: 4.5, sampler: "dpmpp_2m" },
-    civitaiModelId: 133005, // Juggernaut XL
+    defaultNegative: "",
+    recommended: { steps: 9, cfg: 1, sampler: "res_multistep", scheduler: "simple" },
+    sourceUri: "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors",
   },
   {
     slug: "semireal",
-    checkpointFilename: "plat_semireal.safetensors",
+    checkpointFilename: "plat_semireal_pd10.safetensors",
     dialect: "danbooru",
     surchargeMushies: 10,
     defaultNegative: "worst quality, low quality, watermark",
-    recommended: { steps: 28, cfg: 5, sampler: "dpmpp_2m" },
-    civitaiModelId: 112902, // DreamShaper XL (seed script skips turbo/lightning versions)
+    promptPrefix: "masterpiece, best quality",
+    recommended: { steps: 28, cfg: 6, sampler: "euler_ancestral" },
+    sourceUri: "https://civitai.com/api/download/models/3187704",
+    civitaiModelId: 24350, // PerfectDeliberate v10
   },
   {
+    // RouWei (Illustrious retrain) steered with guofeng tags: ink-wash anime.
     slug: "guofeng",
-    checkpointFilename: "plat_guofeng.safetensors",
-    // The seed script's search resolves to a photo-realistic guofeng model
-    // (GuoFeng Photo Realistic XL) — prose prompts, not tags.
-    dialect: "prose",
+    checkpointFilename: "rouwei_v080Epsilon.safetensors",
+    dialect: "danbooru",
     surchargeMushies: 10,
     defaultNegative: "worst quality, low quality, watermark",
-    recommended: { steps: 30, cfg: 5, sampler: "dpmpp_2m" },
-    civitaiModelId: 844395, // GuoFeng Photo Realistic XL
+    promptPrefix: "masterpiece, best quality, chinese style, chinese clothes, ink wash painting",
+    recommended: { steps: 28, cfg: 5, sampler: "euler_ancestral" },
+    sourceUri: "https://civitai.com/api/download/models/1832460",
+    civitaiModelId: 950531, // RouWei 0.8 epsilon
   },
   {
     slug: "western",
-    checkpointFilename: "plat_western.safetensors",
-    dialect: "prose",
+    checkpointFilename: "plat_western_arthemy3.safetensors",
+    dialect: "danbooru",
     surchargeMushies: 10,
-    defaultNegative: "photo, photorealistic, worst quality, watermark",
-    recommended: { steps: 30, cfg: 5, sampler: "dpmpp_2m" },
-    civitaiModelId: 119229, // ZavyChromaXL
+    defaultNegative: "sketch, lowres, low quality, worst quality, 3D, greyscale",
+    promptPrefix: "best quality, absurdres",
+    recommended: { steps: 30, cfg: 5, sampler: "euler_ancestral", scheduler: "karras" },
+    sourceUri: "https://civitai.com/api/download/models/2715424",
+    civitaiModelId: 2241572, // Arthemy Western Art v3.0
   },
 ];
+
+/** The cards: one per family, variants folded under their family. */
+export function platformStyleFamilies(styles: readonly PlatformStyleInfo[] = PLATFORM_STYLES): { family: string; styles: PlatformStyleInfo[] }[] {
+  const families: { family: string; styles: PlatformStyleInfo[] }[] = [];
+  for (const style of styles) {
+    const key = style.family ?? style.slug;
+    const existing = families.find((f) => f.family === key);
+    if (existing) existing.styles.push(style); else families.push({ family: key, styles: [style] });
+  }
+  return families;
+}
+
+// ── Image quality (标准 / 高清 / 4K) ─────────────────────────────────
+// 高清 redraws a 1.5x upscale at low denoise (the base model adds the detail
+// the first pass had no pixels for); 4K then restores to 2x of that with
+// SeedVR2 7B sharp (one diffusion step, no prompt, faithful to the picture).
+export const IMAGE_QUALITIES = ["standard", "hd", "4k"] as const;
+export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
+export const IMAGE_QUALITY_SPECS: Record<ImageQuality, { scale: number; surchargeMushies: number; extraSeconds: number }> = {
+  standard: { scale: 1, surchargeMushies: 0, extraSeconds: 0 },
+  // Measured on the warm deployment (2026-10-04, RTX Pro 6000, 832x1216 base):
+  // standard ≈7 s, 高清 ≈+4 s, 4K ≈+13 s; priced at ~1 mushie per GPU second.
+  hd: { scale: 1.5, surchargeMushies: 5, extraSeconds: 5 },
+  "4k": { scale: 3, surchargeMushies: 15, extraSeconds: 15 },
+};
+/** Output size for a base size at a quality (multiples of 8). */
+export function imageQualitySize(width: number, height: number, quality: ImageQuality): { width: number; height: number } {
+  const k = IMAGE_QUALITY_SPECS[quality].scale;
+  const r8 = (n: number) => Math.round((n * k) / 8) * 8;
+  return { width: r8(width), height: r8(height) };
+}
 
 export function getPlatformStyle(slug: string): PlatformStyleInfo | undefined {
   return PLATFORM_STYLES.find((s) => s.slug === slug);

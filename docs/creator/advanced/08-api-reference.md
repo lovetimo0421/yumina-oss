@@ -292,13 +292,60 @@ your game schema. Parse the result and validate every action before applying it.
 Omitting the option preserves ordinary text completion. Other format shapes are
 rejected with HTTP 400 before inference.
 
+#### `context: "session"` — shared narrative context
+
+Opt in to the authenticated session's current persona, enabled narrative prompts,
+and the player's current generation settings:
+
+```tsx
+const result = await api.ai.complete({
+  context: "session",
+  includeLorebook: "matched",
+  responseFormat: { type: "json_object" },
+  messages: [
+    { role: "system", content: 'Return JSON with only {"actions":[],"line":""}.' },
+    { role: "user", content: sceneObservation },
+  ],
+})
+```
+
+Persona selection follows the account unless the session is locked, including an
+explicit no-persona lock. Public persona description fields are resolved on the
+server; private persona notes are never included. Narrative prompts use the same
+enabled-folder, selected-model and account-eligibility rules as ordinary chat.
+
+In session context, omitted `includeLorebook` means `"matched"`; `false` excludes
+world entries while retaining persona and user prompts. `true`/`"all"` bypasses
+keyword selection but still respects state conditions, active worldbooks and UI
+lore bindings. Matching uses **all supplied user messages**, so a final repair
+instruction does not erase the original scene. Native macros use saved session
+state and the current persona; last-message macros refer to the supplied history.
+System sections, dialogue examples, depth entries and post-history roles retain
+their native placement around that history. Caller system messages follow those
+narrative sections, and JSON mode adds a final instruction protecting the requested
+object protocol. Continue validating the returned schema in your card.
+
+The parent app supplies current player settings; cards cannot supply an arbitrary
+preferences object. Explicit call `maxTokens`/`temperature` win, followed by player
+settings, world settings, then the raw defaults below. The 8192 output-token cap
+and 0–2 temperature range still apply. Supported sampling, reasoning and streaming
+preferences follow ordinary chat forwarding (including model-specific repetition
+penalty). Invalid session settings return HTTP 400.
+
+Only the supplied side-call history is used: saved chat, summaries and pending
+chat effects are not imported. `maxContext` and world lore budgets limit optional
+matched entries; they do not truncate required lore, presets or the caller's
+protocol, or guarantee that the complete prompt fits every provider's window.
+Returned text does not automatically apply effects or persist messages. Leaving
+`context` omitted preserves the existing raw behavior described below.
+
 #### Limits and costs
 
 | Limit | Value | Source |
 |-------|-------|--------|
 | Max messages per call | 50 | Server rejects with HTTP 400 |
 | Max total content | 50,000 characters across all messages | Server rejects with HTTP 400 |
-| `maxTokens` default | 2048 | Default when omitted |
+| `maxTokens` default | 2048 | Raw default; session context inherits settings first |
 | `maxTokens` ceiling | 8192 | Larger values are clamped silently |
 | `temperature` range | 0–2, default 1.0 | Out-of-range values are clamped |
 | Default model | Player's `selectedModel`, falling back to `anthropic/claude-sonnet-4.6` if neither `model` nor `selectedModel` is set | |
@@ -308,7 +355,7 @@ rejected with HTTP 400 before inference.
 
 #### `includeLorebook` — auto-inject world lore
 
-Side calls bypass the main chat's prompt assembly, so the model has no idea who your characters are unless you give it the lorebook. Pass `includeLorebook` and the server prepends a system message built from the world's entries:
+Without `context: "session"`, side calls bypass the main chat's prompt assembly. Pass `includeLorebook` and the server prepends a system message built from the world's entries:
 
 | Value | Behavior |
 |-------|----------|
@@ -699,7 +746,7 @@ useYumina()
 │   ├── entries (ReadonlyArray<SandboxEntry>)  // sorted by position, enabled only
 │   └── getEntry(name) → SandboxEntry | null
 ├── AI
-│   └── ai.complete({ messages, onDelta?, model?, maxTokens?, temperature?, includeLorebook?, responseFormat? }) → Promise<string>
+│   └── ai.complete({ messages, onDelta?, model?, maxTokens?, temperature?, context?, includeLorebook?, responseFormat? }) → Promise<string>
 │        // includeLorebook: true | "all" | "matched" — auto-inject world lore
 ├── Context injection
 │   └── injectContext(message, { role? })

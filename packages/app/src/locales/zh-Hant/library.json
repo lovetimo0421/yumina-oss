@@ -678,35 +678,29 @@
       "surcharge": "+{{count}}",
       "anime": {
         "name": "動漫",
-        "desc": "清爽的動漫插畫風（Animagine XL），預設選擇",
-        "detail": "吃 Danbooru 標籤；角色立繪和乾淨線條最強。"
+        "variant": "經典"
       },
       "nsfw-anime": {
-        "name": "NSFW 動漫",
-        "desc": "Illustrious 系無刪減動漫，最適合成人向角色圖",
-        "detail": "完整理解成人向 Danbooru 標籤；配角色 LoRA 效果更佳。"
+        "name": "NSFW 動漫"
       },
       "realistic": {
-        "name": "寫實",
-        "desc": "照片級人像與場景（Juggernaut XL）",
-        "detail": "用自然語言描述而非標籤；寫上光線和鏡頭詞（柔光、85mm）效果顯著。"
+        "name": "寫實"
       },
       "semireal": {
-        "name": "2.5D 半寫實",
-        "desc": "介於動漫與寫實之間的厚塗/遊戲 CG 質感",
-        "detail": "標籤或句子都行；氛圍感角色場景表現好。"
+        "name": "2.5D 半寫實"
       },
       "guofeng": {
-        "name": "國風",
-        "desc": "中式美學——漢服、水墨意境、古典場景",
-        "detail": "用句子描述服飾與場景（漢服、水墨、亭台）風味更濃。"
+        "name": "國風"
       },
       "western": {
-        "name": "歐美",
-        "desc": "歐美奇幻/漫畫風（ZavyChroma XL）",
-        "detail": "用句子描述；戲劇光影和奇幻厚塗場景最強。"
+        "name": "歐美"
       },
-      "surchargeChip": "+{{count}} 蘑菇幣"
+      "surchargeChip": "+{{count}} 蘑菇幣",
+      "version": "版本",
+      "anime-new": {
+        "name": "動漫 · 新番",
+        "variant": "新番"
+      }
     },
     "videoStyleFromReference": "影片會沿用參考圖的畫風。",
     "makeReference": "先生成一張",
@@ -770,7 +764,8 @@
       "VIDEO_STYLE_PROMPT": "這段描述沒辦法轉成畫風首幀。換成英文描述，或畫風選「不指定」再試。沒有扣費。",
       "VIDEO_BAD_STYLE": "這個畫風現在用不了，換一個再試。",
       "VIDEO_NO_STYLE": "這個畫風現在用不了，換一個再試。",
-      "VIDEO_STYLE_WITH_FRAME": "這個畫風現在用不了，換一個再試。"
+      "VIDEO_STYLE_WITH_FRAME": "這個畫風現在用不了，換一個再試。",
+      "QUALITY_BATCH": "4K 一次只能生成一張，把數量改成 1 再試。"
     },
     "queue": {
       "waiting": "排隊中…",
@@ -1013,13 +1008,26 @@
       },
       "style": "畫風",
       "styleCost": "文字生成時可選 · 畫首幀 +{{count}} 蘑菇幣",
-      "styleHint": "先按這個畫風畫出第一幀，再讓它動起來，整段影片保持這個畫風。",
       "styleNone": "不指定",
-      "styleNoneHint": "{{model}} 直接從文字生成，畫面偏寫實。",
       "styleFromFrame": "已經放了首幀或尾幀，影片會沿用那張圖的畫風。",
       "howStyle": "{{style}}畫風"
     },
-    "folderLoadFallback": "讀不到這張卡綁定的資料夾，先按「全部素材」生成。"
+    "folderLoadFallback": "讀不到這張卡綁定的資料夾，先按「全部素材」生成。",
+    "quality": {
+      "label": "畫質",
+      "included": "不加價",
+      "standard": {
+        "name": "標準"
+      },
+      "hd": {
+        "name": "高清"
+      },
+      "4k": {
+        "name": "4K"
+      },
+      "redo": "4K 版 · {{count}} 蘑菇幣",
+      "redoNote": "生成好的圖可以在右側點「4K 版」，按原樣重新出 4K。"
+    }
   },
   "media": {
     "assets": "創作素材",
