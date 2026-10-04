@@ -15,7 +15,17 @@
  */
 
 import i18n from "@/lib/i18n";
-import type { DetectedModel, RuntimeCandidate } from "./detect.js";
+import { isTemplateError, toTemplateSafeMessages } from "./chat-template";
+import {
+  listRuntimeModels,
+  readLmStudioModels,
+  readyResult,
+  RUNTIME_CANDIDATES,
+  type DetectedModel,
+  type RuntimeCandidate,
+  type RuntimeKind,
+  type RuntimeModels,
+} from "./detect";
 
 const apiBase = import.meta.env?.VITE_API_URL || "";
 
@@ -30,20 +40,6 @@ const HEARTBEAT_MS = 15_000;
  */
 function unreachableMessage(runtime: RuntimeCandidate): string {
   return i18n.t("profile:localModel.unreachable", { runtime: runtime.label });
-}
-
-/** Is the runtime answering? Cheap enough to ask every few seconds. */
-async function runtimeAlive(runtime: RuntimeCandidate): Promise<boolean> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 3_000);
-  try {
-    const res = await fetch(`${runtime.origin}${runtime.native ? "/api/version" : "/v1/models"}`, { signal: ctrl.signal });
-    return res.ok;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 interface BridgeJob {
@@ -85,6 +81,8 @@ async function report(body: Record<string, unknown>): Promise<void> {
 class ChunkSink {
   private buffer = "";
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** Whether any text has been handed over yet — after that a turn can't be retried. */
+  started = false;
   /**
    * Serializes the POSTs. The server appends batches in arrival order, so two
    * requests in flight at once can land swapped and the reply comes out
@@ -99,6 +97,7 @@ class ChunkSink {
 
   push(delta: string): void {
     if (!delta) return;
+    this.started = true;
     this.buffer += delta;
     this.timer ??= setTimeout(() => void this.flush(), FLUSH_INTERVAL_MS);
   }
@@ -120,6 +119,45 @@ interface RunOutcome {
   stopReason?: string;
   promptTokens?: number;
   completionTokens?: number;
+}
+
+/** The runtime answered, and what it said was an error. */
+class RuntimeError extends Error {
+  constructor(runtime: RuntimeCandidate, readonly detail: string) {
+    super(`${runtime.label}: ${detail}`);
+    this.name = "RuntimeError";
+  }
+}
+
+/**
+ * The readable part of a runtime's error body.
+ *
+ * LM Studio nests them: `{"error":"Engine protocol predict request returned
+ * 500: {\"error\":{\"message\":\"…Jinja Exception: System message must be at
+ * the beginning.\"}}"}`. Peel the JSON layers, and for a template exception
+ * keep just the sentence that says what the template objected to.
+ */
+export function runtimeErrorDetail(raw: string, status?: number): string {
+  let text = raw.trim();
+  for (let depth = 0; depth < 4; depth++) {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start < 0 || end <= start) break;
+    let next: unknown;
+    try {
+      const obj = JSON.parse(text.slice(start, end + 1)) as { error?: unknown; message?: unknown };
+      const error = obj.error as { message?: unknown } | string | undefined;
+      next = typeof error === "string" ? error : typeof error?.message === "string" ? error.message : obj.message;
+    } catch {
+      break;
+    }
+    if (typeof next !== "string" || !next.trim() || next.trim() === text) break;
+    text = next.trim();
+  }
+  const jinja = /Jinja Exception:\s*([^\n"]+)/.exec(text);
+  if (jinja) return `the model's chat template rejected the conversation (${jinja[1]!.trim()})`;
+  const flat = text.replace(/\s+/g, " ").trim().slice(0, 300);
+  return flat || (status ? `HTTP ${status}` : "unknown error");
 }
 
 /**
@@ -191,38 +229,127 @@ async function runOllama(origin: string, job: BridgeJob, sink: ChunkSink, signal
   return outcome;
 }
 
+/**
+ * LM Studio refuses `json_object` ("'response_format.type' must be
+ * 'json_schema' or 'text'"); an open object schema asks for the same thing.
+ */
+const LMSTUDIO_JSON_OBJECT = { type: "json_schema", json_schema: { name: "response", schema: { type: "object" } } };
+
+/** Runtimes whose OpenAI endpoint also takes llama.cpp's samplers. */
+const EXTENDED_SAMPLING = new Set<RuntimeKind>(["lmstudio", "llamacpp"]);
+
+/**
+ * The `reasoning_effort` that turns this LM Studio model's thinking off, or
+ * down as far as it goes — the OpenAI-shaped twin of Ollama's `think: false`
+ * (see LocalBridgeProvider for why turns run without it). Undefined for models
+ * that don't reason, or when LM Studio didn't say.
+ */
+function reasoningOff(model: DetectedModel | undefined): string | undefined {
+  const options = model?.reasoningOptions ?? [];
+  if (options.includes("off")) return "none";
+  if (options.includes("low")) return "low";
+  return undefined;
+}
+
+/**
+ * Drops a leading <think>…</think> block. LM Studio and llama.cpp normally
+ * stream reasoning in its own field, which we skip; with that split turned off
+ * the thinking arrives inline and would land in the story as prose.
+ */
+class LeadingThinkFilter {
+  private state: "start" | "thinking" | "text" = "start";
+  private held = "";
+  private trimLead = false;
+
+  push(delta: string): string {
+    if (this.state === "text") {
+      if (!this.trimLead) return delta;
+      const rest = delta.replace(/^\s+/, "");
+      if (rest) this.trimLead = false;
+      return rest;
+    }
+    this.held += delta;
+    if (this.state === "start") {
+      const lead = this.held.trimStart();
+      if (lead.startsWith("<think>")) {
+        this.state = "thinking";
+        this.held = lead.slice("<think>".length);
+      } else if ("<think>".startsWith(lead)) {
+        return ""; // could still turn out to be the tag
+      } else {
+        this.state = "text";
+        const out = this.held;
+        this.held = "";
+        return out;
+      }
+    }
+    const end = this.held.indexOf("</think>");
+    if (end < 0) {
+      // Keep enough to catch a closing tag split across deltas.
+      this.held = this.held.slice(-("</think>".length - 1));
+      return "";
+    }
+    this.state = "text";
+    this.trimLead = true;
+    const out = this.held.slice(end + "</think>".length);
+    this.held = "";
+    return this.push(out);
+  }
+
+  /** Text held back while it still looked like the start of a tag. */
+  flush(): string {
+    if (this.state !== "start") return "";
+    this.state = "text";
+    const out = this.held;
+    this.held = "";
+    return out;
+  }
+}
+
 /** Everything that isn't Ollama: LM Studio, Jan, llama.cpp, vLLM — one shape. */
 async function runOpenAiCompatible(
-  origin: string,
+  runtime: RuntimeCandidate,
   job: BridgeJob,
   sink: ChunkSink,
   signal: AbortSignal,
+  opts: { systemRole: boolean; model?: DetectedModel },
 ): Promise<RunOutcome> {
   const p = job.payload;
-  const res = await fetch(`${origin}/v1/chat/completions`, {
+  const lmStudio = runtime.kind === "lmstudio";
+  const extended = EXTENDED_SAMPLING.has(runtime.kind);
+  const reasoningEffort = lmStudio && p.think === false ? reasoningOff(opts.model) : undefined;
+  const res = await fetch(`${runtime.origin}/v1/chat/completions`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     signal,
     body: JSON.stringify({
       model: p.model,
-      messages: p.messages,
+      // These runtimes render with the model's own Jinja template, which
+      // rejects the shape our prompts come in. See chat-template.ts.
+      messages: toTemplateSafeMessages(p.messages, { systemRole: opts.systemRole }),
       stream: true,
       stream_options: { include_usage: true },
-      ...(p.response_format?.type === 'json_object' && { response_format: p.response_format }),
+      ...(p.response_format?.type === 'json_object' && { response_format: lmStudio ? LMSTUDIO_JSON_OBJECT : p.response_format }),
+      ...(reasoningEffort && { reasoning_effort: reasoningEffort }),
       ...(p.max_tokens !== undefined && { max_tokens: p.max_tokens }),
       ...(p.temperature !== undefined && { temperature: p.temperature }),
       ...(p.top_p !== undefined && { top_p: p.top_p }),
+      ...(extended && p.top_k !== undefined && { top_k: p.top_k }),
+      ...(extended && p.min_p !== undefined && { min_p: p.min_p }),
       ...(p.frequency_penalty !== undefined && { frequency_penalty: p.frequency_penalty }),
       ...(p.presence_penalty !== undefined && { presence_penalty: p.presence_penalty }),
     }),
   });
   if (!res.ok || !res.body) {
-    throw new Error(`Local model returned ${res.status}: ${(await res.text().catch(() => "")).slice(0, 200)}`);
+    throw new RuntimeError(runtime, runtimeErrorDetail(await res.text().catch(() => ""), res.status));
   }
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
+  const think = new LeadingThinkFilter();
   let buf = "";
+  let event = "";
+  let reasoningChars = 0;
   const outcome: RunOutcome = {};
 
   while (true) {
@@ -233,19 +360,38 @@ async function runOpenAiCompatible(
     while ((idx = buf.indexOf("\n")) >= 0) {
       const line = buf.slice(0, idx).trim();
       buf = buf.slice(idx + 1);
+      if (!line) {
+        event = ""; // a blank line ends one SSE event
+        continue;
+      }
+      if (line.startsWith("event:")) {
+        event = line.slice(6).trim();
+        continue;
+      }
       if (!line.startsWith("data:")) continue;
       const data = line.slice(5).trim();
       if (data === "[DONE]") continue;
-      let obj: Record<string, unknown>;
+      let obj: Record<string, unknown> | null = null;
       try {
         obj = JSON.parse(data);
       } catch {
-        continue;
+        // Unparseable data only matters if it was announced as an error.
       }
-      const choices = obj.choices as Array<{ delta?: { content?: string }; finish_reason?: string }> | undefined;
-      if (typeof choices?.[0]?.finish_reason === 'string') outcome.stopReason = choices[0].finish_reason;
-      const delta = choices?.[0]?.delta?.content;
-      if (delta) sink.push(delta);
+      // A generation that fails after the stream opened — a template that
+      // rejects the prompt, a model that won't load — arrives inside the 200
+      // response as `event: error`. Reading only `choices` turned it into an
+      // empty "done" and the turn silently came back blank.
+      if (event === "error" || (obj && obj.error)) throw new RuntimeError(runtime, runtimeErrorDetail(data));
+      if (!obj) continue;
+      const choices = obj.choices as Array<{
+        delta?: { content?: string; reasoning_content?: string; reasoning?: string };
+        finish_reason?: string;
+      }> | undefined;
+      const choice = choices?.[0];
+      if (typeof choice?.finish_reason === 'string') outcome.stopReason = choice.finish_reason;
+      reasoningChars += (choice?.delta?.reasoning_content ?? choice?.delta?.reasoning ?? "").length;
+      const delta = choice?.delta?.content;
+      if (delta) sink.push(think.push(delta));
       const usage = obj.usage as { prompt_tokens?: number; completion_tokens?: number } | undefined;
       if (usage) {
         if (typeof usage.prompt_tokens === "number") outcome.promptTokens = usage.prompt_tokens;
@@ -253,17 +399,29 @@ async function runOpenAiCompatible(
       }
     }
   }
+  sink.push(think.flush());
+  if (!sink.started && reasoningChars > 0) {
+    throw new RuntimeError(runtime, "the model used its whole reply thinking and wrote nothing. Turn reasoning off for this model, or pick one that doesn't reason.");
+  }
   return outcome;
 }
 
 export interface LocalBridgeOptions {
-  runtime: RuntimeCandidate;
-  models: DetectedModel[];
+  /** Every runtime to serve, best first (see detectLocalRuntime). */
+  runtimes: RuntimeModels[];
   onStatus?: (status: BridgeStatus, detail?: string) => void;
+  /** What's running changed: a model pulled, loaded or unloaded, a runtime started or closed. */
+  onRuntimes?: (runtimes: RuntimeModels[]) => void;
 }
+
+/** Every Nth heartbeat also looks for a runtime started since we connected. */
+const DISCOVER_EVERY = 4;
 
 /**
  * Keeps this tab available as the player's local-model courier until stopped.
+ *
+ * It serves every runtime that answered — Ollama and LM Studio side by side —
+ * and sends each turn to the one that has the model the player picked.
  *
  * Deliberately tied to the tab: the connection dies with it, the server sees
  * that immediately, and the player is told their model is offline instead of
@@ -275,10 +433,34 @@ export class LocalBridge {
   private abort: AbortController | null = null;
   private stopped = false;
   private heartbeat: ReturnType<typeof setInterval> | null = null;
+  /** No runtime answers at all, and the player has been told. */
   private runtimeDown = false;
+  /** The runtime the last turn found closed, until it answers again. */
+  private unreachable: RuntimeKind | null = null;
   private advertisedAt = 0;
+  private runtimes: RuntimeModels[];
+  /** Runtimes that didn't answer the last check. */
+  private down = new Set<RuntimeKind>();
+  private beats = 0;
+  private checking = false;
+  /** `kind:model` pairs whose template has no system role; they get the strict shape. */
+  private readonly noSystemRole = new Set<string>();
+  /** LM Studio instances this tab loaded, and so may unload again. */
+  private loadedByBridge: string[] = [];
 
-  constructor(private readonly opts: LocalBridgeOptions) {}
+  constructor(private readonly opts: LocalBridgeOptions) {
+    this.runtimes = opts.runtimes;
+  }
+
+  /** Everything the player can pick, across runtimes. */
+  private get models(): DetectedModel[] {
+    return this.runtimes.length > 0 ? readyResult(this.runtimes).models : [];
+  }
+
+  /** The runtime that has this model; the lead one when none admits to it. */
+  private runtimeFor(modelId: string): RuntimeModels {
+    return this.runtimes.find((r) => r.models.some((m) => m.id === modelId)) ?? this.runtimes[0]!;
+  }
 
   private async announceModels(force=false):Promise<void> {
     if(!force&&Date.now()-this.advertisedAt<60_000)return;
@@ -286,10 +468,26 @@ export class LocalBridge {
     try{
       const response=await fetch(`${apiBase}/api/local-bridge/announce`,{
         method:'POST',credentials:'include',headers:{'content-type':'application/json'},
-        body:JSON.stringify({models:this.opts.models}),
+        body:JSON.stringify({models:this.models}),
       });
       if(!response.ok)this.advertisedAt=0;
     }catch{this.advertisedAt=0;}
+  }
+
+  /**
+   * Take fresh model lists. The server packs each prompt for the context we
+   * advertise, so a model reloaded at a different size in LM Studio has to
+   * reach it before the next turn, not in five minutes.
+   */
+  private async setRuntimes(next: RuntimeModels[]): Promise<void> {
+    if (JSON.stringify(next) === JSON.stringify(this.runtimes)) return;
+    this.runtimes = next;
+    this.opts.onRuntimes?.(next);
+    await this.announceModels(true);
+  }
+
+  private replaceModels(kind: RuntimeKind, models: DetectedModel[]): Promise<void> {
+    return this.setRuntimes(this.runtimes.map((r) => (r.runtime.kind === kind ? { ...r, models } : r)));
   }
 
   async start(): Promise<void> {
@@ -322,22 +520,53 @@ export class LocalBridge {
 
     // Without this the picker and the composer pill stay green after the
     // player quits Ollama, and the first sign is a turn that fails.
-    this.heartbeat = setInterval(() => void this.checkRuntime(), HEARTBEAT_MS);
+    this.heartbeat = setInterval(() => void this.checkRuntimes(), HEARTBEAT_MS);
   }
 
-  private async checkRuntime(): Promise<void> {
-    if (this.stopped) return;
+  /**
+   * Between turns, re-list what's connected — which is the liveness check, and
+   * carries models pulled, loaded or unloaded since — and every few beats look
+   * for a runtime started since (LM Studio opened after Ollama, or the reverse).
+   */
+  private async checkRuntimes(): Promise<void> {
+    if (this.stopped || this.checking) return;
     if (this.abort) { await this.announceModels(); return; } // a turn in flight speaks for itself
-    const alive = await runtimeAlive(this.opts.runtime);
-    if (this.stopped || this.abort) return;
-    if (alive) await this.announceModels();
-    if (this.stopped || this.abort) return;
-    if (!alive && !this.runtimeDown) {
-      this.runtimeDown = true;
-      this.opts.onStatus?.("error", unreachableMessage(this.opts.runtime));
-    } else if (alive && this.runtimeDown) {
-      this.runtimeDown = false;
-      this.opts.onStatus?.("connected");
+    this.checking = true;
+    try {
+      const known = new Set(this.runtimes.map((r) => r.runtime.kind));
+      const discover = ++this.beats % DISCOVER_EVERY === 0;
+      const candidates = [
+        ...this.runtimes.map((r) => r.runtime),
+        ...(discover ? RUNTIME_CANDIDATES.filter((c) => !known.has(c.kind)) : []),
+      ];
+      const answers = await Promise.all(candidates.map(async (runtime) => ({
+        runtime,
+        models: await listRuntimeModels(runtime, AbortSignal.timeout(3_000)).catch(() => null),
+      })));
+      if (this.stopped || this.abort) return;
+      const fresh = answers.filter((a): a is RuntimeModels => a.models !== null && (known.has(a.runtime.kind) || a.models.length > 0));
+      this.down = new Set([...known].filter((kind) => !fresh.some((a) => a.runtime.kind === kind)));
+      // A runtime that stopped answering keeps its place and its models: a turn
+      // on one then says plainly that it's closed, rather than the model
+      // vanishing from under the player.
+      await this.setRuntimes([
+        ...this.runtimes.map((r) => fresh.find((a) => a.runtime.kind === r.runtime.kind) ?? r),
+        ...fresh.filter((a) => !known.has(a.runtime.kind)),
+      ]);
+      if (this.stopped || this.abort) return;
+      const allDown = this.runtimes.every((r) => this.down.has(r.runtime.kind));
+      if (!allDown) await this.announceModels();
+      if (this.stopped || this.abort) return;
+      if (allDown && !this.runtimeDown) {
+        this.runtimeDown = true;
+        this.opts.onStatus?.("error", unreachableMessage(this.runtimes[0]!.runtime));
+      } else if (!allDown && (this.runtimeDown || (this.unreachable && !this.down.has(this.unreachable)))) {
+        this.runtimeDown = false;
+        this.unreachable = null;
+        this.opts.onStatus?.("connected");
+      }
+    } finally {
+      this.checking = false;
     }
   }
 
@@ -352,6 +581,67 @@ export class LocalBridge {
     this.opts.onStatus?.("idle");
   }
 
+  /**
+   * Make sure LM Studio has the model in memory at the context we advertised.
+   *
+   * Left alone, LM Studio loads a model on first request at ITS default window
+   * (8,192 since 0.4.16) while the server packed the prompt for ours, and the
+   * turn overflows. So a model that isn't loaded is loaded here, explicitly, at
+   * the size we told the server. A copy the player loaded by hand is never
+   * touched: we advertise its real window instead.
+   */
+  private async ensureLmStudioLoaded(runtime: RuntimeCandidate, modelId: string, signal: AbortSignal): Promise<void> {
+    const models = await readLmStudioModels(runtime.origin, signal).catch(() => null);
+    if (!models) return; // can't tell; let LM Studio load it its own way
+    await this.replaceModels(runtime.kind, models);
+    const entry = models.find((m) => m.id === modelId);
+    // Only the 0.4+ list gives a load size (see readLmStudioModels); older
+    // versions have no load endpoint either, and load on request as before.
+    if (!entry || entry.loaded !== false || !entry.contextLength) return;
+
+    // The same courtesy as LM Studio's "unload previous JIT model": switching
+    // models in Yumina shouldn't stack them in VRAM — but only for ours.
+    for (const instanceId of this.loadedByBridge.splice(0)) {
+      await fetch(`${runtime.origin}/api/v1/models/unload`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ instance_id: instanceId }),
+        signal,
+      }).catch(() => undefined);
+    }
+
+    const res = await fetch(`${runtime.origin}/api/v1/models/load`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: modelId, context_length: entry.contextLength }),
+      signal,
+    });
+    if (!res.ok) {
+      throw new RuntimeError(runtime, `couldn't load ${modelId}: ${runtimeErrorDetail(await res.text().catch(() => ""), res.status)}`);
+    }
+    const loaded = (await res.json().catch(() => null)) as { instance_id?: unknown } | null;
+    if (typeof loaded?.instance_id === "string") this.loadedByBridge.push(loaded.instance_id);
+    const fresh = await readLmStudioModels(runtime.origin, signal).catch(() => null);
+    if (fresh) await this.replaceModels(runtime.kind, fresh);
+  }
+
+  private async runCompatible(runtime: RuntimeCandidate, job: BridgeJob, sink: ChunkSink, signal: AbortSignal): Promise<RunOutcome> {
+    const modelId = job.payload.model;
+    const model = this.runtimes.find((r) => r.runtime.kind === runtime.kind)?.models.find((m) => m.id === modelId);
+    const key = `${runtime.kind}:${modelId}`;
+    const strict = this.noSystemRole.has(key);
+    try {
+      return await runOpenAiCompatible(runtime, job, sink, signal, { systemRole: !strict, model });
+    } catch (err) {
+      // A template with no system role at all (Gemma 2, early Mistral) rejects
+      // the request before generating anything. Retry once with the
+      // instructions folded into the first turn, and remember the model.
+      if (strict || sink.started || !(err instanceof RuntimeError) || !isTemplateError(err.detail)) throw err;
+      this.noSystemRole.add(key);
+      return runOpenAiCompatible(runtime, job, sink, signal, { systemRole: false, model });
+    }
+  }
+
   private async runJob(job: BridgeJob): Promise<void> {
     // One turn at a time. A second job while one is in flight means the player
     // hit send twice; the newer one wins, same as the chat UI's own behavior.
@@ -360,12 +650,14 @@ export class LocalBridge {
     this.abort = ctrl;
 
     const sink = new ChunkSink(job.requestId);
+    const { runtime } = this.runtimeFor(job.payload.model);
     this.opts.onStatus?.("running");
 
     try {
-      const outcome = this.opts.runtime.native
-        ? await runOllama(this.opts.runtime.origin, job, sink, ctrl.signal)
-        : await runOpenAiCompatible(this.opts.runtime.origin, job, sink, ctrl.signal);
+      if (runtime.kind === "lmstudio") await this.ensureLmStudioLoaded(runtime, job.payload.model, ctrl.signal);
+      const outcome = runtime.native
+        ? await runOllama(runtime.origin, job, sink, ctrl.signal)
+        : await this.runCompatible(runtime, job, sink, ctrl.signal);
 
       await sink.flush();
       await report({
@@ -377,15 +669,21 @@ export class LocalBridge {
           completionTokens: outcome.completionTokens ?? 0,
         },
       });
+      this.down.delete(runtime.kind);
       this.runtimeDown = false;
+      this.unreachable = null;
       this.opts.onStatus?.("connected");
     } catch (err) {
       if (ctrl.signal.aborted) return;
       await sink.flush();
       // A TypeError from fetch means nothing answered at all: the runtime is closed.
       const unreachable = err instanceof TypeError;
-      if (unreachable) this.runtimeDown = true;
-      const message = unreachable ? unreachableMessage(this.opts.runtime) : err instanceof Error ? err.message : String(err);
+      if (unreachable) {
+        this.down.add(runtime.kind);
+        this.unreachable = runtime.kind;
+        this.runtimeDown = this.runtimes.every((r) => this.down.has(r.runtime.kind));
+      }
+      const message = unreachable ? unreachableMessage(runtime) : err instanceof Error ? err.message : String(err);
       await report({ kind: "error", requestId: job.requestId, message });
       this.opts.onStatus?.("error", message);
     } finally {

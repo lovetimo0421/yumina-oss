@@ -1390,13 +1390,18 @@
       "phoneBody": "{{model}} runs on your computer. Keep Yumina open there so replies can reach you here. To switch back, change the source at the top right.",
       "footer": "Generated on your own computer",
       "footerFree": "No Mushies",
-      "pillOnComputer": "Running on your computer"
+      "pillOnComputer": "Running on your computer",
+      "notLoaded": "loads on first use",
+      "noModelsLmStudio": "LM Studio has no chat models yet. Download one from its Discover tab, then click \"Check again\"."
     },
     "blockedFixWindows": "Copy the line below, paste it into PowerShell and press Enter (press the Windows key and type PowerShell to open it). It sets things up and restarts Ollama in a few seconds, and this page connects by itself.",
     "blockedFixMac": "Copy the line below, paste it into Terminal and press Enter (press Command and Space, then type Terminal). It sets things up and restarts Ollama in a few seconds, and this page connects by itself.",
     "blockedWatching": "Waiting for Ollama to let Yumina in; this connects by itself…",
     "blockedNoReboot": "Only the Ollama app restarts, not your computer. Nothing is downloaded or installed.",
     "blockedLinux": "Set OLLAMA_ORIGINS as in step 3 of the setup guide, then restart the Ollama service.",
+    "blockedFixLmStudio": "In LM Studio, open the Developer tab, click Server Settings and turn on \"Enable CORS\". This page connects by itself once it is on.",
+    "blockedFixOther": "Open {{runtime}}'s server settings and allow requests from {{origin}} (CORS). This page connects by itself once it is allowed.",
+    "blockedWatchingApp": "Waiting for {{runtime}} to let Yumina in; this connects by itself…",
     "connectedToast": "Connected to {{runtime}} on your computer. Pick a model."
   },
   "inviteRace": {

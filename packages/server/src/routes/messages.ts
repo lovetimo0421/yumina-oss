@@ -851,7 +851,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     model,
     clamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
     body.overrides?.reasoningEffort,
-    await resolved.provider.getContextWindow?.(),
+    await resolved.provider.getContextWindow?.(model),
   );
   const storyMemory = turnStoryMemory({
     override: body.overrides?.storyMemory,
@@ -2471,7 +2471,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     model,
     regenClamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
     body.overrides?.reasoningEffort,
-    await resolved.provider.getContextWindow?.(),
+    await resolved.provider.getContextWindow?.(model),
   );
   const regenStoryMemory = turnStoryMemory({
     override: body.overrides?.storyMemory,
@@ -3361,7 +3361,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     model,
     contClamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
     body.overrides?.reasoningEffort,
-    await resolved.provider.getContextWindow?.(),
+    await resolved.provider.getContextWindow?.(model),
   );
   const storyMemory = turnStoryMemory({
     override: body.overrides?.storyMemory,
