@@ -1,3 +1,5 @@
+import { isAssetArchiveFilename } from "@yumina/shared";
+import { useAssetImportStore as useArchiveImportStore } from "@/stores/asset-imports";
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import {
   FileText,
@@ -132,7 +134,7 @@ export function LibraryAssetsTab({
   showBindingHint?: boolean;
   resourceNav?: React.ReactNode;
 }) {
-  const { t } = useTranslation("library");
+  const { t } = useTranslation(["library", "asset-import"]);
   const { requireAuth, isAuthenticated, session } = useAuthGuard();
   const assets = useUserAssetStore(s => s.assets);
   const folders = useUserAssetStore(s => s.folders);
@@ -144,6 +146,10 @@ export function LibraryAssetsTab({
   const fetchAssetById = useUserAssetStore(s => s.fetchAssetById);
   const fetchFolders = useUserAssetStore(s => s.fetchFolders);
   const uploadAsset = useUserAssetStore(s => s.uploadAsset);
+  const enqueueArchives = useArchiveImportStore(s => s.enqueue);
+  const hasArchives = useArchiveImportStore(s => s.items.length > 0);
+  const archiveRevision = useArchiveImportStore(s => s.revision);
+  const showArchive = useArchiveImportStore(s => s.show);
   const deleteAsset = useUserAssetStore(s => s.deleteAsset);
   const renameAsset = useUserAssetStore(s => s.renameAsset);
   const moveAsset = useUserAssetStore(s => s.moveAsset);
@@ -239,10 +245,10 @@ export function LibraryAssetsTab({
   }, [fetchCurrentPage, fetchFolders]);
 
   useEffect(() => {
-    if (!importRevision) return;
+    if (!importRevision && !archiveRevision) return;
     refreshCurrentPage.current();
     void fetchFolders();
-  }, [importRevision, fetchFolders]);
+  }, [importRevision, archiveRevision, fetchFolders]);
 
   useEffect(() => {
     if (!highlightedAssetId) return;
@@ -347,8 +353,11 @@ export function LibraryAssetsTab({
       try {
         for (const [index, file] of files.entries()) {
           if (!mounted.current || uploadOwner.current !== owner) break;
-          const { type } = getUploadMetadata(file);
-          await uploadAsset(file, type, folderId ?? undefined);
+          if (isAssetArchiveFilename(file.name)) enqueueArchives([file], folderId);
+          else {
+            const { type } = getUploadMetadata(file);
+            await uploadAsset(file, type, folderId ?? undefined);
+          }
           if (mounted.current && uploadOwner.current === owner) setPendingUploadCount(files.length - index - 1);
         }
       } finally {
@@ -360,7 +369,7 @@ export function LibraryAssetsTab({
         }
       }
     },
-    [fetchFolders, uploadAsset]
+    [fetchFolders, uploadAsset, enqueueArchives]
   );
 
   const handleUpload = useCallback(
@@ -826,7 +835,7 @@ export function LibraryAssetsTab({
             className="hidden"
             onChange={handleFolderUpload}
           />
-          <DropdownMenu>
+          {hasArchives ? <button onClick={showArchive} className="flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold px-4 py-1.5 rounded-lg transition-colors"><Upload size={14} />{t("asset-import:viewProgress")}</button> : <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button disabled={uploading || pendingUploadCount > 0 || readingFolder || !!folderUpload} className="flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-60">
                 {uploading || pendingUploadCount > 0 || readingFolder ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
@@ -838,7 +847,7 @@ export function LibraryAssetsTab({
               <DropdownMenuItem onSelect={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } fileInputRef.current?.click(); }}><Upload size={14} />{t("assets.uploadFiles")}</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } folderInputRef.current?.click(); }}><FolderUp size={14} />{t("assets.uploadFolder")}</DropdownMenuItem>
             </DropdownMenuContent>
-          </DropdownMenu>
+          </DropdownMenu>}
         </>}
       </div>
 

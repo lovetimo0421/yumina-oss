@@ -31,6 +31,8 @@ import { useFolderBindingStore } from "@/stores/folder-bindings";
 import { useUserAssetStore, type UserAsset } from "@/stores/user-assets";
 import { getAssetCdnUrl, cardImageUrl, fallbackToOriginalOnError } from "@/lib/asset-url";
 import { getUploadMetadata } from "@/lib/asset-upload";
+import { isAssetArchiveFilename } from "@yumina/shared";
+import { useAssetImportStore } from "@/stores/asset-imports";
 import {
   Dialog,
   DialogContent,
@@ -64,7 +66,7 @@ function assetIcon(type: string, size = 22) {
 }
 
 export function BoundAssetsView({ worldId }: { worldId: string }) {
-  const { t } = useTranslation("library");
+  const { t } = useTranslation(["library", "asset-import"]);
   const { data: session } = useSession();
   // Platform image generation is hosted-only; without it the view is bindings + uploads.
   const imageGeneration = useFeature("imageGeneration");
@@ -80,6 +82,10 @@ export function BoundAssetsView({ worldId }: { worldId: string }) {
   const folders = useUserAssetStore((s) => s.folders);
   const fetchFolders = useUserAssetStore((s) => s.fetchFolders);
   const uploadAsset = useUserAssetStore((s) => s.uploadAsset);
+  const enqueueArchives = useAssetImportStore((s) => s.enqueue);
+  const hasImports = useAssetImportStore((s) => s.items.length > 0);
+  const showImport = useAssetImportStore((s) => s.show);
+  const importRevision = useAssetImportStore((s) => s.revision);
   const deleteAsset = useUserAssetStore((s) => s.deleteAsset);
   const moveAsset = useUserAssetStore((s) => s.moveAsset);
 
@@ -131,7 +137,7 @@ export function BoundAssetsView({ worldId }: { worldId: string }) {
       setLoadingFolderId(folderId);
       try {
         const res = await fetch(
-          `${apiBase}/api/user-assets?folderId=${folderId}&limit=500`,
+          `${apiBase}/api/user-assets?folderId=${encodeURIComponent(folderId)}&recursive=true&limit=500`,
           { credentials: "include" },
         );
         if (res.ok) {
@@ -152,8 +158,11 @@ export function BoundAssetsView({ worldId }: { worldId: string }) {
       setUploadRemaining(files.length);
       try {
         for (const [index, file] of files.entries()) {
-          const { type } = getUploadMetadata(file);
-          await uploadAsset(file, type, folderId);
+          if (isAssetArchiveFilename(file.name)) enqueueArchives([file], folderId);
+          else {
+            const { type } = getUploadMetadata(file);
+            await uploadAsset(file, type, folderId);
+          }
           setUploadRemaining(files.length - index - 1);
         }
       } finally {
@@ -167,13 +176,30 @@ export function BoundAssetsView({ worldId }: { worldId: string }) {
         ]);
       }
     },
-    [uploadingFolderId, uploadAsset, loadFolderAssets, fetchBindings, fetchFolders, worldId],
+    [uploadingFolderId, uploadAsset, loadFolderAssets, fetchBindings, fetchFolders, worldId, enqueueArchives],
   );
 
   const pickFilesForFolder = useCallback((folderId: string) => {
+    if (hasImports) { showImport(); return; }
     uploadTargetRef.current = folderId;
     fileInputRef.current?.click();
-  }, []);
+  }, [hasImports, showImport]);
+
+  useEffect(() => {
+    if (!importRevision) return;
+    let cancelled = false;
+    setFolderAssets({});
+    void fetchBindings(worldId);
+    void fetchFolders();
+    if (expandedId) void (async () => {
+      const response = await fetch(`${apiBase}/api/user-assets?folderId=${encodeURIComponent(expandedId)}&recursive=true&limit=500`, { credentials: "include" });
+      if (response.ok) {
+        const { data } = await response.json();
+        if (!cancelled) setFolderAssets(previous => ({ ...previous, [expandedId]: data ?? [] }));
+      }
+    })().catch(() => {});
+    return () => { cancelled = true; };
+  }, [importRevision, expandedId, fetchBindings, fetchFolders, worldId]);
 
   const toggleFolder = useCallback(
     (folderId: string) => {
@@ -416,7 +442,7 @@ export function BoundAssetsView({ worldId }: { worldId: string }) {
                   <button
                     onClick={() => pickFilesForFolder(folder.id)}
                     disabled={uploadingFolderId !== null}
-                    title={t("bindings.uploadToFolder", { folder: folder.name })}
+                    title={hasImports ? t("asset-import:viewProgress") : t("bindings.uploadToFolder", { folder: folder.name })}
                     className="flex shrink-0 items-center gap-1.5 rounded-md p-1.5 text-muted-foreground/60 transition-colors hover:bg-white/5 hover:text-primary disabled:cursor-default disabled:opacity-60"
                   >
                     {isUploading ? (

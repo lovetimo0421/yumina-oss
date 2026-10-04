@@ -41,6 +41,10 @@ The second tab shows worlds you've created or copied, split into In Development 
 
 The third tab manages your uploaded files -- images (PNG, JPG, WebP, SVG), audio (MP3, WAV, OGG), and fonts (TTF, OTF, WOFF). Organized in a folder tree with drag-and-drop. Storage limit depends on your plan: 1 GB on Free, 5 GB on Gold, 20 GB on Platinum, 50 GB on Diamond, 100 GB on Ascendant.
 
+Select a ZIP, TAR, TAR.GZ, or TGZ archive with **Upload files**, or drop it into the current asset folder. After inspection, choose whether to keep its folder structure and keep both or skip duplicate filenames, then start importing. Keep the page open until the upload finishes. Once confirmed, the server continues importing in the background; **View import** reopens progress and lets you retry failed files.
+
+Archives support up to 128 MiB compressed, 512 MiB unpacked, 2,000 files, and 64 MiB per file, subject to your available storage.
+
 ## Bundles
 
 The fourth tab shows resource packs you've collected -- packaged asset sets from creators. Mostly relevant for world creation.

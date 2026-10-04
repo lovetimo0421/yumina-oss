@@ -72,6 +72,7 @@ function canonical(value: unknown): string {
     return JSON.stringify(value);
 }
 export function createSessionMediaService(db: DrizzleDB, storage: MediaStorage) {
+    let importsReady = false;
     let ready = false;
     async function isReady(executor: Executor = db) {
         if (ready)
@@ -98,18 +99,26 @@ export function createSessionMediaService(db: DrizzleDB, storage: MediaStorage) 
         return row;
     }
     async function usage(userId: string, tx: Executor = db) {
+        // Archive jobs share the same account lock/quota as individual uploads.
+        // Keep this additive rollout safe before the new tables are installed.
+        if (!importsReady) {
+            const [tables] = await mediaRows<{ ready: boolean }>(tx, sql`SELECT to_regclass('asset_import_jobs') IS NOT NULL AS ready`);
+            importsReady = !!tables?.ready;
+        }
+        const [imports] = importsReady ? await mediaRows<{ bytes: string }>(tx, sql`SELECT COALESCE(SUM(reserved_bytes),0)::text AS bytes FROM asset_import_jobs WHERE user_id=${userId}`) : [];
+        const importReserved = Number(imports?.bytes ?? 0);
         const [old] = await mediaRows<{
             bytes: string;
         }>(tx, sql `SELECT COALESCE(SUM(size_bytes),0)::text AS bytes FROM user_assets WHERE user_id=${userId}`);
         if (!(await isReady(tx)))
-            return { used: Number(old?.bytes ?? 0), mediaBytes: 0, reserved: 0 };
+            return { used: Number(old?.bytes ?? 0), mediaBytes: 0, reserved: importReserved };
         const [row] = await mediaRows<{
             bytes: string;
             reserved: string;
         }>(tx, sql `
       SELECT (SELECT COALESCE(SUM(size_bytes),0) FROM session_media WHERE user_id=${userId})::text AS bytes,
       (SELECT COALESCE(SUM(reserved_bytes),0) FROM session_media_uploads WHERE user_id=${userId})::text AS reserved`);
-        return { used: Number(old?.bytes ?? 0) + Number(row?.bytes ?? 0), mediaBytes: Number(row?.bytes ?? 0), reserved: Number(row?.reserved ?? 0) };
+        return { used: Number(old?.bytes ?? 0) + Number(row?.bytes ?? 0), mediaBytes: Number(row?.bytes ?? 0), reserved: Number(row?.reserved ?? 0) + importReserved };
     }
     async function reserve(userId: string, limit: number, input: {
         id: string;

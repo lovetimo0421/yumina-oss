@@ -239,6 +239,7 @@ async function getDeletionContext(
     assetPrefixes: [...new Set([
       `users/${userId}/`,
       `private-session-media/${userId}/`,
+      `private-asset-imports/${userId}/`,
       `dm/${userId}/`,
       `studio-chat/${userId}/`,
       `community/${userId}/`,

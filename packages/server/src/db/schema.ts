@@ -3785,3 +3785,52 @@ export const discoverArtworkOverrides = pgTable("discover_artwork_overrides", {
   artwork: jsonb("artwork").$type<Record<string, unknown>>().notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// Durable archive imports; their source objects are never exposed through /cdn.
+export const assetImportJobs = pgTable("asset_import_jobs", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  filename: text("filename").notNull(),
+  folderId: text("folder_id"),
+  inputBytes: bigint("input_bytes", { mode: "number" }).notNull(),
+  expandedBytes: bigint("expanded_bytes", { mode: "number" }).notNull().default(0),
+  reservedBytes: bigint("reserved_bytes", { mode: "number" }).notNull().default(0),
+  fileCount: integer("file_count").notNull().default(0),
+  ignoredCount: integer("ignored_count").notNull().default(0),
+  preserveFolders: boolean("preserve_folders").notNull().default(true),
+  conflict: text("conflict").notNull().default("rename"),
+  status: text("status").notNull().default("uploading"),
+  errorCode: text("error_code"),
+  leaseToken: text("lease_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '24 hours'`),
+  uploadExpiresAt: timestamp("upload_expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '1 hour'`),
+  cleanedAt: timestamp("cleaned_at", { withTimezone: true }),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+}, t => [
+  index("asset_import_owner_idx").on(t.userId, t.createdAt),
+  index("asset_import_worker_idx").on(t.status, t.leaseExpiresAt),
+  index("asset_import_cleanup_idx").on(t.expiresAt).where(sql`${t.cleanedAt} IS NULL`),
+  check("asset_import_jobs_input_bytes_check", sql`${t.inputBytes} > 0`),
+  check("asset_import_jobs_reserved_bytes_check", sql`${t.reservedBytes} >= 0`),
+  check("asset_import_jobs_conflict_check", sql`${t.conflict} IN ('rename','skip')`),
+  check("asset_import_jobs_status_check", sql`${t.status} IN ('uploading','queued_inspect','inspecting','ready','queued','processing','completed','partial','failed','cancelled','expired')`),
+]);
+
+export const assetImportEntries = pgTable("asset_import_entries", {
+  jobId: text("job_id").notNull().references(() => assetImportJobs.id, { onDelete: "cascade" }),
+  ordinal: integer("ordinal").notNull(),
+  path: text("path").notNull(),
+  sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+  mimeType: text("mime_type").notNull(),
+  assetType: text("asset_type").notNull(),
+  assetId: text("asset_id").notNull(),
+  status: text("status").notNull().default("pending"),
+  errorCode: text("error_code"),
+}, t => [
+  primaryKey({ columns: [t.jobId, t.ordinal] }),
+  unique("asset_import_entries_job_id_path_key").on(t.jobId, t.path),
+  check("asset_import_entries_status_check", sql`${t.status} IN ('pending','succeeded','skipped','failed')`),
+]);

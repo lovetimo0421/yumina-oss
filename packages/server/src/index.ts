@@ -60,6 +60,8 @@ import { studioRoutes } from "./routes/studio.js";
 import { assetRoutes } from "./routes/assets.js";
 import { userPromptsRoutes } from "./routes/user-prompts.js";
 import { userPresetOverridesRoutes } from "./routes/user-preset-overrides.js";
+import { assetImportRoutes } from "./routes/asset-import.js";
+import { startAssetImportWorker, stopAssetImportWorker } from "./lib/asset-import.js";
 import { userAssetRoutes } from "./routes/user-assets.js";
 import { sessionMediaRoutes } from "./routes/session-media.js";
 import { startSessionMediaCleanup } from "./lib/session-media.js";
@@ -264,6 +266,7 @@ app.route("/api/studio", agentRoutes);
 app.route("/api", assetRoutes);
 app.route("/api/user-prompts", userPromptsRoutes);
 app.route("/api/user-preset-overrides", userPresetOverridesRoutes);
+app.route("/api/user-assets/imports", assetImportRoutes);
 app.route("/api/user-assets", userAssetRoutes);
 app.route("/api/session-media", sessionMediaRoutes);
 app.route("/api", assetRefRoutes);
@@ -681,7 +684,7 @@ async function start() {
   // edition (hosted: recommendations, payouts, rollups, image generation, ...;
   // local: nothing).
   edition.startBackgroundJobs();
-  if (edition.name === "hosted") startSessionMediaCleanup();
+  if (edition.name === "hosted") { startSessionMediaCleanup(); startAssetImportWorker(); }
 
   // Load the cl100k_base ranks up front so token budgeting is exact from the
   // first request. estimateTokens falls back to a char heuristic until the
@@ -730,6 +733,7 @@ async function start() {
     // Without this, process.exit(0) would still work but Node would log
     // "still running" warnings during deploys.
     edition.stopBackgroundJobs();
+    stopAssetImportWorker();
     stopRateLimitCleanup();
     server.close();
     const [{ finishedNaturally, abortedCount }] = await Promise.all([

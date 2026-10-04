@@ -671,7 +671,7 @@ userAssetRoutes.get("/", async (c) => {
   const offset = Math.max(parseInt(c.req.query("offset") || "0") || 0, 0);
 
   const conditions = userAssetFilters(currentUser.id, {
-    type: isAssetType(typeFilter) ? typeFilter : undefined, folderId, search,
+    type: isAssetType(typeFilter) ? typeFilter : undefined, folderId, search, recursive: c.req.query("recursive") === "true",
   });
 
   const rows = await db

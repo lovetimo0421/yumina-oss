@@ -1,3 +1,4 @@
+import type assetImport from "../locales/en/asset-import.json";
 import "i18next";
 
 import type common from "../locales/en/common.json";
@@ -21,6 +22,7 @@ declare global {
    * open-source export leaves out together with those locale files.
    */
   interface YuminaI18nResources {
+    "asset-import": typeof assetImport;
     common: typeof common;
     auth: typeof auth;
     settings: typeof settings;

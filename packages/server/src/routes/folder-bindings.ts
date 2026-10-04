@@ -1,9 +1,10 @@
 import { Hono } from "hono";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { worldFolderBindings, assetFolders, userAssets, worlds } from "../db/schema.js";
+import { worldFolderBindings, assetFolders, worlds } from "../db/schema.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../lib/types.js";
+import { summarizeAssetFolderTrees } from "../lib/asset-folder-tree.js";
 
 const folderBindingRoutes = new Hono<AppEnv>();
 
@@ -53,36 +54,9 @@ folderBindingRoutes.get("/worlds/:worldId/folder-bindings", async (c) => {
 
   const folderIds = bound.map((f) => f.id);
 
-  // Per-folder counts + a few image previews, only for the bound folders.
-  const counts = folderIds.length
-    ? await db
-        .select({
-          folderId: userAssets.folderId,
-          count: sql<number>`count(*)`.mapWith(Number),
-        })
-        .from(userAssets)
-        .where(
-          and(eq(userAssets.userId, currentUser.id), inArray(userAssets.folderId, folderIds)),
-        )
-        .groupBy(userAssets.folderId)
-    : [];
-
-  // Up to 4 image previews per folder, capped in SQL via a window function so we
-  // never pull a whole (potentially huge) folder back just to slice off 4.
-  const previewResult = folderIds.length
-    ? await db.execute(sql`
-        SELECT id, folder_id FROM (
-          SELECT id, folder_id,
-                 row_number() OVER (PARTITION BY folder_id ORDER BY created_at) AS rn
-          FROM user_assets
-          WHERE user_id = ${currentUser.id}
-            AND type = 'image'
-            AND folder_id IN (${sql.join(folderIds.map((id) => sql`${id}`), sql`, `)})
-        ) ranked
-        WHERE rn <= 4
-      `)
-    : { rows: [] as Record<string, unknown>[] };
-  const previewRows = previewResult.rows as { id: string; folder_id: string }[];
+  // A bound folder includes its descendants (also how Studio's asset catalog
+  // scopes it). Archive imports may put every file below a child folder.
+  const { counts, previews: previewRows } = await summarizeAssetFolderTrees(db, currentUser.id, folderIds);
 
   const countByFolder = new Map(counts.map((r) => [r.folderId, r.count]));
   const previewsByFolder = new Map<string, string[]>();
