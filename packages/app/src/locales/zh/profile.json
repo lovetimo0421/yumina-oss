@@ -1377,13 +1377,18 @@
       "phoneBody": "当前的 {{model}} 在你的电脑上运行。电脑上的 Yumina 页面要一直开着，这里才能收到回复。想换回来，点右上角切换来源。",
       "footer": "在你自己的电脑上生成",
       "footerFree": "不扣蘑菇",
-      "pillOnComputer": "电脑在运行"
+      "pillOnComputer": "电脑在运行",
+      "notLoaded": "首次使用时加载",
+      "noModelsLmStudio": "LM Studio 里还没有聊天模型。在它的「Discover」页下载一个，再点「重新检测」。"
     },
     "blockedFixWindows": "复制下面这一行，粘贴到 PowerShell 里按回车（按键盘左下角的 Win 键，输入 PowerShell 就能打开）。它会自动设置好并重启 Ollama，几秒就好，这个页面会自己连上。",
     "blockedFixMac": "复制下面这一行，粘贴到「终端」里按回车（同时按 Command 和空格，输入“终端”就能打开）。它会自动设置好并重启 Ollama，几秒就好，这个页面会自己连上。",
     "blockedWatching": "正在等 Ollama 放行，弄好后会自动连上…",
     "blockedNoReboot": "只会重启 Ollama 这个程序，不用重启电脑，也不会下载或安装任何东西。",
     "blockedLinux": "请按安装教程第 3 步设置 OLLAMA_ORIGINS，然后重启 Ollama 服务。",
+    "blockedFixLmStudio": "在 LM Studio 里打开「Developer」页，点「Server Settings」，打开「Enable CORS」。打开后这个页面会自己连上。",
+    "blockedFixOther": "打开 {{runtime}} 的服务器设置，允许来自 {{origin}} 的请求（CORS）。允许后这个页面会自己连上。",
+    "blockedWatchingApp": "正在等 {{runtime}} 放行，弄好后会自动连上…",
     "connectedToast": "已连上你电脑上的 {{runtime}}，可以选模型了"
   },
   "inviteRace": {

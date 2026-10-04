@@ -44,6 +44,7 @@ import type {
   SandboxMode,
 } from "@/../sandbox/protocol";
 import { useLocalModelStore } from "@/features/local-model/store";
+import { runtimeNames } from "@/features/local-model/detect";
 import { useUserProfileStore } from "@/stores/user-profile";
 import { useModelsStore } from "@/stores/models";
 import { useAudioStore, onAudioTrackEnded } from "@/stores/audio";
@@ -269,7 +270,7 @@ export function WorldRenderer({
   const localArmed = useLocalModelStore((s) => s.armed);
   const localStatus = useLocalModelStore((s) => s.status);
   const localRuntimeLabel = useLocalModelStore((s) =>
-    s.detection?.status === "ready" ? s.detection.runtime.label : null,
+    s.detection?.status === "ready" ? runtimeNames(s.detection) : null,
   );
   const localModels = useModelsStore((s) => s.localModels);
 

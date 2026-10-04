@@ -26,7 +26,7 @@ import { installMobileViewport } from "@/lib/mobile-viewport";
 import { installOverlayRecovery } from "@/lib/overlay-recovery";
 import { installReadingPageCanvas } from "@/lib/reading-page-canvas";
 import { getMobileReadingPageId } from "@/lib/mobile-reading-route";
-import { isLocalModelArmed } from "@/features/local-model/enabled-flag";
+import { isLocalModelArmed, shouldAutoDetectLocalModel } from "@/features/local-model/enabled-flag";
 
 // Globally-mounted modals are render-on-demand (zustand stores drive their
 // visibility), so their feature trees don't belong in the entry chunk. Lazy
@@ -163,14 +163,22 @@ export function AppShell({ children }: AppShellProps) {
   // woke it outside the AI-provider settings panel — so a player who reloaded
   // and went straight to a chat had no local model in the picker and no way to
   // tell why. The flag check keeps this free for everyone else: no probe, and
-  // the bridge module never enters the entry chunk.
+  // the bridge module never enters the entry chunk. The self-hosted edition
+  // opened on its own machine goes further and finds the runtime by itself.
   useEffect(() => {
-    if (!isLocalModelArmed()) return;
-    void import("@/features/local-model/store")
-      .then((m) => m.useLocalModelStore.getState().resume())
-      .catch(() => {
-        /* the settings panel is still there to retry from */
-      });
+    let cancelled = false;
+    void (async () => {
+      const armed = isLocalModelArmed();
+      const auto = !armed && (await shouldAutoDetectLocalModel());
+      if (!armed && !auto) return;
+      const m = await import("@/features/local-model/store");
+      if (!cancelled) await m.useLocalModelStore.getState().resume({ auto });
+    })().catch(() => {
+      /* the settings panel is still there to retry from */
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Sync the account "world audio" preference into the audio store kill
