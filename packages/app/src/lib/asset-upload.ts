@@ -56,6 +56,7 @@ const FONT_MIME_ALIASES: Record<string, string> = {
 interface ApiResponse<T> {
   data?: T;
   error?: string;
+  code?: string;
 }
 
 interface PresignedUploadData {
@@ -72,6 +73,7 @@ interface UploadRequestContext {
 }
 
 export interface PresignedAssetUploadConfig {
+  releaseUrl?: string;
   file: File;
   preferredType?: UploadAssetType;
   prepareUrl: string;
@@ -445,7 +447,8 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
   resizeImageMaxDimension,
   resizeImageQuality,
   onProgress,
-}: PresignedAssetUploadConfig): Promise<T> {
+  onPrepared,
+}: PresignedAssetUploadConfig & { onPrepared?: (key: string) => void }): Promise<T> {
   const f = fetchImpl ?? fetch;
   signal?.throwIfAborted();
   onStage?.("prepare");
@@ -475,29 +478,45 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
   const prepareTimeout = createUploadTimeout(prepareTimeoutMs, signal);
   let preparePayload: ApiResponse<PresignedUploadData> | null;
   try {
-    const prepareResponse = await f(prepareUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: prepareCredentials,
-      signal: prepareTimeout.signal,
-      body: JSON.stringify({
-        filename: file.name,
-        contentType,
-        type: resolvedType,
-        sizeBytes: file.size,
-        ...(animated ? { animated: true } : {}),
-        ...prepareBody,
-      }),
-    });
+    for (;;) {
+      const prepareResponse = await f(prepareUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: prepareCredentials,
+        signal: prepareTimeout.signal,
+        body: JSON.stringify({
+          filename: file.name,
+          contentType,
+          type: resolvedType,
+          sizeBytes: file.size,
+          ...(animated ? { animated: true } : {}),
+          ...prepareBody,
+        }),
+      });
 
-    preparePayload = await parseApiResponse<PresignedUploadData>(prepareResponse);
+      preparePayload = await parseApiResponse<PresignedUploadData>(prepareResponse);
 
-    if (!prepareResponse.ok) {
-      throw new AssetUploadError(
-        "prepare",
-        getApiErrorMessage(preparePayload, "Failed to prepare upload"),
-        { status: prepareResponse.status }
-      );
+      // Another tab may occupy this account's slots. Wait within the existing
+      // prepare deadline; hourly/storage failures are not retried automatically.
+      if (prepareResponse.status === 429 && preparePayload?.code === "UPLOAD_BUSY") {
+        const delayMs = Math.max(1, Math.min(10, Number(prepareResponse.headers.get("Retry-After")) || 2)) * 1000;
+        await new Promise<void>((resolve, reject) => {
+          const stop = () => { clearTimeout(timer); reject(prepareTimeout.signal.reason); };
+          const timer = setTimeout(() => { prepareTimeout.signal.removeEventListener("abort", stop); resolve(); }, delayMs);
+          prepareTimeout.signal.addEventListener("abort", stop, { once: true });
+          if (prepareTimeout.signal.aborted) stop();
+        });
+        continue;
+      }
+
+      if (!prepareResponse.ok) {
+        throw new AssetUploadError(
+          "prepare",
+          getApiErrorMessage(preparePayload, "Failed to prepare upload"),
+          { status: prepareResponse.status }
+        );
+      }
+      break;
     }
   } catch (error) {
     if (signal?.aborted) signal.throwIfAborted();
@@ -507,8 +526,8 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
     prepareTimeout.cleanup();
   }
 
-  signal?.throwIfAborted();
   if (preparePayload?.data?.asset !== undefined) {
+    signal?.throwIfAborted();
     onReconciled?.();
     return preparePayload.data.asset as T;
   }
@@ -518,6 +537,7 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
   if (!uploadUrl || !key) {
     throw new AssetUploadError("prepare", "Failed to prepare upload");
   }
+  onPrepared?.(key);
 
   // Stage 2: Upload to S3 with retry on transient errors
   signal?.throwIfAborted();
@@ -582,8 +602,18 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
 /** Public entry: identical to the inner function, but blocks deploy reloads mid-upload (spec §5). */
 export async function uploadAssetWithPresignedUrl<T>(config: PresignedAssetUploadConfig): Promise<T> {
   const release = holdReload("upload");
+  let preparedKey: string | undefined;
   try {
-    return await uploadAssetWithPresignedUrlUnguarded<T>(config);
+    return await uploadAssetWithPresignedUrlUnguarded<T>({ ...config, onPrepared: key => { preparedKey = key; } });
+  } catch (error) {
+    if (config.releaseUrl && config.prepareBody?.requestId && preparedKey) {
+      try {
+        await (config.fetchImpl ?? fetch)(config.releaseUrl, { method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: config.prepareBody.requestId, key: preparedKey }),
+          signal: AbortSignal.timeout(5_000) });
+      } catch { /* Expiry remains the fallback when cancellation cannot reach the server. */ }
+    }
+    throw error;
   } finally {
     release();
   }

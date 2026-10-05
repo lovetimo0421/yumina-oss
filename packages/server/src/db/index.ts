@@ -11,6 +11,7 @@ import { MAX_WORLD_TAGS } from "@yumina/shared";
 import * as schema from "./schema.js";
 import { USER_MUTES_STATEMENTS } from "./user-mutes-ddl.js";
 import { WORLD_AUDIENCE_DDL } from "./world-audience-ddl.js";
+import { CREATIVE_UPLOAD_STATEMENTS } from "./creative-upload-ddl.js";
 import {
   PLAN_ENTITLEMENT_SOURCE_CHECK,
   PLAN_ENTITLEMENT_SOURCE_CONSTRAINT_DDL,
@@ -283,6 +284,7 @@ const TABLE_DDLS = [
     created_at TIMESTAMP NOT NULL DEFAULT NOW(), updated_at TIMESTAMP NOT NULL DEFAULT NOW()
   )`,
   ...USER_MUTES_STATEMENTS,
+  ...CREATIVE_UPLOAD_STATEMENTS,
   `CREATE TABLE IF NOT EXISTS jwks (
     id TEXT PRIMARY KEY, public_key TEXT NOT NULL, private_key TEXT NOT NULL,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(), expires_at TIMESTAMP
@@ -1516,6 +1518,16 @@ export async function ensureTables() {
   await ensureWorldsSchemaDerived();
   await ensureMessagesSwipeCount();
   console.log("[DEV] PGlite tables + indexes created");
+}
+
+export async function ensureCreativeUploadSchema() {
+  await db.transaction(async tx => {
+    if (!IS_PGLITE) {
+      await tx.execute(sql`SET LOCAL lock_timeout = '5s'`);
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('creative-upload-schema'))`);
+    }
+    for (const statement of CREATIVE_UPLOAD_STATEMENTS) await tx.execute(sql.raw(statement));
+  });
 }
 
 // Hot-path indexes for real Postgres. ensureTables() above is PGlite-only, so

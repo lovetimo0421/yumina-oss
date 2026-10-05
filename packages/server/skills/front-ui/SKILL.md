@@ -37,6 +37,22 @@ Before fixing a missing widget, read the entry file and trace its imports and re
 
 This avoids rebuilding the entire chat UI from scratch. Use `<Chat />` alone when you just need widgets around the standard chat. Add `renderBubble` when you also need custom message styling.
 
+### Theming the built-in input box
+
+The input box is ONE surface: `.play-composer-card` holds the textarea AND the toolbar under it (`+`, model pill, Memory, send). Theme it as one piece or leave it alone.
+
+- Style `.play-composer-card` (background, border, radius, glow). Never give `textarea` / `.play-composer-textarea` / `.play-composer-grow` its own border, background or shadow — the box splits into a themed top half and an unthemed toolbar. The platform flattens a boxed textarea at runtime anyway.
+- If you change the card's background, set the text colours for it in the same rule, so typed text, placeholder and toolbar labels stay readable (4.5:1). Redefine the tokens on the card instead of colouring single elements: a light card needs `--color-foreground`, `--color-muted-foreground`, `--color-accent`, `--color-border`, `--color-popover` and `--color-popover-foreground` set to dark-ink values.
+- Over a scene image, keep the card at least 60% opaque or add `backdrop-filter: blur(...)`; a transparent card puts text straight on the art.
+
+```css
+.my-chat .play-composer-card {
+  background: rgba(255, 250, 240, .94); border: 1px solid #c9a25e; box-shadow: 0 0 14px #c9a25e55;
+  --color-foreground: #2b2620; --color-muted-foreground: #6b6257; --color-accent: #efe6d4;
+  --color-border: #d8ccb4; --color-popover: #fffaf0; --color-popover-foreground: #2b2620;
+}
+```
+
 ## Full Takeover (no `<Chat>`)
 
 To take over the viewport entirely — no platform chat at all — simply don't render `<Chat>` in the entry file. Handle all chat display yourself:

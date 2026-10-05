@@ -31,6 +31,7 @@ import {
   ensureScheduledFunctions,
   ensureSessionContextColumns,
   ensureTables,
+  ensureCreativeUploadSchema,
   ensureWorldReviewControlsColumn,
   ensureSessionPersonaColumn,
   ensureWorldReviewTables,
@@ -590,6 +591,7 @@ const SELF_HEAL_ATTEMPT_DELAYS_MS = process.env.NODE_ENV === "production"
 
 async function runSchemaSelfHealOnce(): Promise<void> {
   await ensureTables();
+  await ensureCreativeUploadSchema();
   await ensureLifetimePlaytimePending();
   await ensureWorldsSchemaDerived();
   await ensureMessagesSwipeCount();

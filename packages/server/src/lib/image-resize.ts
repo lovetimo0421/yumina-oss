@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { eq } from "drizzle-orm";
-import { getObjectBuffer, putObject } from "./s3.js";
+import { getObjectBufferLimited, putObject } from "./s3.js";
 import { db } from "../db/index.js";
 import { userAssets } from "../db/schema.js";
 
@@ -20,6 +20,7 @@ const RESIZABLE_MIME = new Set(["image/jpeg", "image/jpg", "image/png", "image/w
 // buffers + decodes a full image). Over the cap we simply skip — delivery-side
 // Cloudflare resizing still serves a small image; the master just stays full-size.
 const MAX_CONCURRENT = 3;
+const MAX_INPUT_BYTES = 64 * 1024 * 1024;
 let inFlight = 0;
 
 /**
@@ -66,11 +67,13 @@ async function resizeUploadedImage(
 ): Promise<void> {
   if (!RESIZABLE_MIME.has(mimeType.toLowerCase())) return;
 
-  const { buffer, contentType } = await getObjectBuffer(key);
+  // Larger masters remain valid stored assets; skip background optimization
+  // instead of buffering multi-gigabyte inputs during parallel imports.
+  const buffer = await getObjectBufferLimited(key, MAX_INPUT_BYTES);
   if (buffer.byteLength < MIN_BYTES_TO_PROCESS) return; // small enough already
 
   // failOn:"none" → be lenient with slightly-malformed uploads instead of throwing.
-  const pipeline = sharp(buffer, { failOn: "none" });
+  const pipeline = sharp(buffer, { failOn: "none", limitInputPixels: 40_000_000 });
   const meta = await pipeline.metadata();
 
   // Defensively skip multi-frame (animated) images even if mislabeled.
@@ -101,7 +104,7 @@ async function resizeUploadedImage(
 
   if (out.byteLength >= buffer.byteLength) return; // no real win → keep original
 
-  await putObject(key, out, contentType);
+  await putObject(key, out, mimeType);
 
   // Keep storage accounting honest (best-effort; only user_assets tracks bytes).
   if (assetId) {

@@ -1,4 +1,6 @@
 // Types
+export { aiDecisionRequestSchema, parseAiDecisionResponse, MAX_DECISION_REQUEST_CHARS } from "./ai-decisions.js";
+export type { AiDecisionRequest, AiDecisionResponse, AiChoiceQuestion, AiChoiceAnswer } from "./ai-decisions.js";
 export { chatImageCopy, type ChatImageAttachment } from "./types/chat-image.js";
 
 export { AI_GENERATION_DEFAULTS, aiGenerationConfigSchema, resolveAiGenerationConfig } from './ai-generation.js';
@@ -494,3 +496,4 @@ export {
 export type { WorldAddressParts, ParsedWorldAddress } from "./world-address.js";
 
 export * from "./types/asset-import.js";
+export * from "./creative-upload-policy.js";

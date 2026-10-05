@@ -160,6 +160,7 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
 
   uploadAsset: async (file, type, folderId, options) => {
     const epoch = accountEpoch;
+    const requestId = options?.requestId ?? crypto.randomUUID();
     let reconciled = false;
     if (options?.signal?.aborted) return null;
     set((s) => ({
@@ -174,12 +175,13 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
         preferredType: type,
         prepareUrl: `${apiBase}/api/user-assets/upload-url`,
         registerUrl: `${apiBase}/api/user-assets`,
-        prepareBody: { requestId: options?.requestId, sizeBytes: file.size },
+        releaseUrl: `${apiBase}/api/user-assets/release-upload`,
+        prepareBody: { requestId, sizeBytes: file.size },
         onReconciled: () => { reconciled = true; },
         signal: options?.signal,
         onStage: options?.onStage,
         registerBody: ({ key, resolvedType, contentType }) => ({
-          requestId: options?.requestId,
+          requestId,
           key,
           filename: file.name,
           type: resolvedType,
@@ -204,7 +206,7 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
     } catch (error) {
       if (!options?.silent) feedback.error(getAssetUploadErrorMessage(error), {
         label: tr("common:action.retry", "Retry"),
-        onClick: () => void useUserAssetStore.getState().uploadAsset(file, type, folderId),
+        onClick: () => void useUserAssetStore.getState().uploadAsset(file, type, folderId, { ...options, requestId }),
       });
       return null;
     } finally {

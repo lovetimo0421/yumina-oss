@@ -49,6 +49,7 @@ test("private media: ownership, atomic reservations, immutable snapshots, retrie
         const quota = 100 * 1024 * 1024;
         const request = (entryId: string) => ({ id: randomUUID(), sessionId: 'save', entryId, filename: 'map.png', contentType: 'image/png', size: image.length, metadata: { title: 'Map', a: 1 } });
         const first = request('one');
+        await assert.rejects(service.reserve('alice', quota, { ...first, metadata: { purpose: 'creative-asset' } }), /MEDIA_INVALID_METADATA/);
         await assert.rejects(service.reserve('bob', quota, first), /MEDIA_NOT_FOUND/);
         const reserved = await service.reserve('alice', quota, first);
         assert.ok(reserved.uploadUrl!.startsWith('private-session-media/'));

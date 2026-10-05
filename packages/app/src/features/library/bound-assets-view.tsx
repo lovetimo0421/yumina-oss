@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { fetchUploadConcurrency, runUploadBatch } from "@/lib/asset-upload-policy";
 import { ImagePlus } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
 import { useFeature } from "@/edition/edition";
@@ -71,6 +72,8 @@ export function BoundAssetsView({ worldId }: { worldId: string }) {
   // Platform image generation is hosted-only; without it the view is bindings + uploads.
   const imageGeneration = useFeature("imageGeneration");
   const generationScope = `${session?.user.id ?? "guest"}:${worldId}`;
+  const uploadScope = useRef(generationScope);
+  uploadScope.current = generationScope;
 
   const bindings = useFolderBindingStore((s) => s.bindings);
   const bindingWorldId = useFolderBindingStore((s) => s.worldId);
@@ -157,26 +160,31 @@ export function BoundAssetsView({ worldId }: { worldId: string }) {
       setUploadingFolderId(folderId);
       setUploadRemaining(files.length);
       try {
-        for (const [index, file] of files.entries()) {
+        const concurrency = await fetchUploadConcurrency();
+        let remaining = files.length;
+        await runUploadBatch(files, concurrency, async (file) => {
           if (isAssetArchiveFilename(file.name)) enqueueArchives([file], folderId);
           else {
             const { type } = getUploadMetadata(file);
             await uploadAsset(file, type, folderId);
           }
-          setUploadRemaining(files.length - index - 1);
-        }
+          remaining--;
+          if (uploadScope.current === generationScope) setUploadRemaining(remaining);
+        }, () => uploadScope.current !== generationScope);
       } finally {
         setUploadingFolderId(null);
         setUploadRemaining(0);
-        setExpandedId(folderId);
-        await Promise.all([
-          loadFolderAssets(folderId, true),
-          fetchBindings(worldId),
-          fetchFolders(),
-        ]);
+        if (uploadScope.current === generationScope) {
+          setExpandedId(folderId);
+          await Promise.all([
+            loadFolderAssets(folderId, true),
+            fetchBindings(worldId),
+            fetchFolders(),
+          ]);
+        }
       }
     },
-    [uploadingFolderId, uploadAsset, loadFolderAssets, fetchBindings, fetchFolders, worldId, enqueueArchives],
+    [uploadingFolderId, uploadAsset, loadFolderAssets, fetchBindings, fetchFolders, worldId, enqueueArchives, generationScope],
   );
 
   const pickFilesForFolder = useCallback((folderId: string) => {

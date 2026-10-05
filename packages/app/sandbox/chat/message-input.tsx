@@ -28,6 +28,7 @@ import {
 import { ModelTrigger } from "./model-picker-modal";
 import { VoicePanelButton } from "./voice-panel";
 import { ComposerPopover } from "./composer-popover";
+import { useComposerGuard } from "./composer-guard";
 import { MicButton, VoiceRecordingOverlay, useHoldToTalkKey, useVoiceInput } from "./voice-input";
 import { makeChatT } from "./i18n";
 import { useTurnImageSettings } from "./turn-images";
@@ -58,7 +59,7 @@ export function MessageInput() {
     restartChat,
     clearPendingChoices,
     openPersonaManager,
-    openModelPicker,
+    openModelPicker: openSharedModelPicker,
     openSessionManager,
     sharePlaythrough,
     messages,
@@ -66,6 +67,7 @@ export function MessageInput() {
     branchFromMessage,
     navigate,
   } = api;
+  const openModelPicker = () => openSharedModelPicker();
   const t = useMemo(() => makeChatT(api.language), [api.language]);
   const generationBlocked = isStreaming || !!api.modelFallback;
   const canSendMessage = api.capabilities?.canSendMessage !== false
@@ -139,6 +141,8 @@ export function MessageInput() {
   // Only when there IS a launchable tool to collapse — otherwise keep the plain
   // inline model pill.
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useComposerGuard(cardRef, textareaRef, !readOnly && canSendMessage);
   const isNarrow = useIsNarrow(toolbarRef, 520);
   const toolMenuCount = useToolMenuCount();
   // 「发送图片」 and 「提示词」 live in the "+" menu, so the toolbar is just
@@ -510,7 +514,7 @@ export function MessageInput() {
             bottom-full) and must escape the card bounds, or it gets clipped by
             the composer. The only child whose background reaches a rounded
             corner is the restart-confirm banner, which rounds its own top. */}
-        <div className="play-composer-card glass relative rounded-2xl">
+        <div ref={cardRef} className="play-composer-card glass relative rounded-2xl">
           <VoiceRecordingOverlay voice={voice} autoSend={voiceInput.mode === "auto" && !content.trim()} />
           {/* Restart confirmation banner */}
           {confirmRestart && (
@@ -554,6 +558,7 @@ export function MessageInput() {
           <div className="play-composer-grow" data-replicated-value={content}>
             <textarea
               ref={textareaRef}
+              id="yumina-composer-input"
               value={content}
               maxLength={MAX_USER_MESSAGE_CHARS}
               onChange={(e) => setContent(clampComposerMessage(e.target.value))}

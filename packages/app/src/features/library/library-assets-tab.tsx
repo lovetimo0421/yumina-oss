@@ -1,4 +1,5 @@
 import { isAssetArchiveFilename } from "@yumina/shared";
+import { fetchUploadConcurrency, runUploadBatch } from "@/lib/asset-upload-policy";
 import { useAssetImportStore as useArchiveImportStore } from "@/stores/asset-imports";
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import {
@@ -351,15 +352,17 @@ export function LibraryAssetsTab({
       setPendingUploadCount(files.length);
 
       try {
-        for (const [index, file] of files.entries()) {
-          if (!mounted.current || uploadOwner.current !== owner) break;
+        const concurrency = await fetchUploadConcurrency();
+        let remaining = files.length;
+        await runUploadBatch(files, concurrency, async (file) => {
           if (isAssetArchiveFilename(file.name)) enqueueArchives([file], folderId);
           else {
             const { type } = getUploadMetadata(file);
             await uploadAsset(file, type, folderId ?? undefined);
           }
-          if (mounted.current && uploadOwner.current === owner) setPendingUploadCount(files.length - index - 1);
-        }
+          remaining--;
+          if (mounted.current && uploadOwner.current === owner) setPendingUploadCount(remaining);
+        }, () => !mounted.current || uploadOwner.current !== owner);
       } finally {
         uploadBatchLock.current = false;
         if (mounted.current && uploadOwner.current === owner) {

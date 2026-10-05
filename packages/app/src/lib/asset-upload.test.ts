@@ -8,6 +8,29 @@ import {
 } from "./asset-upload";
 import { createUploadTestPng, PNG_SIGNATURE, pngChunk } from "./test-fixtures/upload-png";
 
+test("busy slots wait abortably, while hard hourly limits fail without retries", async () => {
+  for (const code of ["UPLOAD_BUSY", "UPLOAD_LIMIT"]) {
+    const controller=new AbortController(); let calls=0;
+    const run=uploadAssetWithPresignedUrl({file:new File(["a"],"a.txt"),prepareUrl:"/prepare",registerUrl:"/register",registerBody:{},signal:controller.signal,
+      fetchImpl:async()=>{calls++;return Response.json({error:"Upload limit reached",code},{status:429,headers:{"Retry-After":"2"}});} });
+    if (code==="UPLOAD_BUSY") { await new Promise(resolve=>setImmediate(resolve)); controller.abort(); }
+    await assert.rejects(run);
+    assert.equal(calls,1);
+  }
+});
+
+test("failed transfers release only their own prepared reservation, keeping a retry's key separate", async () => {
+  const requests:{url:string;body:unknown}[]=[];
+  await assert.rejects(uploadAssetWithPresignedUrl({file:new File(["a"],"a.txt"),prepareUrl:"/prepare",registerUrl:"/register",releaseUrl:"/release",prepareBody:{requestId:"stable"},registerBody:{},
+    fetchImpl:async(url,options)=>{
+      requests.push({url:String(url),body:typeof options?.body==="string"?JSON.parse(options.body):null});
+      if (url==="/prepare") return Response.json({data:{uploadUrl:"/storage",key:"original-key"}});
+      if (url==="/storage") return new Response("expired",{status:403});
+      return Response.json({data:{released:true}});
+    } }));
+  assert.deepEqual(requests.at(-1),{url:"/release",body:{requestId:"stable",key:"original-key"}});
+});
+
 test("video inference recognizes MP4 and WebM without browser metadata", () => {
   assert.deepEqual(getUploadMetadata(new File(["video"], "scene.MP4")), { type: "video", contentType: "video/mp4" });
   assert.deepEqual(getUploadMetadata(new File(["video"], "scene.webm", { type: "application/octet-stream" })), { type: "video", contentType: "video/webm" });

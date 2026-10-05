@@ -179,8 +179,8 @@ export interface SandboxedYuminaAPI {
    *  saved its own imported profile must explicitly re-import to change it.
    *  Fire-and-forget. */
   openPersonaManager: () => void;
-  /** Open the shared parent-app model picker used by the play controls. */
-  openModelPicker: () => void;
+  /** Open the shared model picker. Side completions cannot use chat-only trials. */
+  openModelPicker: (options?: {purpose: "side-completion"}) => void;
   /** Read the current session's selected Persona when the player chooses to
    * import it. Null means none selected; failures reject. Private notes are
    * excluded. Copy the result into the run's save to keep identity stable. */
@@ -431,6 +431,11 @@ export interface SandboxedYuminaAPI {
 
   // ── AI completions (raw LLM calls, no chat pipeline) ──
   ai: {
+    /** Bounded choice questions (8 questions, 64 choices each, 32k total chars).
+     * Uses the server's decision model. Official use is platform-funded;
+     * OpenRouter BYOK may bill the player's provider. No scene/chat mutation.
+     * Failure rejects; do not infer missing confidence or retry paid narration. */
+    decide: (params: import("@yumina/shared").AiDecisionRequest) => Promise<import("@yumina/shared").AiDecisionResponse>;
     complete: (params: {
       messages: import("@yumina/shared").ImageCompletionMessage[];
       onDelta?: (text: string) => void;
@@ -867,6 +872,7 @@ const defaultAPI: SandboxedYuminaAPI = {
   togglePoolLock: () => {},
   ai: {
     complete: () => noopPromise(""),
+    decide: () => Promise.reject(new Error("Decisions require an active session")),
   },
   room: {
     join: () => noopPromise({ ok: false, reason: "unavailable" }),
@@ -1119,7 +1125,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     // UI controls
     toggleImmersive: () => postToParent("toggleImmersive", []),
     openPersonaManager: () => postToParent("openPersonaManager", []),
-    openModelPicker: () => postToParent("openModelPicker", []),
+    openModelPicker: (options) => postToParent("openModelPicker", options?.purpose === "side-completion" ? [{purpose: "side-completion"}] : []),
     getPersonaProfile: () => callParent("getPersonaProfile", []),
     sharePlaythrough: () => postToParent("sharePlaythrough", []),
     openSessionManager: () => postToParent("openSessionManager", []),
@@ -1358,6 +1364,9 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     // for the main chat. Card authors can still override per-call by passing
     // an explicit `model`.
     ai: {
+      decide: (params) => sessionApisAvailable
+        ? callParent("ai.decide", [{ state: params.state, questions: params.questions }], 15_000)
+        : Promise.reject(new Error("Decisions require an active session")),
       complete: (params) =>
         sessionApisAvailable
           ? callParentStreaming(

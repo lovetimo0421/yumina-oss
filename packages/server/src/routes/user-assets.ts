@@ -24,6 +24,7 @@ import { resizeUploadedImageInBackground } from "../lib/image-resize.js";
 import { uploadOperationId, validUploadRequestId } from "../lib/asset-upload-operation.js";
 import { sessionMedia } from "../lib/session-media.js";
 import { mediaRows, mediaPrefix } from "../lib/session-media-service.js";
+import { admitCreativeUpload, creativeUploadPolicy } from "../lib/creative-upload-policy.js";
 
 const userAssetRoutes = new Hono<AppEnv>();
 const OUTPUT_CHAT_FOLDER_NAME = "output chat";
@@ -158,6 +159,26 @@ async function getUserStorageLimit(userId: string): Promise<number> {
   const effectivePlan = await resolveEffectivePlanWithEventEntitlements(userId, wallet.plan);
   return PLANS[effectivePlan].storageCap;
 }
+
+async function getUserUploadPolicy(userId: string) {
+  const wallet = await ensureWallet(userId);
+  const plan = await resolveEffectivePlanWithEventEntitlements(userId, wallet.plan);
+  return { ...creativeUploadPolicy(plan), storageLimit: PLANS[plan].storageCap };
+}
+
+async function activeCreativeUploads(tx: Pick<typeof db, "execute">, userId: string) {
+  const [rate] = await mediaRows<{ pending: number }>(tx, sql`
+    SELECT count(*)::int AS pending FROM session_media_uploads
+    WHERE user_id=${userId} AND session_id IS NULL AND metadata->>'purpose'='creative-asset'
+      AND metadata->>'slotReleased' IS DISTINCT FROM 'true'
+      AND status IN ('pending','processing') AND expires_at>now()`);
+  return rate?.pending ?? 0;
+}
+
+userAssetRoutes.get("/upload-policy", async (c) => {
+  const policy = await getUserUploadPolicy(c.get("user").id);
+  return c.json({ data: { concurrency: policy.concurrency } });
+});
 
 function sanitizeFilename(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 100);
@@ -471,7 +492,7 @@ userAssetRoutes.post("/upload-url", async (c) => {
   }
 
   // Check total user storage against plan limit
-  const storageLimit = await getUserStorageLimit(currentUser.id);
+  const { storageLimit, concurrency } = await getUserUploadPolicy(currentUser.id);
   if (body.sizeBytes !== undefined && (!Number.isSafeInteger(body.sizeBytes) || body.sizeBytes < 0)) {
     return c.json({ error: "Invalid file size" }, 400);
   }
@@ -486,13 +507,19 @@ userAssetRoutes.post("/upload-url", async (c) => {
         const [asset] = await tx.select().from(userAssets)
           .where(and(eq(userAssets.id, operationId), eq(userAssets.userId, currentUser.id))).limit(1);
         if (asset) return { asset };
-        const [pending] = await mediaRows<{temp_key:string;filename:string;content_type:string;input_bytes:string;metadata:{type:string};expires_at:string}>(tx, sql`
+        const [pending] = await mediaRows<{temp_key:string;filename:string;content_type:string;input_bytes:string;metadata:{type:string;slotReleased?:boolean};expires_at:string}>(tx, sql`
           SELECT * FROM session_media_uploads WHERE user_id=${currentUser.id}
           AND metadata->>'purpose'='creative-asset' AND metadata->>'operationId'=${operationId}
           AND status='pending' AND expires_at>now() ORDER BY created_at DESC LIMIT 1 FOR UPDATE`);
         if (pending) {
           if (pending.filename !== body.filename || pending.content_type !== contentType || pending.metadata.type !== assetType || Number(pending.input_bytes) !== body.sizeBytes) {
             return { error: "Upload request conflicts with an earlier attempt", status: 409 as const };
+          }
+          if (pending.metadata.slotReleased && await activeCreativeUploads(tx, currentUser.id) >= concurrency) return { error: "Upload limit reached", status: 429 as const, busy: true };
+          const admission = await admitCreativeUpload(tx, currentUser.id, "file", operationId, body.sizeBytes!, storageLimit);
+          if (admission !== "admitted") return { error: "Upload limit reached", status: admission === "limit" ? 429 as const : 409 as const };
+          if (pending.metadata.slotReleased) {
+            await tx.execute(sql`UPDATE session_media_uploads SET metadata=metadata-'slotReleased' WHERE user_id=${currentUser.id} AND temp_key=${pending.temp_key}`);
           }
           return { key: pending.temp_key, expiresAt: pending.expires_at };
         }
@@ -501,11 +528,15 @@ userAssetRoutes.post("/upload-url", async (c) => {
       if (usage.used + usage.reserved + body.sizeBytes! > storageLimit) {
         return { error: "Storage limit reached", status: 413 as const };
       }
-      const [rate] = await mediaRows<{count:number;bytes:string}>(tx,sql`SELECT count(*)::int AS count,COALESCE(sum(input_bytes),0)::text AS bytes FROM session_media_uploads WHERE user_id=${currentUser.id} AND created_at>now()-interval '1 hour'`);
-      if ((rate?.count ?? 0) >= 60 || Number(rate?.bytes ?? 0) + body.sizeBytes! > Math.max(128 * 1024 * 1024, storageLimit * 2)) {
-        return { error: "Upload limit reached", status: 429 as const };
+      // Folder imports can contain thousands of small files. Bound their byte
+      // turnover and outstanding transfers, with a high count ceiling only to
+      // prevent tiny-file spam. Chat attachments have a separate rate budget.
+      if (await activeCreativeUploads(tx, currentUser.id) >= concurrency) {
+        return { error: "Upload limit reached", status: 429 as const, busy: true };
       }
       const id = crypto.randomUUID();
+      const admission = await admitCreativeUpload(tx, currentUser.id, "file", operationId ?? id, body.sizeBytes!, storageLimit);
+      if (admission !== "admitted") return { error: "Upload limit reached", status: admission === "limit" ? 429 as const : 409 as const };
       const key = `${mediaPrefix(currentUser.id)}pending/${id}`;
       const [reservation] = await mediaRows<{expires_at:string}>(tx, sql`INSERT INTO session_media_uploads(id,user_id,entry_id,filename,content_type,input_bytes,reserved_bytes,metadata,temp_key,expires_at)
         VALUES(${id},${currentUser.id},${id},${body.filename},${contentType},${body.sizeBytes},${body.sizeBytes},${JSON.stringify({purpose:"creative-asset",type:assetType,operationId})}::jsonb,${key},now()+interval '10 minutes') RETURNING expires_at`);
@@ -514,7 +545,10 @@ userAssetRoutes.post("/upload-url", async (c) => {
     if ("asset" in prepared && prepared.asset) {
       return c.json({ data: { asset: { ...prepared.asset, url: `${getCdnOrigin()}/cdn/${prepared.asset.id}`, key: prepared.asset.url } } });
     }
-    if ("error" in prepared && prepared.error) return c.json({ error: prepared.error }, prepared.status!);
+    if ("error" in prepared && prepared.error) {
+      if ("busy" in prepared) c.header("Retry-After", "2");
+      return c.json({ error: prepared.error, ...("busy" in prepared ? { code: "UPLOAD_BUSY" } : {}) }, prepared.status!);
+    }
     const expiresIn = Math.max(1, Math.min(600, Math.floor((Date.parse(prepared.expiresAt!) - Date.now()) / 1000)));
     return c.json({ data: { key: prepared.key!, uploadUrl: await generateUploadUrl(prepared.key!, contentType, {contentLength: body.sizeBytes!, expiresIn}) } });
   }
@@ -539,6 +573,22 @@ userAssetRoutes.post("/upload-url", async (c) => {
       key,
     },
   });
+});
+
+// Release an abandoned transfer's concurrency slot. Keep its storage reservation
+// until the signed PUT expires and cleanup removes the object; the URL may live
+// longer than the client request. Hourly admission history is never refunded.
+userAssetRoutes.post("/release-upload", async (c) => {
+  const body = await c.req.json<{ requestId?: string; key?: string }>();
+  if (!body.requestId || !validUploadRequestId(body.requestId) || typeof body.key !== "string") return c.json({ error: "Invalid request ID" }, 400);
+  const userId = c.get("user").id;
+  if (await sessionMedia.isReady()) await db.transaction(async tx => {
+    await sessionMedia.lockOwner(tx, userId);
+    await tx.execute(sql`UPDATE session_media_uploads SET metadata=metadata || '{"slotReleased":true}'::jsonb
+      WHERE user_id=${userId} AND session_id IS NULL AND metadata->>'purpose'='creative-asset'
+        AND metadata->>'operationId'=${uploadOperationId(userId, "file", body.requestId!)} AND temp_key=${body.key!} AND status='pending'`);
+  });
+  return c.json({ data: { released: true } });
 });
 
 // POST /api/user-assets — register asset after upload
@@ -625,6 +675,12 @@ userAssetRoutes.post("/", async (c) => {
     if (usage.used + usage.reserved - Number(reservation?.input_bytes ?? 0) + inspected.contentLength > storageLimit) {
       return { error: "Storage limit reached", status: 413 as const };
     }
+    if (!privatePipeline) {
+      // Local/legacy uploads settle actual HEAD bytes. They do not depend on
+      // private S3 staging, but still share the creative admission budget.
+      const admission = await admitCreativeUpload(tx, currentUser.id, "file", body.requestId ? id : body.key, inspected.contentLength, storageLimit);
+      if (admission !== "admitted") return { error: "Upload limit reached", status: admission === "limit" ? 429 as const : 409 as const };
+    }
     // The verified copy is immutable to callers holding the original PUT URL.
     if (privatePipeline) {
       await copyObject(body.key, registeredKey, inspected.etag!, inspected);
@@ -634,6 +690,8 @@ userAssetRoutes.post("/", async (c) => {
       url: registeredKey, sizeBytes: inspected.contentLength, mimeType, folderId,
     }).returning();
     if (reservation) await tx.execute(sql`UPDATE session_media_uploads SET status='complete',reserved_bytes=0 WHERE id=${reservation.id}`);
+    await tx.execute(sql`UPDATE creative_upload_admissions SET completed_at=clock_timestamp()
+      WHERE user_id=${currentUser.id} AND source_kind='file' AND operation_id=${body.requestId ? id : reservation?.id ?? body.key}`);
     return { asset: inserted!, inserted: true };
   });
   if ("error" in settled) return c.json({ error: settled.error }, settled.status);

@@ -1,4 +1,5 @@
 import { bodyLimit } from "hono/body-limit";
+import { decisionRoutes } from "./decisions.js";
 import { normalizeImageCompletion, imagePromptChars } from "../lib/chat-images.js";
 import { assertImageModel } from "../lib/llm/image-capability.js";
 import { turnNeedsVision } from "../lib/llm/fallback-models.js";
@@ -58,6 +59,7 @@ import { DEFAULT_MODEL } from "@yumina/shared";
 const completionRoutes = new Hono<AppEnv>();
 
 completionRoutes.use("/*", authMiddleware);
+completionRoutes.route("/", decisionRoutes);
 
 const MAX_MESSAGES = 50;
 const MAX_CONTENT_CHARS = 50_000;

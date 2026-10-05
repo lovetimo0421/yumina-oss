@@ -5431,3 +5431,16 @@ html[data-mobile-page-scroll] .topbar-shell:not(.topbar-shell--profile)[data-pre
   display: flex;
   visibility: hidden;
 }
+
+/* Composer guard (sandbox/chat/composer-guard.ts): placeholder can't be set
+   inline, so the guard flags the textarea and this id-specific rule outranks
+   card CSS that stacks :root selectors with !important. */
+.play-composer-card[data-guard-measuring],
+.play-composer-card[data-guard-measuring] * {
+  transition: none !important;
+}
+#yumina-composer-input[data-guard-placeholder]::placeholder {
+  color: var(--composer-guard-placeholder) !important;
+  -webkit-text-fill-color: var(--composer-guard-placeholder) !important;
+  opacity: 0.75 !important;
+}

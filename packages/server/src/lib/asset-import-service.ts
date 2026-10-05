@@ -1,19 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
-import { ASSET_ARCHIVE_LIMITS, isAssetArchiveFilename, type AssetImportJob, type AssetImportStatus } from "@yumina/shared";
+import { ASSET_ARCHIVE_LIMITS, isAssetArchiveFilename, type AssetImportJob } from "@yumina/shared";
 import type { DrizzleDB } from "../db/index.js";
 import { AssetImportError, visitAssetArchive, type ArchiveFile } from "./asset-archive.js";
 import { mediaRows } from "./session-media-service.js";
+import {
+  ASSET_IMPORT_QUEUE_POLICY, claimAssetImportJob, lockAssetImportLease, renewAssetImportLease,
+  type AssetImportExecutor as Executor, type AssetImportJobRow as JobRow,
+} from "./asset-import-queue.js";
 
-type Executor = Pick<DrizzleDB, "execute">;
-type JobRow = {
-  id: string; user_id: string; filename: string; folder_id: string | null;
-  status: AssetImportStatus; input_bytes: string | number; expanded_bytes: string | number;
-  reserved_bytes: string | number; file_count: number; ignored_count: number;
-  preserve_folders: boolean; conflict: "rename" | "skip"; error_code: string | null;
-  lease_token: string | null; expires_at: Date | string; updated_at: Date | string;
-  upload_expires_at: Date | string; dismissed_at: Date | string | null; cleaned_at: Date | string | null;
-};
 type EntryRow = {
   ordinal: number; path: string; size_bytes: string | number; mime_type: string;
   asset_type: string; asset_id: string; status: "pending" | "succeeded" | "skipped" | "failed"; error_code: string | null;
@@ -31,6 +26,12 @@ export interface AssetImportStorage {
 export interface AssetImportDependencies {
   db: DrizzleDB;
   storage: AssetImportStorage;
+  uploadPolicy: {
+    /** Called with the owner locked. Admission must be durable and idempotent by operationId. */
+    admit(tx: Executor, userId: string, operationId: string, bytes: number, storageLimit: number): Promise<void>;
+    /** Server-resolved queue tier: 0 free, 1 subscriber, 2 highest/internal. */
+    priority(userId: string): Promise<number>;
+  };
   quota: {
     lockOwner(tx: Executor, userId: string): Promise<void>;
     usage(userId: string, tx?: Executor): Promise<{ used: number; reserved: number }>;
@@ -42,12 +43,13 @@ const prefix = (job: Pick<JobRow, "user_id" | "id">) => `private-asset-imports/$
 const assetKey = (job: Pick<JobRow, "user_id" | "id">, entry: Pick<EntryRow, "asset_id">) => `users/${job.user_id}/imports/${job.id}/${entry.asset_id}`;
 const recoverable = new Set(["ARCHIVE_STORAGE_ERROR", "ARCHIVE_INTERRUPTED", "ARCHIVE_QUOTA_EXCEEDED"]);
 const iso = (date: Date | string) => new Date(date).toISOString();
+export const ASSET_IMPORT_RETRY_POLICY = { cooldownSeconds: 30, perJobPerHour: 5, perOwnerPerHour: 10, activeJobs: 4 } as const;
 
-export function createAssetImportService({ db, storage, quota }: AssetImportDependencies) {
+export function createAssetImportService({ db, storage, quota, uploadPolicy }: AssetImportDependencies) {
   let ready = false;
   async function requireReady() {
     if (!ready) {
-      const [row] = await mediaRows<{ ready: boolean }>(db, sql`SELECT to_regclass('asset_import_entries') IS NOT NULL AS ready`);
+      const [row] = await mediaRows<{ ready: boolean }>(db, sql`SELECT to_regclass('asset_import_entries') IS NOT NULL AND to_regclass('asset_import_retries') IS NOT NULL AS ready`);
       ready = !!row?.ready;
     }
     if (!ready) throw new AssetImportError("ARCHIVE_UNAVAILABLE", 503);
@@ -67,6 +69,27 @@ export function createAssetImportService({ db, storage, quota }: AssetImportDepe
   }
   async function entries(tx: Executor, id: string) {
     return mediaRows<EntryRow>(tx, sql`SELECT * FROM asset_import_entries WHERE job_id=${id} ORDER BY ordinal`);
+  }
+  async function priority(userId: string) {
+    const value = await uploadPolicy.priority(userId);
+    if (!Number.isInteger(value) || value < 0 || value > 2) throw new AssetImportError("ARCHIVE_UNAVAILABLE", 503);
+    return value;
+  }
+  async function assertActiveSlot(tx: Executor, userId: string, exceptId: string) {
+    const [row] = await mediaRows<{ active: number }>(tx, sql`SELECT count(*)::int AS active FROM asset_import_jobs
+      WHERE user_id=${userId} AND id<>${exceptId} AND dismissed_at IS NULL AND expires_at>clock_timestamp()
+        AND status IN ('uploading','queued_inspect','inspecting','ready','queued','processing','partial')`);
+    if ((row?.active ?? 0) >= ASSET_IMPORT_RETRY_POLICY.activeJobs) throw new AssetImportError("ARCHIVE_RATE_LIMIT", 429);
+  }
+  async function acceptRetry(tx: Executor, userId: string, id: string) {
+    const [rate] = await mediaRows<{ owner: number; job: number; cooling: boolean }>(tx, sql`
+      SELECT count(*)::int AS owner,count(*) FILTER(WHERE job_id=${id})::int AS job,
+        COALESCE(bool_or(job_id=${id} AND accepted_at>clock_timestamp()-${ASSET_IMPORT_RETRY_POLICY.cooldownSeconds}*interval '1 second'),false) AS cooling
+      FROM asset_import_retries WHERE user_id=${userId} AND accepted_at>clock_timestamp()-interval '1 hour'`);
+    if (rate?.cooling || (rate?.job ?? 0) >= ASSET_IMPORT_RETRY_POLICY.perJobPerHour || (rate?.owner ?? 0) >= ASSET_IMPORT_RETRY_POLICY.perOwnerPerHour) {
+      throw new AssetImportError("ARCHIVE_RATE_LIMIT", 429);
+    }
+    await tx.execute(sql`INSERT INTO asset_import_retries(id,job_id,user_id,accepted_at) VALUES(${randomUUID()},${id},${userId},clock_timestamp())`);
   }
   async function detail(userId: string, id: string): Promise<AssetImportJob> {
     await requireReady();
@@ -113,7 +136,7 @@ export function createAssetImportService({ db, storage, quota }: AssetImportDepe
       }
       await checkFolder(tx, userId, input.folderId);
       const [rate] = await mediaRows<{ recent: number; active: number }>(tx, sql`SELECT count(*) FILTER (WHERE created_at>now()-interval '1 hour')::int AS recent, count(*) FILTER (WHERE status IN ('uploading','queued_inspect','inspecting','ready','queued','processing','partial') AND expires_at>now())::int AS active FROM asset_import_jobs WHERE user_id=${userId}`);
-      if ((rate?.recent ?? 0) >= 10 || (rate?.active ?? 0) >= 4) throw new AssetImportError("ARCHIVE_RATE_LIMIT", 429);
+      if ((rate?.recent ?? 0) >= 10 || (rate?.active ?? 0) >= ASSET_IMPORT_RETRY_POLICY.activeJobs) throw new AssetImportError("ARCHIVE_RATE_LIMIT", 429);
       const usage = await quota.usage(userId, tx);
       if (usage.used + usage.reserved + input.size > limit) throw new AssetImportError("ARCHIVE_QUOTA_EXCEEDED", 413);
       const [created] = await mediaRows<JobRow>(tx, sql`INSERT INTO asset_import_jobs(id,user_id,filename,folder_id,input_bytes,reserved_bytes) VALUES(${input.id},${userId},${input.filename},${input.folderId},${input.size},${input.size}) RETURNING *`);
@@ -123,6 +146,7 @@ export function createAssetImportService({ db, storage, quota }: AssetImportDepe
   }
   async function uploaded(userId: string, id: string) {
     await requireReady();
+    const queuePriority = await priority(userId);
     await db.transaction(async tx => {
       await quota.lockOwner(tx, userId);
       const job = await own(tx, userId, id, true);
@@ -133,43 +157,56 @@ export function createAssetImportService({ db, storage, quota }: AssetImportDepe
       if (!inspected.etag || inspected.contentLength !== Number(job.input_bytes)) throw new AssetImportError("ARCHIVE_UPLOAD_INCOMPLETE", 409);
       // Freeze bytes before inspection. A still-valid presigned PUT cannot mutate them.
       await storage.copy(key + "upload", key + "source", inspected.etag);
-      await tx.execute(sql`UPDATE asset_import_jobs SET status='queued_inspect',updated_at=now() WHERE id=${id}`);
+      await tx.execute(sql`UPDATE asset_import_jobs SET status='queued_inspect',priority=${queuePriority},queued_at=clock_timestamp(),updated_at=clock_timestamp() WHERE id=${id}`);
     });
     return detail(userId, id);
   }
   async function start(userId: string, id: string, settings: { preserveFolders: boolean; conflict: "rename" | "skip" }) {
     await requireReady();
-    const limit = await quota.limit(userId);
+    const [limit, queuePriority] = await Promise.all([quota.limit(userId), priority(userId)]);
     await db.transaction(async tx => {
       await quota.lockOwner(tx, userId);
       const job = await own(tx, userId, id, true);
       unexpired(job);
       if (["queued", "processing", "completed", "partial"].includes(job.status)) return;
-      if (job.status !== "ready") throw new AssetImportError("ARCHIVE_NOT_READY", 409);
+      if (job.status !== "ready" || !job.manifest_validated_at) throw new AssetImportError("ARCHIVE_NOT_READY", 409);
       await checkFolder(tx, userId, job.folder_id);
       const usage = await quota.usage(userId, tx);
       if (usage.used + usage.reserved > limit) throw new AssetImportError("ARCHIVE_QUOTA_EXCEEDED", 413);
-      await tx.execute(sql`UPDATE asset_import_jobs SET status='queued',preserve_folders=${settings.preserveFolders},conflict=${settings.conflict},updated_at=now(),error_code=NULL WHERE id=${id}`);
+      await uploadPolicy.admit(tx, userId, job.id, Number(job.expanded_bytes), limit);
+      await tx.execute(sql`UPDATE asset_import_jobs SET status='queued',preserve_folders=${settings.preserveFolders},conflict=${settings.conflict},
+        confirmed_at=COALESCE(confirmed_at,clock_timestamp()),priority=${queuePriority},queued_at=clock_timestamp(),updated_at=clock_timestamp(),error_code=NULL WHERE id=${id}`);
     });
     return detail(userId, id);
   }
   async function retry(userId: string, id: string) {
     await requireReady();
-    const limit = await quota.limit(userId);
+    const [limit, queuePriority] = await Promise.all([quota.limit(userId), priority(userId)]);
     await db.transaction(async tx => {
       await quota.lockOwner(tx, userId);
       const job = await own(tx, userId, id, true);
       unexpired(job);
       if (["queued", "processing", "queued_inspect", "inspecting"].includes(job.status)) return;
+      // The acknowledgement of a quota-recovery retry can also be lost. It is
+      // safe to return the restored preview, but never turn it into an import.
+      if (job.status === "ready" && !job.confirmed_at && !job.dismissed_at) return;
       if (job.dismissed_at || job.status !== "partial" && !(job.status === "failed" && recoverable.has(job.error_code ?? ""))) throw new AssetImportError("ARCHIVE_NOT_RETRYABLE", 409);
+      await assertActiveSlot(tx, userId, id);
+      await checkFolder(tx, userId, job.folder_id);
       const items = await entries(tx, id);
+      if (job.confirmed_at && !job.manifest_validated_at) throw new AssetImportError("ARCHIVE_NOT_READY", 409);
       const remaining = items.filter(e => e.status === "failed" || e.status === "pending").reduce((sum, e) => sum + Number(e.size_bytes), 0);
-      const reservation = items.length ? remaining : Number(job.input_bytes);
+      const reservation = job.manifest_validated_at ? remaining : Number(job.input_bytes);
       const usage = await quota.usage(userId, tx);
       if (usage.used + usage.reserved - Number(job.reserved_bytes) + reservation > limit) throw new AssetImportError("ARCHIVE_QUOTA_EXCEEDED", 413);
-      await checkFolder(tx, userId, job.folder_id);
+      await acceptRetry(tx, userId, id);
+      // Re-admit confirmed legacy jobs too. The shared ledger owns idempotency
+      // and its immutable admission time, independently of queued_at below.
+      if (job.confirmed_at) await uploadPolicy.admit(tx, userId, job.id, Number(job.expanded_bytes), limit);
+      const status = !job.manifest_validated_at ? "queued_inspect" : job.confirmed_at ? "queued" : "ready";
       await tx.execute(sql`UPDATE asset_import_entries SET status='pending',error_code=NULL WHERE job_id=${id} AND status='failed'`);
-      await tx.execute(sql`UPDATE asset_import_jobs SET status=${items.length ? "queued" : "queued_inspect"},reserved_bytes=${reservation},error_code=NULL,updated_at=now() WHERE id=${id}`);
+      await tx.execute(sql`UPDATE asset_import_jobs SET status=${status},reserved_bytes=${reservation},error_code=NULL,
+        lease_token=NULL,lease_expires_at=NULL,priority=${queuePriority},queued_at=${status === "ready" ? sql`NULL` : sql`clock_timestamp()`},updated_at=clock_timestamp() WHERE id=${id}`);
     });
     return detail(userId, id);
   }
@@ -182,11 +219,6 @@ export function createAssetImportService({ db, storage, quota }: AssetImportDepe
       await tx.execute(sql`UPDATE asset_import_jobs SET dismissed_at=now(),status=${["uploading", "ready"].includes(job.status) ? "cancelled" : job.status},reserved_bytes=0,updated_at=now() WHERE id=${id}`);
     });
   }
-  async function fenced(tx: Executor, job: JobRow) {
-    const current = await own(tx, job.user_id, job.id, true);
-    if (current.lease_token !== job.lease_token || current.status !== job.status) throw new AssetImportError("ARCHIVE_INTERRUPTED", 409);
-    return current;
-  }
   async function inspect(job: JobRow, bytes: Buffer, signal: AbortSignal) {
     const manifest: ArchiveFile[] = [];
     const summary = await visitAssetArchive(bytes, job.filename, async file => { manifest.push(file); }, signal);
@@ -194,16 +226,20 @@ export function createAssetImportService({ db, storage, quota }: AssetImportDepe
     const limit = await quota.limit(job.user_id);
     await db.transaction(async tx => {
       await quota.lockOwner(tx, job.user_id);
-      const current = await fenced(tx, job);
+      const current = await lockAssetImportLease(tx, job);
       const usage = await quota.usage(job.user_id, tx);
-      if (usage.used + usage.reserved - Number(current.reserved_bytes) + expanded > limit) throw new AssetImportError("ARCHIVE_QUOTA_EXCEEDED", 413);
+      const fits = usage.used + usage.reserved - Number(current.reserved_bytes) + expanded <= limit;
       await tx.execute(sql`DELETE FROM asset_import_entries WHERE job_id=${job.id}`);
       // One statement per bounded batch keeps a 2,000-file manifest inexpensive.
       for (let offset = 0; offset < manifest.length; offset += 200) {
         const values = manifest.slice(offset, offset + 200).map((file, index) => sql`(${job.id},${offset + index},${file.path},${file.size},${file.mimeType},${file.type},${randomUUID()})`);
         await tx.execute(sql`INSERT INTO asset_import_entries(job_id,ordinal,path,size_bytes,mime_type,asset_type,asset_id) VALUES ${sql.join(values, sql`,`)}`);
       }
-      await tx.execute(sql`UPDATE asset_import_jobs SET status='ready',file_count=${manifest.length},ignored_count=${summary.ignored},expanded_bytes=${expanded},reserved_bytes=${expanded},lease_token=NULL,lease_expires_at=NULL,updated_at=now() WHERE id=${job.id}`);
+      // Save the complete validated manifest even when quota fails. A later
+      // retry checks capacity without decoding the same immutable source again.
+      await tx.execute(sql`UPDATE asset_import_jobs SET status=${fits ? "ready" : "failed"},file_count=${manifest.length},ignored_count=${summary.ignored},
+        expanded_bytes=${expanded},reserved_bytes=${fits ? expanded : 0},manifest_validated_at=clock_timestamp(),
+        error_code=${fits ? null : "ARCHIVE_QUOTA_EXCEEDED"},queued_at=NULL,lease_token=NULL,lease_expires_at=NULL,updated_at=clock_timestamp() WHERE id=${job.id}`);
     });
   }
   async function destination(tx: Executor, job: JobRow, path: string) {
@@ -244,7 +280,7 @@ export function createAssetImportService({ db, storage, quota }: AssetImportDepe
       try {
         await db.transaction(async tx => {
           await quota.lockOwner(tx, job.user_id);
-          await fenced(tx, job);
+          await lockAssetImportLease(tx, job);
           const [current] = await mediaRows<EntryRow>(tx, sql`SELECT * FROM asset_import_entries WHERE job_id=${job.id} AND ordinal=${entry.ordinal} FOR UPDATE`);
           if (!current || ["succeeded", "skipped"].includes(current.status)) return;
           const target = await destination(tx, job, entry.path);
@@ -265,13 +301,19 @@ export function createAssetImportService({ db, storage, quota }: AssetImportDepe
         signal.throwIfAborted();
         if (error instanceof AssetImportError && error.code === "ARCHIVE_INTERRUPTED") throw error;
         const code = error instanceof AssetImportError ? error.code : "ARCHIVE_STORAGE_ERROR";
-        // Fenced update: a stale worker cannot overwrite a later attempt's success.
-        await db.execute(sql`UPDATE asset_import_entries SET status='failed',error_code=${code} WHERE job_id=${job.id} AND ordinal=${entry.ordinal} AND status IN ('pending','failed') AND EXISTS(SELECT 1 FROM asset_import_jobs WHERE id=${job.id} AND lease_token=${job.lease_token})`);
+        // Keep owner -> job -> entry lock order on failure, too. A worker whose
+        // lease expired cannot mark files failed under a replacement worker.
+        await db.transaction(async tx => {
+          await quota.lockOwner(tx, job.user_id);
+          await lockAssetImportLease(tx, job);
+          await tx.execute(sql`UPDATE asset_import_entries SET status='failed',error_code=${code}
+            WHERE job_id=${job.id} AND ordinal=${entry.ordinal} AND status IN ('pending','failed')`);
+        });
       }
     }, signal);
     await db.transaction(async tx => {
       await quota.lockOwner(tx, job.user_id);
-      await fenced(tx, job);
+      await lockAssetImportLease(tx, job);
       const [counts] = await mediaRows<{ remaining: number; bytes: string }>(tx, sql`SELECT count(*)::int AS remaining,COALESCE(sum(size_bytes),0)::text AS bytes FROM asset_import_entries WHERE job_id=${job.id} AND status IN ('failed','pending')`);
       await tx.execute(sql`UPDATE asset_import_jobs SET status=${counts?.remaining ? "partial" : "completed"},reserved_bytes=${Number(counts?.bytes ?? 0)},lease_token=NULL,lease_expires_at=NULL,updated_at=now() WHERE id=${job.id}`);
     });
@@ -279,8 +321,7 @@ export function createAssetImportService({ db, storage, quota }: AssetImportDepe
   /** One durable claim, suitable for multiple server replicas and restart recovery. */
   async function processNext(): Promise<boolean> {
     await requireReady();
-    const token = randomUUID();
-    const [job] = await mediaRows<JobRow>(db, sql`UPDATE asset_import_jobs SET lease_token=${token},lease_expires_at=now()+interval '2 minutes',status=CASE WHEN status IN ('queued_inspect','inspecting') THEN 'inspecting' ELSE 'processing' END,updated_at=now() WHERE id=(SELECT id FROM asset_import_jobs WHERE expires_at>now() AND (status IN ('queued_inspect','queued') OR (status IN ('inspecting','processing') AND lease_expires_at<now())) ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED) RETURNING *`);
+    const job = await claimAssetImportJob(db);
     if (!job) return false;
     const controller = new AbortController();
     const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(15 * 60_000)]);
@@ -288,10 +329,10 @@ export function createAssetImportService({ db, storage, quota }: AssetImportDepe
     const heartbeat = setInterval(() => {
       if (renewing) return;
       renewing = true;
-      void mediaRows(db, sql`UPDATE asset_import_jobs SET lease_expires_at=now()+interval '2 minutes' WHERE id=${job.id} AND lease_token=${token} RETURNING id`)
-        .then(rows => { if (!rows.length) controller.abort(); })
+      void renewAssetImportLease(db, quota.lockOwner, job)
+        .then(renewed => { if (!renewed) controller.abort(); })
         .catch(() => controller.abort()).finally(() => { renewing = false; });
-    }, 20_000);
+    }, ASSET_IMPORT_QUEUE_POLICY.heartbeatMs);
     heartbeat.unref();
     try {
       const bytes = await storage.read(prefix(job) + "source", ASSET_ARCHIVE_LIMITS.compressedBytes);
@@ -301,7 +342,12 @@ export function createAssetImportService({ db, storage, quota }: AssetImportDepe
       else await importFiles(job, bytes, signal);
     } catch (error) {
       const code = signal.aborted ? "ARCHIVE_INTERRUPTED" : error instanceof AssetImportError ? error.code : "ARCHIVE_STORAGE_ERROR";
-      await db.execute(sql`UPDATE asset_import_jobs SET status='failed',error_code=${code},reserved_bytes=0,lease_token=NULL,lease_expires_at=NULL,updated_at=now() WHERE id=${job.id} AND lease_token=${token}`);
+      await db.transaction(async tx => {
+        await quota.lockOwner(tx, job.user_id);
+        await tx.execute(sql`UPDATE asset_import_jobs SET status='failed',error_code=${code},reserved_bytes=0,
+          lease_token=NULL,lease_expires_at=NULL,updated_at=clock_timestamp()
+          WHERE id=${job.id} AND status=${job.status} AND lease_token=${job.lease_token} AND lease_expires_at>clock_timestamp()`);
+      });
     } finally { clearInterval(heartbeat); }
     return true;
   }

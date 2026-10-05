@@ -52,6 +52,7 @@ import { useCreditStore } from "@/edition/slots.state";
 import { useChatStore } from "@/stores/chat";
 import { useConfigStore } from "@/stores/config";
 import { buildSideCompletionRequest, type SideCompletionParams } from "./side-completion-request";
+import { requestSideDecision } from "./side-decision-request";
 import { handlePlayerPromptsBridgeCall, usePlayerPromptsChannel } from "@/features/chat/player-prompts-channel";
 import { ModelBrowser } from "./model-browser";
 import { fetchApiKeyModelProfiles, resolveOfficialSelectedModel, resolvePrivateSelectedModel } from "@/lib/provider-model-selection";
@@ -190,6 +191,7 @@ export function WorldRenderer({
   worldbooks,
 }: WorldRendererProps) {
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelPickerChatTrial, setModelPickerChatTrial] = useState(true);
   const selectedModel = useConfigStore((s) => s.selectedModel);
   const contextTokens = useChatStore((s) => {
     if (s.session?.id !== sessionId) return null;
@@ -281,6 +283,11 @@ export function WorldRenderer({
   apiRef.current = api;
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
+  const decisionControllersRef = useRef(new Set<AbortController>());
+  useEffect(() => {
+    const controllers = decisionControllersRef.current;
+    return () => { for (const controller of controllers) controller.abort(); controllers.clear(); };
+  }, [sessionId, isActive, mode]);
   const voiceHostAvailableRef = useRef(isActive && mode === "session");
   voiceHostAvailableRef.current = isActive && mode === "session";
   useEffect(() => {
@@ -345,6 +352,17 @@ export function WorldRenderer({
       };
 
       switch (method) {
+        case "ai.decide": {
+          const sid = sessionIdRef.current;
+          if (!sid || !voiceHostAvailableRef.current) return Promise.reject(new Error("Decisions require an active session"));
+          const controller = new AbortController();
+          decisionControllersRef.current.add(controller);
+          // Also bound host lifetime if the network stalls before the server
+          // sees the request. No automatic retry or mushie fallback.
+          const timeout = setTimeout(() => controller.abort(), 12_000);
+          return requestSideDecision(sid, args[0], useConfigStore.getState().selectedModel, controller.signal)
+            .finally(() => { clearTimeout(timeout); decisionControllersRef.current.delete(controller); });
+        }
         case "social.get": case "social.action": case "social.generate": {
           const sid = sessionIdRef.current;
           if (!sid) return Promise.resolve({ error: "No active session" });
@@ -912,6 +930,7 @@ export function WorldRenderer({
         }
         // ── Model picker ──
         case "openModelPicker":
+          setModelPickerChatTrial((args[0] as {purpose?: unknown} | null)?.purpose !== "side-completion");
           setModelPickerOpen(true);
           return;
         case "resolveModelFallback": {
@@ -2121,6 +2140,7 @@ export function WorldRenderer({
       {isActive && modelPickerOpen && (
         <ModelBrowser
           open
+          allowChatTrial={modelPickerChatTrial}
           selectedModel={selectedModel}
           contextTokens={contextTokens}
           onClose={() => setModelPickerOpen(false)}

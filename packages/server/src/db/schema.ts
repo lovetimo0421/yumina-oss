@@ -3787,6 +3787,20 @@ export const discoverArtworkOverrides = pgTable("discover_artwork_overrides", {
 });
 
 // Durable archive imports; their source objects are never exposed through /cdn.
+export const creativeUploadAdmissions = pgTable("creative_upload_admissions", {
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  sourceKind: text("source_kind").notNull(),
+  operationId: text("operation_id").notNull(),
+  bytes: bigint("bytes", { mode: "number" }).notNull(),
+  admittedAt: timestamp("admitted_at").notNull().default(sql`clock_timestamp()`),
+  completedAt: timestamp("completed_at"),
+}, t => [
+  primaryKey({ columns: [t.userId, t.sourceKind, t.operationId] }),
+  index("creative_upload_admissions_window_idx").on(t.userId, t.admittedAt),
+  check("creative_upload_admissions_source_kind_check", sql`${t.sourceKind} IN ('file','archive')`),
+  check("creative_upload_admissions_bytes_check", sql`${t.bytes} >= 0`),
+]);
+
 export const assetImportJobs = pgTable("asset_import_jobs", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
@@ -3801,6 +3815,10 @@ export const assetImportJobs = pgTable("asset_import_jobs", {
   conflict: text("conflict").notNull().default("rename"),
   status: text("status").notNull().default("uploading"),
   errorCode: text("error_code"),
+  manifestValidatedAt: timestamp("manifest_validated_at", { withTimezone: true }),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  queuedAt: timestamp("queued_at", { withTimezone: true }),
+  priority: integer("priority").notNull().default(0),
   leaseToken: text("lease_token"),
   leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -3812,9 +3830,11 @@ export const assetImportJobs = pgTable("asset_import_jobs", {
 }, t => [
   index("asset_import_owner_idx").on(t.userId, t.createdAt),
   index("asset_import_worker_idx").on(t.status, t.leaseExpiresAt),
+  index("asset_import_owner_worker_idx").on(t.userId, t.status, t.leaseExpiresAt),
   index("asset_import_cleanup_idx").on(t.expiresAt).where(sql`${t.cleanedAt} IS NULL`),
   check("asset_import_jobs_input_bytes_check", sql`${t.inputBytes} > 0`),
   check("asset_import_jobs_reserved_bytes_check", sql`${t.reservedBytes} >= 0`),
+  check("asset_import_jobs_priority_check", sql`${t.priority} BETWEEN 0 AND 2`),
   check("asset_import_jobs_conflict_check", sql`${t.conflict} IN ('rename','skip')`),
   check("asset_import_jobs_status_check", sql`${t.status} IN ('uploading','queued_inspect','inspecting','ready','queued','processing','completed','partial','failed','cancelled','expired')`),
 ]);
@@ -3833,4 +3853,14 @@ export const assetImportEntries = pgTable("asset_import_entries", {
   primaryKey({ columns: [t.jobId, t.ordinal] }),
   unique("asset_import_entries_job_id_path_key").on(t.jobId, t.path),
   check("asset_import_entries_status_check", sql`${t.status} IN ('pending','succeeded','skipped','failed')`),
+]);
+
+export const assetImportRetries = pgTable("asset_import_retries", {
+  id: text("id").primaryKey(),
+  jobId: text("job_id").notNull().references(() => assetImportJobs.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  index("asset_import_retry_owner_idx").on(t.userId, t.acceptedAt),
+  index("asset_import_retry_job_idx").on(t.jobId, t.acceptedAt),
 ]);

@@ -5,10 +5,25 @@ import { env } from "./env.js";
 import { sessionMedia, sessionMediaLimit } from "./session-media.js";
 import { copyObject, deleteObject, generateUploadUrl, getObjectBufferLimited, headObject, putObject } from "./s3.js";
 import { createAssetImportService } from "./asset-import-service.js";
+import { AssetImportError } from "./asset-archive.js";
+import { admitCreativeUpload, creativeUploadPolicy } from "./creative-upload-policy.js";
+import { ensureWallet } from "./credit-service.js";
+import { resolveEffectivePlanWithEventEntitlements } from "./event-plan-entitlements.js";
 
 export const assetImports = createAssetImportService({
   db,
   quota: { lockOwner: sessionMedia.lockOwner, usage: sessionMedia.usage, limit: sessionMediaLimit },
+  uploadPolicy: {
+    admit: async (tx, userId, operationId, bytes, storageLimit) => {
+      const result = await admitCreativeUpload(tx, userId, "archive", operationId, bytes, storageLimit);
+      if (result !== "admitted") throw new AssetImportError(result === "limit" ? "ARCHIVE_RATE_LIMIT" : "ARCHIVE_CONFLICT", result === "limit" ? 429 : 409);
+    },
+    priority: async userId => {
+      const wallet = await ensureWallet(userId);
+      const plan = await resolveEffectivePlanWithEventEntitlements(userId, wallet.plan);
+      return creativeUploadPolicy(plan).priority;
+    },
+  },
   storage: {
     signUpload: (key, size) => generateUploadUrl(key, "application/octet-stream", { contentLength: size, expiresIn: 3600 }),
     head: headObject,

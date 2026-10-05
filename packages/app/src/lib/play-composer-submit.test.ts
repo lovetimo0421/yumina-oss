@@ -61,6 +61,8 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
     // Read-aloud is a sibling of the send key, not part of it: mocked so this
     // test stays about what Enter does.
     "./voice-panel": { VoicePanelButton: empty },
+    // The contrast guard measures painted pixels; JSDOM has no layout.
+    "./composer-guard": { useComposerGuard: noop },
     // Composer popovers portal to <body> in the app; inline here is enough.
     "./composer-popover": {
       ComposerPopover: ({ children, popoverRef }: { children: ReactNode; popoverRef: Ref<HTMLDivElement> }) => createElement("div", { ref: popoverRef }, children),

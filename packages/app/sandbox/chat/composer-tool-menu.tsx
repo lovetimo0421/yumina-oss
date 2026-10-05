@@ -178,7 +178,7 @@ export function ComposerToolMenu({
                 else in the pill is shrink-0, so the name is what gives. */}
             <span
               title={summary.label}
-              className="min-w-[2.5em] truncate text-[11px] font-medium text-white/75 transition-colors group-hover:text-white"
+              className="min-w-[2.5em] truncate text-[11px] font-medium text-foreground/75 transition-colors group-hover:text-foreground"
             >
               {summary.label}
             </span>
@@ -190,7 +190,7 @@ export function ComposerToolMenu({
             {tools.length}
           </span>
         )}
-        <ChevronUp className="h-3 w-3 shrink-0 text-white/45 transition-colors group-hover:text-white/70" />
+        <ChevronUp className="h-3 w-3 shrink-0 text-foreground/45 transition-colors group-hover:text-foreground/70" />
       </button>
 
       {/* Selector sheet — a chooser only. Fixed to the bottom of the chat

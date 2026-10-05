@@ -42,6 +42,14 @@ test("a slow endpoint is a timeout, never a hang", async () => {
   await assert.rejects(decide({ state: {}, questions, timeoutMs: 20 }), (err: unknown) => err instanceof DecisionError && err.code === "timeout");
 });
 
+test("an already cancelled request never starts a provider call", async () => {
+  let calls = 0;
+  globalThis.fetch = (async () => { calls++; return new Response('{"answers":{}}'); }) as typeof fetch;
+  const controller = new AbortController(); controller.abort();
+  await assert.rejects(decide({ state: {}, questions, signal: controller.signal }), (error: unknown) => error instanceof DecisionError && error.code === "cancelled");
+  assert.equal(calls, 0);
+});
+
 test("upstream errors carry a category, not the body", async () => {
   globalThis.fetch = (async () => new Response("{\"error\":{\"message\":\"boom\"}}", { status: 503 })) as typeof fetch;
   await assert.rejects(decide({ state: {}, questions }), (err: unknown) => err instanceof DecisionError && err.code === "upstream");

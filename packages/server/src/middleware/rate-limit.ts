@@ -144,6 +144,12 @@ export async function checkRateLimit(
 /** Max side completions per minute, all plans. */
 export const SIDE_CALL_MAX_PER_MINUTE = 100;
 
+/** Platform-funded custom-UI decisions get a tighter, per-account ceiling. */
+export const DECISION_MAX_PER_MINUTE = 20;
+export async function checkDecisionRateLimit(userId: string) {
+  return slidingWindowCheck(`rate:decision:${userId}`, DECISION_MAX_PER_MINUTE, DEFAULT_WINDOW_MS);
+}
+
 /** Max concurrent side-completion streams per user. Without this, the 100/min
  *  pool + deduct-after-stream billing would let a near-zero-balance account
  *  hold ~100 premium-model streams open at once at platform expense — the old

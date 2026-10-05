@@ -18,10 +18,12 @@ export interface AssetImportTask {
   currentPath: string;
   stage: AssetUploadStage | "folders";
   progress: UploadProgress | null;
+  activeBytes?: number;
   failed: string[];
   quotaExceeded: boolean;
 }
 interface Dependencies {
+  concurrency?: (signal: AbortSignal) => Promise<number>;
   storage: () => { used: number; limit: number };
   createFolder: (name: string, parentId: string | undefined, signal: AbortSignal, requestId: string) => Promise<{ id: string } | null>;
   upload: (file: File, type: UploadAssetType, folderId: string | undefined, signal: AbortSignal,
@@ -82,21 +84,30 @@ export function createAssetImportStore(deps: Dependencies) {
       };
       update({ status: "running", failed: [], quotaExceeded: false, progress: null });
       try {
+        const concurrency = deps.concurrency ? await deps.concurrency(abort.signal) : 1;
+        abort.signal.throwIfAborted();
+        const active = new Map<string, { size: number; stage: AssetUploadStage | "folders"; progress: UploadProgress | null }>();
+        const refreshProgress = () => {
+          const first = active.entries().next().value;
+          update({ currentPath: first?.[0] ?? "", stage: first?.[1].stage ?? "folders", progress: first?.[1].progress ?? null,
+            activeBytes: [...active.values()].reduce((sum, item) => sum + Math.min(item.size, Math.max(0, item.progress?.loaded ?? 0)), 0),
+            completed: state.completed.size,
+            completedBytes: plan.files.reduce((sum, entry) => sum + (state.completed.has(entry.path) ? entry.file.size : 0), 0) });
+        };
         const failures = await importFolderFiles(plan, state, {
           parentFolderId: task.selection.parentFolderId ?? undefined,
           signal: abort.signal,
-          onFile: (entry) => update({ currentPath: entry.path, stage: "folders", progress: null }),
+          concurrency,
+          onFile: (entry) => { active.set(entry.path, { size: entry.file.size, stage: "folders", progress: null }); refreshProgress(); },
           createFolder: (name, parentId) => deps.createFolder(name, parentId, abort.signal, requestId("folder:" + JSON.stringify([parentId, name]))),
-          uploadFile: (file, type, folderId) => deps.upload(file, type, folderId, abort.signal,
-            (progress) => { if (!abort.signal.aborted) update({ progress }); },
-            (stage) => { if (!abort.signal.aborted) update({ stage }); }, requestId("file:" + get().task!.currentPath)),
-          onProgress: (completed) => update({ completed,
-            completedBytes: plan.files.reduce((sum, entry) => sum + (state.completed.has(entry.path) ? entry.file.size : 0), 0),
-            progress: null }),
+          uploadFile: (file, type, folderId, entry) => deps.upload(file, type, folderId, abort.signal,
+            (progress) => { const item = active.get(entry.path); if (item && !abort.signal.aborted) { item.progress = progress; refreshProgress(); } },
+            (stage) => { const item = active.get(entry.path); if (item && !abort.signal.aborted) { item.stage = stage; refreshProgress(); } }, requestId("file:" + entry.path)),
+          onProgress: (_completed, _attempted, path) => { active.delete(path); refreshProgress(); },
         });
-        update({ failed: failures, status: state.completed.size === plan.files.length ? "complete" : abort.signal.aborted ? "cancelled" : "failed", progress: null });
+        update({ failed: failures, status: state.completed.size === plan.files.length ? "complete" : abort.signal.aborted ? "cancelled" : "failed", progress: null, activeBytes: 0 });
       } catch {
-        update({ status: abort.signal.aborted ? "cancelled" : "failed", progress: null });
+        update({ status: abort.signal.aborted ? "cancelled" : "failed", progress: null, activeBytes: 0 });
       } finally {
         release();
         if (generation === run) {
@@ -128,7 +139,7 @@ export function createAssetImportStore(deps: Dependencies) {
 export function importProgress(task: AssetImportTask) {
   const { plan } = task.selection;
   const current = plan.files.find(entry => entry.path === task.currentPath);
-  const loaded = Math.min(current?.file.size ?? 0, Math.max(0, task.progress?.loaded ?? 0));
+  const loaded = task.activeBytes ?? Math.min(current?.file.size ?? 0, Math.max(0, task.progress?.loaded ?? 0));
   const bytes = Math.min(plan.totalBytes, task.completedBytes + loaded);
   const percent = task.status === "complete" ? 100 : Math.min(99, Math.floor(plan.totalBytes ? bytes / plan.totalBytes * 100 : task.completed / Math.max(plan.files.length, 1) * 100));
   return { bytes, percent };

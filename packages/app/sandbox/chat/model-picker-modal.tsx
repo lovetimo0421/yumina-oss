@@ -1896,12 +1896,12 @@ export function ModelTrigger({ onClick, model, className, provider, showBalance 
       {/* The name is what gives when the toolbar runs out of room: it
           truncates (full name in the title) but keeps a few glyphs visible.
           Everything else in the pill is shrink-0, so the balance never hides. */}
-      <span className="min-w-[2.5em] truncate text-[11px] font-medium text-white/75 transition-colors group-hover:text-white">
+      <span className="min-w-[2.5em] truncate text-[11px] font-medium text-foreground/75 transition-colors group-hover:text-foreground">
         {displayName}
       </span>
       {/* A local turn spends nothing — a wallet beside it misstates the next reply's cost. */}
       {showBalance && !isLocal && balance != null && <BalanceTag balance={balance} language={language} compact={compactBalance} />}
-      <ChevronRight className="h-3 w-3 shrink-0 text-white/45 group-hover:text-white/70 transition-colors" />
+      <ChevronRight className="h-3 w-3 shrink-0 text-foreground/45 group-hover:text-foreground/70 transition-colors" />
     </button>
   );
 }

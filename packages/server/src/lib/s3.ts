@@ -23,6 +23,7 @@ import {
   CopyObjectCommand,
   type GetObjectCommandOutput,
 } from "@aws-sdk/client-s3";
+import { readObjectBodyLimited } from "./read-object-limited.js";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import type { Readable } from "node:stream";
 import { env, IS_DEV, IS_LOCAL_EDITION, PUBLIC_ORIGIN, STORAGE_DIR } from "./env.js";
@@ -134,18 +135,7 @@ export async function generatePrivateReadUrl(key: string): Promise<string> {
 /** Enforce a byte ceiling while streaming; a lying object header cannot exhaust RAM. */
 export async function getObjectBufferLimited(key: string, maxBytes: number): Promise<Buffer> {
   const object = await getObject(key, { signal: AbortSignal.timeout(30_000) });
-  if (!object.body || (object.contentLength ?? 0) > maxBytes) throw new Error("MEDIA_INVALID_SIZE");
-  const stream = object.body as AsyncIterable<Uint8Array> & { destroy?: () => void };
-  const chunks: Buffer[] = [];
-  let size = 0;
-  try {
-    for await (const chunk of stream) {
-      size += chunk.length;
-      if (size > maxBytes) throw new Error("MEDIA_INVALID_SIZE");
-      chunks.push(Buffer.from(chunk));
-    }
-    return Buffer.concat(chunks, size);
-  } finally { stream.destroy?.(); }
+  return readObjectBodyLimited(object.body as AsyncIterable<Uint8Array> & { destroy?: () => void }, object.contentLength, maxBytes);
 }
 
 /** Inspect an object without exposing it through the public CDN proxy. */

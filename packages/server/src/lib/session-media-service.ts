@@ -135,6 +135,10 @@ export function createSessionMediaService(db: DrizzleDB, storage: MediaStorage) 
         if (!MEDIA_MIMES.includes(input.contentType) || !input.filename || input.filename.length > 200 || !/^[a-zA-Z0-9:_-]{1,100}$/.test(input.entryId) || !/^[a-f0-9-]{36}$/i.test(input.id))
             throw new MediaError("MEDIA_INVALID_UPLOAD");
         const metadata = parseMediaMetadata(input.metadata);
+        // This marker belongs to server-created library upload reservations.
+        // Caller-supplied gallery metadata must not select a different budget.
+        if (metadata.purpose === "creative-asset")
+            throw new MediaError("MEDIA_INVALID_METADATA");
         const upload = await db.transaction(async (tx) => {
             await lockOwner(tx, userId);
             await ownSession(tx, userId, input.sessionId);
@@ -152,8 +156,9 @@ export function createSessionMediaService(db: DrizzleDB, storage: MediaStorage) 
                 pending: number;
             }>(tx, sql `
         SELECT count(*)::int AS count,COALESCE(sum(input_bytes),0)::text AS bytes,
-        count(*) FILTER(WHERE status IN ('pending','processing'))::int AS pending
-        FROM session_media_uploads WHERE user_id=${userId} AND created_at>now()-interval '1 hour'`);
+        count(*) FILTER(WHERE status IN ('pending','processing') AND expires_at>now())::int AS pending
+        FROM session_media_uploads WHERE user_id=${userId} AND created_at>now()-interval '1 hour'
+          AND (session_id IS NOT NULL OR metadata->>'purpose' IS DISTINCT FROM 'creative-asset')`);
             if ((rate?.count ?? 0) >= 60 || Number(rate?.bytes ?? 0) + input.size > 128 * 1024 * 1024 || (rate?.pending ?? 0) >= 4)
                 throw new MediaError("MEDIA_RATE_LIMIT", 429);
             const used = await usage(userId, tx);

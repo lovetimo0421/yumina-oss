@@ -47,6 +47,8 @@ interface ModelBrowserProps {
   onSelect: (modelId: string) => void;
   selectedModel: string;
   studioMode?: boolean;
+  /** Ordinary-chat trials do not apply to sandbox side completions. */
+  allowChatTrial?: boolean;
   /** Use the current BYOK configuration without offering provider or mix changes. */
   privateOnly?: boolean;
   /** Select a secondary model without changing the active provider or mix mode. */
@@ -112,6 +114,7 @@ export function ModelBrowser({
   onSelect,
   selectedModel,
   studioMode,
+  allowChatTrial = true,
   privateOnly: privateOnlyProp = false,
   selectionOnly = false,
   allowProviderSwitch = false,
@@ -347,6 +350,7 @@ export function ModelBrowser({
         ) : isOfficialMode && !studioMode && !privateOnly ? (
           <OfficialView
             selectedModel={selectedModel}
+            allowChatTrial={allowChatTrial}
             userPlan={userPlan}
             contextTokens={contextTokens}
             onSelect={handleSelect}
@@ -707,9 +711,10 @@ function MixConfigView({
 /* ── Official picker (tier tabs, warm cards) ── */
 
 function OfficialView({
-  selectedModel, userPlan, onSelect, onClose, providerSwitch, onMixMode, contextTokens = null,
+  selectedModel, userPlan, onSelect, onClose, providerSwitch, onMixMode, contextTokens = null, allowChatTrial,
 }: {
   selectedModel: string;
+  allowChatTrial: boolean;
   userPlan: string;
   contextTokens?: number | null;
   onSelect: (id: string) => void;
@@ -823,7 +828,7 @@ function OfficialView({
       <div ref={listRef} data-testid="official-model-list" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 max-[390px]:px-2">
         {models.map(m => {
           const isSelected = !isMixActive && selectedModel === m.id;
-          const hasGrokTrial = m.id === "anthropic/claude-sonnet-4.6" && grokTrialRemaining > 0;
+          const hasGrokTrial = allowChatTrial && m.id === "anthropic/claude-sonnet-4.6" && grokTrialRemaining > 0;
           const locked = !hasGrokTrial && !canAccessPlan(m.minPlan,userPlan);
           const meta = TIER_META[m.tier as CostTier];
           return <div key={m.id} className={cn("mb-1.5 flex min-h-[68px] w-full items-center rounded-[13px] border transition-colors motion-reduce:transition-none",isSelected ? `${meta.border} ${meta.bg} shadow-md ${meta.glow}` : "border-white/[0.07] bg-white/[0.02]",!locked && !isSelected && "hover:border-white/15 hover:bg-white/[0.04]",locked && "opacity-60")}>

@@ -85,16 +85,25 @@ export async function importFolderFiles(
   options: {
     parentFolderId?: string;
     signal: AbortSignal;
+    concurrency?: number;
     createFolder: (name: string, parentId?: string) => Promise<{ id: string } | null>;
-    uploadFile: (file: File, type: UploadAssetType, folderId?: string) => Promise<unknown>;
+    uploadFile: (file: File, type: UploadAssetType, folderId: string | undefined, entry: FolderImportPlan["files"][number]) => Promise<unknown>;
     onFile?: (entry: FolderImportPlan["files"][number]) => void;
-    onProgress: (completed: number, attempted: number) => void;
+    onProgress: (completed: number, attempted: number, path: string) => void;
   },
 ): Promise<string[]> {
   const failed: string[] = [];
   const failedFolders = new Set<string>();
+  const creatingFolders = new Map<string, Promise<string | undefined>>();
   let attempted = state.completed.size;
-  async function ensureFolder(path: string): Promise<string | undefined> {
+  function ensureFolder(path: string): Promise<string | undefined> {
+    const pending = creatingFolders.get(path);
+    if (pending) return pending;
+    const result = createFolder(path);
+    creatingFolders.set(path, result);
+    return result;
+  }
+  async function createFolder(path: string): Promise<string | undefined> {
     if (!path) return options.parentFolderId;
     const existing = state.folderIds.get(path);
     if (existing) return existing;
@@ -113,20 +122,24 @@ export async function importFolderFiles(
       throw error;
     }
   }
-  for (const entry of plan.files) {
-    if (options.signal.aborted) break;
-    if (state.completed.has(entry.path)) continue;
-    options.onFile?.(entry);
-    try {
-      const folderId = await ensureFolder(entry.path.split("/").slice(0, -1).join("/"));
-      if (options.signal.aborted) break;
-      const result = await options.uploadFile(entry.file, entry.type, folderId);
-      if (!result) throw new Error("Upload failed");
-      state.completed.add(entry.path);
-    } catch {
-      if (!options.signal.aborted) failed.push(entry.path);
+  let next = 0;
+  const worker = async () => {
+    while (!options.signal.aborted && next < plan.files.length) {
+      const entry = plan.files[next++]!;
+      if (state.completed.has(entry.path)) continue;
+      options.onFile?.(entry);
+      try {
+        const folderId = await ensureFolder(entry.path.split("/").slice(0, -1).join("/"));
+        if (options.signal.aborted) break;
+        const result = await options.uploadFile(entry.file, entry.type, folderId, entry);
+        if (!result) throw new Error("Upload failed");
+        state.completed.add(entry.path);
+      } catch {
+        if (!options.signal.aborted) failed.push(entry.path);
+      }
+      options.onProgress(state.completed.size, ++attempted, entry.path);
     }
-    options.onProgress(state.completed.size, ++attempted);
-  }
+  };
+  await Promise.all(Array.from({ length: Math.max(1, Math.min(6, Math.floor(options.concurrency ?? 1))) }, worker));
   return failed;
 }

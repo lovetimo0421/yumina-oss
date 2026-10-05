@@ -7,6 +7,41 @@ import { activeReloadHolds } from "./reload-safety";
 const selection = () => ({ parentFolderId: null, parentLabel: "Root", plan: planFolderImport(["a.txt", "b.txt"].map(name => ({ path: `folder/${name}`, file: new File(["1234567890"], name) }))) });
 const tick = () => new Promise<void>(resolve => setImmediate(resolve));
 
+test("parallel files share folder creation and retain distinct stable retry IDs and byte progress", async () => {
+  let folders = 0, live = 0, maximum = 0;
+  const pending = new Map<string, () => void>();
+  const ids = new Map<string, string>();
+  const store = createAssetImportStore({ concurrency: async () => 2, storage: () => ({used:0,limit:100}),
+    createFolder: async () => { folders++; await tick(); return {id:"folder"}; },
+    upload: async (file, _type, _folder, _signal, progress, stage, requestId) => {
+      ids.set(file.name, requestId); maximum = Math.max(maximum, ++live);
+      stage("storage"); progress({loaded:5,total:10,fraction:0.5,bytesPerSecond:1});
+      await new Promise<void>(resolve => pending.set(file.name, resolve)); live--;
+      return {};
+    } });
+  store.getState().select(selection(), "A");
+  const run = store.getState().start(); await tick(); await tick();
+  assert.equal(maximum,2);
+  assert.equal(folders,1);
+  assert.equal(new Set(ids.values()).size,2);
+  assert.equal(importProgress(store.getState().task!).bytes,10);
+  pending.get("b.txt")!(); await tick();
+  assert.equal(importProgress(store.getState().task!).bytes,15,"out-of-order completion does not double count active bytes");
+  pending.get("a.txt")!(); await run;
+  assert.equal(store.getState().task!.status,"complete");
+  assert.equal(importProgress(store.getState().task!).bytes,20);
+});
+
+test("cancellation during policy lookup starts no transfers", async () => {
+  let resolve!: (value:number) => void, calls = 0;
+  const store = createAssetImportStore({ concurrency: async () => new Promise<number>(done => {resolve=done;}),
+    storage:()=>({used:0,limit:100}), createFolder: async()=>{calls++;return{id:"folder"};},upload:async()=>{calls++;return{};} });
+  store.getState().select(selection(),"A");
+  const run=store.getState().start(); store.getState().cancel(); resolve(6); await run;
+  assert.equal(calls,0);
+  assert.equal(store.getState().task!.status,"cancelled");
+});
+
 test("lost commit responses reuse request IDs and retry can reconcile near full quota", async () => {
   let used = 0, loseFolderResponse = true, loseFileResponse = true;
   const folders = new Map<string, { id: string }>();

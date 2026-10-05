@@ -66,6 +66,9 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   // tokens free, ~1e-4 USD per turn. Not charged to the player — it is part
   // of the card working as authored. Owner-approved 2026-09-21.
   continuity: "free-by-design",
+  // Choice-only card direction, owner-approved 2026-10-04; capped at 20 calls
+  // per minute/account and 32k chars. Actual BYOK use is logged as tier byok.
+  "side-decision": "free-by-design",
   // Per-turn pictures' tagging calls (platform key). The player pays a flat
   // price per delivered picture (per-turn-image/billing.ts), which covers
   // these tokens; logged so the spend stays visible per user.
