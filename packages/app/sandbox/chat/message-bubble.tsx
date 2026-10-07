@@ -22,9 +22,12 @@ import {
   makeChatT,
   parseFailureCode,
   FALLBACK_MODEL_ID,
+  type ChatStringKey,
 } from "./i18n";
 import type { SandboxMessage } from "./types";
-import { resolveSpeaker, stripLeadingSpeakerTag, isPartialLeadingSpeakerTag } from "./speaker";
+import { classifyChatError, errorDetail, type ChatErrorCode } from "./error-codes";
+import { aiFrameIds, resolveSpeaker, stripLeadingSpeakerTag, isPartialLeadingSpeakerTag } from "./speaker";
+import { splitBySpeaker } from "./speaker-split";
 import { RefusalBar, isRefusedReply } from "./player-prompts";
 import { TurnImageState } from "./turn-image-state";
 import { TurnImageCard } from "./turn-image-card";
@@ -76,6 +79,9 @@ interface MessageBubbleProps {
   variables?: Record<string, unknown>;
   messageIndex?: number;
   showRoleLabel?: boolean;
+  /** This is the session's opening. Handed to the message renderer, which may
+   *  draw the opening differently (a card's message style can). */
+  isGreeting?: boolean;
   /** Retry only makes sense for the trailing turn — `continueLastMessage`
    *  generates a reply for the newest message, not an arbitrary one. */
   isLastMessage?: boolean;
@@ -93,6 +99,24 @@ interface MessageBubbleProps {
   onCancelEdit?: () => void;
 }
 
+/** Localized copy for a classified failure (see error-codes.ts). */
+const FAILURE_TEXT_KEYS: Record<ChatErrorCode, ChatStringKey> = {
+  NO_API_KEY: "errNoApiKey",
+  MODEL_UNAVAILABLE: "errModelUnavailable",
+  NO_CREDITS: "errNoCredits",
+  RATE_LIMITED: "errRateLimited",
+  CONTEXT_TOO_LONG: "errContextTooLong",
+  UPSTREAM_BUSY: "upstreamBusy",
+  UPSTREAM_TIMEOUT: "errUpstreamTimeout",
+  UPSTREAM_UNAVAILABLE: "upstreamBusy",
+  CONNECTION_LOST: "turnInterrupted",
+  OFFLINE: "errOffline",
+  SERVER_RESTART: "errServerRestart",
+  EMPTY_REPLY: "errEmptyReply",
+  CONTENT_BLOCKED: "contentBlocked",
+  FREE_POOL_EXHAUSTED: "freePoolExhausted",
+};
+
 // ── Component ──────────────────────────────────────────────────────
 
 const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleInner({
@@ -107,6 +131,7 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
   variables,
   messageIndex,
   showRoleLabel = true,
+  isGreeting,
   isLastMessage,
   isEditing,
   isSavingEdit,
@@ -157,10 +182,14 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
       case "UPSTREAM_UNAVAILABLE": return t("upstreamBusy");
       case "MODEL_FALLBACK_REQUIRED": return t("upstreamBusy");
       case "CONTENT_FILTER":      return t("contentBlocked");
-      default:
-        return isContentBlockedError(failure.text)
-          ? t("contentBlocked")
-          : failure.text || t("generationFailed");
+      default: {
+        if (isContentBlockedError(failure.text)) return t("contentBlocked");
+        const known = classifyChatError(failure.text, failure.code);
+        if (known) return t(FAILURE_TEXT_KEYS[known]);
+        // Unknown: a localized line, the raw detail kept for support.
+        const detail = errorDetail(failure.text);
+        return detail ? t("generationFailedDetail", { detail }) : t("generationFailed");
+      }
     }
   }, [failure, t]);
   // Retrying only reaches the server for the trailing turn, and firing it
@@ -208,9 +237,19 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
   const speakerSource = isStreaming
     ? (streamingContent ?? "")
     : (activeSwipe?.rawContent ?? message.content);
+  const aiFrames = useMemo(() => aiFrameIds(api.worldbooks), [api.worldbooks]);
+  // The card asked for one bubble per speaker: the characters it has, by name.
+  const characterFaces = useMemo(() => new Map(
+    api.entries.filter((e) => (e as { role?: string }).role === "character" && e.enabled !== false)
+      .map((e) => [e.name, { portrait: (e as { portrait?: string | null }).portrait ?? null }] as const),
+  ), [api.entries]);
+  const speakerSegments = useMemo(
+    () => (api.speakerBubbles && !isUser && !isSystem && !isStreaming ? splitBySpeaker(displayContent, [...characterFaces.keys()]) : null),
+    [api.speakerBubbles, isUser, isSystem, isStreaming, displayContent, characterFaces],
+  );
   const speaker = useMemo(
-    () => (isUser || isSystem ? null : resolveSpeaker(api.entries, speakerSource)),
-    [api.entries, isUser, isSystem, speakerSource],
+    () => (isUser || isSystem ? null : resolveSpeaker(api.entries, speakerSource, aiFrames, api.worldbooks)),
+    [api.entries, api.worldbooks, aiFrames, isUser, isSystem, speakerSource],
   );
 
   // Auto-resize edit textarea
@@ -426,8 +465,8 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                     <line x1="18" y1="6" x2="6" y2="18" />
                     <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>{" "}
-                  Cancel
-                  <kbd className="ml-1 text-[10px] text-muted-foreground/40">
+                  {t("cancel")}
+                  <kbd className="ml-1 text-[10px] text-muted-foreground/40 [@media(hover:none)]:hidden">
                     Esc
                   </kbd>
                 </button>
@@ -448,9 +487,9 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                   >
                     <polyline points="20 6 9 17 4 12" />
                   </svg>{" "}
-                  {isSavingEdit ? "Saving..." : "Save"}
-                  <kbd className="ml-1 text-[10px] text-primary/40">
-                    Ctrl+Enter
+                  {isSavingEdit ? t("saving") : t("save")}
+                  <kbd className="ml-1 text-[10px] text-primary/40 [@media(hover:none)]:hidden">
+                    {/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘↵" : "Ctrl+Enter"}
                   </kbd>
                 </button>
               </div>
@@ -489,6 +528,13 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                   renderMarkdown={renderMarkdown}
                   isStreaming={!!isStreaming}
                   variables={variables ?? {}}
+                  // Additive: renderers that predate these ignore them. They
+                  // let a renderer key per-message state (a revealed thought)
+                  // to the message and swipe, and act only on the newest turn.
+                  messageId={message.id}
+                  swipeIndex={activeSwipeIdx}
+                  isLastMessage={!!isLastMessage}
+                  isGreeting={!!isGreeting}
                 />
               </MessageRendererBoundary>
               {rendererText.embeds.length > 0 && (
@@ -496,6 +542,26 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                   {rendererText.embeds.map((embed) => <TurnImageCard key={embed} embed={embed} message={message} api={api} t={t} />)}
                 </div>
               )}
+            </div>
+          ) : speakerSegments ? (
+            // One reply, several people: a bubble each, with their face.
+            <div onClick={handleClick} className="flex flex-col gap-2" data-speaker-split="">
+              {speakerSegments.map((seg, i) => {
+                const who = seg.speaker ? characterFaces.get(seg.speaker) : null;
+                return seg.speaker ? (
+                  <div key={i} className="flex items-start gap-2" data-speaker={seg.speaker}>
+                    {who?.portrait
+                      ? <img src={who.portrait} alt="" draggable={false} className="mt-0.5 h-7 w-7 shrink-0 rounded-full border border-border object-cover" />
+                      : <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-[11px] font-semibold">{seg.speaker.slice(0, 1)}</span>}
+                    <div className="min-w-0 flex-1">
+                      <p className="play-message-role mb-0.5 text-xs font-medium text-primary/70">{seg.speaker}</p>
+                      <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-1.5" dangerouslySetInnerHTML={{ __html: renderMessage(seg.text) }} />
+                    </div>
+                  </div>
+                ) : (
+                  <div key={i} dangerouslySetInnerHTML={{ __html: renderMessage(seg.text) }} />
+                );
+              })}
             </div>
           ) : (
             <>
@@ -648,6 +714,7 @@ export const MessageBubble = React.memo(MessageBubbleInner, (prev, next) => {
   if (prev.editContent !== next.editContent) return false;
   if (prev.rendererComponent !== next.rendererComponent) return false;
   if (prev.messageIndex !== next.messageIndex) return false;
+  if (prev.isGreeting !== next.isGreeting) return false;
   // Swipe: check by active swipe index (content changes on swipe)
   if (prev.message.activeSwipeIndex !== next.message.activeSwipeIndex) return false;
   if (prev.message.modelFallback !== next.message.modelFallback) return false;

@@ -103,6 +103,8 @@ export function ComposerToolMenu({
   const tools = useToolMenuContributions();
   const balance = useMushieBalance();
   const activeTool = tools.find((tool) => tool.id === openToolId) ?? null;
+  // 「提示词」 has its own composer button (see message-input), not a row here.
+  const toolCount = tools.length;
 
   const summary = useMemo(
     () =>
@@ -150,7 +152,7 @@ export function ComposerToolMenu({
         // em paddings/gap (= the old px-2.5 py-1.5 gap-1.5 at 16px): Android
         // font inflation (textZoom) scales text but not rem boxes, so rem
         // padding gets eaten on scaled-up phones — em tracks the text instead.
-        className="group flex min-w-0 items-center gap-[0.375em] rounded-full border border-white/[0.12] bg-white/[0.05] px-[0.625em] py-[0.375em] transition-all hover:border-white/20 hover:bg-white/[0.09]"
+        className="play-composer-model group flex min-w-0 items-center gap-[0.375em] rounded-full border border-current/[0.14] bg-current/[0.05] px-[0.625em] py-[0.375em] text-foreground/80 transition-all hover:border-current/25 hover:bg-current/[0.09] hover:text-foreground"
       >
         {summary.isMix ? (
           <>
@@ -171,7 +173,7 @@ export function ComposerToolMenu({
             {summary.dotClass ? (
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${summary.dotClass} opacity-90`} />
             ) : (
-              <SlidersHorizontal className="h-3 w-3 shrink-0 text-white/60" />
+              <SlidersHorizontal className="h-3 w-3 shrink-0 opacity-70" />
             )}
             {/* No width cap: show the full model name and let flex truncate it
                 only when the toolbar genuinely runs out of room. Everything
@@ -185,9 +187,9 @@ export function ComposerToolMenu({
           </>
         )}
         {balance != null && <BalanceTag balance={balance} language={api.language} compact={compactBalance} />}
-        {tools.length > 0 && (
+        {toolCount > 0 && (
           <span className="flex h-3.5 min-w-[0.875rem] shrink-0 items-center justify-center rounded-full bg-primary/20 px-1 text-[9px] font-semibold text-primary">
-            {tools.length}
+            {toolCount}
           </span>
         )}
         <ChevronUp className="h-3 w-3 shrink-0 text-foreground/45 transition-colors group-hover:text-foreground/70" />
@@ -201,7 +203,7 @@ export function ComposerToolMenu({
             type="button"
             aria-label={t("cancel")}
             onClick={() => setSheetOpen(false)}
-            className="absolute inset-0 h-full w-full cursor-default bg-black/50 backdrop-blur-sm"
+            className="absolute inset-0 h-full w-full cursor-default modal-backdrop"
             style={{ animation: "sheetFade 0.15s ease-out" }}
           />
           <div

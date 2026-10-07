@@ -19,6 +19,8 @@ export type SessionUser = {
   updatedAt: Date;
   role?: string;
   isSuspended?: boolean;
+  isMuted?: boolean;
+  mutedUntil?: Date | null;
   isBanned?: boolean;
   tier?: string;
   /** Admin-granted trusted-creator flag: edits auto-publish without review and

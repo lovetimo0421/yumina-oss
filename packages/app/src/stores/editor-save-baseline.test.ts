@@ -240,12 +240,13 @@ test("409 merging keeps its server ancestor and a successful retry advances it",
     assert.equal(requestBody(init).baseUpdatedAt, time(3));
     return Response.json({ data: serverData(requestBody(init).schema, time(4)) });
   };
-  assert.equal(await store.getState().saveDraft(), false);
+  // A clean merge retries the save itself (editor line, 2026-09-17): one call
+  // merges the server copy in and writes it back, so the ancestor and the
+  // concurrency token both advance without a second click.
+  assert.equal(await store.getState().saveDraft(), true);
+  assert.equal(patches, 2);
   assert.equal(rootSource(store.getState().worldDraft), source("C"));
   assert.equal(store.getState().worldDraft.description, "Local description");
-  assert.notEqual(store.getState()._baseSchema?.description, "Local description");
-  assert.equal(store.getState().isDirty, true);
-  assert.equal(await store.getState().saveDraft(), true);
   assert.equal(store.getState()._baseSchema?.description, "Local description");
   assert.equal(store.getState().baseUpdatedAt, time(4));
   assert.equal(store.getState().isDirty, false);

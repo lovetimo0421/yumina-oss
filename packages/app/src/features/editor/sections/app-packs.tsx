@@ -12,7 +12,7 @@ import {
 } from "@yumina/engine";
 import { cn } from "@/lib/utils";
 import { feedback } from "@/lib/feedback";
-import { bundleAndCompile } from "@/features/studio/lib/tsx-bundler";
+import { bundleAndCompile } from "@/lib/tsx/tsx-bundler";
 import { useEditorStore } from "@/stores/editor";
 
 /**

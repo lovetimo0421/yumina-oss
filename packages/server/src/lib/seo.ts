@@ -1,5 +1,6 @@
+import { worldAudienceCondition } from "./world-publication-access.js";
 import { eq, or, and, isNull, desc } from "drizzle-orm";
-import { KREW_PREVIEW_IMAGE, parseProfileAddress, parseWorldAddress, profileAddressPath } from "@yumina/shared";
+import { getKrewPublicPath, KREW_PREVIEW_IMAGE, parseProfileAddress, parseWorldAddress, profileAddressPath } from "@yumina/shared";
 import { readPublic } from "../db/index.js";
 import { PUBLIC_ORIGIN } from "./env.js";
 import { resolveImageCdn } from "./cdn-url.js";
@@ -99,6 +100,7 @@ const STATIC_META: Record<string, PageMeta> = {
     jsonLd: {
       "@context": "https://schema.org",
       "@type": "VideoGame",
+      "@id": `${SITE_URL}/krew#game`,
       name: "Krew.io",
       alternateName: ["Krew IO", "Krew2.io", "Krew"],
       url: `${SITE_URL}/krew`,
@@ -222,6 +224,11 @@ function buildWorldMeta(world: AddressedWorld, path: string): PageMeta {
     jsonLd: {
       "@context": "https://schema.org",
       "@type": "CreativeWork",
+      // The listing has its own address; it describes the same game people
+      // reach through its Play link. Keep that relationship explicit.
+      ...(getKrewPublicPath(world.gamePath) ? {
+        about: { "@type": "VideoGame", "@id": `${SITE_URL}/krew#game`, name: "Krew.io", url: `${SITE_URL}/krew` },
+      } : {}),
       name: world.name,
       url,
       ...(image ? { image } : {}),
@@ -588,6 +595,7 @@ export async function generateSitemap(): Promise<string> {
           // Never hand crawlers the URL list of Limitless cards — the sitemap
           // is the first thing payment-network content monitors fetch.
           eq(worlds.ageRating, "all"),
+          worldAudienceCondition(worlds.creatorId),
           eq(worlds.visibility, "public"),
         ),
       )

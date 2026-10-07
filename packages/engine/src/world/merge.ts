@@ -217,6 +217,7 @@ const ID_COLLECTIONS = [
   "reactions",
   "audioTracks",
   "sceneImages",
+  "backgrounds",
   "entryFolders",
   "customUI",
 ] as const;
@@ -224,7 +225,9 @@ const ID_COLLECTIONS = [
 /**
  * Other top-level fields, merged with base-aware "local wins if the user changed
  * it, else take server". Coarse but safe: a field only the agent changed flows
- * through from server; a field the user changed is preserved.
+ * through from server; a field the user changed is preserved. When both sides
+ * changed it differently, report the conflict so the caller retains the other
+ * value for recovery, just as it does for an id-keyed entity.
  */
 const FIELD_KEYS = [
   "name",
@@ -292,7 +295,11 @@ export function mergeWorldDefinition(
     const lv = (local as unknown as Record<string, unknown>)[key];
     const bv = (b as unknown as Record<string, unknown>)[key];
     const sv = (server as unknown as Record<string, unknown>)[key];
-    merged[key] = deepEqual(lv, bv) ? sv : lv;
+    const localChanged = !deepEqual(lv, bv);
+    if (localChanged && !deepEqual(sv, bv) && !deepEqual(lv, sv)) {
+      conflicts.push({ collection: "field", id: key, reason: "both-edited" });
+    }
+    merged[key] = localChanged ? lv : sv;
   }
 
   return { merged: merged as unknown as WorldDefinition, conflicts };

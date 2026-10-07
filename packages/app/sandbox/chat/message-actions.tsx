@@ -9,6 +9,9 @@ interface MessageActionsProps {
   isLastAssistant: boolean;
   isLastMessage: boolean;
   onEditStart: () => void;
+  /** A swipe switch for this message is still landing — editing now would
+   *  seed the box with the swipe that is about to leave (edit-target.ts). */
+  editDisabled?: boolean;
 }
 
 // Popover sits above the trigger button. We anchor with position:fixed +
@@ -43,6 +46,7 @@ export function MessageActions({
   isLastAssistant,
   isLastMessage,
   onEditStart,
+  editDisabled = false,
 }: MessageActionsProps) {
   const api = useYumina();
   const t = useMemo(() => makeChatT(api.language), [api.language]);
@@ -413,7 +417,7 @@ export function MessageActions({
         </svg>
       </ActionBtn>
 
-      <ActionBtn onClick={onEditStart} title={t("edit")}>
+      <ActionBtn onClick={onEditStart} title={t("edit")} disabled={editDisabled}>
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="14"

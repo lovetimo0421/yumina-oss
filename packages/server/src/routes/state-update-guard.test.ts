@@ -5,7 +5,7 @@ import { Hono } from "hono";
 import { GameStateManager, type WorldDefinition } from "@yumina/engine";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { user, worlds, playSessions } from "../db/schema.js";
+import { user, worlds, playSessions, userExtensions } from "../db/schema.js";
 import type { AppEnv } from "../lib/types.js";
 import { createStateGuardRoutes, stateGuardSettingsSchema } from "./state-update-guard.js";
 import { registerStateUpdateGuard } from "../extensions/state-update-guard/hooks.js";
@@ -62,11 +62,56 @@ test("settings API persists per-chat choices without touching game state and gua
     actor = stranger;
     assert.equal((await app.request(url)).status, 404); assert.equal((await patch({ enabled: false })).status, 404);
     actor = owner; installed = false;
+    // This card has no AI-writable variables, so the default does not apply.
     assert.equal((await app.request(url)).status, 403); assert.equal((await patch({ enabled: false })).status, 403);
     assert.equal((await app.request("/api/sessions/other")).status, 200, "extension gate cannot intercept other session routes");
     actor = "";
     assert.equal((await app.request(url)).status, 401);
   } finally { await db.delete(user).where(eq(user.id, owner)); await db.delete(user).where(eq(user.id, stranger)); }
+});
+
+test("never-installed players of a default-guarded card may only switch it per chat", async (t) => {
+  const info = edition.info();
+  t.mock.method(edition, "info", () => ({ ...info, features: { ...info.features, officialModels: true } }));
+  const owner = `guard-default-owner-${crypto.randomUUID()}`;
+  await db.insert(user).values({ id: owner, name: "Default owner", email: `${owner}@test.local` });
+  const schema = { id: "stateful", version: "1.0.0", name: "Stateful", description: "", author: "unit",
+    entries: [], rules: [], components: [], audioTracks: [], customUI: [], settings: {},
+    variables: [{ id: "hp", name: "Health", type: "number", defaultValue: 100 }] };
+  const [world] = await db.insert(worlds).values({ creatorId: owner, name: "Stateful", schema }).returning();
+  const [session] = await db.insert(playSessions).values({ userId: owner, worldId: world!.id, state: {} }).returning();
+  const resolutions: unknown[] = [];
+  const app = new Hono<AppEnv>();
+  app.route("/api/sessions", createStateGuardRoutes({
+    authenticate: async (c, next) => { c.set("user", { id: owner } as never); await next(); },
+    installed: async () => false,
+    resolveModel: async (...args) => { resolutions.push(args); throw new Error("default players never pick a model"); },
+  }));
+  const url = `/api/sessions/${session!.id}/state-update-guard`;
+  const patch = (body: unknown) => app.request(url, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const saved = process.env.STATE_UPDATE_GUARD_DEFAULT;
+  delete process.env.STATE_UPDATE_GUARD_DEFAULT;
+  try {
+    const read = await app.request(url);
+    assert.equal(read.status, 200);
+    assert.deepEqual((await read.json() as { data: unknown }).data, { enabled: true, model: null, byDefault: true });
+    const off = await patch({ enabled: false });
+    assert.equal(off.status, 200);
+    assert.deepEqual((await off.json() as { data: unknown }).data, { enabled: false, model: null, byDefault: true });
+    assert.equal((await db.select().from(playSessions).where(eq(playSessions.id, session!.id)))[0]!.stateGuardEnabled, false);
+    assert.equal((await patch({ model: "official::paid/model" })).status, 403);
+    assert.equal((await patch({ model: null, enabled: true })).status, 403, "the model column is an installed-extension setting");
+    assert.equal(resolutions.length, 0);
+    process.env.STATE_UPDATE_GUARD_DEFAULT = "off";
+    assert.equal((await app.request(url)).status, 403, "kill switch removes the default settings too");
+    delete process.env.STATE_UPDATE_GUARD_DEFAULT;
+    await db.insert(userExtensions).values({ userId: owner, extensionKey: "state-update-guard", status: "uninstalled", uninstalledAt: new Date() });
+    assert.equal((await app.request(url)).status, 403, "an explicit uninstall is already an opt-out");
+    assert.equal((await patch({ enabled: true })).status, 403);
+  } finally {
+    if (saved === undefined) delete process.env.STATE_UPDATE_GUARD_DEFAULT; else process.env.STATE_UPDATE_GUARD_DEFAULT = saved;
+    await db.delete(user).where(eq(user.id, owner));
+  }
 });
 
 test("guard off removes prompt and validation dispatch; old chats stay enabled; settings snapshot is immutable", async () => {

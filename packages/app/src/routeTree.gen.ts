@@ -18,12 +18,14 @@ import { Route as DeleteAccountRouteImport } from './routes/delete-account'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
+import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
 import { Route as AuthPopupDoneRouteImport } from './routes/auth.popup-done'
 import { Route as AppWorldsRouteImport } from './routes/app/worlds'
 import { Route as AppSettingsRouteImport } from './routes/app/settings'
 import { Route as AppProfileRouteImport } from './routes/app/profile'
 import { Route as AppPortalsRouteImport } from './routes/app/portals'
 import { Route as AppLibraryRouteImport } from './routes/app/library'
+import { Route as AppLearnRouteImport } from './routes/app/learn'
 import { Route as AppExtensionsRouteImport } from './routes/app/extensions'
 import { Route as AppConfigsRouteImport } from './routes/app/configs'
 import { Route as AppWorldsIndexRouteImport } from './routes/app/worlds.index'
@@ -79,6 +81,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const OauthConsentRoute = OauthConsentRouteImport.update({
+  id: '/oauth/consent',
+  path: '/oauth/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthPopupDoneRoute = AuthPopupDoneRouteImport.update({
   id: '/auth/popup-done',
   path: '/auth/popup-done',
@@ -107,6 +114,11 @@ const AppPortalsRoute = AppPortalsRouteImport.update({
 const AppLibraryRoute = AppLibraryRouteImport.update({
   id: '/library',
   path: '/library',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppLearnRoute = AppLearnRouteImport.update({
+  id: '/learn',
+  path: '/learn',
   getParentRoute: () => AppRoute,
 } as any)
 const AppExtensionsRoute = AppExtensionsRouteImport.update({
@@ -166,12 +178,14 @@ export interface FileRoutesByFullPath {
   '/verified': typeof VerifiedRoute
   '/app/configs': typeof AppConfigsRoute
   '/app/extensions': typeof AppExtensionsRoute
+  '/app/learn': typeof AppLearnRoute
   '/app/library': typeof AppLibraryRoute
   '/app/portals': typeof AppPortalsRoute
   '/app/profile': typeof AppProfileRouteWithChildren
   '/app/settings': typeof AppSettingsRoute
   '/app/worlds': typeof AppWorldsRouteWithChildren
   '/auth/popup-done': typeof AuthPopupDoneRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/app/': typeof AppIndexRoute
   '/app/chat/$sessionId': typeof AppChatSessionIdRoute
   '/app/preview/$worldId': typeof AppPreviewWorldIdRoute
@@ -191,10 +205,12 @@ export interface FileRoutesByTo {
   '/verified': typeof VerifiedRoute
   '/app/configs': typeof AppConfigsRoute
   '/app/extensions': typeof AppExtensionsRoute
+  '/app/learn': typeof AppLearnRoute
   '/app/library': typeof AppLibraryRoute
   '/app/portals': typeof AppPortalsRoute
   '/app/settings': typeof AppSettingsRoute
   '/auth/popup-done': typeof AuthPopupDoneRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/app': typeof AppIndexRoute
   '/app/chat/$sessionId': typeof AppChatSessionIdRoute
   '/app/preview/$worldId': typeof AppPreviewWorldIdRoute
@@ -216,12 +232,14 @@ export interface FileRoutesById {
   '/verified': typeof VerifiedRoute
   '/app/configs': typeof AppConfigsRoute
   '/app/extensions': typeof AppExtensionsRoute
+  '/app/learn': typeof AppLearnRoute
   '/app/library': typeof AppLibraryRoute
   '/app/portals': typeof AppPortalsRoute
   '/app/profile': typeof AppProfileRouteWithChildren
   '/app/settings': typeof AppSettingsRoute
   '/app/worlds': typeof AppWorldsRouteWithChildren
   '/auth/popup-done': typeof AuthPopupDoneRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/app/': typeof AppIndexRoute
   '/app/chat/$sessionId': typeof AppChatSessionIdRoute
   '/app/preview/$worldId': typeof AppPreviewWorldIdRoute
@@ -244,12 +262,14 @@ export interface FileRouteTypes {
     | '/verified'
     | '/app/configs'
     | '/app/extensions'
+    | '/app/learn'
     | '/app/library'
     | '/app/portals'
     | '/app/profile'
     | '/app/settings'
     | '/app/worlds'
     | '/auth/popup-done'
+    | '/oauth/consent'
     | '/app/'
     | '/app/chat/$sessionId'
     | '/app/preview/$worldId'
@@ -269,10 +289,12 @@ export interface FileRouteTypes {
     | '/verified'
     | '/app/configs'
     | '/app/extensions'
+    | '/app/learn'
     | '/app/library'
     | '/app/portals'
     | '/app/settings'
     | '/auth/popup-done'
+    | '/oauth/consent'
     | '/app'
     | '/app/chat/$sessionId'
     | '/app/preview/$worldId'
@@ -293,12 +315,14 @@ export interface FileRouteTypes {
     | '/verified'
     | '/app/configs'
     | '/app/extensions'
+    | '/app/learn'
     | '/app/library'
     | '/app/portals'
     | '/app/profile'
     | '/app/settings'
     | '/app/worlds'
     | '/auth/popup-done'
+    | '/oauth/consent'
     | '/app/'
     | '/app/chat/$sessionId'
     | '/app/preview/$worldId'
@@ -319,6 +343,7 @@ export interface RootRouteChildren {
   ResetPasswordRoute: typeof ResetPasswordRoute
   VerifiedRoute: typeof VerifiedRoute
   AuthPopupDoneRoute: typeof AuthPopupDoneRoute
+  OauthConsentRoute: typeof OauthConsentRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -386,6 +411,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/oauth/consent': {
+      id: '/oauth/consent'
+      path: '/oauth/consent'
+      fullPath: '/oauth/consent'
+      preLoaderRoute: typeof OauthConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth/popup-done': {
       id: '/auth/popup-done'
       path: '/auth/popup-done'
@@ -426,6 +458,13 @@ declare module '@tanstack/react-router' {
       path: '/library'
       fullPath: '/app/library'
       preLoaderRoute: typeof AppLibraryRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/learn': {
+      id: '/app/learn'
+      path: '/learn'
+      fullPath: '/app/learn'
+      preLoaderRoute: typeof AppLearnRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/extensions': {
@@ -525,6 +564,7 @@ const AppWorldsRouteWithChildren = AppWorldsRoute._addFileChildren(
 interface AppRouteChildren {
   AppConfigsRoute: typeof AppConfigsRoute
   AppExtensionsRoute: typeof AppExtensionsRoute
+  AppLearnRoute: typeof AppLearnRoute
   AppLibraryRoute: typeof AppLibraryRoute
   AppPortalsRoute: typeof AppPortalsRoute
   AppProfileRoute: typeof AppProfileRouteWithChildren
@@ -539,6 +579,7 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppConfigsRoute: AppConfigsRoute,
   AppExtensionsRoute: AppExtensionsRoute,
+  AppLearnRoute: AppLearnRoute,
   AppLibraryRoute: AppLibraryRoute,
   AppPortalsRoute: AppPortalsRoute,
   AppProfileRoute: AppProfileRouteWithChildren,
@@ -562,6 +603,7 @@ const rootRouteChildren: RootRouteChildren = {
   ResetPasswordRoute: ResetPasswordRoute,
   VerifiedRoute: VerifiedRoute,
   AuthPopupDoneRoute: AuthPopupDoneRoute,
+  OauthConsentRoute: OauthConsentRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

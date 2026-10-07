@@ -6,9 +6,11 @@ import { cn } from "@/lib/utils";
 import { resolveImageUrl } from "@/lib/asset-url";
 import { useEditorStore } from "@/stores/editor";
 import { AssetPicker } from "../asset-picker";
+import { InfoTip } from "@/components/ui/info-tip";
 
 /**
- * Picks a character's portrait: the image shown beside their lines in chat.
+ * Picks a character's portrait: the image shown beside their lines in chat,
+ * and the look per-turn illustrations draw them with (read off the picture).
  *
  * Stores an `@asset:<id>` reference on the entry (`entry.portrait`); the chat
  * host resolves it to a URL at play time. Both editors mount this — the simple
@@ -99,6 +101,7 @@ export function EntryPortraitField({
             <X className="h-3 w-3" />
           </button>
         )}
+        <p className="mt-1 text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{t("entries.portrait")}</p>
         {error && (
           <p className="absolute left-0 top-full mt-1 w-56 text-[10px] text-destructive">{error}</p>
         )}
@@ -128,7 +131,7 @@ export function EntryPortraitField({
           )}
         </button>
         <div className="min-w-0 flex-1 space-y-1.5">
-          <p className="text-xs text-muted-foreground">{t("simple.character.portraitHint")}</p>
+          <InfoTip text={`${t(src ? "simple.character.portraitHint" : "simple.character.portraitEmptyHint")} ${t("simple.character.portraitTip")}`} />
           <div className="flex flex-wrap gap-2">
             <button
               type="button"

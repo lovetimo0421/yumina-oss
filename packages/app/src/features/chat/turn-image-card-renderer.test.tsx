@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { JSDOM } from "jsdom";
+import * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { SandboxMessage } from "../../../sandbox/chat/types";
 
@@ -24,7 +25,8 @@ function WendaoBubble(props: Record<string, unknown>) {
 test("a card that slices the reply itself still shows the per-turn picture, once, below its bubble", async () => {
   // The markdown renderer sanitizes with DOMPurify, which binds to `window` on import.
   const dom = new JSDOM("", { url: "http://localhost" });
-  Object.assign(globalThis, { window: dom.window, document: dom.window.document });
+  // tsx compiles files outside tsconfig.app.json's `include` (the sandbox) with the classic JSX runtime.
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, React });
   const { MessageBubble } = await import("../../../sandbox/chat/message-bubble");
 
   const message: SandboxMessage = { id: "m1", sessionId: "s1", role: "assistant", content: reply, createdAt: "2026-09-29T00:00:00Z" };

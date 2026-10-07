@@ -1,3 +1,5 @@
+import i18n from "i18next";
+import { useUserMuteStore } from "@/stores/user-mute";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ShieldAlert, X } from "lucide-react";
@@ -20,6 +22,15 @@ export async function throwApiError(res: Response, fallback: string): Promise<ne
   const muteMessage = getMuteErrorMessage(body);
   if (muteMessage) throw new Error(muteMessage);
   const code = typeof body.code === "string" ? body.code : "";
+  if (code === "USER_MUTED") {
+    const mutedUntil = typeof body.mutedUntil === "string" ? body.mutedUntil : null;
+    if (body.userId === useUserMuteStore.getState().userId) {
+      useUserMuteStore.setState({ isMuted: true, mutedUntil });
+    }
+    throw new Error(mutedUntil
+      ? i18n.t("userMute.until", { ns: "common", date: new Date(mutedUntil).toLocaleString(i18n.language) })
+      : i18n.t("userMute.permanent", { ns: "common" }));
+  }
   const error = typeof body.error === "string" ? body.error : fallback;
   const message = code ? `${code}: ${error}` : error;
   throw new Error(message);
@@ -38,7 +49,7 @@ export function BlockedDialogHost() {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/55 px-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center modal-backdrop px-4">
       <div className="relative w-full max-w-sm rounded-2xl border border-red-400/20 bg-[#171316]/95 p-6 text-center shadow-2xl">
         <button
           type="button"

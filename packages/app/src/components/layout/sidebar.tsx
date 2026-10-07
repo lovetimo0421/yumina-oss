@@ -34,6 +34,7 @@ const navItems: {
   { to: HOSTED_ROUTES.hub, labelKey: "nav.discover", icon: Compass, gate: "hub" },
   { to: HOSTED_ROUTES.community, labelKey: "nav.community", icon: MessageSquare, gate: "community" },
   { to: "/app/library", labelKey: "nav.library", icon: Library, gate: null },
+  // 提示词 lives inside the 资源包 tab (Discover), not as its own nav item.
   // Hosted: the social profile. Local: the identity page (avatar, personas, shortcuts).
   { to: "/app/profile", labelKey: "nav.profile", icon: UserCircle, gate: "profile" },
 ];
@@ -343,7 +344,7 @@ export function Sidebar() {
             tabIndex={-1}
             onClick={closeMobileNav}
             className={cn(
-              "mobile-nav-backdrop md:hidden",
+              "mobile-nav-backdrop modal-backdrop md:hidden",
               mobileNavOpen ? "mobile-nav-backdrop--open" : "mobile-nav-backdrop--closed"
             )}
           />
@@ -484,6 +485,7 @@ export function Sidebar() {
                 </span>
                 <ChevronRight className="mobile-nav-drawer__item-arrow" />
               </button>
+
 
               {showsProfile && (
               <button

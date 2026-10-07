@@ -1,4 +1,5 @@
 import i18n from "@/lib/i18n";
+import { classifyChatError, errorDetail } from "../../sandbox/chat/error-codes";
 
 // Provider safety-filter refusals arrive as raw English text and are by far
 // the most common in-chat generation error on a catalog that is mostly
@@ -7,8 +8,6 @@ import i18n from "@/lib/i18n";
 //   - Gemini/OR:   "Gemini blocked the request: PROHIBITED_CONTENT"
 //   - OpenAI-ish:  finish_reason "content_filter", moderation errors
 //   - Alibaba:     "Output data may contain inappropriate content"
-// Mirrors the sandbox-side classifier in packages/app/sandbox/chat/i18n.ts —
-// the sandbox iframe can't import host modules, so keep the patterns in sync.
 // Deliberately narrower than the server-side retry pattern: a match REPLACES
 // the error text the user sees, so bare words like "safety" or "flagged"
 // (which can appear in non-refusal provider errors) must not match here.
@@ -20,13 +19,26 @@ export function isContentBlockedError(message: string | null | undefined): boole
 }
 
 /**
- * Localize a raw provider/server error line for chat display. Recognized
- * categories map to a translated explanation; anything else passes through
- * unchanged (better a raw English line than a wrong translation).
+ * Localize a server/provider error for the chat's error banner.
+ *
+ * The server's `code` wins; raw-text patterns cover the rest (the shared
+ * classifier in sandbox/chat/error-codes.ts, which the in-frame failed-turn
+ * row uses too). Anything unrecognized becomes a generic localized line that
+ * keeps the raw detail for support — the banner used to show the raw English
+ * on its own ("No API key configured for this provider. Add one in
+ * Settings.") to players in every language.
  */
-export function localizeChatError(message: string): string {
-  if (isContentBlockedError(message)) {
-    return i18n.t("errors.CONTENT_BLOCKED", { ns: "chat", defaultValue: message });
+export function localizeChatError(message: string, code?: string | null): string {
+  const known = classifyChatError(message, code);
+  for (const key of [known, code]) {
+    // `code` covers the ones this build has its own copy for (SUSPENDED,
+    // PROTECTED_WORLD, …) that are not player-actionable categories.
+    if (key && i18n.exists(`errors.${key}`, { ns: "chat" })) {
+      return i18n.t(`errors.${key}` as never, { ns: "chat" }) as string;
+    }
   }
-  return message;
+  const detail = errorDetail(message);
+  return detail
+    ? i18n.t("errors.GENERIC_WITH_DETAIL", { ns: "chat", detail, defaultValue: message })
+    : i18n.t("errors.GENERATION_FAILED", { ns: "chat", defaultValue: "The AI response failed. Please try again." });
 }

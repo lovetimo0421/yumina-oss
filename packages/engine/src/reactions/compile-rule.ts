@@ -1,6 +1,29 @@
 import type { Rule, RuleAction, TriggerConfig } from "../types/index.js";
 import type { Reaction, ReactionEffect, EventPattern, GameEvent } from "../events/types.js";
 
+/** Which required parts of a rule this build could not read.
+ *
+ *  Rules are persisted as raw JSON and reach this build from older engines,
+ *  other branches, bundle imports and half-landed assistant writes. Nothing
+ *  revalidates them on the way in, so `Rule` is the shape we hope for, not the
+ *  one we get. Both readers used to take it on faith and throw: on 2026-09-06 a
+ *  batch of cards whose rules carried no `trigger` failed 100% of their turns,
+ *  and the same cards white-screen the Studio through `toGraph`.
+ *
+ *  Callers use this to SHOW the author which rule is unreadable. The compilers
+ *  below only guarantee a bad rule stays inert instead of taking the page down;
+ *  telling the author is the canvas's job, not theirs. */
+export type RuleShapeIssue = "unreadable" | "trigger" | "conditions" | "actions";
+
+export function ruleShapeIssues(rule: Rule | null | undefined): RuleShapeIssue[] {
+  if (!rule || typeof rule !== "object") return ["unreadable"];
+  const issues: RuleShapeIssue[] = [];
+  if (!rule.trigger || typeof rule.trigger !== "object") issues.push("trigger");
+  if (!Array.isArray(rule.conditions)) issues.push("conditions");
+  if (!Array.isArray(rule.actions)) issues.push("actions");
+  return issues;
+}
+
 /**
  * Compile a legacy Rule into a Reaction.
  * Preserves all semantics — the Reaction is functionally identical to the Rule.
@@ -11,14 +34,17 @@ export function compileRuleToReaction(rule: Rule): Reaction {
     name: rule.name,
     description: rule.description,
     when: compileTriggerToPattern(rule.trigger),
-    conditions: rule.conditions,
+    conditions: Array.isArray(rule.conditions) ? rule.conditions : [],
     conditionLogic: rule.conditionLogic,
     then: compileActionsToEffects(rule.actions),
     priority: rule.priority,
     cooldownTurns: rule.cooldownTurns,
     maxFireCount: rule.maxFireCount,
     chance: rule.chance,
-    enabled: rule.enabled,
+    // A rule that lost its `enabled` flag is on, the way a worldbook or an entry
+    // without one is. The evaluator skips anything falsy, so reading the field
+    // raw would quietly retire every rule that predates the flag.
+    enabled: rule.enabled !== false,
   };
 }
 
@@ -26,7 +52,7 @@ export function compileRuleToReaction(rule: Rule): Reaction {
  * Compile an array of Rules into Reactions.
  */
 export function compileRulesToReactions(rules: Rule[]): Reaction[] {
-  return rules.map(compileRuleToReaction);
+  return (Array.isArray(rules) ? rules : []).filter(Boolean).map(compileRuleToReaction);
 }
 
 /**
@@ -36,8 +62,8 @@ export function compileRulesToReactions(rules: Rule[]): Reaction[] {
  * we encode the full config as `_legacyTrigger` on the event pattern
  * so the evaluator can delegate to the rich matching engine.
  */
-export function compileTriggerToPattern(trigger: TriggerConfig): EventPattern {
-  switch (trigger.type) {
+export function compileTriggerToPattern(trigger: TriggerConfig | null | undefined): EventPattern {
+  switch (trigger?.type) {
     case "state-change":
       return { eventType: "state:changed" };
 
@@ -107,7 +133,11 @@ export function compileTriggerToPattern(trigger: TriggerConfig): EventPattern {
 export function compileActionsToEffects(actions: RuleAction[]): ReactionEffect[] {
   const effects: ReactionEffect[] = [];
 
-  for (const action of actions) {
+  // A rule whose THEN is missing (or holds something that is not an action)
+  // compiles to no effects. The switch below already ignores action types it
+  // does not know; this extends that to the container itself.
+  for (const action of Array.isArray(actions) ? actions : []) {
+    if (!action || typeof action !== "object") continue;
     switch (action.type) {
       case "modify-variable":
         effects.push({

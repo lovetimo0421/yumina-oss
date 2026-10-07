@@ -1,18 +1,22 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Trash2, Hash, ArrowLeft } from "lucide-react";
+import { useEditorFocus } from "@/features/studio/lib/use-editor-focus";
+import { Plus, Trash2, Hash, ArrowLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { DOCS_URLS } from "@/lib/docs-urls";
 import { useEditorStore } from "@/stores/editor";
 import { isContinuityOwned } from "@yumina/engine";
-import type { Variable, VariableActivation } from "@yumina/engine";
+import { ModuleScopeChips } from "../components/module-scope-chips";
+import { inModuleScope, moduleIdOfScope, normalizeModuleScope } from "../lib/module-scope";
+import type { Variable } from "@yumina/engine";
 import { OptionsEditor, PreciseTrackingEditor } from "../components/precise-tracking";
 import { Select } from "@/components/ui/select";
 import { TwoTapDeleteButton } from "@/components/ui/two-tap-delete-button";
 import { NumberInput } from "@/components/ui/number-input";
 import { DebouncedInput, DebouncedTextarea } from "../components/debounced-field";
 import { OpeningValuesMatrix } from "../components/opening-values-matrix";
-import { ConditionEditor } from "../components/condition-editor";
+import { VariableActivationEditor } from "../components/variable-activation-editor";
+import { VariableIdEditor, VariableNameReferenceHint } from "../components/variable-id-editor";
 
 import { JsonDefaultValueEditor } from "../components/json-default-value-editor";
 
@@ -46,6 +50,22 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
   const { t } = useTranslation("editor");
   const worldDraft = useEditorStore(s => s.worldDraft);
   const addVariable = useEditorStore(s => s.addVariable);
+  // 添加变量 puts a new one on the list and opens it, as the canvas does:
+  // what it is, its range, whether the player sees it are all set in its
+  // own form afterwards, not asked before it exists.
+  const addNew = () => {
+    const store = useEditorStore.getState();
+    store.beginBatch();
+    try {
+      addVariable(moduleIdOfScope(scope) ?? undefined);
+      const idx = useEditorStore.getState().worldDraft.variables.length - 1;
+      if (idx < 0) return;
+      useEditorStore.getState().updateVariableAt(idx, { name: String(t("blueprint.defaults.variable")) });
+      selectVariable(idx);
+    } finally {
+      store.commitBatch();
+    }
+  };
   const updateVariableAt = useEditorStore(s => s.updateVariableAt);
   const removeVariableAt = useEditorStore(s => s.removeVariableAt);
 
@@ -81,19 +101,37 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
     const first = worldDraft.variables.findIndex((v) => !v.internal); // skip hidden engine vars
     return first === -1 ? null : first;
   });
+
+  // One module, or the card's shared ones — the same chip row the lorebook
+  // and behaviours pages wear, so the module page can hand it over.
+  const moduleScope = useEditorStore((s) => s.moduleScope);
+  const setModuleScope = useEditorStore((s) => s.setModuleScope);
+  const books = worldDraft.worldbooks ?? [];
+  const scope = normalizeModuleScope(moduleScope, books);
+
+  const [view, setView] = useState<"list" | "openings">("list");
+
+  // Another page asked for one variable: open it, including from the values matrix.
+  const pendingFocus = useEditorStore((s) => s.pendingFocus);
+  const clearPendingFocus = useEditorStore((s) => s.clearPendingFocus);
+  useEffect(() => {
+    if (pendingFocus?.kind !== "variable") return;
+    const idx = worldDraft.variables.findIndex((v) => v.id === pendingFocus.id);
+    if (idx >= 0) {
+      setSelectedIdx(idx);
+      setView("list");
+    }
+    clearPendingFocus();
+  }, [pendingFocus, worldDraft.variables, clearPendingFocus]);
   // "openings" view = the per-greeting initial-value matrix (single edit entry
   // point; First Message mirrors it read-only). Only offered when the card has
   // at least one opening to seed.
+  // Which JSON default is expanded to full-height editing; the form hides its
+  // other fields while one is (see the container's class below).
   const [expandedJsonId, setExpandedJsonId] = useState<string | null>(null);
-  const [view, setView] = useState<"list" | "openings">("list");
-  // The store silently dedupes colliding ids. This note sits under the ID
-  // field so the creator sees why their input didn't land verbatim — a muted
-  // hint, not a destructive error: nothing went wrong, the id just moved.
-  const [idNote, setIdNote] = useState<string | null>(null);
-  const selectVariable = (idx: number | null) => {
-    setSelectedIdx(idx);
-    setIdNote(null);
-  };
+  // Whether the "Technical information" <details> is open (see below).
+  const [technicalOpenFor, setTechnicalOpenFor] = useState<string | null>(null);
+  const selectVariable = (idx: number | null) => setSelectedIdx(idx);
   const greetingCount = worldDraft.entries.filter((e) => e.role === "greeting").length;
   const showOpeningsToggle = greetingCount >= 1 && worldDraft.variables.length >= 1;
 
@@ -110,6 +148,7 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
   const selectedRaw = clampedIdx !== null ? worldDraft.variables[clampedIdx] ?? null : null;
   const selected = selectedRaw?.internal ? null : selectedRaw; // never open a hidden engine var
   const preciseOwned = selected ? isContinuityOwned(worldDraft, selected) : false;
+  useEditorFocus("variable", selected?.id, worldDraft);
 
   return (
     <div className="@container flex min-h-0 flex-1 flex-col">
@@ -126,17 +165,15 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                 <a href={DOCS_URLS.variables} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{t("variables.learnMore")}</a>
               </p>
             </div>
-            <button
-              onClick={() => {
-                addVariable();
-                const vars = useEditorStore.getState().worldDraft.variables;
-                selectVariable(vars.length - 1);
-              }}
-              data-tour="vars-add"
-              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground shadow-[0_0_15px_hsl(var(--primary)/0.3)] transition-colors hover:bg-primary/90"
-            >
-              <Plus className="h-3.5 w-3.5" /> {t("variables.addVariable")}
-            </button>
+            <div className="relative">
+              <button
+                onClick={addNew}
+                data-tour="vars-add"
+                className="flex items-center gap-2 rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground shadow-[0_0_15px_hsl(var(--primary)/0.3)] transition-colors hover:bg-primary/90"
+              >
+                <Plus className="h-3.5 w-3.5" /> {t("variables.addVariable")}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -175,17 +212,19 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
           {/* Compact add button */}
           {compact && (
             <div className="mb-3 flex items-center justify-end">
-              <button
-                onClick={() => {
-                  addVariable();
-                  const vars = useEditorStore.getState().worldDraft.variables;
-                  selectVariable(vars.length - 1);
-                }}
-                className="flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-              >
-                <Plus className="h-3 w-3" /> {t("variables.add")}
-              </button>
+              <div className="relative">
+                <button
+                  onClick={addNew}
+                  data-tour="vars-add"
+                  className="flex items-center gap-1.5 rounded-lg bg-primary px-2.5 py-1.5 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+                >
+                  <Plus className="h-3 w-3" /> {t("variables.add")}
+                </button>
+              </div>
             </div>
+          )}
+          {books.length > 0 && (
+            <ModuleScopeChips value={scope} onChange={setModuleScope} books={books} className="mb-3" />
           )}
           {!worldDraft.variables.some((v) => !v.internal) ? (
             <div className="px-4 py-10 text-center">
@@ -198,13 +237,22 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
               <p className="mt-1.5 max-w-xs mx-auto text-xs text-muted-foreground/60">{t("variables.noVariablesDesc")}</p>
               <a href={DOCS_URLS.variables} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-xs text-primary hover:underline">{t("variables.learnMore")}</a>
             </div>
+          ) : !worldDraft.variables.some((v) => !v.internal && inModuleScope(scope, v.worldbookId)) ? (
+            // The module chips can hide every variable while the card still
+            // has some — say so instead of showing a blank list.
+            <div className="rounded-xl border border-dashed border-border py-8 text-center">
+              <p className="text-xs text-muted-foreground/50">
+                {t("modules.scope.empty", "Nothing in this module yet")}
+              </p>
+            </div>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2" data-tour="vars-list">
               {worldDraft.variables.map((v, idx) => {
                 // Engine-managed vars (e.g. random-pick cooldown history) are
                 // hidden — the creator shouldn't see or delete them. Return null
-                // to keep the index-based selection below intact.
-                if (v.internal) return null;
+                // to keep the index-based selection below intact. Out-of-scope
+                // variables are skipped the same way.
+                if (v.internal || !inModuleScope(scope, v.worldbookId)) return null;
                 const isActive = clampedIdx === idx;
                 const indicator = TYPE_INDICATORS[v.type] ?? TYPE_INDICATORS.string;
                 return (
@@ -266,14 +314,14 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
           clampedIdx === null && "hidden @[640px]:flex"
         )}>
           {selected && clampedIdx !== null ? (
-            <div className="p-8 lg:p-12">
+            <div className="p-4 @[900px]:p-6">
               <button
                 onClick={() => selectVariable(null)}
                 className="mb-4 flex items-center gap-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground @[640px]:hidden"
               >
                 <ArrowLeft className="h-4 w-4" /> {t("variables.back")}
               </button>
-              <div className="mb-8 flex max-w-3xl items-center justify-between">
+              <div className="mb-5 flex max-w-3xl items-center justify-between">
                 <h2 className="text-xl font-bold text-foreground">{t("variables.editVariable")}</h2>
                 <TwoTapDeleteButton
                   onConfirm={() => {
@@ -290,41 +338,6 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
               </div>
 
               <div className={cn("max-w-3xl space-y-8", expandedJsonId === selected.id && selected.type === "json" && "[&>div:not([data-json-default])]:hidden")} data-tour="vars-form">
-                {/* ID */}
-                <div className="space-y-3">
-                  <label className="text-sm font-bold text-foreground">{t("variables.id")}</label>
-                  <DebouncedInput
-                    type="text"
-                    value={selected.id}
-                    transform={(raw) => raw.replace(/\s+/g, "_").toLowerCase()}
-                    onCommit={(newId) => {
-                      updateVariableAt(clampedIdx, { id: newId });
-                      // The store dedupes colliding ids (auto _2/_3 suffix) and
-                      // keeps the old id when the input was emptied — tell the
-                      // creator when their input didn't land verbatim.
-                      const finalId =
-                        useEditorStore.getState().worldDraft.variables[clampedIdx]?.id;
-                      setIdNote(
-                        finalId && newId.trim() && finalId !== newId
-                          ? t("variables.idTaken", { id: finalId })
-                          : null
-                      );
-                    }}
-                    syncKey={selected.id}
-                    aria-describedby="variable-id-note"
-                    className="w-full rounded-xl border border-border bg-card px-4 py-3 font-mono text-sm text-foreground shadow-inner transition-all focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
-                  />
-                  {idNote && (
-                    <p id="variable-id-note" role="status" className="text-sm text-muted-foreground/70">
-                      {idNote}
-                    </p>
-                  )}
-                  <p className="text-sm text-muted-foreground">
-                    {t("variables.idHintPrefix")}{" "}
-                    <span className="font-mono text-primary">{`{{${selected.id}}}`}</span>
-                  </p>
-                </div>
-
                 {/* Name */}
                 <div className="space-y-3">
                   <label className="text-sm font-bold text-foreground">
@@ -337,6 +350,7 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                     syncKey={selected.id}
                     className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground shadow-inner transition-all focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
                   />
+                  <VariableNameReferenceHint world={worldDraft} variable={selected} />
                 </div>
 
                 {/* Type */}
@@ -394,17 +408,21 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                       onChange={(updates) => updateVariableAt(clampedIdx, updates)}
                     />
                   ) : (
-                    <input
+                    <DebouncedInput
                       type="text"
-                      value={selected.defaultValue as string}
-                      onChange={(e) =>
-                        updateVariableAt(clampedIdx, {
-                          defaultValue: e.target.value,
-                        })
-                      }
+                      value={String(selected.defaultValue ?? "")}
+                      onCommit={(defaultValue) => updateVariableAt(clampedIdx, { defaultValue })}
+                      syncKey={selected.id}
                       className="w-full rounded-xl border border-border bg-card px-4 py-3 text-sm text-foreground shadow-inner transition-all focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
                     />
                   )}
+                </div>
+
+                {/* Activation — when this variable is "in play" */}
+                <div role="group" className="space-y-3 border-t border-border/60 pt-5" aria-label={t("variables.activationLabel")}>
+                  <h3 className="text-sm font-semibold text-foreground">{t("variables.activationLabel")}</h3>
+                  <VariableActivationEditor key={selected.id} variable={selected} variables={conditionVars} greetings={greetings}
+                    onChange={(updates) => updateVariableAt(clampedIdx, updates)} />
                 </div>
 
                 {/* Number-specific: min/max */}
@@ -476,20 +494,39 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                     }
                     syncKey={selected.id}
                     placeholder={t("variables.behaviorRulesPlaceholder")}
-                    rows={4}
-                    className="min-h-[120px] w-full resize-y rounded-xl border border-border bg-card px-4 py-4 text-sm leading-relaxed text-foreground shadow-inner transition-all placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    rows={3}
+                    className="min-h-[96px] w-full resize-y rounded-xl border border-border bg-card px-4 py-4 text-sm leading-relaxed text-foreground shadow-inner transition-all placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
                   />
                   <p className="text-sm text-muted-foreground">
                     {t("variables.behaviorRulesHint")}
                   </p>
                 </div>
 
-                {/* AI access — what the AI may do with this variable. While the
-                    continuity judge owns it (precise tracking on and usable,
-                    world judge not switched off) the prompt marks it read-only
-                    and the narrator's directives are dropped, whatever this
-                    setting says — so the labels say that instead. */}
-                <div className="space-y-3">
+                {/* Module membership — inactive worldbook gates the variable */}
+                {(worldDraft.worldbooks?.length ?? 0) > 0 && (
+                  <div className="space-y-2">
+                    <label className="text-sm font-bold text-foreground">
+                      {t("variables.worldbookLabel")}
+                    </label>
+                    <select
+                      value={selected.worldbookId ?? ""}
+                      onChange={(e) =>
+                        updateVariableAt(clampedIdx, { worldbookId: e.target.value || undefined })
+                      }
+                      className="w-full rounded-xl border border-border bg-card px-4 py-2.5 text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+                    >
+                      <option value="">{t("variables.worldbookCore")}</option>
+                      {(worldDraft.worldbooks ?? []).map((wb) => (
+                        <option key={wb.id} value={wb.id}>{wb.name}</option>
+                      ))}
+                    </select>
+                    <p className="text-sm text-muted-foreground">{t("variables.worldbookHint")}</p>
+                  </div>
+                )}
+
+                {/* AI access — what the AI may do with this variable. Last on
+                    purpose: most authors never change it. */}
+                <div className="space-y-3 border-t border-border/60 pt-5">
                   <label className="text-sm font-bold text-foreground">
                     {t("variables.aiAccessLabel")}
                   </label>
@@ -518,184 +555,42 @@ export function VariablesSection({ compact, mobileListMode }: { compact?: boolea
                   </p>
                 </div>
 
-                {/* Activation — when this variable is "in play" */}
-                {(() => {
-                  const activation: VariableActivation = selected.activation ?? { mode: "always" };
-                  const setMode = (mode: VariableActivation["mode"]) => {
-                    if (mode === "always") {
-                      updateVariableAt(clampedIdx, { activation: undefined });
-                    } else if (mode === "conditions") {
-                      const prev = activation.mode === "conditions" ? activation : null;
-                      updateVariableAt(clampedIdx, {
-                        activation: {
-                          mode: "conditions",
-                          conditions: prev?.conditions ?? [],
-                          conditionLogic: prev?.conditionLogic ?? "all",
-                        },
-                      });
-                    } else if (mode === "greeting") {
-                      const prev = activation.mode === "greeting" ? activation : null;
-                      updateVariableAt(clampedIdx, {
-                        activation: { mode: "greeting", greetingIds: prev?.greetingIds ?? [] },
-                      });
-                    } else {
-                      updateVariableAt(clampedIdx, { activation: { mode: "manual" } });
-                    }
-                  };
-                  return (
-                    <div className="space-y-3">
-                      <label className="text-sm font-bold text-foreground">
-                        {t("variables.activationLabel")}
-                      </label>
-                      <div className="flex w-fit flex-wrap gap-1 rounded-lg bg-card p-1">
-                        {(["always", "manual", "conditions", "greeting"] as const).map((m) => (
-                          <button
-                            key={m}
-                            type="button"
-                            onClick={() => setMode(m)}
-                            className={cn(
-                              "rounded-md px-3 py-1.5 text-xs font-semibold transition-colors",
-                              activation.mode === m
-                                ? "bg-primary text-primary-foreground"
-                                : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                            )}
-                          >
-                            {t(`variables.activationModes.${m}` as any)}
-                          </button>
-                        ))}
-                      </div>
-
-                      {activation.mode === "manual" ? (
-                        <div className="space-y-2 rounded-lg border border-border bg-accent/30 p-3">
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs font-semibold text-muted-foreground">
-                              {t("variables.enabledDefaultLabel")}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                updateVariableAt(clampedIdx, {
-                                  enabled: selected.enabled === false ? undefined : false,
-                                })
-                              }
-                              className={cn(
-                                "rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors",
-                                selected.enabled !== false
-                                  ? "bg-primary text-primary-foreground"
-                                  : "bg-card text-muted-foreground"
-                              )}
-                            >
-                              {selected.enabled !== false
-                                ? t("variables.enabledOn")
-                                : t("variables.enabledOff")}
-                            </button>
-                          </div>
-                          <p className="text-xs text-muted-foreground">
-                            {t("variables.manualHint", { path: `@vars.enabled.${selected.id}` })}
-                          </p>
-                        </div>
-                      ) : activation.mode === "conditions" ? (
-                        <div className="space-y-2 rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            {t("kb.logicLabel")}
-                            {(["all", "any"] as const).map((lg) => (
-                              <button
-                                key={lg}
-                                type="button"
-                                onClick={() =>
-                                  updateVariableAt(clampedIdx, {
-                                    activation: {
-                                      mode: "conditions",
-                                      conditions: activation.mode === "conditions" ? activation.conditions : [],
-                                      conditionLogic: lg,
-                                    },
-                                  })
-                                }
-                                className={cn(
-                                  "rounded px-2 py-0.5 font-semibold uppercase",
-                                  (activation.mode === "conditions" ? activation.conditionLogic : "all") === lg
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-card text-muted-foreground hover:text-foreground"
-                                )}
-                              >
-                                {t(`kb.logic_${lg}` as any)}
-                              </button>
-                            ))}
-                          </div>
-                          <ConditionEditor
-                            conditions={activation.mode === "conditions" ? activation.conditions : []}
-                            variables={conditionVars}
-                            onChange={(conditions) =>
-                              updateVariableAt(clampedIdx, {
-                                activation: {
-                                  mode: "conditions",
-                                  conditions,
-                                  conditionLogic:
-                                    activation.mode === "conditions" ? activation.conditionLogic : "all",
-                                },
-                              })
-                            }
-                          />
-                          <p className="text-xs text-muted-foreground">{t("variables.conditionsHint")}</p>
-                        </div>
-                      ) : activation.mode === "greeting" ? (
-                        <div className="space-y-2 rounded-lg border border-violet-500/20 bg-violet-500/5 p-3">
-                          <p className="text-xs text-muted-foreground">{t("variables.greetingHint")}</p>
-                          {greetings.length === 0 ? (
-                            <p className="text-xs text-amber-500/80">{t("kb.greetingNone")}</p>
-                          ) : (
-                            <div className="space-y-1">
-                              {greetings.map((g, i) => {
-                                const checked =
-                                  activation.mode === "greeting" && activation.greetingIds.includes(g.id);
-                                return (
-                                  <label
-                                    key={g.id}
-                                    className="flex cursor-pointer items-start gap-2 rounded-md p-1.5 hover:bg-white/5"
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={checked}
-                                      onChange={() => {
-                                        const prev =
-                                          activation.mode === "greeting" ? activation.greetingIds : [];
-                                        const next = prev.includes(g.id)
-                                          ? prev.filter((x) => x !== g.id)
-                                          : [...prev, g.id];
-                                        updateVariableAt(clampedIdx, {
-                                          activation: { mode: "greeting", greetingIds: next },
-                                        });
-                                      }}
-                                      className="mt-0.5 shrink-0 accent-violet-400"
-                                    />
-                                    <span className="min-w-0 flex-1 truncate text-xs text-foreground">
-                                      <span className="mr-1.5 font-bold text-violet-300">#{i + 1}</span>
-                                      {g.name || g.content.slice(0, 80) || "—"}
-                                    </span>
-                                  </label>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-muted-foreground">{t("variables.alwaysHint")}</p>
-                      )}
-                    </div>
-                  );
-                })()}
+                <details
+                  key={`technical-${clampedIdx}`}
+                  className="group/technical rounded-xl border border-border/60"
+                  onToggle={(e) => setTechnicalOpenFor(e.currentTarget.open ? selected.id : null)}
+                >
+                  <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-medium text-muted-foreground hover:text-foreground [&::-webkit-details-marker]:hidden">
+                    <ChevronRight className="h-4 w-4 shrink-0 transition-transform group-open/technical:rotate-90" />
+                    {t("variables.editing.technicalInfo", { defaultValue: "Technical information" })}
+                    <code className="ml-auto min-w-0 truncate text-[11px] font-normal">{selected.id}</code>
+                  </summary>
+                  <div className="space-y-3 border-t border-border/60 px-4 py-4">
+                    {/* Mounted only while open: a closed <details> still renders
+                        its children, and the ID editor scans every entry and
+                        interface file for references. */}
+                    {technicalOpenFor === selected.id && (
+                      <VariableIdEditor key={clampedIdx} world={worldDraft} variable={selected} onCommit={(id) => {
+                        updateVariableAt(clampedIdx, { id });
+                        const nextId = useEditorStore.getState().worldDraft.variables[clampedIdx]?.id ?? selected.id;
+                        // Keep the section open across the id change.
+                        setTechnicalOpenFor(nextId);
+                        return nextId;
+                      }} />
+                    )}
+                  </div>
+                </details>
 
                 <div className="pb-12" />
               </div>
             </div>
-          ) : (
+          ) : conditionVars.length > 0 ? (
+            // The list on the left already says when there are none.
             <div className="flex flex-1 flex-col items-center justify-center pb-20 text-center opacity-50">
               <Hash className="mb-4 h-16 w-16 text-muted-foreground opacity-50" />
-              <h2 className="mb-2 text-xl font-bold text-foreground">
-                {t("variables.emptyTitle")}
-              </h2>
+              <p className="text-sm text-muted-foreground">{t("variables.pickToEdit")}</p>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
       )}

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { bodyLimit } from "hono/body-limit";
 import { decisionRoutes } from "./decisions.js";
 import { normalizeImageCompletion, imagePromptChars } from "../lib/chat-images.js";
@@ -17,7 +18,7 @@ import { buildSessionCompletionMessages, resolveSessionCompletionSettings, sessi
  * POST /api/sessions/:sessionId/completions
  */
 
-import { RETIRED_PLAY_MODEL_IDS } from "@yumina/shared";
+import { RETIRED_PLAY_MODEL_IDS, parseCompletionResponseFormat, type CompletionResponseFormat } from "@yumina/shared";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { eq, and } from "drizzle-orm";
@@ -25,6 +26,7 @@ import { db } from "../db/index.js";
 import { playSessions, worlds, worldPendingEdits } from "../db/schema.js";
 import { viewerSeesWorkingCopy } from "../lib/working-copy.js";
 import { recordUsageLog } from "../lib/usage-log.js";
+import { bumpWorldMessageCount } from "../lib/world-message-counter.js";
 import { registerStream } from "../lib/stream-registry.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { resolveProviderForModel } from "../lib/resolve-provider.js";
@@ -55,11 +57,13 @@ import {
   type WorldEntry,
 } from "@yumina/engine";
 import { DEFAULT_MODEL } from "@yumina/shared";
+import { actorContextRoutes } from "./actor-context.js";
 
 const completionRoutes = new Hono<AppEnv>();
 
 completionRoutes.use("/*", authMiddleware);
 completionRoutes.route("/", decisionRoutes);
+completionRoutes.route("/", actorContextRoutes);
 
 const MAX_MESSAGES = 50;
 const MAX_CONTENT_CHARS = 50_000;
@@ -90,26 +94,27 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
     maxTokens?: number;
     temperature?: number;
     includeLorebook?: IncludeLorebookMode;
+    worldbookIds?: import('@yumina/shared').SideCompletionWorldbookIds;
     context?: 'session';
     overrides?: import('@yumina/shared').AiGenerationConfig;
-    responseFormat?: { type: 'json_object' };
+    responseFormat?: unknown;
   }>();
 
   // ── Validate input ──
   if (body.context !== undefined && body.context !== 'session') {
     return c.json({ error: 'context must be "session" when provided' }, 400);
   }
+  if (body.worldbookIds !== undefined && body.context !== 'session') {
+    return c.json({ error: 'worldbookIds requires context: "session"' }, 400);
+  }
   const sessionSettings = body.context === 'session' ? sessionCompletionSettingsSchema.safeParse(body) : undefined;
   if (sessionSettings && !sessionSettings.success) {
     return c.json({ error: 'Invalid session completion settings', details: sessionSettings.error.flatten() }, 400);
   }
-  if (body.responseFormat !== undefined && (
-    body.responseFormat === null || typeof body.responseFormat !== 'object' ||
-    Array.isArray(body.responseFormat) || body.responseFormat.type !== 'json_object' ||
-    Object.keys(body.responseFormat).length !== 1
-  )) {
-    return c.json({ error: 'responseFormat must be { type: "json_object" }' }, 400);
-  }
+  let responseFormat: CompletionResponseFormat | undefined;
+  try { responseFormat = parseCompletionResponseFormat(body.responseFormat); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : "Invalid responseFormat" }, 400); }
+  const responseFormatChars = responseFormat ? JSON.stringify(responseFormat).length : 0;
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     return c.json({ error: "messages array is required" }, 400);
   }
@@ -119,7 +124,7 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   let providerMessages: ChatMessage[];
   try { providerMessages = await normalizeImageCompletion(body.messages); }
   catch (error) { return c.json({ error: error instanceof Error ? error.message : "Invalid images" }, 400); }
-  const totalChars = providerMessages.reduce((sum, m) => sum + (typeof m.content === "string" ? m.content.length : m.content.reduce((n, p) => n + (p.type === "text" ? p.text.length : 0), 0)), 0);
+  const totalChars = responseFormatChars + providerMessages.reduce((sum, m) => sum + (typeof m.content === "string" ? m.content.length : m.content.reduce((n, p) => n + (p.type === "text" ? p.text.length : 0), 0)), 0);
   if (totalChars > MAX_CONTENT_CHARS) {
     return c.json({ error: `Total content too long (max ${MAX_CONTENT_CHARS.toLocaleString()} chars)` }, 400);
   }
@@ -128,7 +133,7 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   // Pull worldId in the same query so a later includeLorebook resolution
   // doesn't need a second round-trip.
   const [session] = await db
-    .select({ id: playSessions.id, userId: playSessions.userId, worldId: playSessions.worldId,
+    .select({ id: playSessions.id, userId: playSessions.userId, worldId: playSessions.worldId, ephemeral: playSessions.ephemeral,
       ...(body.context === 'session' ? { state: playSessions.state, sessionPersona: playSessions.sessionPersona, personaLocked: playSessions.personaLocked } : {}),
     })
     .from(playSessions)
@@ -161,6 +166,10 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
       return c.json({ error: "This world requires the official Yumina API. Switch to it before playing this world.", code: "PROTECTED_WORLD" }, 403);
     }
     return c.json({ error: "No API key available for this model" }, 400);
+  }
+
+  if (responseFormat?.type === "json_schema" && resolved.providerName !== "openrouter") {
+    return c.json({ error: "This provider does not support JSON Schema side completions.", code: "UNSUPPORTED_RESPONSE_FORMAT" }, 400);
   }
 
   if (!resolved.isByok && RETIRED_PLAY_MODEL_IDS.has(model)) {
@@ -202,11 +211,15 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   if (body.context === 'session' && sessionSettings?.success) {
     const worldDef = await loadWorldDef(session.worldId, currentUser.id);
     if (!worldDef) return c.json({ error: 'World not found' }, 404);
+    const knownBooks = new Set(worldDef.worldbooks?.map(book => book.id));
+    if (sessionSettings.data.worldbookIds?.some(id => !knownBooks.has(id))) {
+      return c.json({ error: 'worldbookIds must reference existing worldbooks' }, 400);
+    }
     generationSettings = resolveSessionCompletionSettings(sessionSettings.data, worldDef);
     providerMessages = await buildSessionCompletionMessages({
       session: { ...session, state: session.state ?? {}, sessionPersona: session.sessionPersona ?? null, personaLocked: session.personaLocked ?? false },
       account: currentUser, world: worldDef, model, messages: providerMessages,
-      settings: sessionSettings.data, json: body.responseFormat?.type === 'json_object',
+      settings: sessionSettings.data, json: responseFormat?.type === 'json_object',
     });
   }
   const lorebookSystem = body.context === 'session' ? null : await resolveLorebookSystemMessage(
@@ -241,7 +254,7 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   // expensive prompt at platform expense. Prompt-only estimate, same semantics
   // as messages.ts / MidStreamTracker.exceedsAtStart().
   if (walletBalance !== Infinity) {
-    const promptChars = imagePromptChars(providerMessages);
+    const promptChars = imagePromptChars(providerMessages) + responseFormatChars;
     const rates = await getModelCostRates(model, estimateTokensFromChars(promptChars));
     if (estimateCreditsFromChars(rates, promptChars, 0) >= walletBalance) {
       recordWallHit({ userId: currentUser.id, balance: walletBalance, model, endpoint: "side-completion", stage: "prompt_too_long" });
@@ -286,18 +299,25 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
     let providerCostUsd: number | undefined;
     let providerRequestId: string | undefined;
     let streamAborted = false;
+    let generationDone = false;
 
     try {
       for await (const chunk of resolved.provider.generateStream({
-        conversationId: `play:${sessionId}`,
+        // Stateful custom adapters must not share one actor's private context
+        // with another scope or the ordinary chat. JSON avoids delimiter
+        // collisions; sorting gives the same book set one stable identity.
+        conversationId: sessionSettings?.success && sessionSettings.data.worldbookIds !== undefined
+          ? `play:${sessionId}:side-books:${createHash('sha256').update(JSON.stringify([...sessionSettings.data.worldbookIds].sort())).digest('hex')}`
+          : `play:${sessionId}`,
         model,
         messages: providerMessages,
         maxTokens,
         temperature,
         ...generationSettings,
-        ...(body.responseFormat && { responseFormat: { type: 'json_object' as const } }),
+        responseFormat,
         signal: abortController.signal,
       })) {
+        if (chunk.type === "error") throw new Error(chunk.content || "Generation failed");
         if (chunk.type === "text") {
           fullContent += chunk.content;
           await stream.writeSSE({
@@ -307,12 +327,14 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
         }
 
         if (chunk.type === "done") {
+          generationDone = true;
           promptTokens = chunk.usage?.promptTokens ?? 0;
           completionTokens = chunk.usage?.completionTokens ?? 0;
           providerCostUsd = chunk.usage?.providerCostUsd;
           providerRequestId = chunk.usage?.providerRequestId;
         }
       }
+      if (!generationDone) throw new Error("Generation ended before completion");
     } catch (err: any) {
       streamAborted = true;
       if (err?.name !== "AbortError") {
@@ -343,11 +365,12 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
         id: usageLogId,
         userId: currentUser.id,
         sessionId,
+        analyticsWorldId: session.worldId,
         model,
         promptTokens,
         completionTokens,
         totalTokens: promptTokens + completionTokens,
-        endpoint: "side-completion",
+        endpoint: fullContent.trim() ? "side-completion" : "side-completion_empty",
         apiKeyTier: resolved.apiKeyTier,
         generationTimeMs: Date.now() - startTime,
       });
@@ -403,6 +426,14 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
       }
     }
 
+    // A custom world can advance without a typed message. Count its completed
+    // AI response once using the normal world/source counter, without creating
+    // chat messages or counting internal decision checks and testing sessions.
+    if (!streamAborted && !abortController.signal.aborted && fullContent.trim() && !session.ephemeral) {
+      bumpWorldMessageCount(session.worldId);
+    }
+
+    if (streamAborted || abortController.signal.aborted || c.req.raw.signal.aborted) return;
     await stream.writeSSE({
       event: "done",
       data: JSON.stringify({

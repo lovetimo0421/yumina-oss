@@ -11,6 +11,12 @@ import { VerificationPending } from "./verification-pending";
 
 export function RegisterPage() {
   const { t } = useTranslation("auth");
+  // Carried to the sign-in link and through email verification, so a guest
+  // who signed up from a card lands back on it.
+  const [returnTo] = useState(() =>
+    typeof window === "undefined" ? undefined : readSafeAuthReturnTo(window.location.search),
+  );
+  const loginSearch = returnTo ? { returnTo } : undefined;
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -71,13 +77,9 @@ export function RegisterPage() {
         // ?error= param and strands failed verifications on the hub, logged out.
         // A game return address (the PvZ invite flow) rides along so the
         // verified page can send the new player back into their friend's room.
-        callbackURL: (() => {
-          const aReturnTo = typeof window !== "undefined"
-            ? readSafeAuthReturnTo(window.location.search) : undefined;
-          return aReturnTo
-            ? `/verified?returnTo=${encodeURIComponent(aReturnTo)}`
-            : "/verified";
-        })(),
+        callbackURL: returnTo
+          ? `/verified?returnTo=${encodeURIComponent(returnTo)}`
+          : "/verified",
         ...turnstilePayload,
       } as any);
       if (result.error) {
@@ -175,7 +177,7 @@ export function RegisterPage() {
                 {error}
                 {error === t("errors.userAlreadyExists") && (
                   <div className="mt-1.5 flex gap-2 text-[11px]">
-                    <Link to="/login" className="font-semibold text-gold hover:text-[#F0C24A]">
+                    <Link to="/login" search={loginSearch} className="font-semibold text-gold hover:text-[#F0C24A]">
                       {t("register.signIn")}
                     </Link>
                     <Link to="/forgot-password" className="font-semibold text-gold hover:text-[#F0C24A]">
@@ -201,7 +203,7 @@ export function RegisterPage() {
         {/* Footer */}
         <p className="mt-3 text-center text-[11px] text-[#B9B6AE]/60 sm:mt-4 sm:text-xs">
           {t("register.hasAccount")}{" "}
-          <Link to="/login" className="font-semibold text-gold transition-colors hover:text-[#F0C24A]">
+          <Link to="/login" search={loginSearch} className="font-semibold text-gold transition-colors hover:text-[#F0C24A]">
             {t("register.signIn")}
           </Link>
         </p>

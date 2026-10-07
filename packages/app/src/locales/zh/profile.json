@@ -54,9 +54,10 @@
     "items": "{{count}} 个项目",
     "draft": "草稿",
     "manageSessions": "管理会话",
-    "playedAgo": "{{time}} 前游玩",
+    "playedAgo": "{{time}}游玩",
     "updatedAgo": "{{time}} 前更新",
-    "noFavorites": "暂无公开收藏。"
+    "noFavorites": "暂无公开收藏。",
+    "playedRelative": "{{time}}游玩"
   },
   "sidebar": {
     "about": "关于",
@@ -319,8 +320,8 @@
     "avgCostPerChatByPeriod": "峰时约 {{peak}} · 非峰时约 {{offPeak}} mushies / 对话",
     "privateApiMode": "私有 API 模式",
     "privateApiDesc": "无速率限制，无使用追踪 — 直接向你的供应商计费",
-    "confirmSwitchPrivate": "切换到私有密钥？你需要自己的 API 密钥，费用由你的供应商收取。",
-    "confirmSwitchOfficial": "切换到 Yumina API？使用量将从你的蘑菇币余额中扣除。",
+    "confirmSwitchPrivate": "你需要自己的 API 密钥，使用费用将由你的供应商收取。",
+    "confirmSwitchOfficial": "使用量将从你的蘑菇币余额中扣除。",
     "tiers": {
       "budget": "经济",
       "standard": "标准",
@@ -408,7 +409,10 @@
     "ledgerReconciliation": "账本校正：余额已确认，此前有一笔变动未被记录",
     "voiceReadoutDescription": "语音朗读 · {{bytes}} 字节",
     "ledgerOpeningBalance": "期初余额（账本从这里开始）",
-    "pilePerMonth": "每月 {{amount}}"
+    "pilePerMonth": "每月 {{amount}}",
+    "switchPrivateTitle": "切换到私有 API 密钥？",
+    "switchOfficialTitle": "切换到 Yumina API？",
+    "initialPlanGrant": "{{plan}}方案初始额度"
   },
   "summary": {
     "chooseModel": "选择模型",
@@ -594,7 +598,15 @@
     "alreadyInvitedDesc": "这个账号已经拥有受邀等级访问权限。"
   },
   "settings": {
-    "title": "账户设置"
+    "title": "账户设置",
+    "contentLevel": "内容模式",
+    "safeOnly": "有限制",
+    "safeOnlyDesc": "部分内容将受到限制",
+    "allowSensitive": "无限制",
+    "allowSensitiveDesc": "没有内容限制",
+    "minorRestriction": "此账号无法使用“无限制”模式。",
+    "blurSensitive": "模糊不受内容限制的媒体",
+    "blurSensitiveDesc": "在发现页中，将“无限制”模式下内容的缩略图显示为模糊状态。"
   },
   "editModal": {
     "avatarUpdateFailed": "更新头像失败",
@@ -690,7 +702,15 @@
     "noWorksSearch": "没有符合搜索条件的作品。",
     "previousWorks": "上一页作品",
     "nextWorks": "下一页作品",
-    "worksPage": "{{current}} / {{total}}"
+    "worksPage": "{{current}} / {{total}}",
+    "moreActions": "更多个人主页操作",
+    "sectionsLabel": "个人主页分区",
+    "worksTab": "作品 {{count}}",
+    "activityTab": "动态",
+    "aboutTab": "关于",
+    "sortWorks": "作品排序",
+    "sortNewest": "最新发布",
+    "sortPopular": "最受欢迎"
   },
   "customPrompts": {
     "createFailed": "无法创建提示词",
@@ -791,7 +811,8 @@
       "followingHint": "当前存档随全局人设变化。在下方选择人设，会自动锁定当前存档。",
       "locked": "已锁定人设",
       "lockedHint": "当前存档使用这里选择的人设，不随全局人设变化。",
-      "saveError": "人设保存失败，请重试。"
+      "saveError": "人设保存失败，请重试。",
+      "lockLabel": "锁定这个存档的人设"
     },
     "binding": {
       "saveError": "默认人设保存失败，请重试。",
@@ -844,7 +865,7 @@
     }
   },
   "historyPage": {
-    "clickedAgo": "{{time}} 点击",
+    "clickedAgo": "{{time}}点击",
     "discoveryCard": "发现页点击",
     "libraryPlay": "库中游玩",
     "deleteEntry": "删除该记录",
@@ -934,7 +955,24 @@
     "sent": "已送出",
     "paymentProcessing": "{{amount}} 的支付正在处理中。",
     "failedCreateTip": "无法创建打赏",
-    "somethingWentWrong": "出了点问题，请重试。"
+    "somethingWentWrong": "出了点问题，请重试。",
+    "savedGiftInfo": "Saved Mushies 可赠送给任何用户。月度和奖励蘑菇币仍需对方达到收礼要求。",
+    "useSavedOnly": "仅使用 Saved Mushies",
+    "checkingGiftBalance": "正在确认赠送资格…",
+    "sendPlanGift": "赠送订阅方案",
+    "planGiftRecipient": "赠送给 {{name}}",
+    "planGiftPlan": "选择方案",
+    "planGiftDays": "{{count}} 天",
+    "planGiftRules": "一次性付款，不自动续费。对方已有同级或更高会员时，礼物会排队；高级礼物会暂停低级礼物并保留剩余天数。已有付费订阅仍照常扣费。",
+    "planGiftCredits": "礼物生效时获得 {{count}} Saved Mushies。",
+    "planGiftCheckout": "前往礼物付款",
+    "planGiftUnavailable": "暂时无法购买礼物，请重试。",
+    "planGiftRefunded": "对方无法接收礼物，款项已退还。",
+    "planGiftQueued": "礼物已送达，30 天权益已保留，将在可用时生效。",
+    "planGiftDelivered": "礼物已成功送达。",
+    "planGiftWaiting": "付款确认需要更多时间。请稍后查询，不要重复付款。",
+    "planGiftProcessing": "正在确认礼物付款…",
+    "planGiftCheckAgain": "重新查询"
   },
   "promptConfig": {
     "positionHelp": "位置（官方预设使用 0–3；用 1.5 等小数插入其间）",
@@ -1077,7 +1115,8 @@
       "plus": "白金解锁",
       "pro": "钻石解锁",
       "ultra": "超凡解锁"
-    }
+    },
+    "claimUncertain": "暂时无法确认奖励是否到账，请刷新查看领取结果。"
   },
   "wallet": {
     "title": "蘑菇余额",
@@ -1384,7 +1423,9 @@
     "blockedWatching": "正在等 Ollama 放行，弄好后会自动连上…",
     "blockedNoReboot": "只会重启 Ollama 这个程序，不用重启电脑，也不会下载或安装任何东西。",
     "blockedLinux": "请按安装教程第 3 步设置 OLLAMA_ORIGINS，然后重启 Ollama 服务。",
-    "connectedToast": "已连上你电脑上的 {{runtime}}，可以选模型了"
+    "connectedToast": "已连上你电脑上的 {{runtime}}，可以选模型了",
+    "blockedBody": "得告诉它 {{origin}} 是允许的。跑一下这条命令，然后重启它：",
+    "blockedRestart": "命令跑完记得重启运行时，再点重新检测。"
   },
   "inviteRace": {
     "title": "邀请赛",
@@ -1643,5 +1684,10 @@
       "question": "有疑问或顾虑？",
       "message": "私信 {{username}}"
     }
+  },
+  "planModelPage": {
+    "back": "返回个人主页",
+    "title": "方案与模型",
+    "subtitle": "查看当前方案、蘑菇币、AI 来源和正在使用的模型。"
   }
 }

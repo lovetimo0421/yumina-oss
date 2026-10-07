@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="640" viewBox="0 0 1200 640" font-family="Nunito Sans, system-ui, -apple-system, sans-serif">
+  <rect width="1200" height="640" fill="#121316"/>
+  <text x="48" y="54" fill="#FFF5D6" font-size="26" font-weight="700">What the model can read vs. what the app lets you use</text>
+  <text x="48" y="82" fill="#D4CFC4" font-size="15" opacity="0.8">Context window in tokens, October 2026. Model windows from provider documentation; app windows from pricing pages and help centers.</text>
+
+  <!-- scale: 1,100,000 tokens = 760 px; bar starts at x=330 -->
+  <g font-size="15">
+    <!-- Models -->
+    <text x="48" y="128" fill="#C9A25E" font-size="12" font-weight="700" letter-spacing="2">MODELS</text>
+    <text x="48" y="162" fill="#E8E2D2">GPT-5.5</text>
+    <rect x="330" y="146" width="725" height="22" rx="6" fill="#C9A25E"/>
+    <text x="1064" y="162" fill="#FFF5D6" font-weight="700">1,050,000</text>
+
+    <text x="48" y="198" fill="#E8E2D2">Claude Opus / Sonnet</text>
+    <rect x="330" y="182" width="691" height="22" rx="6" fill="#C9A25E"/>
+    <text x="1030" y="198" fill="#FFF5D6" font-weight="700">1,000,000</text>
+
+    <text x="48" y="234" fill="#E8E2D2">Gemini 3.1 Pro</text>
+    <rect x="330" y="218" width="691" height="22" rx="6" fill="#C9A25E"/>
+    <text x="1030" y="234" fill="#FFF5D6" font-weight="700">1,000,000</text>
+
+    <text x="48" y="270" fill="#E8E2D2">DeepSeek V4 (open weights)</text>
+    <rect x="330" y="254" width="691" height="22" rx="6" fill="#C9A25E"/>
+    <text x="1030" y="270" fill="#FFF5D6" font-weight="700">1,000,000</text>
+
+    <!-- Apps -->
+    <text x="48" y="326" fill="#C9A25E" font-size="12" font-weight="700" letter-spacing="2">WHAT APPS GIVE YOU</text>
+    <text x="48" y="360" fill="#E8E2D2">SpicyChat, top tier ($29.95)</text>
+    <rect x="330" y="344" width="22.6" height="22" rx="4" fill="#8C7A5A"/>
+    <text x="362" y="360" fill="#FFF5D6" font-weight="700">32,768</text>
+
+    <text x="48" y="396" fill="#E8E2D2">AI Dungeon, top tier ($99.99)</text>
+    <rect x="330" y="380" width="22.1" height="22" rx="4" fill="#8C7A5A"/>
+    <text x="362" y="396" fill="#FFF5D6" font-weight="700">32,000</text>
+
+    <text x="48" y="432" fill="#E8E2D2">CrushOn, "Ultra" models</text>
+    <rect x="330" y="416" width="17" height="22" rx="4" fill="#8C7A5A"/>
+    <text x="356" y="432" fill="#FFF5D6" font-weight="700">24,576</text>
+
+    <text x="48" y="468" fill="#E8E2D2">Janitor AI, free model</text>
+    <rect x="330" y="452" width="6.2" height="22" rx="3" fill="#8C7A5A"/>
+    <text x="346" y="468" fill="#FFF5D6" font-weight="700">8,000–9,000</text>
+
+    <text x="48" y="504" fill="#E8E2D2">SpicyChat, free</text>
+    <rect x="330" y="488" width="2.8" height="22" rx="2" fill="#8C7A5A"/>
+    <text x="342" y="504" fill="#FFF5D6" font-weight="700">4,096</text>
+
+    <text x="48" y="540" fill="#E8E2D2">AI Dungeon, free</text>
+    <rect x="330" y="524" width="2.8" height="22" rx="2" fill="#8C7A5A"/>
+    <text x="342" y="540" fill="#FFF5D6" font-weight="700">4,000</text>
+
+    <!-- Reference: a real world's lore -->
+    <line x1="351.4" y1="336" x2="351.4" y2="556" stroke="#FFF5D6" stroke-dasharray="4 5" opacity="0.7"/>
+    <text x="360" y="580" fill="#FFF5D6" font-size="13" opacity="0.85">dashed line: the lore of one popular creator world, about 31,000 tokens before the first message</text>
+  </g>
+
+  <text x="48" y="616" fill="#D4CFC4" font-size="12" opacity="0.6">Character.AI, Chai, Replika, Nomi, Talkie, Candy, OOC, Sekai, Status and Voyage publish no context number and are not shown.</text>
+</svg>

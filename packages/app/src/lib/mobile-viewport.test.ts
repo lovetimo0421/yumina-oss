@@ -141,7 +141,7 @@ test("legacy vh fills Home Screen when both JavaScript heights exclude its safe 
 });
 
 test("new document pages retain native keyboard handling and Create can switch to its editor", (t) => {
-  for (const page of ["settings-main", "admin-main", "create-picker"] as const) {
+  for (const page of ["settings-main", "profile-ai", "admin-main", "create-picker"] as const) {
     const h = viewportHarness(t, page, false, true);
     h.root.scrollTop = 350;
     h.win.document.querySelector("input")!.focus();

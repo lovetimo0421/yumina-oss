@@ -148,6 +148,7 @@ combatRoutes.post("/sessions/:sessionId/action", async (c) => {
       turnEvents,
       worldDef.reactions ?? [],
       worldDef.rules ?? [],
+      { worldbooks: worldDef.worldbooks },
     );
 
     // Save state to DB

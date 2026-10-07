@@ -11,58 +11,93 @@ import {
   Plus,
   ChevronDown,
   ChevronRight,
+  Images,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useEditorStore } from "@/stores/editor";
-import type { ToolCall } from "../lib/types";
+import type { TFunction as I18nT } from "i18next";
 
-/** Compact inline preview of what a single tool call will do, with before/after diff for updates. */
-export function EntityPreview({ toolCall }: { toolCall: ToolCall }) {
+type TFunction = I18nT<"editor">;
+type Translate = (key: string | string[], opts?: Record<string, unknown>) => string;
+import { useEditorStore } from "@/stores/editor";
+import { describeUiDocOps, type PartLookup } from "./ui-doc-op-labels";
+import { audioTypeLabel, describeSchemaChanges, fieldLabel, toolLabel, type EntityNameLookup } from "./change-labels";
+import type { ToolCall } from "../lib/types";
+import { toneBorder, toneText, toolKind } from "../lib/kind-tone";
+import { cn } from "@/lib/utils";
+import type { Reaction } from "@yumina/engine";
+import { whenLabel } from "../lib/reaction-summary";
+
+/** Compact inline preview of what a single tool call will do, with before/after diff for updates.
+ *  Once the change is applied the draft already holds its result, so a diff
+ *  against the draft would only list the change against itself. */
+export function EntityPreview({ toolCall, applied = false }: { toolCall: ToolCall; applied?: boolean }) {
   const { t } = useTranslation("editor");
   const [expanded, setExpanded] = useState(false);
   const name = toolCall.function.name;
   let args: Record<string, unknown> = {};
+  let parsed = true;
   try {
     const parsed: unknown = JSON.parse(toolCall.function.arguments);
     if (!isPreviewArgs(parsed)) throw new Error("Invalid preview arguments");
     args = parsed;
   } catch {
+    parsed = false;
+  }
+  // A write that changes one field carries only the id; the creator knows the
+  // thing by its name, not by a uuid. Read before any early return (hook order).
+  const knownName = useEditorStore((s) => entityNameById(s.worldDraft, args.id));
+  // An edit by id carries no role; the draft knows whether the entry is an opening.
+  const knownRole = useEditorStore((s) => s.worldDraft.entries?.find((e) => e.id === args.id)?.role);
+  // Interface edits name parts by id; the card names them as the layers list does.
+  const uiDoc = useEditorStore((s) => s.worldDraft.uiDoc);
+  const partLookup: PartLookup = (id) => {
+    for (const page of uiDoc?.pages ?? []) {
+      const el = page.elements.find((e) => e.id === id);
+      if (el) return { name: el.name, type: el.type };
+    }
+    return undefined;
+  };
+  // A batch names its entities by id too; the card uses their names.
+  const entityLookup: EntityNameLookup = (id) => entityNameById(useEditorStore.getState().worldDraft, id);
+  if (!parsed) {
     return (
-      <div className="text-[10px] text-red-400">
-        {t("studio.entity.invalidArgs", { name })}
+      // Usually the assistant tries the same step again and it lands; a
+      // red line that outlived the retry read as "the card is broken".
+      <div className="text-[10px] text-amber-300/70">
+        {t("studio.entity.invalidArgs", { name: toolLabel(name, t as unknown as Translate) })}
       </div>
     );
   }
 
   const info = getToolInfo(name);
-  const diff = useDiffInfo(name, args);
-  const fullContent = getFullContent(name, args);
+  const diff = useDiffInfo(name, args, t, applied);
+  const fullContent = getFullContent(name, args, entityLookup);
   const isCode = name.includes("component") || name.includes("renderer") || name.includes("tsx") || name === "write_custom_ui";
 
   return (
-    <div className="rounded-md border border-border/40 bg-background/50">
+    <div className={cn("rounded-md border bg-background/50", toneBorder(toolKind(name, { role: knownRole, ...args })))}>
       <div className="flex items-start gap-2 px-2.5 py-1.5">
         <div className="shrink-0 mt-0.5">
-          <info.icon className="h-3.5 w-3.5 text-muted-foreground" />
+          <info.icon className={cn("h-3.5 w-3.5", toneText(toolKind(name, { role: knownRole, ...args })))} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span className={`text-[10px] font-semibold ${info.verbColor}`}>
+            <span className={`shrink-0 whitespace-nowrap text-[10px] font-semibold ${info.verbColor}`}>
               {t(info.verb as any)}
             </span>
             <span className="text-xs font-medium text-foreground truncate">
-              {(args.name as string) || (args.id as string) || t(info.category as any)}
+              {(args.name as string) || knownName || (info.category === name ? toolLabel(name, t as unknown as Translate) : t(info.category as any))}
             </span>
-            {info.badge?.(args) && (
+            {info.badge?.(args, t) && (
               <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[9px] text-muted-foreground">
-                {info.badge(args)}
+                {info.badge(args, t)}
               </span>
             )}
           </div>
           {/* Detail line (for creates) */}
           {info.detail && !diff && (
             <div className="text-[10px] text-muted-foreground/70 truncate mt-0.5">
-              {info.detail(args)}
+              {info.detail(args, t, { part: partLookup, entity: entityLookup })}
             </div>
           )}
           {/* Diff lines (for updates/deletes) */}
@@ -70,7 +105,7 @@ export function EntityPreview({ toolCall }: { toolCall: ToolCall }) {
             <div className="mt-1 space-y-0.5">
               {diff.map((d, i) => (
                 <div key={i} className="text-[10px] flex items-start gap-1">
-                  <span className="text-muted-foreground/50 shrink-0 w-16 truncate">{d.field}:</span>
+                  <span className="text-muted-foreground/50 shrink-0 w-16 truncate">{d.label}:</span>
                   {d.type === "changed" && (
                     <span className="truncate">
                       <span className="text-red-400/70 line-through">{d.before}</span>
@@ -153,7 +188,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /** Extract the primary content string to show when expanded. */
-function getFullContent(name: string, args: Record<string, unknown>): string | null {
+function getFullContent(name: string, args: Record<string, unknown>, lookup: EntityNameLookup): string | null {
   // Entry content
   if (name === "create_entry" || name === "update_entry") {
     const content = args.content as string | undefined;
@@ -189,21 +224,36 @@ function getFullContent(name: string, args: Record<string, unknown>): string | n
   if (name === "write_custom_ui") return (args.tsxCode as string) ?? null;
   if (name === "write_behavior") { const { id: _id, ...rest } = args; return JSON.stringify(rest, null, 2); }
   if (name === "write_audio") return null;
-  if (name === "delete_entities") return (args.ids as string[])?.join(", ") ?? null;
+  // Names, not ids: an id the creator never sees says nothing about what goes.
+  if (name === "delete_entities") return (args.ids as string[] | undefined)?.map((id) => lookup(id) ?? id).join(", ") ?? null;
   return null;
 }
 
 // ── Diff computation ──
 
 interface DiffLine {
-  field: string;
+  /** What the creator sees: the field's label, or the entity's name. */
+  label: string;
   type: "changed" | "added" | "removed";
   before?: string;
   after?: string;
 }
 
+function entityNameById(draft: ReturnType<typeof useEditorStore.getState>["worldDraft"], id: unknown): string | undefined {
+  if (typeof id !== "string" || !id) return undefined;
+  const lists: Array<ReadonlyArray<{ id: string; name?: string }> | undefined> = [
+    draft.entries, draft.variables, draft.reactions, draft.rules, draft.audioTracks, draft.sceneImages, draft.worldbooks,
+  ];
+  for (const list of lists) {
+    const hit = list?.find((item) => item.id === id);
+    if (hit?.name) return hit.name;
+  }
+  return undefined;
+}
+
 /** Look up the existing entity and compute field-level diffs for update/delete operations. */
-function useDiffInfo(toolName: string, args: Record<string, unknown>): DiffLine[] | null {
+function useDiffInfo(toolName: string, args: Record<string, unknown>, t: TFunction, applied: boolean): DiffLine[] | null {
+  if (applied) return null;
   const draft = useEditorStore.getState().worldDraft;
   const id = args.id as string | undefined;
   if (!id) return null;
@@ -242,16 +292,17 @@ function useDiffInfo(toolName: string, args: Record<string, unknown>): DiffLine[
   if (isWrite && !existing) return null;
 
   if (!existing) {
-    if (isDelete) return [{ field: id, type: "removed", before: "will be deleted" }];
+    if (isDelete) return [{ label: t("studio.entity.entityCat"), type: "removed", before: t("studio.entity.willDelete") }];
     return null;
   }
 
   if (isDelete) {
-    return [{ field: (existing.name as string) ?? id, type: "removed", before: "will be deleted" }];
+    return [{ label: (existing.name as string) || t("studio.entity.entityCat"), type: "removed", before: t("studio.entity.willDelete") }];
   }
 
   // Compute field-level diffs for updates
   const diffs: DiffLine[] = [];
+  const tr = t as unknown as Translate;
   const SKIP = new Set(["id", "position", "updatedAt", "order"]);
   // Map snake_case args to camelCase for comparison
   const SNAKE_TO_CAMEL: Record<string, string> = {
@@ -274,14 +325,14 @@ function useDiffInfo(toolName: string, args: Record<string, unknown>): DiffLine[
     const camelKey = SNAKE_TO_CAMEL[key] ?? key;
     const oldValue = existing[camelKey];
 
-    const oldStr = formatValue(oldValue);
-    const newStr = formatValue(newValue);
+    const oldStr = formatValue(oldValue, t);
+    const newStr = formatValue(newValue, t);
 
     if (oldStr !== newStr) {
       if (oldValue === undefined || oldValue === null) {
-        diffs.push({ field: key, type: "added", after: newStr });
+        diffs.push({ label: fieldLabel(key, tr), type: "added", after: newStr });
       } else {
-        diffs.push({ field: key, type: "changed", before: oldStr, after: newStr });
+        diffs.push({ label: fieldLabel(key, tr), type: "changed", before: oldStr, after: newStr });
       }
     }
   }
@@ -289,12 +340,12 @@ function useDiffInfo(toolName: string, args: Record<string, unknown>): DiffLine[
   return diffs.length > 0 ? diffs.slice(0, 5) : null; // Cap at 5 diffs to avoid huge cards
 }
 
-function formatValue(value: unknown): string {
+function formatValue(value: unknown, t: TFunction): string {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return truncate(value, 60);
-  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "boolean") return value ? t("studio.entity.yes") : t("studio.entity.no");
   if (typeof value === "number") return String(value);
-  if (Array.isArray(value)) return `[${value.length} ${value.length === 1 ? "item" : "items"}]`;
+  if (Array.isArray(value)) return t("studio.entity.itemCount", { count: value.length });
   if (typeof value === "object") return truncate(JSON.stringify(value), 60);
   return String(value);
 }
@@ -306,8 +357,8 @@ interface ToolInfo {
   verbColor: string;
   category: string;
   icon: React.FC<{ className?: string }>;
-  badge?: (args: Record<string, unknown>) => string;
-  detail?: (args: Record<string, unknown>) => string;
+  badge?: (args: Record<string, unknown>, t: TFunction) => string;
+  detail?: (args: Record<string, unknown>, t: TFunction, ctx: { part: PartLookup; entity: EntityNameLookup }) => string;
 }
 
 function getToolInfo(name: string): ToolInfo {
@@ -322,8 +373,6 @@ function getToolInfo(name: string): ToolInfo {
       verbColor: "text-emerald-400",
       category: "studio.entity.entry",
       icon: Plus,
-      // A partial update carries no role — show nothing rather than a guess.
-      badge: (a) => `${a.role ?? a.section ?? ""}`,
       detail: (a) => truncate(a.content as string, 80),
     };
   if (name === "write_variable")
@@ -332,11 +381,11 @@ function getToolInfo(name: string): ToolInfo {
       verbColor: "text-emerald-400",
       category: "studio.entity.variable",
       icon: Plus,
-      badge: (a) => {
-        const parts = [a.type as string];
-        if (a.min !== undefined || a.max !== undefined) parts.push(`${a.min ?? "—"}..${a.max ?? "—"}`);
-        if (a.category) parts.push(a.category as string);
-        return parts.filter(Boolean).join(", ");
+      // Type and range only: the category is agent metadata no editor shows.
+      badge: (a, t) => {
+        const parts = [a.type ? t(`variables.types.${a.type as string}`, { defaultValue: a.type as string }) : ""];
+        if (a.min !== undefined || a.max !== undefined) parts.push(`${a.min ?? "—"} ~ ${a.max ?? "—"}`);
+        return parts.filter(Boolean).join(" · ");
       },
       detail: (a) => (a.behaviorRules as string | undefined) ?? (a.description as string | undefined) ?? "",
     };
@@ -346,13 +395,17 @@ function getToolInfo(name: string): ToolInfo {
       verbColor: "text-emerald-400",
       category: "studio.entity.behavior",
       icon: Plus,
-      badge: (a) => {
-        const when = a.when as Record<string, unknown> | undefined;
-        return `WHEN: ${when?.eventType ?? "state:changed"}`;
-      },
-      detail: (a) => {
-        const then = a.then as unknown[] | undefined;
-        return `${(a.conditions as unknown[])?.length ?? 0} conditions, ${then?.length ?? 0} effects`;
+      // A threshold behaviour has no conditions — the line it watches IS
+      // its trigger — and 「0 个条件」 read as a broken one. Say the trigger.
+      detail: (a, t) => {
+        const conditions = (a.conditions as unknown[] | undefined)?.length ?? 0;
+        const effects = (a.then as unknown[] | undefined)?.length ?? 0;
+        const when = a.when as Reaction["when"] | undefined;
+        if (conditions === 0 && when?.eventType) {
+          const variables = new Map((useEditorStore.getState().worldDraft.variables ?? []).map((v) => [v.id, v]));
+          return t("studio.entity.behaviorWhen", { when: whenLabel({ when } as Reaction, variables, t("studio.entity.everyTurn")), effects });
+        }
+        return t("studio.entity.behaviorCounts", { conditions, effects });
       },
     };
   if (name === "write_custom_ui")
@@ -361,7 +414,8 @@ function getToolInfo(name: string): ToolInfo {
       verbColor: "text-emerald-400",
       category: "studio.entity.customUI",
       icon: Code2,
-      badge: (a) => `${a.id ?? "index.tsx"}${a.language && a.language !== "tsx" ? ` · ${a.language}` : ""}`,
+      // The file name is the assistant's plumbing; the creator sees what it is.
+      badge: (_a, t) => t("studio.entity.uiCode"),
       detail: (a) => truncate(a.tsxCode as string, 60),
     };
   if (name === "edit_custom_ui")
@@ -370,8 +424,24 @@ function getToolInfo(name: string): ToolInfo {
       verbColor: "text-amber-400",
       category: "studio.entity.customUI",
       icon: Pencil,
-      badge: (a) => `${a.id ?? "index.tsx"}`,
+      badge: (_a, t) => t("studio.entity.uiCode"),
       detail: (a) => truncate(a.new_code as string, 60),
+    };
+  if (name === "write_ui_knob_groups")
+    return {
+      verb: "studio.entity.write",
+      verbColor: "text-amber-400",
+      category: "studio.entity.customUI",
+      icon: Code2,
+      badge: (a, t) => {
+        const groups = a.groups as Array<{ label?: string; knobs?: unknown[] }> | undefined;
+        const knobs = groups?.reduce((n, g) => n + (g.knobs?.length ?? 0), 0) ?? 0;
+        return t("studio.entity.knobGroups", { groups: groups?.length ?? 0, knobs });
+      },
+      detail: (a) => {
+        const groups = a.groups as Array<{ label?: string; id?: string }> | undefined;
+        return (groups ?? []).map((g) => g.label ?? g.id ?? "?").join(" · ");
+      },
     };
   if (name === "write_audio")
     return {
@@ -379,7 +449,15 @@ function getToolInfo(name: string): ToolInfo {
       verbColor: "text-emerald-400",
       category: "studio.entity.audio",
       icon: Music,
-      badge: (a) => `${a.type ?? ""}`,
+      badge: (a, t) => audioTypeLabel(a.type, t as unknown as Translate),
+    };
+  if (name === "write_scene_image")
+    return {
+      verb: "studio.entity.write",
+      verbColor: "text-emerald-400",
+      category: "studio.entity.sceneImage",
+      icon: Images,
+      badge: (a) => (typeof a.name === "string" ? a.name : ""),
     };
   if (name === "delete_entities")
     return {
@@ -387,7 +465,7 @@ function getToolInfo(name: string): ToolInfo {
       verbColor: "text-red-400",
       category: "studio.entity.entities",
       icon: Trash2,
-      badge: (a) => `${(a.ids as string[])?.length ?? 0} entities`,
+      badge: (a, t) => t("studio.entity.entityCount", { count: (a.ids as string[] | undefined)?.length ?? 0 }),
     };
 
   // Legacy batch tool — kept for replay of historical agent runs
@@ -409,14 +487,26 @@ function getToolInfo(name: string): ToolInfo {
         if (deletes) parts.push(`-${deletes}`);
         return parts.join(" ");
       },
-      detail: (a) => {
-        const changes = a.changes as Array<{ action: string; entityType: string; id?: string; data?: Record<string, unknown> }> | undefined;
-        if (!changes?.length) return "";
-        return changes
-          .map((c) => `${c.action} ${c.entityType} "${c.id ?? c.data?.name ?? "?"}"`)
-          .join(", ");
-      },
+      // 「新建变量「金币」 · 修改词条「开场」」, never `create variable "gold"`.
+      detail: (a, t, ctx) => describeSchemaChanges(
+        a.changes as Parameters<typeof describeSchemaChanges>[0],
+        t as unknown as Translate,
+        ctx.entity,
+      ),
     };
+  // The interface document: one call carries a list of edits to the screen,
+  // so the card says how many and what kind rather than a single entity.
+  if (name === "edit_ui_doc")
+    return {
+      verb: "studio.entity.edit",
+      verbColor: "text-amber-400",
+      category: "studio.entity.interfaceDoc",
+      icon: Pencil,
+      badge: (a, t) => t("studio.entity.uiDocOps", { count: (a.ops as unknown[] | undefined)?.length ?? 0 }),
+      detail: (a, t, ctx) => describeUiDocOps(a.ops as Parameters<typeof describeUiDocOps>[0], t as unknown as Parameters<typeof describeUiDocOps>[1], ctx.part),
+    };
+  if (name === "read_ui_doc")
+    return { verb: "studio.entity.read", verbColor: "text-blue-400", category: "studio.entity.interfaceDoc", icon: BookOpen };
   if (name === "read_entities")
     return { verb: "studio.entity.read", verbColor: "text-blue-400", category: "studio.entity.entities", icon: BookOpen };
 

@@ -9,14 +9,17 @@
 
 import { eq, and, lte, desc, sql } from "drizzle-orm";
 import { estimateTokens } from "@yumina/engine";
+import type { WorldDefinition } from "@yumina/engine";
 import { db } from "../db/index.js";
 import { messages } from "../db/schema.js";
+import { buildTurnHistoryFilter } from "./turn-history-filter.js";
 import { countPromptTokensCooperatively } from "./cooperative-tokens.js";
 import {
   collectHistoryConditions,
   collectPromptBlocks,
   hasPromptOverflowHandlers,
   resolveTurnHooks,
+  transformWorldDefinition,
   runPromptOverflow,
   runTurnComplete,
   PromptBlockController,
@@ -48,6 +51,24 @@ export interface TurnMemory {
   freshStart: boolean;
 }
 
+/** Resolve every installed session-local world overlay before lore matching. */
+export function resolveTurnWorldDefinition(
+  turn: TurnMemory,
+  session: HookSessionRow,
+  worldDef: WorldDefinition,
+): Promise<WorldDefinition> {
+  return transformWorldDefinition(
+    turn.dispatch,
+    {
+      ownerUserId: turn.ownerUserId,
+      sessionId: turn.sessionId,
+      session,
+      freshStart: turn.freshStart,
+    },
+    worldDef,
+  );
+}
+
 /**
  * Resolve the turn's hook dispatch (entitlement-gated, once per turn) and
  * collect the extensions' prompt blocks + history filters.
@@ -57,10 +78,12 @@ export async function loadTurnMemoryBlocks(args: {
   sessionId: string;
   session: HookSessionRow;
   suppressSummaryBlocks?: boolean;
+  /** The turn's world, for extensions that are on by default for some cards. */
+  world?: WorldDefinition;
 }): Promise<TurnMemory> {
   const freshStart = args.suppressSummaryBlocks === true;
   const baseCtx = { ownerUserId: args.ownerUserId, sessionId: args.sessionId, session: args.session };
-  const dispatch = await resolveTurnHooks(baseCtx);
+  const dispatch = await resolveTurnHooks({ ...baseCtx, world: args.world });
   const blockCtx = { ...baseCtx, freshStart };
   const blocks = await collectPromptBlocks(dispatch, blockCtx);
   const historyConditions = collectHistoryConditions(dispatch, blockCtx);
@@ -74,9 +97,13 @@ export async function loadTurnMemoryBlocks(args: {
   };
 }
 
-/** Raw-history WHERE: session scope + every extension-contributed condition. */
-export function buildRawHistoryWhere(sessionId: string, turn: Pick<TurnMemory, "historyConditions">) {
-  return and(eq(messages.sessionId, sessionId), ...turn.historyConditions);
+/** Raw-history WHERE: session scope, successful history and extension filters. */
+export function buildRawHistoryWhere(
+  sessionId: string,
+  turn: Pick<TurnMemory, "historyConditions">,
+  activeUserMessageId?: string,
+) {
+  return buildTurnHistoryFilter(sessionId, turn.historyConditions, activeUserMessageId);
 }
 
 /** Hard cap on raw-history rows loaded per generation. The prompt clamp keeps
@@ -97,11 +124,11 @@ export const RAW_HISTORY_MAX_ROWS = 2000;
 export async function loadBoundedRawHistory(
   sessionId: string,
   turn: Pick<TurnMemory, "historyConditions">,
-  opts?: { upTo?: Date },
+  opts?: { upTo?: Date; activeUserMessageId?: string },
 ): Promise<Array<{ id: string; role: string; content: string; imageTokens: number; createdAt: Date | null }>> {
   const where = opts?.upTo
-    ? and(buildRawHistoryWhere(sessionId, turn), lte(messages.createdAt, opts.upTo))
-    : buildRawHistoryWhere(sessionId, turn);
+    ? and(buildRawHistoryWhere(sessionId, turn, opts.activeUserMessageId), lte(messages.createdAt, opts.upTo))
+    : buildRawHistoryWhere(sessionId, turn, opts?.activeUserMessageId);
   const rows = await db
     .select({
       id: messages.id,

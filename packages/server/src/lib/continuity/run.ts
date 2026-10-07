@@ -18,6 +18,7 @@ import {
   type AudioEffect,
   type ContinuityDecision,
   type ContinuityMemory,
+  type JevQuestion,
   type Effect,
   type GameStateManager,
   type WorldDefinition,
@@ -50,6 +51,8 @@ export interface ContinuityTurnArgs {
 }
 
 export interface ContinuityTurnOutcome {
+  /** The typed questions the judge was asked (playtest shows them). */
+  questions?: Record<string, JevQuestion>;
   /** Set-effects for judge-owned variables. Apply AFTER the AI write filter. */
   effects: Effect[];
   /** Judge-picked BGM crossfade / one-shot SFX for this turn. */
@@ -141,7 +144,7 @@ export async function runContinuityTurn(args: ContinuityTurnArgs): Promise<Conti
       promptTokens: res.usage.inputTokens, completionTokens: res.usage.outputTokens, totalTokens: res.usage.inputTokens + res.usage.outputTokens,
       apiKeyTier: sideCallTier(res.keySource), generationTimeMs: Date.now() - started, tokenMeasurement: "provider",
     }).catch(() => { /* logged inside */ });
-    return { effects: result.effects, audioEffects: result.audioEffects, imageIds: result.imageIds, ran: true, decisions: result.decisions };
+    return { effects: result.effects, audioEffects: result.audioEffects, imageIds: result.imageIds, ran: true, decisions: result.decisions, questions: plan.questions };
   } catch (err) {
     const code = err instanceof DecisionError ? err.code : "unknown";
     if (code !== "cancelled") console.warn(`[Continuity] skipped (${code}) after ${Date.now() - started}ms: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);

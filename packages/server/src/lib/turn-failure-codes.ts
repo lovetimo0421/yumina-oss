@@ -5,8 +5,8 @@
 
 /** Emitted to the client so the UI can offer the one action that actually helps. */
 export const FAILURE_CODE = {
-  MODEL_FALLBACK_REQUIRED: "MODEL_FALLBACK_REQUIRED",
   STATE_VALIDATION: "STATE_VALIDATION",
+  MODEL_FALLBACK_REQUIRED: "MODEL_FALLBACK_REQUIRED",
   /** OpenRouter's account-wide daily cap on free models. Retrying the same
    *  model cannot succeed — only switching models (or waiting) does. */
   FREE_POOL_EXHAUSTED: "FREE_POOL_EXHAUSTED",

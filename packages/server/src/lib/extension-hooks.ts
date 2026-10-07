@@ -18,11 +18,13 @@ import {
   getExtensionDefinition,
   isExtensionApiCompatible,
 } from "@yumina/shared";
-import { eq, type SQL } from "drizzle-orm";
+import { GameStateManager, type GameState, type WorldDefinition } from "@yumina/engine";
+import { randomUUID } from "node:crypto";
+import { asc, eq, type SQL } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { playSessions } from "../db/schema.js";
-import { getInstalledExtensions } from "./extensions.js";
-import type { GameState, WorldDefinition } from "@yumina/engine";
+import { messages, playSessions } from "../db/schema.js";
+import { getInstalledExtensions, getUninstalledExtensions } from "./extensions.js";
+import { invalidateRunMemoryText, rebuildRunMemories, type RunMemories } from "./run-scopes.js";
 import type { StateValidationAudit } from "@yumina/shared";
 import type { ParseResult } from "@yumina/engine";
 import type { LLMProvider } from "./llm/types.js";
@@ -71,6 +73,11 @@ export interface PromptBlockContext extends ResolveCapabilitiesContext {
    * may still contribute.
    */
   freshStart: boolean;
+}
+
+export interface WorldDefinitionTransformContext extends PromptBlockContext {
+  /** Current viewer-authorized world. Handlers must return a fresh object. */
+  worldDef: WorldDefinition;
 }
 
 export interface PromptBlock {
@@ -122,6 +129,8 @@ export type InvalidateReason =
 export interface InvalidateContext {
   reason: InvalidateReason;
   sessionId: string;
+  /** Resolved playable schema, used when a swipe restores a different state. */
+  worldDef?: WorldDefinition;
   /**
    * session-revert only: the acting user, so a handler can eagerly regenerate
    * the tiers it just dropped (from the surviving transcript) rather than
@@ -165,7 +174,20 @@ export interface ExtensionInvalidation {
   runAfter?: () => Promise<void>;
 }
 
+/** Turn-level inputs for extensions that are on by default. */
+export interface DefaultActivationContext {
+  /** The viewer-authorized world for this turn, before extension overlays. */
+  world?: WorldDefinition;
+}
+
 export interface ExtensionHookHandlers {
+  /**
+   * On-by-default extensions: true activates the extension for this turn
+   * WITHOUT an install row, unless the player explicitly uninstalled it.
+   * Default-activated keys are reported in TurnHookDispatch.defaultActivated
+   * and get no resolveOutputModel (the default runs on the platform's terms).
+   */
+  activeByDefault?: (ctx: DefaultActivationContext) => boolean;
   /** Trusted final instructions, reserved outside the trimmable history. */
   turnOutputInstructions?: (ctx: Pick<TurnOutputContext, "world" | "state">) => string;
   /** Awaited, fail-closed, before effects/reactions. Returns data only. */
@@ -174,6 +196,10 @@ export interface ExtensionHookHandlers {
   /** null disables this extension for this turn (settings snapshot). */
   resolveCapabilities?: (ctx: ResolveCapabilitiesContext) => string[] | null | Promise<string[] | null>;
   resolveOutputModel?: (ctx: ResolveCapabilitiesContext) => string | null;
+  /** Session-local, deterministic world overlays resolved before lore matching. */
+  transformWorldDefinition?: (
+    ctx: WorldDefinitionTransformContext,
+  ) => WorldDefinition | Promise<WorldDefinition>;
   contributePromptBlocks?: (ctx: PromptBlockContext) => PromptBlock[] | Promise<PromptBlock[]>;
   /** Extra raw-history WHERE conditions (e.g. exclude compacted messages). */
   filterHistory?: (ctx: PromptBlockContext) => SQL[];
@@ -210,11 +236,18 @@ let installedLookup: InstalledLookup = getInstalledExtensions;
 export function __setInstalledLookupForTests(lookup: InstalledLookup | null): void {
   installedLookup = lookup ?? getInstalledExtensions;
 }
+/** Test-only: swap the explicit-uninstall (default opt-out) source. */
+let uninstalledLookup: InstalledLookup = getUninstalledExtensions;
+export function __setUninstalledLookupForTests(lookup: InstalledLookup | null): void {
+  uninstalledLookup = lookup ?? getUninstalledExtensions;
+}
 
 export interface TurnHookDispatch {
-  /** Extension key → its active capabilities (installed extensions only). */
+  /** Extension key → its active capabilities (installed or default-activated). */
   activeExtensions: Map<string, ReadonlySet<string>>;
   outputModels?: Map<string, string>;
+  /** Keys active only through activeByDefault (the player never installed them). */
+  defaultActivated?: ReadonlySet<string>;
 }
 
 export function turnOutputInstructions(dispatch: TurnHookDispatch, ctx: Pick<TurnOutputContext, "world" | "state">): string {
@@ -235,20 +268,31 @@ export async function validateTurnOutput(dispatch: TurnHookDispatch, ctx: TurnOu
  * gate is the same one the old inline code consulted, so per-turn latency is
  * unchanged.
  */
-export async function resolveTurnHooks(ctx: ResolveCapabilitiesContext): Promise<TurnHookDispatch> {
+export async function resolveTurnHooks(ctx: ResolveCapabilitiesContext & DefaultActivationContext): Promise<TurnHookDispatch> {
   const activeExtensions = new Map<string, ReadonlySet<string>>();
   const outputModels = new Map<string, string>();
+  const defaultActivated = new Set<string>();
   if (registeredHooks.size === 0) return { activeExtensions };
+  const { world, ...capabilityCtx } = ctx;
   const installed = await installedLookup(ctx.ownerUserId);
+  let uninstalled: Set<string> | undefined;
   for (const [key, handlers] of registeredHooks) {
-    if (!installed.has(key)) continue;
-    const caps = handlers.resolveCapabilities ? await handlers.resolveCapabilities(ctx) : [];
+    let viaDefault = false;
+    if (!installed.has(key)) {
+      if (!handlers.activeByDefault?.({ world })) continue;
+      // An explicit uninstall is the player's opt-out; never-installed is not.
+      uninstalled ??= await uninstalledLookup(ctx.ownerUserId);
+      if (uninstalled.has(key)) continue;
+      viaDefault = true;
+    }
+    const caps = handlers.resolveCapabilities ? await handlers.resolveCapabilities(capabilityCtx) : [];
     if (caps === null) continue;
     activeExtensions.set(key, new Set(caps));
-    const model = handlers.resolveOutputModel?.(ctx);
+    if (viaDefault) { defaultActivated.add(key); continue; }
+    const model = handlers.resolveOutputModel?.(capabilityCtx);
     if (model) outputModels.set(key, model);
   }
-  return { activeExtensions, outputModels };
+  return { activeExtensions, outputModels, defaultActivated };
 }
 
 export async function collectPromptBlocks(
@@ -265,6 +309,21 @@ export async function collectPromptBlocks(
   // Deterministic composition: priority, ties broken by extension key.
   blocks.sort((a, b) => a.priority - b.priority || a.extensionKey.localeCompare(b.extensionKey));
   return blocks;
+}
+
+/** Apply installed, capability-gated world overlays in registry order. */
+export async function transformWorldDefinition(
+  dispatch: TurnHookDispatch,
+  ctx: Omit<WorldDefinitionTransformContext, "capabilities" | "worldDef">,
+  worldDef: WorldDefinition,
+): Promise<WorldDefinition> {
+  let resolved = worldDef;
+  for (const [key, capabilities] of dispatch.activeExtensions) {
+    const transform = registeredHooks.get(key)?.transformWorldDefinition;
+    if (!transform) continue;
+    resolved = await transform({ ...ctx, capabilities, worldDef: resolved });
+  }
+  return resolved;
 }
 
 export function collectHistoryConditions(
@@ -370,19 +429,59 @@ export function collectExtensionInvalidation(ctx: InvalidateContext): Invalidati
  * restores in sessions.ts) use collectExtensionInvalidation directly and
  * merge the fields into their own UPDATE.
  */
+type InvalidationTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+type MessageMutation = (
+  tx: InvalidationTransaction,
+  session: Pick<typeof playSessions.$inferSelect, "state" | "runMemories">,
+) => Promise<{ messageFlags?: InvalidateContext["messageFlags"]; sessionFields?: Record<string, unknown> }>;
+
 export async function runExtensionInvalidation(
   ctx: InvalidateContext,
   extraSessionFields?: Record<string, unknown>,
+  database: Pick<typeof db, "transaction" | "update"> = db,
+  /** Message writes run under the same session lock as memory invalidation. */
+  mutateMessage?: MessageMutation,
 ): Promise<void> {
-  const plan = collectExtensionInvalidation(ctx);
-  const fields = { ...(extraSessionFields ?? {}), ...plan.sessionFields };
-  if (Object.keys(fields).length > 0) {
-    await db
-      .update(playSessions)
-      .set({ ...fields, updatedAt: new Date() })
-      .where(eq(playSessions.id, ctx.sessionId));
+  let plan: InvalidationPlan | undefined;
+  if (ctx.reason === "message-edited" || ctx.reason === "message-deleted" || ctx.reason === "message-swiped") {
+    await database.transaction(async (tx) => {
+      // Summary and worker completion also lock this row. Read derived memory
+      // only after acquiring the lock, then rotate its generation in the same
+      // write as a swipe's restored state so late jobs cannot repopulate it.
+      const [session] = await tx.select({ runMemories: playSessions.runMemories, state: playSessions.state })
+        .from(playSessions).where(eq(playSessions.id, ctx.sessionId)).for("update");
+      if (!session) return;
+      const mutation = await mutateMessage?.(tx, session);
+      const freshContext = mutation?.messageFlags ? { ...ctx, messageFlags: mutation.messageFlags } : ctx;
+      plan = collectExtensionInvalidation(freshContext);
+      const fields = { ...(extraSessionFields ?? {}), ...mutation?.sessionFields, ...plan.sessionFields };
+      const changedAt = freshContext.messageFlags?.createdAt?.getTime();
+      const boundaryAt = new Date(Number.isFinite(changedAt) ? changedAt! : -8640000000000000).toISOString();
+      const generation = randomUUID();
+      let runMemories = invalidateRunMemoryText(session.runMemories as RunMemories | null, boundaryAt, generation);
+      if (ctx.reason === "message-swiped" && ctx.worldDef && fields.state) {
+        // A swipe can change which modules are active. Rebuild spans from the
+        // current transcript instead of carrying the previous swipe's opens.
+        // This only derives memory; preserve the caller's state byte-for-byte.
+        const rows = await tx.select({ role: messages.role, createdAt: messages.createdAt, stateSnapshot: messages.stateSnapshot })
+          .from(messages).where(eq(messages.sessionId, ctx.sessionId)).orderBy(asc(messages.createdAt), asc(messages.id));
+        const initialState = new GameStateManager(ctx.worldDef).getSnapshot();
+        const finalState = new GameStateManager(ctx.worldDef, fields.state as GameState).getSnapshot();
+        const lastAt = rows.at(-1)?.createdAt?.toISOString() ?? (Number.isFinite(changedAt) ? boundaryAt : new Date().toISOString());
+        runMemories = rebuildRunMemories(ctx.worldDef.worldbooks, rows, initialState, finalState, generation, lastAt);
+      }
+      await tx.update(playSessions)
+        .set({ ...fields, runMemories: runMemories as unknown as Record<string, unknown>, updatedAt: new Date() })
+        .where(eq(playSessions.id, ctx.sessionId));
+    });
+  } else {
+    plan = collectExtensionInvalidation(ctx);
+    const fields = { ...(extraSessionFields ?? {}), ...plan.sessionFields };
+    if (Object.keys(fields).length > 0) {
+      await database.update(playSessions).set({ ...fields, updatedAt: new Date() }).where(eq(playSessions.id, ctx.sessionId));
+    }
   }
-  await plan.runAfter();
+  await plan?.runAfter();
 }
 
 // ─── Prompt block controller ────────────────────────────────────────

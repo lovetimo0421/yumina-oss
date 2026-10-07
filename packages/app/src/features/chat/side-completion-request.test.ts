@@ -11,7 +11,7 @@ test("the SDK forwards session context and explicit limits without card-supplied
   Object.defineProperty(globalThis, "window", { configurable: true, value: { parent: { postMessage(data: unknown) { sent = unwrapMessage<SandboxMessage>(data)!; } } } });
   t.after(() => { if (previous) Object.defineProperty(globalThis, "window", previous); else Reflect.deleteProperty(globalThis, "window"); });
   const api = buildAPI({ variables: {}, globalVariables: {}, worldName: "Test", worldId: "w", sessionId: "s", messages: [], mode: "session", selectedModel: "selected/model" } as unknown as Parameters<typeof buildAPI>[0]);
-  const promise = api.ai.complete({ messages: [{ role: "user", content: "scene" }], context: "session", maxTokens: 900, temperature: 0.3, overrides: { temperature: 99 } } as Parameters<typeof api.ai.complete>[0]);
+  const promise = api.ai.complete({ messages: [{ role: "user", content: "scene" }], context: "session", worldbookIds: ["actor-e"], maxTokens: 900, temperature: 0.3, overrides: { temperature: 99 } } as Parameters<typeof api.ai.complete>[0]);
   assert.ok(sent && sent.type === "api-call");
   const params = sent.args[0] as Record<string, unknown>;
   // Settle the SDK request before assertions so a failing test leaves no timer.
@@ -21,6 +21,21 @@ test("the SDK forwards session context and explicit limits without card-supplied
   assert.equal(params.model, "selected/model");
   assert.equal(params.maxTokens, 900); assert.equal(params.temperature, 0.3);
   assert.equal(params.overrides, undefined);
+  assert.deepEqual(params.worldbookIds, ["actor-e"]);
+  const coreOnly = api.ai.complete({ messages: [{ role: "user", content: "scene" }], context: "session", worldbookIds: [] });
+  assert.ok(sent && sent.type === "api-call");
+  receiveStreamChunk(sent.callId, "", true, "{}");
+  await coreOnly;
+  assert.deepEqual((sent.args[0] as Record<string, unknown>).worldbookIds, []);
+});
+
+test("the host preserves per-call book selection including an explicit core-only scope", () => {
+  const base = { messages: [{ role: "user" as const, content: "scene" }], context: "session" as const };
+  for (const worldbookIds of [["actor-e"], ["actor-v"], []]) {
+    const request = buildSideCompletionRequest({ ...base, worldbookIds }, {});
+    assert.deepEqual(request.worldbookIds, worldbookIds);
+  }
+  assert.equal(buildSideCompletionRequest(base, {}).worldbookIds, undefined);
 });
 
 test("the host uses fresh player preferences, ignores forged card overrides, and leaves raw calls alone", () => {

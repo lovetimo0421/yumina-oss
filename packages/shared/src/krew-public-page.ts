@@ -1,6 +1,11 @@
 /** Trusted, static copy shared by the initial HTML and React's mounted page.
  * Keep this about the live game, not the separate test environment.
  */
+/** Only the public entrance: never turn a test, room or arbitrary URL into a share link. */
+export function getKrewPublicPath(gamePath: unknown): "/krew" | null {
+  return gamePath === "/krew" || gamePath === "/krew/" ? "/krew" : null;
+}
+
 export const KREW_PREVIEW_IMAGE = {
   path: "/krew-cover-595f3b9d.jpg",
   width: 1983,

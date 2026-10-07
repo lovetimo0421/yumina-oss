@@ -127,6 +127,12 @@ const envSchema = z.object({
   CONTINUITY_JEV_URL: z.string().default(""),
   CONTINUITY_JEV_MODEL: z.string().default(""),
   CONTINUITY_TIMEOUT_MS: z.coerce.number().int().positive().default(1500),
+  // Missed-update repair (lib/continuity/missed-updates.ts): the decision model
+  // spots state changes the story model forgot; "true" switches it off.
+  MISSED_UPDATE_DISABLED: z.string().default(""),
+  MISSED_UPDATE_TIMEOUT_MS: z.coerce.number().int().positive().default(2500),
+  /** Platform model that writes the forgotten state (official key, platform-paid). */
+  MISSED_UPDATE_MODEL: z.string().default("google/gemini-3-flash-preview"),
   // Stripe
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().default(""),
@@ -221,6 +227,16 @@ const envSchema = z.object({
   PER_TURN_TAG_MODEL: z.string().default(""),
   // Direct ComfyUI server (http://127.0.0.1:8188) — local development only.
   COMFY_LOCAL_URL: z.string().default(""),
+  // Scene video, the realtime film (experimental, opt-in per player, paid in mushies).
+  // Off unless "1"; needs COMFY_CLOUD_API_KEY and YUMINA_OPENROUTER_KEY.
+  REALTIME_FILM: z.string().default(""),
+  // Comfy Cloud's price of one GPU-second in USD, what film clips are billed from.
+  REALTIME_FILM_GPU_USD_PER_SEC: z.string().default(""),
+  // Our own Comfy API deployment for scene video clips (build "yumina-film"), e.g.
+  // https://dep-….run.comfy.app. Empty: clips render on the shared Comfy Cloud pool.
+  REALTIME_FILM_DEPLOY_URL: z.string().default(""),
+  /** Our always-warm Comfy deployment (the 自定义生图 build, which also carries
+   *  Wan 2.2): video lane Wan jobs run here instead of the shared pool. */
   // Model-volume regions for user LoRA/checkpoint distribution, as
   // "dataCenterId:networkVolumeId" pairs, comma-separated
   // (e.g. "EU-CZ-1:6mf2cryrph,US-IL-1:0g073cgjw6").

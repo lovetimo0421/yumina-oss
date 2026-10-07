@@ -109,7 +109,8 @@
         "protectedHistory": "このアカウントには有効な安全上の制限があります。サポートへ削除をご依頼ください。",
         "email": "確認メールを送信できませんでした。後でもう一度お試しください。",
         "invalidLink": "この削除リンクは無効または期限切れです。アカウント設定から新しいリンクを申請してください。",
-        "generic": "アカウント削除を開始できませんでした。後でもう一度お試しください。"
+        "generic": "アカウント削除を開始できませんでした。後でもう一度お試しください。",
+        "privileged": "特権アカウントは削除前に管理責任を移管する必要があります。サポートへご連絡ください。"
       }
     },
     "connectedAccounts": {
@@ -247,12 +248,13 @@
     }
   },
   "display": {
-    "experimental": {
-      "title": "実験的機能",
-      "turnImages": {
-        "title": "ストーリー挿絵",
-        "description": "実験的機能：返信に挿絵を描きます。最初の5枚は無料、その後は1枚12 mushiesです。"
-      }
+    "turnImages": {
+      "title": "ストーリー挿絵",
+      "description": "返信の下に「この場面を描く」ボタンが付きます。",
+      "auto": "返信ごとに自動で挿絵",
+      "free": "あと {{count}} 枚無料、その後は1枚 {{price}} mushies",
+      "price": "1枚 {{price}} mushies",
+      "unlimited": "プランに含まれています"
     },
     "title": "表示",
     "language": {
@@ -355,6 +357,10 @@
     "sendKey": {
       "title": "Enter キーで送信",
       "description": "オンにすると Enter で送信、Shift+Enter で改行します。オフにすると Ctrl/⌘+Enter で送信、Enter で改行します。この設定はこの端末に保存されます。"
+    },
+    "sceneVideo": {
+      "title": "シーン動画（実験的）",
+      "description": "物語をその場で音声付きの動画にします。再生中は1分あたり約 5,800 mushies かかります。"
     }
   },
   "wallpaper": {

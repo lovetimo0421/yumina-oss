@@ -43,6 +43,36 @@ export function estimateStudioPromptTokens(messages: readonly ChatMessage[], too
   return Math.ceil(total * 1.2);
 }
 
+/** No headroom factor: this feeds a price shown as a minimum, and the raw
+ *  char estimate already runs a little above what providers count. */
+export function estimateStudioSystemTokens(text: string): number {
+  return textTokens(text);
+}
+
+/** The least one assistant turn can cost: a single model call over the
+ *  current system prompt + history with the minimum output. A turn that uses
+ *  tools makes more calls, so this is a floor, never a quote. Claude's system
+ *  blocks are 1h cache writes (2× input) when cold and cache reads (0.1×)
+ *  when a run touched this card within the hour. */
+export function estimateStudioTurnFloorCredits(input: {
+  systemTokens: number;
+  conversationTokens: number;
+  price: ModelPriceEntry | null;
+  warmCache: boolean;
+}): number | null {
+  const price = input.price;
+  if (!price) return null;
+  const markup = price.markupMultiplier ?? 1;
+  const promptTokens = input.systemTokens + input.conversationTokens;
+  const aboveThreshold = price.contextThreshold != null && promptTokens > price.contextThreshold;
+  const inputRate = aboveThreshold ? price.inputPriceAboveThreshold ?? price.inputPricePerM : price.inputPricePerM;
+  const outputRate = aboveThreshold ? price.outputPriceAboveThreshold ?? price.outputPricePerM : price.outputPricePerM;
+  if (![inputRate, outputRate, markup].every((n) => Number.isFinite(n) && n >= 0)) return null;
+  const systemFactor = price.modelId.toLowerCase().includes("claude") ? (input.warmCache ? 0.1 : 2) : 1;
+  const inputTokens = input.systemTokens * systemFactor + input.conversationTokens;
+  return Math.ceil((inputTokens * inputRate + MINIMUM_OUTPUT_TOKENS * outputRate) * markup / 1000);
+}
+
 /** Per-generation allowance: pay for the actual assembled context/tools and a
  * useful bounded output, not the historical 64K ceiling. Last-turn usage may
  * raise the desired allowance for a larger job. Completion caps include hidden
@@ -92,4 +122,39 @@ export function planStudioCreditBudget(input: {
     else high = middle - 1;
   }
   return { ok: true, maxTokens: low, reservationCredits: cost(low), estimatedPromptTokens, minimumRequiredCredits };
+}
+
+/** Roughly what a whole job costs and takes, for the one sentence the creator
+ *  sees before starting it. Each step is about three model calls; every call
+ *  re-reads the (cached) system prompt and a conversation that grows with
+ *  what was written, and writes a working-size reply. A guide, not a quote:
+ *  the job stops and asks before it goes well past this. */
+export function estimateAgentJob(input: {
+  steps: number;
+  systemTokens: number;
+  conversationTokens: number;
+  /** null when the creator's own key pays: there is no mushroom cost to show. */
+  price: ModelPriceEntry | null;
+}): { minutes: number; mushies: number | null } {
+  const steps = Math.max(1, Math.round(input.steps));
+  const minutes = Math.min(120, Math.max(2, Math.round(steps * 1.5)));
+  const price = input.price;
+  if (!price) return { minutes, mushies: null };
+  const calls = steps * 3;
+  const replyTokens = 1_500;
+  const markup = price.markupMultiplier ?? 1;
+  const systemFactor = price.modelId.toLowerCase().includes("claude") ? 0.1 : 1;
+  let credits = 0;
+  for (let call = 0; call < calls; call++) {
+    const conversation = input.conversationTokens + call * (replyTokens + 500);
+    const promptTokens = input.systemTokens + conversation;
+    const aboveThreshold = price.contextThreshold != null && promptTokens > price.contextThreshold;
+    const inputRate = aboveThreshold ? price.inputPriceAboveThreshold ?? price.inputPricePerM : price.inputPricePerM;
+    const outputRate = aboveThreshold ? price.outputPriceAboveThreshold ?? price.outputPricePerM : price.outputPricePerM;
+    if (![inputRate, outputRate, markup].every((n) => Number.isFinite(n) && n >= 0)) return { minutes, mushies: null };
+    credits += ((input.systemTokens * systemFactor + conversation) * inputRate + replyTokens * outputRate) * markup / 1000;
+  }
+  // Rounded so it reads as an estimate, not a price.
+  const mushies = credits < 20 ? Math.max(1, Math.ceil(credits)) : Math.ceil(credits / 10) * 10;
+  return { minutes, mushies };
 }

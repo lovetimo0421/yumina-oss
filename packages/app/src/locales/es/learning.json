@@ -1,0 +1,386 @@
+{
+  "help": "Guía",
+  "title": "Guía",
+  "intro": "Empieza con tres lecciones: el inicio, el personaje y el mundo, y la pantalla del jugador. Después, todas las demás lecciones quedan abiertas.",
+  "next": "Siguiente",
+  "finishTour": "Listo",
+  "back": "Paso anterior",
+  "pause": "Pausar la guía",
+  "expand": "Mostrar instrucciones",
+  "collapse": "Ocultar instrucciones",
+  "locate": "Enséñamelo otra vez",
+  "beatDone": "¡Hecho! ✧ Prueba lo que se acaba de abrir. Cuando quieras, pulsa Siguiente y volvemos al lienzo.",
+  "eyebrowRequired": "Tutorial · Lección {{number}} de {{total}}",
+  "eyebrowMore": "Tutorial · {{title}}",
+  "stripLocked": "Al terminar estas 3 se abren las demás lecciones",
+  "nextUp": "Siguiente: ",
+  "allLessons": "Todas las lecciones",
+  "progressCount": "{{done}} de {{total}} hechas",
+  "tagNext": "Siguiente",
+  "nextLesson": "Siguiente lección: {{title}}",
+  "notNow": "Volver a mi tarjeta",
+  "end": {
+    "required": {
+      "title": "Las 3 primeras, hechas ╰(*°▽°*)╯",
+      "body": "Pulsa Jugar arriba para jugar una partida. Lo demás, cuando te apetezca."
+    },
+    "lesson": {
+      "title": "{{title}}: hecha"
+    },
+    "all": {
+      "title": "Ya están todas",
+      "body": "¿Se te olvidó algo? Pulsa Guía arriba."
+    }
+  },
+  "parts": {
+    "required": {
+      "name": "Empieza por estas 3",
+      "blurb": "El inicio, el personaje y el mundo, la pantalla del jugador."
+    },
+    "more": {
+      "name": "Otras lecciones",
+      "blurb": "Se abren después de las tres primeras. Hazlas en el orden que quieras."
+    }
+  },
+  "lessons": {
+    "opening": {
+      "title": "Inicio",
+      "goal": "Lo primero que lee el jugador.",
+      "body": "Es lo primero que leen los jugadores al abrir tu carta: aquí empieza la historia. Haz clic en la línea y escribe la tuya.",
+      "bodyMobile": "Es lo primero que leen los jugadores al abrir tu carta. Escribe la tuya en el cuadro de texto.",
+      "bodyOwn": "Es lo primero que leen los jugadores al abrir tu tarjeta; la historia empieza aquí. Haz clic en la línea para cambiarla.",
+      "bodyOwnMobile": "Es lo primero que leen los jugadores al abrir tu tarjeta. Cámbialo en el cuadro de texto.",
+      "beats": {
+        "add": {
+          "title": "Añadir otro inicio",
+          "body": "Haz clic en este ＋ de la esquina para añadir otro inicio. Los jugadores pueden empezar en otra escena, otra trama e incluso otro estado inicial (variables).",
+          "after": {
+            "added": {
+              "title": "Tu nuevo inicio",
+              "body": "La nueva apertura está abierta: escribe en el cuadro Contenido. Puede empezar en otro lugar."
+            }
+          }
+        }
+      }
+    },
+    "interface": {
+      "title": "Pantalla del jugador",
+      "goal": "Lo que el jugador ve de verdad mientras juega.",
+      "body": "Es lo que ve el jugador mientras juega, y cambia contigo cuando editas el inicio. Debajo, Móvil / Escritorio alterna entre las dos vistas; para cambiar el diseño y los colores, pulsa Editar interfaz y elige una plantilla.",
+      "bodyMobile": "La página Pantalla del jugador es donde el jugador juega de verdad, y está viva: cambia la apertura y esto cambia con ella. Arriba alternas la vista previa entre móvil y escritorio; para cambiar el aspecto, elige una plantilla.",
+      "beats": {
+        "pages": {
+          "title": "Dale una pantalla a tu tarjeta",
+          "body": "¿Quieres que tu tarjeta tenga su propia pantalla? Pulsa el lápiz (Editar interfaz) en la esquina superior derecha de la interfaz del jugador y luego Nuevo a la izquierda: ahí hay un juego entero de plantillas listas, como elegir inicio, escribir el nombre, inventario, mapa o mensajes del móvil. Elige una y ya se puede jugar, sin código ✧",
+          "after": {
+            "strip": {
+              "title": "Todas las páginas de tu tarjeta",
+              "body": "Esta columna de la izquierda son todas las páginas de tu tarjeta, como diapositivas: clic para editar, arrastra para reordenar, clic derecho para copiar o borrar. ¿No elegiste plantilla? No pasa nada: Nuevo está justo debajo cuando quieras."
+            },
+            "stage": {
+              "title": "Edita sobre la pantalla",
+              "body": "Haz clic en cualquier cosa de la pantalla para seleccionarla y arrástrala para moverla. Sus ajustes se abren a la derecha: texto, color y tamaño, y ves los cambios al momento."
+            },
+            "look": {
+              "title": "Cambia el estilo de toda la tarjeta",
+              "body": "En Color eliges una paleta y cambia toda la tarjeta a la vez. Las plantillas la siguen, así que no hay que retocar página por página."
+            },
+            "exit": {
+              "title": "¿Listo? Volvamos",
+              "body": "Pulsa ← arriba a la izquierda para volver al lienzo. O pulsa Siguiente y te llevo yo (ง •̀_•́)ง"
+            }
+          }
+        }
+      }
+    },
+    "setting": {
+      "title": "Personaje y mundo",
+      "goal": "Decirle a la IA quién es y dónde pasa la historia.",
+      "body": "El inicio es para el jugador; este bloque es para la IA: a quién interpreta, cómo es el mundo, qué reglas hay. Te dejé un ejemplo; reescríbelo con tu personaje.",
+      "bodyMobile": "Las entradas son para la IA: a quién interpreta, cómo es el mundo, qué reglas hay, enviadas en cada turno. He puesto un ejemplo; reescríbelo como tu personaje. Narración por defecto es de la plataforma, no hay nada que hacer ahí.",
+      "beats": {
+        "add": {
+          "title": "Añadir un ajuste",
+          "body": "Pulsa este ＋ para añadir otro. Uno por personaje y uno por lugar: así la IA no los mezcla.",
+          "after": {
+            "added": {
+              "title": "¡Añadido!",
+              "body": "La nueva entrada está al final de la lista y ya está abierta: ponle nombre y escríbela."
+            }
+          }
+        }
+      }
+    },
+    "state": {
+      "title": "Variables",
+      "goal": "Que la historia recuerde cosas.",
+      "body": "Las variables son lo que la historia recuerda: afecto, vida, oro. La IA las cambia según avanza la historia y tu pantalla puede mostrarlas. Añadí «Afecto»: sus ajustes están abiertos justo debajo. Vamos uno por uno ↓",
+      "bodyMobile": "Las variables son lo que la historia recuerda: afecto, vida, oro. Añadí «Afecto»: empieza en 30, va de 0 a 100 y cambia como mucho 10 por turno. Ábrela en la página Variables.",
+      "beats": {
+        "add": {
+          "title": "Añadir una variable",
+          "body": "Haz clic en este ＋ para añadir una variable nueva: oro, vida, confianza.",
+          "after": {
+            "added": {
+              "title": "Ya está añadida",
+              "body": "La variable nueva ya está en el lienzo y sus ajustes están abiertos a la derecha. Cambia el nombre arriba, como afecto, dinero o energía, y luego decide desde cuánto empieza y su rango. Para que el jugador la vea, pulsa \"Mostrar en la pantalla del jugador\"."
+            }
+          }
+        },
+        "range": {
+          "title": "Dónde empieza y hasta dónde llega",
+          "body": "El afecto empieza en 30 y va de 0 a 100. 30 para alguien a quien acabas de conocer; si tratas bien a Yumina, sube. En 100 se detiene."
+        },
+        "precise": {
+          "title": "Cuánto cambia por turno",
+          "body": "El seguimiento preciso está activado: como mucho +10 o −10 por turno, y la IA elige un número intermedio según la historia. Un cumplido +3, un regalo +8, un mal gesto −10: el afecto nunca salta sin sentido."
+        },
+        "rules": {
+          "title": "Qué significa cada nivel",
+          "body": "Aquí escribes cuándo sube, cuándo baja y qué significan los números. Ya lo rellené: 0–30 fría, 30–60 amigos, 60–80 cercanía y confianza, 80+ le gustas. La IA interpreta la actitud de Yumina a partir de esto."
+        }
+      }
+    },
+    "behavior": {
+      "title": "Comportamientos",
+      "goal": "Cuándo cambiar qué.",
+      "body": "Un comportamiento es «si… entonces…». Añadí uno: el afecto llega a 80 → se activa la entrada «Los sentimientos de Yumina». Hasta entonces está apagada y la IA no la ve; al activarse, Yumina empieza a fijarse en ti en secreto. Además de activar una entrada, puede cambiar una variable, poner una canción o avisar al jugador.",
+      "bodyMobile": "Un comportamiento es «si… entonces…». Añadí uno: el afecto llega a 80 → se activa «Los sentimientos de Yumina» y empieza a fijarse en ti. Edítalo en la página Comportamientos.",
+      "beats": {
+        "add": {
+          "title": "Añadir un comportamiento",
+          "body": "Pulsa este ＋ para añadir uno. Primero la condición, luego lo que debe pasar.",
+          "after": {
+            "added": {
+              "title": "Un comportamiento en una frase",
+              "body": "El comportamiento nuevo ya está en el lienzo. A la derecha, completa la frase: cuándo se comprueba, qué número llega a cuánto y qué pasa: decirle algo a la IA, cambiar un número o mostrar un aviso al jugador. Cuando esté completa, ya funciona."
+            }
+          }
+        }
+      }
+    },
+    "atmosphere": {
+      "title": "Música e imágenes de escena",
+      "goal": "Música, efectos de sonido y las imágenes que la IA muestra en el momento justo.",
+      "body": "Estos dos añaden sonido e imágenes a tu historia. Ninguno es obligatorio. En Audio, sube una canción y escribe una línea sobre cuándo suena, como «cuando empieza una pelea», y la historia cambia a ella en ese momento.",
+      "bodyMobile": "En Audio, sube una canción y escribe cuándo suena. En Imágenes de escena, sube una imagen y escribe cuándo aparece. Ninguno es obligatorio.",
+      "beats": {
+        "image": {
+          "title": "Imágenes de escena: una imagen en el momento justo",
+          "body": "Añadí una Yumina contenta con la condición «cuando el jugador elogia a Yumina». Elógiala y esta imagen aparece en el chat (｡•̀ᴗ-)✧ Pon tu propia imagen y escribe una línea sobre cuándo debe salir."
+        }
+      }
+    },
+    "assistant": {
+      "title": "El asistente",
+      "goal": "Todo lo anterior puede hacerlo por ti.",
+      "body": "Todo lo anterior se lo puedes pedir. Dile lo que quieres —«añade una variable de confianza que desbloquee una escena secreta en 80»— y lo cambia, enseñándotelo antes. ¿Solo quieres cambiar algunas piezas? Selecciónalas antes en el lienzo (Ctrl para varias). Puedes salir de Studio mientras trabaja; recibirás un aviso cuando termine o necesite tu respuesta. Los mensajes gastan créditos, así que de momento solo mira.",
+      "bodyMobile": "El asistente está abierto. Dile lo que quieres, como «añade una variable de confianza y desbloquea una escena a 80», y hace el cambio por ti, enseñándotelo antes. Puedes salir de Studio y volver cuando recibas un aviso. Enviar un mensaje cuesta créditos como siempre; no hace falta enviar uno ahora."
+    },
+    "card": {
+      "title": "Portada, descripción y variantes",
+      "goal": "Lo que ven los jugadores en Descubrir y otras versiones de tu tarjeta.",
+      "body": "Este bloque es lo primero que ven los jugadores en Descubrir: portada, nombre y descripción. El nombre y la descripción se editan aquí mismo. El bloque Fondo, al lado, va detrás del chat; puede usar la portada tal cual.",
+      "bodyMobile": "La portada, el nombre y la descripción están en Ajustes de la carta; el fondo del chat, en Fondo. La portada necesita una vertical 2:3 y una horizontal 16:9: mira que el título y los botones no tapen una cara.",
+      "beats": {
+        "cover": {
+          "title": "Pulsa la portada",
+          "body": "Pulsa la portada y toda la información de tu tarjeta se abre a la derecha.",
+          "after": {
+            "variants": {
+              "title": "Arriba, las variantes",
+              "body": "La misma carta puede tener varias versiones, como chino e inglés. Cambia entre ellas aquí o crea una versión en otro idioma."
+            },
+            "cover": {
+              "title": "Portada",
+              "body": "La carta lleva dos portadas: 2:3 vertical para móvil y 16:9 horizontal para escritorio. Sube cada una, o recorta la horizontal desde la vertical. Que el título y los botones no tapen las caras."
+            },
+            "gallery": {
+              "title": "Galería",
+              "body": "Hasta 8 imágenes en la página de detalle, para que los jugadores vean tu mundo antes de empezar."
+            },
+            "language": {
+              "title": "Idioma",
+              "body": "En qué idioma está escrita tu tarjeta. Descubrir filtra por idioma y las versiones traducidas se enlazan con esto."
+            }
+          }
+        }
+      }
+    },
+    "knowledge": {
+      "title": "Cuatro formas de activarse una entrada",
+      "goal": "Siempre, palabra clave, condición, en espera: un bloque cada una.",
+      "body": "Las entradas son para la IA, pero no hace falta enviarlas todas en cada turno: envíalas solo cuando hagan falta y ahorrarás palabras y la IA se distraerá menos.",
+      "bodyMobile": "Las entradas se activan de cuatro formas: Siempre en cada turno, Palabra clave cuando aparece su palabra, Condición cuando una variable la cumple, En espera cuando un comportamiento la activa. En el panel Libro de mundo, la entrega está bajo el texto de la entrada.",
+      "beats": {
+        "delivery": {
+          "title": "Cómo se envía",
+          "body": "Cada entrada tiene esta línea debajo. Ábrela.",
+          "after": {
+            "modes": {
+              "title": "Cuatro formas",
+              "body": "Siempre: en cada turno. Palabras clave: cuando sale esa palabra en el chat. Condiciones: cuando las variables cumplen algo. En espera: nunca se envía sola, espera a que un comportamiento la active, como «Los sentimientos de Yumina» de la lección de comportamientos."
+            }
+          }
+        }
+      }
+    },
+    "looks": {
+      "title": "Más formas de cambiar la pantalla del jugador",
+      "goal": "Páginas nuevas, el aspecto de cada parte o tu propio código.",
+      "body": "Además de las plantillas, así puedes cambiar la pantalla del jugador.",
+      "bodyMobile": "La página Pantalla del jugador te deja añadir páginas y cambiar el aspecto de cada parte. Para construirla tú, Código del frontend contiene el código de la pantalla.",
+      "beats": {
+        "new": {
+          "title": "Nuevo",
+          "body": "Lo más rápido: pulsa Editar interfaz y elige una plantilla lista en Nuevo, a la izquierda. Todas se juegan al momento."
+        },
+        "code": {
+          "title": "Tu propio código",
+          "body": "¿Quieres hacerlo todo tú? Abre Código de frontend desde Paneles: ahí está el código de la pantalla para escribirlo a mano o pedir cambios al asistente de creación."
+        }
+      }
+    },
+    "modules": {
+      "title": "Situaciones",
+      "goal": "Contenido que solo se usa en cierta situación.",
+      "body": "Cuando la carta crece, añade una situación: como una carta dentro de la carta, con sus propias entradas, variables y comportamientos. Lo que arrastres dentro solo aplica en esa situación.",
+      "bodyMobile": "El panel Módulos separa capítulos o escenas, cada uno con sus entradas, variables y comportamientos y su elección de con quién comparte la memoria de conversación. Los marcos y el arrastre necesitan una pantalla ancha.",
+      "beats": {
+        "add": {
+          "title": "Añadir",
+          "body": "Pulsa aquí para añadir una situación.",
+          "after": {
+            "module": {
+              "title": "Situaciones y lo que queda fuera",
+              "body": "Haz clic aquí para añadir una situación. Luego haz clic en su título y elige en «Cuándo se usa» cómo se entra: siempre, una palabra, una condición… Con palabras también puedes poner las que hacen salir. ¿Ahora no? Haz clic en un espacio vacío para cerrar el menú."
+            }
+          }
+        }
+      }
+    },
+    "ais": {
+      "title": "IA",
+      "goal": "Cada IA es una llamada más al modelo, en la tarjeta o en un escenario.",
+      "body": "La tarjeta y cada escenario terminan en un bloque 「IA」: una fila por IA, con su nombre y su tipo. La tarjeta empieza con una, llamada IA, por turnos: responde cada vez que el jugador habla. Cada IA que añades es una llamada más al modelo. Las de turnos corren en el turno del jugador; las de interfaz esperan a que un botón de la interfaz del jugador las llame; las de código corren solas cuando un valor cumple una condición o termina un escenario. Lo que una IA sabe depende de dónde vive: en la tarjeta usa los ajustes de la tarjeta; en un escenario, los de ese escenario. Al lado, 「Context」 es la conversación que se guarda ahí y qué IA la leen.",
+      "bodyMobile": "Las IA se añaden y editan en el lienzo, en un ordenador. En el móvil, pasa al siguiente paso.",
+      "beats": {
+        "add": {
+          "title": "Añadir",
+          "body": "Pulsa aquí y elige 一个 AI.",
+          "after": {
+            "ai": {
+              "title": "Una IA",
+              "body": "Haz clic: aparece una fila nueva en el bloque 「IA」 del escenario en el que estás (o de la tarjeta), abierta para configurarla; primero el tipo. Para saltártelo, haz clic en un espacio vacío y se cierra el menú."
+            }
+          }
+        }
+      }
+    },
+    "canvas": {
+      "title": "Moverse por el tablero",
+      "goal": "Desplazar, ampliar, encuadrar, encontrar cosas.",
+      "body": "El lienzo es toda tu carta; cada bloque es un tipo de contenido. Haz clic para seleccionar y escribe para editar; doble clic abre su editor completo; con Ctrl puedes hacer clic o arrastrar un recuadro para elegir varias. Ahora las herramientas para encontrar cosas, una a una ↓",
+      "bodyMobile": "En el móvil el Lienzo es un conjunto de paneles, que cambias con las pestañas de arriba. El tablero completo con sus conexiones necesita una pantalla más ancha. Pasa al siguiente paso.",
+      "beats": {
+        "fit": {
+          "title": "Ver todo",
+          "body": "¿Perdido? Pulsa aquí para ver toda la tarjeta. La rueda desplaza, Ctrl + rueda hace zoom; arrastra en el lienzo vacío para mover el tablero y mantén Ctrl mientras arrastras un recuadro para elegir varios."
+        },
+        "search": {
+          "title": "Buscar",
+          "body": "¿Recuerdas un nombre o una frase del texto? Búscala. Intro salta al primer resultado."
+        },
+        "surface": {
+          "title": "No hace falta usar el tablero",
+          "body": "El interruptor Lienzo, arriba a la izquierda, cambia de editor. Apágalo y la misma carta se abre en el editor Completo, página por página: el mismo contenido, solo otra forma de editar; vuelve a activar el Lienzo allí para regresar. El modo Simple está en el menú ⋮. Cambia cuando quieras, no se pierde nada."
+        }
+      }
+    },
+    "ship": {
+      "title": "Guardar, jugar, publicar",
+      "goal": "Guardar conserva versiones, Jugar juega de verdad, Publicar lo pone en línea.",
+      "body": "Por último: guardar, probar y publicar.",
+      "bodyMobile": "Guardar conserva una versión; Probar abre una partida real y gasta créditos. Para publicar, la portada necesita una vertical 2:3 y una horizontal 16:9.",
+      "beats": {
+        "save": {
+          "title": "Guardar",
+          "body": "Guardar crea una versión de tu tarjeta."
+        },
+        "playtest": {
+          "title": "Probar",
+          "body": "Esto es Probar: una partida real con el modelo que elegiste; gasta créditos. Verás cómo cambian las variables y qué comportamientos se ejecutaron."
+        },
+        "publish": {
+          "title": "Publicar",
+          "body": "Nadie ve tu carta hasta que la publicas. La portada necesita una vertical 2:3 y una horizontal 16:9. Después puedes seguir editando y enviar actualizaciones."
+        }
+      }
+    }
+  },
+  "hello": "¡Hola, Yumina!",
+  "sample": {
+    "entryName": "Yumina",
+    "entryContent": "Interpretas a Yumina, una pequeña seta parlante que sonríe mucho y habla poco. Responde al jugador en una o dos frases cortas y nunca decidas por él.",
+    "variableName": "Afecto",
+    "behaviorName": "Afecto 80: sentimientos",
+    "variableRules": "Sube cuando el jugador se preocupa por Yumina, la elogia o la ayuda; baja cuando le habla mal, le miente o la ignora. 0–30 fría, habla poco; 30–60 amigos, responde con una sonrisa; 60–80 cercana y confiada, inicia conversaciones; 80+ le gustas, aunque no lo admite.",
+    "heartName": "Los sentimientos de Yumina",
+    "heartContent": "Yumina se ha enamorado del jugador: inicia conversaciones, se fija en todo lo que hace y se pone nerviosa con los elogios, aunque jamás lo admitiría.",
+    "imageName": "Yumina contenta",
+    "imageScene": "Cuando el jugador elogia a Yumina"
+  },
+  "recovery": {
+    "model": {
+      "title": "Elige un modelo para probar tu historia",
+      "body": "Selecciona un modelo y envía tu mensaje desde el chat. Tu borrador sigue aquí."
+    },
+    "provider": {
+      "title": "Este proveedor no tiene modelos disponibles",
+      "body": "Revisa tu proveedor de IA o clave API en Ajustes, o elige un modelo disponible. Luego vuelve aquí para enviar tu mensaje."
+    },
+    "credits": {
+      "title": "Este mensaje necesita créditos",
+      "body": "Consulta tus créditos o elige otro modelo disponible. Tu borrador y mensaje siguen aquí; envíalo cuando estés listo."
+    },
+    "promptCost": {
+      "title": "Tu saldo no cubre esta solicitud",
+      "body": "El contexto de la historia puede necesitar más créditos de los que tienes. Prueba un modelo más económico o consulta tu saldo antes de enviar de nuevo."
+    },
+    "modelAccess": {
+      "title": "Este modelo no está disponible para tu cuenta",
+      "body": "Elige un modelo que puedas usar y vuelve a enviar tu mensaje."
+    },
+    "busy": {
+      "title": "El modelo está ocupado",
+      "body": "Espera un momento. Comprueba si llegó una respuesta antes de enviar de nuevo, o elige otro modelo."
+    },
+    "tooLong": {
+      "title": "Este mensaje es demasiado largo",
+      "body": "Acorta el mensaje en el chat y vuelve a enviarlo. El borrador de tu historia no cambia."
+    },
+    "access": {
+      "title": "Esta conversación no está disponible",
+      "body": "Revisa el aviso de acceso de la cuenta o la historia. Puedes revisar tu cuenta en Ajustes; tu borrador sigue aquí."
+    },
+    "connection": {
+      "title": "La respuesta aún podría llegar",
+      "body": "La conexión se cortó antes de confirmar el resultado. Comprueba la conversación para evitar una segunda solicitud de pago."
+    },
+    "request": {
+      "title": "No se pudo completar la respuesta",
+      "body": "Comprueba si llegó una respuesta. Si no, elige otro modelo o envía de nuevo cuando estés listo."
+    },
+    "chooseModel": "Elegir modelo",
+    "viewCredits": "Ver créditos",
+    "settings": "Abrir Ajustes",
+    "checkConversation": "Comprobar conversación",
+    "checking": "Comprobando…",
+    "checked": "Conversación actualizada. Si no aparece una respuesta, espera un poco antes de decidir si enviar de nuevo.",
+    "checkFailed": "No se pudo comprobar la conversación. Inténtalo de nuevo antes de enviar otro mensaje."
+  },
+  "activity": {
+    "error": "No se pudo cargar: pulsa Recargar para intentarlo de nuevo.",
+    "source": "Última prueba · {{at}}. Se borra al cerrar la prueba."
+  }
+}

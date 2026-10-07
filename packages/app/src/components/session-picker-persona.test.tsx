@@ -47,8 +47,8 @@ for (const mode of ["single", "language", "versions"] as const) {
         open: true, onClose() {}, onSelectSession() {}, onCreateSession: (id) => created.push(id),
         world: { id: "world", name: "World", languageGroupId: "group" }, variants: variants as SessionPickerModalProps["variants"],
       })));
-      // Main opens the version picker for either multilingual or same-language variants.
-      if (mode !== "single") await act(async () => button().click());
+      // A sole same-language version starts on the first click; only multilingual variants open the picker.
+      if (mode === "versions") await act(async () => button().click());
       await act(async () => {
         store.setState({ savingSelection: true });
         button().click(); // Handler sees live store before disabled renders.

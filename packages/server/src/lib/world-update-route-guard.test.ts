@@ -4,6 +4,7 @@ import { test } from "node:test";
 
 const source = readFileSync(new URL("../routes/worlds.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 const pendingEditSource = readFileSync(new URL("./pending-edit.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+const saveLockSource = readFileSync(new URL("./world-save-transaction.ts", import.meta.url), "utf8").replace(/\r\n/g, "\n");
 
 test("world update writes are rate-limited, server-validated, and pending-edit aware", () => {
   const routeStart = source.indexOf('worldRoutes.post("/:id/updates"');
@@ -30,15 +31,18 @@ test("held-edit saves and standalone update notes lock the same world first", ()
 
   assert.ok(saveTransactionStart >= 0 && saveTransactionEnd > saveTransactionStart);
   assert.ok(updateRouteStart >= 0 && updateRouteEnd > updateRouteStart);
-  assert.match(saveTransaction, /\.from\(worlds\)[\s\S]*\.for\("update"\)/);
-  assert.ok(saveTransaction.indexOf('.for("update")') < saveTransaction.indexOf("applyHoldPlan"));
+  // The PATCH path delegates locking to the shared save/version helper.
+  assert.match(saveTransaction, /await lockWorldForSave\(tx,/);
+  assert.match(saveLockSource, /\.from\(worlds\)[\s\S]*\.for\("update"\)/);
+  assert.ok(saveTransaction.indexOf("await lockWorldForSave(") < saveTransaction.indexOf("applyHoldPlan"));
+  assert.ok(saveLockSource.indexOf('.for("update")') < saveLockSource.indexOf(".from(worldPendingEdits)"));
   assert.match(updateRoute, /\.from\(worlds\)[\s\S]*\.for\("update"\)/);
   assert.ok(updateRoute.indexOf('.for("update")') < updateRoute.indexOf(".from(worldPendingEdits)"));
 });
 
 test("pending update notes cannot be swapped after review submission", () => {
   const functionStart = pendingEditSource.indexOf("export async function setPendingEditUpdateNote");
-  const functionEnd = pendingEditSource.indexOf("/**\n * Reject every submitted edit", functionStart);
+  const functionEnd = pendingEditSource.indexOf("export async function rejectPendingEditsForGroup", functionStart);
   const updateNote = pendingEditSource.slice(functionStart, functionEnd);
 
   assert.ok(functionStart >= 0 && functionEnd > functionStart);
@@ -49,7 +53,10 @@ test("pending update notes cannot be swapped after review submission", () => {
 
 test("world update reads protect visibility, aggregate safe variants, and paginate", () => {
   const routeStart = source.indexOf('worldRoutes.get("/:id/updates"');
-  const routeEnd = source.indexOf('worldRoutes.get("/:id/in-library"', routeStart);
+  // The next top-level registration, not a comment banner: the banner this used
+  // to end on ("Version snapshots") left with the routes when they moved into
+  // worldVersionRoutes, and the slice silently became empty.
+  const routeEnd = routeStart + 1 + source.slice(routeStart + 1).search(/^worldRoutes\./m);
   const route = source.slice(routeStart, routeEnd);
 
   assert.ok(routeStart >= 0 && routeEnd > routeStart);

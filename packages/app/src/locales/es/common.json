@@ -53,13 +53,17 @@
   },
   "search": {
     "hub": "Buscar mundos, personajes, historias...",
-    "library": "Buscar en la biblioteca..."
+    "library": "Buscar en la biblioteca...",
+    "bundles": "Buscar paquetes, creadores o funciones..."
   },
   "aria": {
     "showSidebar": "Mostrar barra lateral",
     "hideSidebar": "Ocultar barra lateral",
     "closeNav": "Cerrar menú de navegación",
-    "openNav": "Abrir menú de navegación"
+    "openNav": "Abrir menú de navegación",
+    "pagination": "Paginación",
+    "prevPage": "Página anterior",
+    "nextPage": "Página siguiente"
   },
   "auth": {
     "signInToContinue": "Inicia sesión para continuar",
@@ -83,7 +87,10 @@
       "sendMessages": "enviar mensajes",
       "viewSensitiveContent": "ver contenido Limitless",
       "writeReviews": "escribir reseñas"
-    }
+    },
+    "signUpToContinue": "Regístrate para continuar",
+    "signUpFree": "Regístrate gratis",
+    "haveAccountSignIn": "Ya tengo cuenta — iniciar sesión"
   },
   "hint": {
     "sidebarCollapse": "Pasa el cursor por el borde izquierdo para mostrar el menú"
@@ -288,7 +295,8 @@
     },
     "giftBonusExpires": "{{amount}} de bonificación caducan el {{date}}",
     "promptPackApproved": "Tu prompt «{{packTitle}}» fue aprobado y ya está en la Plaza de prompts",
-    "promptPackRejected": "Tu prompt «{{packTitle}}» no fue aprobado. Mira el motivo en Biblioteca › Prompts"
+    "promptPackRejected": "Tu prompt «{{packTitle}}» no fue aprobado. Mira el motivo en Biblioteca › Prompts",
+    "planGiftReceived": "Has recibido un regalo de {{days}} días del plan {{plan}}."
   },
   "time": {
     "justNow": "ahora mismo",
@@ -481,7 +489,7 @@
   "languageLabel": "Idioma",
   "creatorHub": "Centro de creadores",
   "openingStandalone": "Abriendo el sitio independiente para creadores...",
-  "loadingStudio": "Cargando Studio...",
+  "loadingStudio": "Abriendo el editor…",
   "friends": {
     "title": "Friends",
     "subtitle": "People you follow who follow you back",
@@ -521,5 +529,28 @@
       "popupFailed": "El inicio de sesión no se completó. Cierra esta ventana e inténtalo de nuevo.",
       "backToGame": "Volver a Krew.io"
     }
-  }
+  },
+  "planAlert": {
+    "cancelsOn": "Tu suscripción se cancela el {{date}}. Mantendrás tus ventajas hasta entonces.",
+    "downgradesOn": "Tu plan baja de nivel el {{date}}.",
+    "giftExpiresOn": "Tu plan de regalo vence el {{date}}.",
+    "dismiss": "Cerrar"
+  },
+  "studioNotYours": "Este mundo no es tuyo — solo puedes abrir las cartas que creaste.",
+  "studioLoadFailed": "No se pudo cargar este mundo. Revisa tu conexión e inténtalo otra vez.",
+  "backToMyWorlds": "Mis mundos",
+  "userMute": {
+    "until": "Silenciado hasta {{date}}",
+    "permanent": "Silenciado permanentemente",
+    "help": "No puedes publicar, comentar, publicar novedades ni enviar mensajes privados mientras estés silenciado. Puedes seguir explorando y jugando historias."
+  },
+  "communityMutedPermanent": "Ya no puedes publicar en la comunidad ni en los comentarios.",
+  "notFound": {
+    "title": "Página no encontrada",
+    "description": "Puede que el enlace esté mal escrito o que la página se haya movido.",
+    "back": "Volver",
+    "home": "Volver a Descubrir",
+    "library": "Volver a la biblioteca"
+  },
+  "macroYou": "tú"
 }

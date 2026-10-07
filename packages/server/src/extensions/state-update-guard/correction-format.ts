@@ -15,7 +15,7 @@ export function omitReadOnlyCorrectionWrites(raw: string, world: WorldDefinition
       // Match the engine's ID-first, last-name-alias resolution exactly.
       const variable = world.variables.find((v) => v.id === rootId)
         ?? [...world.variables].reverse().find((v) => v.name === rootId);
-      return !variable || variable.aiAccess !== "read" || !isAiReadable(variable, state);
+      return !variable || variable.aiAccess !== "read" || !isAiReadable(variable, state, world.worldbooks);
     });
     const omitted = envelope.stateChanges.length - kept.length;
     if (!omitted) return unchanged;

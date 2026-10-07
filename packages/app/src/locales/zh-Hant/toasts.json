@@ -1,4 +1,18 @@
 {
+  "importedWorldSummary": "已匯入「{{name}}」（{{summary}}）",
+  "worldImportCounts": {
+    "entries": "{{count}} 個詞條",
+    "variables": "{{count}} 個變數",
+    "modules": "{{count}} 個模組",
+    "behaviors": "{{count}} 個行為",
+    "rules": "{{count}} 條舊版規則",
+    "components": "{{count}} 個類型元件",
+    "interfacePages": "{{count}} 個介面頁面",
+    "interfaceFiles": "{{count}} 個介面檔案",
+    "legacyInterfaces": "{{count}} 個舊版介面",
+    "audio": "{{count}} 個音訊",
+    "empty": "空白作品"
+  },
   "rateLimited": "請求太頻繁了，請等大約 {{minutes}} 分鐘後再試。",
   "inviteCodeLength": "邀請碼或推薦碼必須為 5 至 8 個字元",
   "failedRedeemCode": "兌換邀請碼失敗",

@@ -2,6 +2,7 @@ import { Bookmark, Clock3, ImageIcon, Sparkles, UserRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { CroppedImage, type CoverCropSettings } from "@/lib/cover-crop";
 import { discoveryCoverImageRenderer, DISCOVER_COVER_ASPECTS } from "@/lib/discover-world-artwork";
+import { resolveImageUrl } from "@/lib/asset-url";
 import "./world-cover-previews.css";
 
 export interface CoverPreviewDetails {
@@ -36,7 +37,7 @@ export function WorldCoverPreview({ src, crop, shape, details = {} }: {
       <div className="cover-preview-title"><strong>{details.title || t("extra.crop.previewTitle")}</strong>{shape === "landscape" && <Bookmark aria-hidden="true" size={16} />}</div>
       {shape === "landscape" && <p>{details.description || t("extra.crop.previewDescription")}</p>}
       <div className="cover-preview-footer">
-        <span className="cover-preview-creator">{details.creatorImage ? <img src={details.creatorImage} alt="" /> : <UserRound aria-hidden="true" size={16} />}<span>{details.creatorName || t("extra.crop.previewCreator")}</span></span>
+        <span className="cover-preview-creator">{details.creatorImage ? <img src={resolveImageUrl(details.creatorImage)} alt="" /> : <UserRound aria-hidden="true" size={16} />}<span>{details.creatorName || t("extra.crop.previewCreator")}</span></span>
         <span className="cover-preview-stats" aria-label={t("extra.crop.previewStats")}><Sparkles size={12} /> — <Clock3 size={12} /> —</span>
       </div>
     </div>

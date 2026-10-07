@@ -1,5 +1,6 @@
-import { planMaterialHold, type PendingEditRow } from "./pending-edit-plan.js";
-export { planMaterialHold, type PendingEditRow, type LiveMaterial } from "./pending-edit-plan.js";
+import { syncSearchDocNormalized } from "./normalize-search.js";
+import { readVersionState } from "./world-version-store.js";
+import { versionMetadata, worldVersionHash, type VersionMetadata } from "./world-version-content.js";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { captureAutomaticVersion, capturePublishVersion, lockVersionWorld } from "./world-version-history.js";
 import { db } from "../db/index.js";
@@ -14,6 +15,7 @@ import {
   worldUpdates,
 } from "../db/schema.js";
 import {
+  detectMaterialChange,
   diffWorldSchemas,
   estimateTokens,
   migrateWorldDefinition,
@@ -24,19 +26,22 @@ import { notify, notifyMany, notifyCoalescedByGroup } from "./notify.js";
 import { embedAndStoreWorld } from "./embeddings.js";
 import { onWorldEditPublished } from "./achievements/engine.js";
 import { resolveImageCdn } from "./cdn-url.js";
+import { nextWorldSaveTime } from "./world-save-guard.js";
 import type { RejectionReason } from "./review.js";
+import { isUserMuted, MAX_WORLD_UPDATE_CONTENT, MAX_WORLD_UPDATE_TITLE } from "@yumina/shared";
 import {
   resolveCopyMaterialForViewer,
   type WorldCopyMaterial,
 } from "./world-copy-material.js";
-import { MAX_WORLD_UPDATE_CONTENT, MAX_WORLD_UPDATE_TITLE } from "@yumina/shared";
 import type { ReviewContext } from './review-transaction.js';
 import type { LedgerDatabase } from './transaction-hash.js';
+import { rebaseAgentWrite, type AgentWriteConflict } from "./studio-tools/rebase-agent-write.js";
 
 // A db handle OR a transaction handle — both expose the same query builders.
 // Typed loosely so a drizzle PgTransaction can be passed where `db` is expected
 // without fighting the pg|pglite union on `typeof db`.
-type Executor = Pick<typeof db, "insert" | "delete" | "update" | "select">;
+export type WorldEditExecutor = Pick<typeof db, "insert" | "delete" | "update" | "select" | "execute">;
+type Executor = WorldEditExecutor;
 
 // Migration is run on BOTH sides before diffing so a stored-old-version vs
 // editor-loaded-new-version schema doesn't read as a creator edit.
@@ -58,6 +63,28 @@ function recomputeTokens(schema: unknown): number {
   }
 }
 
+export interface PendingEditRow {
+  worldId: string;
+  status: "draft" | "pending" | "rejected";
+  reasons: string[];
+  submittedAt: Date | null;
+  rejectionReason: string | null;
+  rejectionDetail: string | null;
+  updatedAt: Date | null;
+  schema: Record<string, unknown>;
+  metadata?: VersionMetadata | null;
+  /** Set by a live-version switch: keep the working copy separate from live
+   *  until the creator publishes again. */
+  preserveDraft?: boolean;
+  thumbnailUrl: string | null;
+  ageRating: string | null;
+  // The creator's held "what's new" note — carried forward across re-edits so a
+  // material re-edit never drops it (see planMaterialHold).
+  updateTitle: string | null;
+  updateContent: string | null;
+  updateIsMajor: boolean;
+}
+
 /** Fetch the (at most one) held edit for a world, or null. */
 export async function getPendingEdit(worldId: string, exec: Executor = db): Promise<PendingEditRow | null> {
   const [row] = await exec
@@ -70,6 +97,7 @@ export async function getPendingEdit(worldId: string, exec: Executor = db): Prom
       rejectionDetail: worldPendingEdits.rejectionDetail,
       updatedAt: worldPendingEdits.updatedAt,
       schema: worldPendingEdits.schema,
+      metadata: worldPendingEdits.metadata,
       preserveDraft: worldPendingEdits.preserveDraft,
       thumbnailUrl: worldPendingEdits.thumbnailUrl,
       ageRating: worldPendingEdits.ageRating,
@@ -149,8 +177,117 @@ export async function getPendingEditSummaries(
   return map;
 }
 
+export interface LiveMaterial {
+  schema: Record<string, unknown>;
+  thumbnailUrl: string | null;
+  ageRating: string;
+  languageGroupId: string | null;
+  updatedAt: Date | null;
+}
+
+interface HoldArgs {
+  worldId: string;
+  creatorId: string;
+  live: LiveMaterial;
+  proposedSchema: Record<string, unknown>;
+  liveMetadata?: VersionMetadata;
+  proposedMetadata?: VersionMetadata;
+  proposedThumbnailUrl: string | null;
+  proposedAgeRating: string;
+  existing: PendingEditRow | null;
+}
+
+interface HoldPlan {
+  reasons: MaterialChangeReason[];
+  /** Values to upsert into world_pending_edits (material change), else null. */
+  upsert: typeof worldPendingEdits.$inferInsert | null;
+  /** worldId whose stale hold should be deleted (material reverted to live), else null. */
+  clearWorldId: string | null;
+}
+
+/**
+ * PURE decision (no DB writes): does this proposed edit to a PUBLISHED world
+ * touch a material surface (entries / frontend / rating / cover)? Returns the
+ * reasons plus the world_pending_edits mutation to apply. The detection compares
+ * the proposed material values against LIVE; the caller then applies the plan
+ * (see {@link applyHoldPlan}) — ideally inside the same transaction as the live
+ * worlds UPDATE so the hold and the patch commit atomically.
+ */
+export function planMaterialHold(args: HoldArgs): HoldPlan {
+  const { worldId, creatorId, live, proposedSchema, proposedThumbnailUrl, proposedAgeRating, existing } = args;
+
+  const result = detectMaterialChange(
+    { schema: migrate(live.schema), thumbnailUrl: live.thumbnailUrl, ageRating: live.ageRating },
+    { schema: migrate(proposedSchema), thumbnailUrl: proposedThumbnailUrl, ageRating: proposedAgeRating },
+  );
+
+  const metadata = args.proposedMetadata ?? existing?.metadata ?? null;
+  const schemaChanged = worldVersionHash(migrate(live.schema) as unknown as Record<string, unknown>, {})
+    !== worldVersionHash(migrate(proposedSchema) as unknown as Record<string, unknown>, {});
+  const metadataChanged = args.liveMetadata && metadata
+    ? worldVersionHash({}, args.liveMetadata) !== worldVersionHash({}, metadata) : false;
+  // A live-version switch explicitly separates the working copy from live. Keep
+  // that separation on later variable/behavior-only saves until Publish.
+  const retainedVersionDraft = existing?.preserveDraft === true && (
+    schemaChanged || metadataChanged
+    || proposedThumbnailUrl !== live.thumbnailUrl || proposedAgeRating !== live.ageRating
+  );
+  if (!result.changed && !schemaChanged && !metadataChanged && !retainedVersionDraft) {
+    // Working copy matches live on every material surface again — drop any stale
+    // unsubmitted/rejected hold. (A submitted 'pending' hold never reaches here;
+    // the caller blocks edits while it is in the queue.)
+    return {
+      reasons: [],
+      upsert: null,
+      clearWorldId: existing && existing.status !== "pending" ? worldId : null,
+    };
+  }
+
+  const now = new Date();
+  return {
+    reasons: result.reasons,
+    clearWorldId: null,
+    upsert: {
+      worldId,
+      createdBy: creatorId,
+      groupKey: live.languageGroupId ?? worldId,
+      schema: proposedSchema,
+      metadata,
+      preserveDraft: existing?.preserveDraft ?? false,
+      thumbnailUrl: proposedThumbnailUrl,
+      ageRating: proposedAgeRating,
+      isNsfw: isAdult(proposedAgeRating),
+      reasons: result.reasons as string[],
+      // A fresh edit (incl. one made after a rejection) lands as an unsubmitted
+      // draft — the creator must click "Submit for review" to enqueue it.
+      status: "draft",
+      submittedAt: null,
+      reviewedBy: null,
+      reviewedAt: null,
+      rejectionReason: null,
+      rejectionDetail: null,
+      baseUpdatedAt: live.updatedAt,
+      updatedAt: now,
+      // Explicitly carry the held "what's new" note forward on a re-edit. (ON
+      // CONFLICT DO UPDATE already preserves unlisted columns, but a material
+      // re-edit must never silently drop the creator's note, so make it explicit
+      // and refactor-proof.)
+      updateTitle: existing?.updateTitle ?? null,
+      updateContent: existing?.updateContent ?? null,
+      updateIsMajor: existing?.updateIsMajor ?? false,
+    },
+  };
+}
+
 /** Apply a {@link planMaterialHold} result. Pass a tx to make it atomic with a sibling write. */
-export async function applyHoldPlan(plan: ReturnType<typeof planMaterialHold>, exec: Executor = db): Promise<void> {
+export async function applyHoldPlan(plan: HoldPlan, exec: Executor = db): Promise<void> {
+  const worldId = plan.upsert?.worldId ?? plan.clearWorldId;
+  if (worldId) {
+    // Serialize held-edit creation/removal with direct update announcements.
+    // All current mutation callers pass a transaction, so this row lock is
+    // held until both the working-copy and live-world writes commit.
+    await exec.execute(sql`SELECT id FROM worlds WHERE id = ${worldId} FOR UPDATE`);
+  }
   if (plan.upsert) {
     await exec
       .insert(worldPendingEdits)
@@ -186,40 +323,51 @@ export async function applyWorldCover(args: {
   target?: "portrait" | "landscape";
   discoverPreview?: boolean;
 }): Promise<
-  | { ok: true; thumbnailUrl: string; held: boolean }
+  | { ok: true; thumbnailUrl: string; held: boolean; previousUpdatedAt: string | null; updatedAt: string }
   | { ok: false; status: 404 | 409; error: string; code?: string }
 > {
   const { worldId, creatorId, newKey } = args;
   const resolved = resolveImageCdn(newKey) ?? newKey;
-  return db.transaction(async (tx) => {
-    const live = await lockVersionWorld(tx, worldId, creatorId);
-    if (!live) return { ok: false as const, status: 404 as const, error: "World not found or not authorized" };
-    const existing = await getPendingEdit(worldId, tx);
-    const proposedSchema = { ...(existing?.schema ?? live.schema) };
+  return db.transaction(async tx => {
+    const state = await readVersionState(tx, worldId);
+    if (!state || state.creatorId !== creatorId) return { ok: false as const, status: 404 as const, error: "World not found or not authorized" };
+    const previous = state.row.updatedAt ? new Date(String(state.row.updatedAt)) : null;
+    const updatedAt = nextWorldSaveTime(previous);
+    // Both revisions go back to the editor: if the one this write replaced is
+    // the one it holds, the new one is its own and the next save is not a
+    // conflict with some "change from elsewhere".
+    const tokens = { previousUpdatedAt: previous ? previous.toISOString() : null, updatedAt: updatedAt.toISOString() };
     const landscape = args.target === "landscape";
-    if (landscape) { proposedSchema.landscapeCover = newKey; delete proposedSchema.landscapeCoverCrop; }
-    else if (args.discoverPreview) { delete proposedSchema.coverCrop; delete proposedSchema.galleryCoverCrop; }
-    const proposedThumbnailUrl = landscape ? (existing?.thumbnailUrl ?? live.thumbnailUrl) : newKey;
-    if (live.status === "published") {
-      const plan = planMaterialHold({
-        worldId, creatorId,
-        live: { ...live, ageRating: live.ageRating ?? "all" },
-        proposedSchema,
-        proposedThumbnailUrl,
-        proposedAgeRating: existing?.ageRating ?? live.ageRating ?? "all",
-        existing: existing ? { ...existing, status: "draft" } : null,
-      });
+    const proposedSchema: Record<string, unknown> = { ...state.working.schema };
+    // Crop coordinates belong to a particular image. Never carry them over to
+    // a replacement, and never touch the other artwork slot.
+    if (landscape) {
+      proposedSchema.landscapeCover = newKey;
+      delete proposedSchema.landscapeCoverCrop;
+    } else if (args.discoverPreview) {
+      delete proposedSchema.coverCrop;
+      delete proposedSchema.galleryCoverCrop;
+    }
+    const proposedThumbnailUrl = landscape ? state.working.metadata.thumbnailUrl ?? null : newKey;
+    if (state.status === "published") {
+      const existing = await getPendingEdit(worldId, tx);
+      const plan = planMaterialHold({ worldId, creatorId,
+        live: { schema: state.live.schema, thumbnailUrl: state.live.metadata.thumbnailUrl ?? null,
+          ageRating: state.live.metadata.ageRating ?? "all", languageGroupId: state.row.languageGroupId as string | null, updatedAt },
+        proposedSchema, liveMetadata: state.live.metadata,
+        proposedMetadata: { ...state.working.metadata, thumbnailUrl: proposedThumbnailUrl },
+        proposedThumbnailUrl, proposedAgeRating: state.working.metadata.ageRating ?? "all",
+        existing: existing ? { ...existing, status: "draft" } : null });
       if (existing?.status === "pending") {
-        await tx.update(worldReviewSubmissions)
-          .set({ decision: "withdrawn", decidedBy: creatorId, decidedAt: new Date() })
-          .where(and(eq(worldReviewSubmissions.worldId, worldId), eq(worldReviewSubmissions.decision, "pending"), eq(worldReviewSubmissions.submissionType, "edit")));
+        await tx.update(worldReviewSubmissions).set({ decision: "withdrawn", decidedBy: creatorId, decidedAt: updatedAt })
+          .where(and(eq(worldReviewSubmissions.worldId, worldId), eq(worldReviewSubmissions.decision, "pending")));
       }
       await applyHoldPlan(plan, tx);
-      await tx.update(worlds).set({ updatedAt: new Date() }).where(eq(worlds.id, worldId));
-      return { ok: true as const, thumbnailUrl: resolved, held: !!plan.upsert };
+      await tx.update(worlds).set({ updatedAt }).where(eq(worlds.id, worldId));
+      return { ok: true as const, thumbnailUrl: resolved, held: !!plan.upsert, ...tokens };
     }
-    await tx.update(worlds).set({ thumbnailUrl: proposedThumbnailUrl, ...(args.discoverPreview ? { schema: proposedSchema } : {}), updatedAt: new Date() }).where(eq(worlds.id, worldId));
-    return { ok: true as const, thumbnailUrl: resolved, held: false };
+    await tx.update(worlds).set({ thumbnailUrl: proposedThumbnailUrl, ...(landscape || args.discoverPreview ? { schema: proposedSchema } : {}), updatedAt }).where(eq(worlds.id, worldId));
+    return { ok: true as const, thumbnailUrl: resolved, held: false, ...tokens };
   });
 }
 
@@ -333,11 +481,22 @@ export async function resolveSessionWorldSchema(
   return world.schema;
 }
 
+export interface StudioWorldWriteResult {
+  held: boolean;
+  reasons: MaterialChangeReason[];
+  /** What was actually stored — differs from the input when it was rebased. */
+  schema?: Record<string, unknown>;
+  /** The save token this write set on worlds.updated_at. */
+  updatedAt?: Date;
+  /** Present when a newer save was merged in (see `base`). */
+  rebased?: { conflicts: AgentWriteConflict[] };
+}
+
 /**
  * Persist a schema produced by Studio AI. For a published world the change is
  * routed through the same material-edit gate as the manual editor: a material
- * change (entries/frontend) is held for re-review instead of going live; a
- * non-material change writes through. A fresh edit supersedes any already-
+ * change (entries/frontend) requires re-review. All other content changes
+ * also stay in the working copy until the creator publishes them. A fresh edit supersedes any already-
  * submitted hold (it is withdrawn from the queue back to draft).
  */
 export async function writeStudioWorldSchema(args: {
@@ -346,34 +505,118 @@ export async function writeStudioWorldSchema(args: {
   schema: Record<string, unknown>;
   /** Share the caller's transaction when saving a recoverable agent step. */
   database?: LedgerDatabase;
-}): Promise<{ held: boolean; reasons: MaterialChangeReason[] }> {
-  const { worldId, creatorId, schema } = args;
-  return (args.database ?? db).transaction(async (tx) => {
-    const live = await lockVersionWorld(tx, worldId, creatorId);
-    if (!live) return { held: false, reasons: [] };
-    const proposedName = typeof schema.name === "string" && schema.name.trim() ? schema.name : null;
-    const nameSet = proposedName !== null && proposedName !== live.name ? { name: proposedName } : {};
-    if (live.status !== "published") {
-      await tx.update(worlds).set({ schema, ...nameSet, updatedAt: new Date() }).where(eq(worlds.id, worldId));
-      return { held: false, reasons: [] };
-    }
-    const existing = await getPendingEdit(worldId, tx);
-    const plan = planMaterialHold({
-      worldId, creatorId, live: { ...live, ageRating: live.ageRating ?? "all" },
-      proposedSchema: schema,
-      proposedThumbnailUrl: existing?.thumbnailUrl ?? live.thumbnailUrl,
-      proposedAgeRating: existing?.ageRating ?? live.ageRating ?? "all",
-      existing: existing ? { ...existing, status: "draft" } : null,
-    });
-    if (existing?.status === "pending") {
-      await tx.update(worldReviewSubmissions)
-        .set({ decision: "withdrawn", decidedBy: creatorId, decidedAt: new Date() })
-        .where(and(eq(worldReviewSubmissions.worldId, worldId), eq(worldReviewSubmissions.decision, "pending"), eq(worldReviewSubmissions.submissionType, "edit")));
-    }
-    await applyHoldPlan(plan, tx);
-    await tx.update(worlds).set({ ...(plan.upsert ? {} : { schema }), ...nameSet, updatedAt: new Date() }).where(eq(worlds.id, worldId));
-    return { held: !!plan.upsert, reasons: plan.reasons };
+  /**
+   * The working copy `schema` was computed from, and the worlds.updated_at
+   * (epoch ms, or null) it was read at. Long-running writers (the Studio agent
+   * outside credit recovery) pass this: when the row's save token moved since —
+   * the creator saved in the editor mid-run — the write is rebased onto the
+   * stored copy with a three-way merge instead of overwriting it.
+   */
+  base?: { schema: Record<string, unknown>; updatedAt: number | null };
+}, transaction?: WorldEditExecutor): Promise<StudioWorldWriteResult> {
+  // Version restore already owns a transaction so its safety snapshot and the
+  // material hold must commit together. Other Studio writers start one here.
+  if (!transaction) {
+    const executor = args.database ?? db;
+    return executor.transaction((tx) => writeStudioWorldSchema(args, tx as WorldEditExecutor));
+  }
+  const tx = transaction;
+  const { worldId, creatorId } = args;
+  // Read only AFTER acquiring the lock: a restore or another writer may have
+  // changed the live/held copy while this request waited for its turn.
+  await tx.execute(sql`SELECT id FROM worlds WHERE id = ${worldId} FOR UPDATE`);
+  const [live] = await tx
+    .select({
+      status: worlds.status,
+      name: worlds.name,
+      description: worlds.description,
+      schema: worlds.schema,
+      thumbnailUrl: worlds.thumbnailUrl,
+      ageRating: worlds.ageRating,
+      languageGroupId: worlds.languageGroupId,
+      updatedAt: worlds.updatedAt,
+    })
+    .from(worlds)
+    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, creatorId)))
+    .limit(1);
+
+  if (!live) return { held: false, reasons: [] };
+
+  let schema = args.schema;
+  let rebased: StudioWorldWriteResult["rebased"];
+  if (args.base && (live.updatedAt?.getTime() ?? null) !== args.base.updatedAt) {
+    // Someone saved since this writer read the world. Merge instead of
+    // clobbering: on a published card the creator edits the held working
+    // copy, otherwise the live row.
+    const current = live.status === "published"
+      ? ((await getPendingEdit(worldId, tx))?.schema ?? live.schema)
+      : live.schema;
+    const result = rebaseAgentWrite(args.base.schema, (current ?? {}) as Record<string, unknown>, schema);
+    schema = result.schema;
+    rebased = { conflicts: result.conflicts };
+  }
+
+  // A Studio rename arrives inside the schema (the agent edits schema.name).
+  // worlds.name is the display truth the editor now loads, so a schema-only
+  // rename would otherwise be invisible there and synced back over on the
+  // next manual save. Renames are non-material — propagate to worlds.name
+  // in the working metadata while this write is held.
+  const proposedName = typeof schema.name === "string" && schema.name.trim() ? schema.name : null;
+  const nameSet = proposedName !== null && proposedName !== live.name ? { name: proposedName } : {};
+  // The blurb the same way: the assistant writes it into the schema
+  // (update_settings), and the library reads the column.
+  const proposedDescription = typeof schema.description === "string" ? schema.description : null;
+  const descriptionSet = proposedDescription !== null && proposedDescription !== (live.description ?? "") ? { description: proposedDescription } : {};
+  const updatedAt = nextWorldSaveTime(live.updatedAt);
+
+  const written = { schema, updatedAt, ...(rebased ? { rebased } : {}) };
+
+  if (live.status !== "published") {
+    await tx.update(worlds).set({ schema, ...nameSet, ...descriptionSet, updatedAt }).where(eq(worlds.id, worldId));
+    return { held: false, reasons: [], ...written };
+  }
+
+  const existing = await getPendingEdit(worldId, tx);
+  const plan = planMaterialHold({
+    worldId,
+    creatorId,
+    live: {
+      schema: live.schema,
+      thumbnailUrl: live.thumbnailUrl,
+      ageRating: live.ageRating ?? "all",
+      languageGroupId: live.languageGroupId,
+      updatedAt: live.updatedAt,
+    },
+    proposedSchema: schema,
+    liveMetadata: (await readVersionState(tx, worldId))!.live.metadata,
+    proposedMetadata: { ...(await readVersionState(tx, worldId))!.working.metadata, ...(proposedName ? { name: proposedName } : {}), ...(proposedDescription !== null ? { description: proposedDescription } : {}) },
+    proposedThumbnailUrl: existing?.thumbnailUrl ?? live.thumbnailUrl,
+    proposedAgeRating: existing?.ageRating ?? live.ageRating ?? "all",
+    existing: existing ? { ...existing, status: "draft" } : null,
   });
+
+  // Supersede-a-queued-submission + hold + (optional) live write commit together.
+  if (existing?.status === "pending") {
+    await tx
+      .update(worldReviewSubmissions)
+      .set({ decision: "withdrawn", decidedBy: creatorId, decidedAt: new Date() })
+      .where(and(
+        eq(worldReviewSubmissions.worldId, worldId),
+        eq(worldReviewSubmissions.decision, "pending"),
+        eq(worldReviewSubmissions.submissionType, "edit"),
+      ));
+  }
+  await applyHoldPlan(plan, tx);
+  if (!plan.upsert) {
+    // No content difference remains; clear the hold and advance the save token.
+    await tx.update(worlds).set({ schema, ...nameSet, ...descriptionSet, updatedAt }).where(eq(worlds.id, worldId));
+  } else {
+    // Renames are non-material, matching manual PATCH. Advance the save token
+    // for EVERY held write too, so a stale tab cannot silently undo a restore.
+    await tx.update(worlds).set({ updatedAt }).where(eq(worlds.id, worldId));
+  }
+
+  return { held: !!plan.upsert, reasons: plan.reasons, ...written };
 }
 
 /**
@@ -420,6 +663,7 @@ export async function submitPendingEdit(args: {
   // leave a queued submission pointing at a draft row. The snapshot ageRating is
   // taken from the locked row so it matches exactly what we enqueue.
   const outcome = await db.transaction(async (tx) => {
+    // Same world-before-draft lock order as saves and version switches.
     const live = await lockVersionWorld(tx, worldId, creatorId);
     if (!live || live.status !== "published") return { ok: false as const, error: "Published world not found", code: "NOT_FOUND" };
     const [pending] = await tx
@@ -431,6 +675,8 @@ export async function submitPendingEdit(args: {
     if (!pending) return { ok: false as const, error: "No pending changes to submit", code: "NO_PENDING_EDIT" };
     if (pending.status === "pending") return { ok: false as const, error: "Already submitted for review", code: "ALREADY_SUBMITTED" };
 
+    // Snapshot what is being submitted so the publish lineage keeps its
+    // live provenance.
     await capturePublishVersion(tx, live, pending);
 
     await tx
@@ -438,7 +684,7 @@ export async function submitPendingEdit(args: {
       .set({ status: "pending", submittedAt: now, rejectionReason: null, rejectionDetail: null, updatedAt: now })
       .where(eq(worldPendingEdits.worldId, worldId));
 
-    await tx.insert(worldReviewSubmissions).values({
+    const [submission] = await tx.insert(worldReviewSubmissions).values({
       worldId,
       groupKey,
       submittedBy: creatorId,
@@ -451,12 +697,13 @@ export async function submitPendingEdit(args: {
       snapshotVisibility: w.visibility,
       snapshotAllowEdit: w.allowEdit,
       snapshotAllowReviews: w.allowReviews,
-    });
-    return { ok: true as const };
+    }).returning();
+    if (!submission) throw new Error("Submission could not be saved");
+    return { ok: true as const, requiresReview: pending.reasons.length > 0, submissionId: submission.id };
   });
   if (!outcome.ok) return outcome;
 
-  if (skipReview) {
+  if (skipReview || !outcome.requiresReview) {
     // Trusted creator: commit the just-submitted held edit straight to live
     // instead of queuing it. Reuses commitPendingEditsForGroup so the
     // diff/commit/embed/sibling-sync machinery is identical to an admin approve
@@ -471,15 +718,15 @@ export async function submitPendingEdit(args: {
       // handled=false means a concurrent withdraw/supersede reverted the hold to
       // draft in the gap between the submit txn and the commit txn, so nothing
       // was published and we must not write a misleading audit row.
-      const res = await commitPendingEditsForGroup(groupKey, creatorId, [worldId]);
+      const res = await commitPendingEditsForGroup(groupKey, creatorId, [worldId], outcome.submissionId);
       if (res.handled) {
         committed = true;
         await db.insert(adminActions).values({
           adminId: null,
-          actionType: "skip_review_auto_publish_edit",
+          actionType: skipReview ? "skip_review_auto_publish_edit" : "nonmaterial_auto_publish_edit",
           targetType: "world_review_group",
           targetId: groupKey,
-          metadata: { creatorId, worldId, source: "skipReview" },
+          metadata: { creatorId, worldId, source: skipReview ? "skipReview" : "nonmaterial" },
         }).catch(() => {});
       }
     } catch (err) {
@@ -487,7 +734,8 @@ export async function submitPendingEdit(args: {
     }
     // `committed` lets the client show "approved & live" instead of the
     // misleading "submitted — your live card stays up until approved" toast.
-    return { ok: true, autoApproved: committed };
+    return committed ? { ok: true, autoApproved: true }
+      : { ok: false, code: "PUBLISH_SUPERSEDED", error: "Publication did not complete. Reload your draft and try again." };
   }
 
   // Ping admins (same notification type the first-publish flow uses).
@@ -518,6 +766,7 @@ export async function withdrawPendingEdit(args: {
 
   const now = new Date();
   await db.transaction(async (tx) => {
+    await tx.execute(sql`SELECT id FROM worlds WHERE id = ${worldId} FOR UPDATE`);
     await tx
       .update(worldPendingEdits)
       // Status guard: only flip a still-pending hold (an approve/edit-supersede
@@ -560,6 +809,7 @@ export async function commitPendingEditsForGroup(
   // The skipReview auto-commit passes the single just-submitted worldId so it
   // never sweeps a sibling hold queued before the creator was trusted.
   onlyWorldIds?: string[],
+  expectedSubmissionId?: string,
   context?: ReviewContext,
 ): Promise<{ handled: boolean; count: number }> {
   const now = new Date();
@@ -570,20 +820,28 @@ export async function commitPendingEditsForGroup(
   // withdraw / Studio-supersede blocks until we commit (and then finds nothing),
   // closing the race where an approve could force a withdrawn, no-longer-intended
   // schema live. "What's new" notes are collected here but fanned out after.
-  const committed = await (context?.database??db).transaction(async (tx) => {
-    // Same world-before-draft lock order as saves and version switches. Read
-    // pending status only AFTER these locks, so withdrawn edits never go live.
-    await tx.select({ id: worlds.id }).from(worlds).where(and(
-      sql`coalesce(${worlds.languageGroupId}, ${worlds.id}) = ${groupKey}`,
-      scopeIds ? inArray(worlds.id, scopeIds) : undefined,
-    )).orderBy(worlds.id).for("update");
+  const committed = await (context?.database ?? db).transaction(async (tx) => {
+    // Every save/restore/activation takes world then pending. Keep the same order.
+    const candidates = await tx.select({ worldId: worldPendingEdits.worldId }).from(worldPendingEdits)
+      .where(and(eq(worldPendingEdits.groupKey, groupKey), eq(worldPendingEdits.status, "pending"),
+        scopeIds ? inArray(worldPendingEdits.worldId, scopeIds) : undefined));
+    for (const id of candidates.map(p => p.worldId).sort()) {
+      await tx.execute(sql`SELECT id FROM worlds WHERE id = ${id} FOR UPDATE`);
+    }
+    if (candidates.length === 0) return null;
+    if (expectedSubmissionId) {
+      const [submission] = await tx.select({ id: worldReviewSubmissions.id }).from(worldReviewSubmissions)
+        .where(and(eq(worldReviewSubmissions.id, expectedSubmissionId), eq(worldReviewSubmissions.decision, "pending"),
+          eq(worldReviewSubmissions.groupKey, groupKey), inArray(worldReviewSubmissions.worldId, candidates.map(p => p.worldId)))).limit(1);
+      if (!submission) return null;
+    }
     const pendings = await tx
       .select()
       .from(worldPendingEdits)
       .where(and(
         eq(worldPendingEdits.groupKey, groupKey),
         eq(worldPendingEdits.status, "pending"),
-        scopeIds ? inArray(worldPendingEdits.worldId, scopeIds) : undefined,
+        inArray(worldPendingEdits.worldId, candidates.map(p => p.worldId)),
       ))
       .for("update");
     if (pendings.length === 0) return null;
@@ -593,6 +851,8 @@ export async function commitPendingEditsForGroup(
       .select({
         id: worlds.id,
         creatorId: worlds.creatorId,
+        isMuted: user.isMuted,
+        mutedUntil: user.mutedUntil,
         name: worlds.name,
         description: worlds.description,
         tags: worlds.tags,
@@ -603,6 +863,7 @@ export async function commitPendingEditsForGroup(
         reviewedAt: worlds.reviewedAt,
       })
       .from(worlds)
+      .innerJoin(user, eq(user.id, worlds.creatorId))
       .where(inArray(worlds.id, worldIds));
     const liveById = new Map(liveRows.map((r) => [r.id, r]));
     const publishedForEmbedding: Array<typeof worlds.$inferSelect> = [];
@@ -614,13 +875,14 @@ export async function commitPendingEditsForGroup(
       // parked — and holds created before the name-sync fix carry a stale
       // pre-rename schema.name; going live verbatim would resurrect the old
       // title into the AI prompt's character-name fallback.
-      const liveName = liveById.get(p.worldId)?.name;
+      const liveName = p.metadata?.name ?? liveById.get(p.worldId)?.name;
       if (typeof liveName === "string" && liveName.trim() && p.schema && typeof p.schema === "object") {
         (p.schema as Record<string, unknown>).name = liveName;
       }
       const [published] = await tx
         .update(worlds)
         .set({
+          ...versionMetadata((p.metadata ?? {}) as Record<string, unknown>),
           schema: p.schema,
           thumbnailUrl: p.thumbnailUrl,
           ageRating: p.ageRating ?? "all",
@@ -634,9 +896,12 @@ export async function commitPendingEditsForGroup(
         publishedForEmbedding.push(published);
       }
 
+      const committedLive = liveById.get(p.worldId);
+      if (committedLive) Object.assign(committedLive, versionMetadata(p.metadata ?? {}), { thumbnailUrl: p.thumbnailUrl });
+
       // Now that the edit is actually live, publish the creator's update note.
       const noteTitle = p.updateTitle?.trim();
-      if (noteTitle) {
+      if (noteTitle && !isUserMuted(liveById.get(p.worldId) ?? {})) {
         const [u] = await tx
           .insert(worldUpdates)
           .values({ worldId: p.worldId, title: noteTitle.slice(0, 200), content: p.updateContent ?? null, isMajor: p.updateIsMajor })
@@ -655,7 +920,7 @@ export async function commitPendingEditsForGroup(
         eq(worldReviewSubmissions.submissionType, "edit"),
         // Match the variant scoping (skipReview) so a backlogged sibling's edit
         // submission isn't marked decided while its hold is left for a human.
-        scopeIds ? inArray(worldReviewSubmissions.worldId, worldIds) : undefined,
+        inArray(worldReviewSubmissions.worldId, worldIds),
       ));
     await tx.insert(adminActions).values({
       adminId: reviewerId,
@@ -684,6 +949,9 @@ export async function commitPendingEditsForGroup(
       autoApproved: false,
     }).catch(() => {});
   }
+  // testing's search index stays in step with each approved edit; main's
+  // embedding pass reads the live rows it already collected.
+  for (const p of pendings) await syncSearchDocNormalized(db, p.worldId).catch(() => {});
   for (const live of publishedForEmbedding) {
     embedAndStoreWorld({
       worldId: live.id,
@@ -728,8 +996,8 @@ export async function commitPendingEditsForGroup(
 }
 
 /**
- * Attach/replace the creator's optional "what's new" note on a held edit (any
- * status). The note is posted to players only when the edit is approved (see
+ * Attach/replace the creator's optional "what's new" note on an editable held
+ * edit. The note is posted to players only when the edit is approved (see
  * commitPendingEditsForGroup) — never while it is still held/unreviewed.
  */
 export async function setPendingEditUpdateNote(args: {
@@ -797,6 +1065,7 @@ export async function rejectPendingEditsForGroup(args: {
   const now = new Date();
 
   await database.transaction(async (tx) => {
+    for (const id of [...worldIds].sort()) await tx.execute(sql`SELECT id FROM worlds WHERE id = ${id} FOR UPDATE`);
     await tx
       .update(worldPendingEdits)
       .set({ status: "rejected", reviewedBy: reviewerId, reviewedAt: now, rejectionReason: reason, rejectionDetail: detail, updatedAt: now })

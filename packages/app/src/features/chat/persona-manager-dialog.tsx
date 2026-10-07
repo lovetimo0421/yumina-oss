@@ -111,7 +111,10 @@ export function PersonaManagerDialog({ open, onClose, sessionId }: PersonaManage
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-sm font-semibold text-main">
-                {t(locked ? "persona.session.locked" : "persona.session.following")}
+                {/* The switch is the lock, so its label names the lock. It used
+                    to read "Follows global persona" beside a switch that was
+                    OFF — which looks like following is off. */}
+                {t("persona.session.lockLabel")}
               </span>
               <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
                 {t(locked ? "persona.session.lockedHint" : "persona.session.followingHint")}

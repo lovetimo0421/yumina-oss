@@ -1,7 +1,10 @@
+import { createHash } from "node:crypto";
+import { describeSources, listSources, loadSourceText, readSource, searchSource } from "../lib/studio-sources.js";
+import { BIBLE_SUFFIX, DigestStopped, countReadParts, estimateDigest, runDigest, stopDigests } from "../lib/studio-source-digest.js";
 import { usageObservation } from "../lib/usage-observation.js";
 import { Hono, type Context } from "hono";
 import { streamSSE } from "hono/streaming";
-import { eq, and, asc, desc, ne, sql } from "drizzle-orm";
+import { eq, and, asc, desc, inArray, ne, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { worlds, agentRuns, worldSnapshots, worldFolderBindings } from "../db/schema.js";
 import { recordUsageLog } from "../lib/usage-log.js";
@@ -12,8 +15,9 @@ import { resolveProviderForModel, type ApiKeyTier } from "../lib/resolve-provide
 import { calculateCost, deductCredits, ensureWallet, STUDIO_AGENT_MARKUP } from "../lib/credit-service.js";
 import { resolveEffectivePlanWithEventEntitlements } from "../lib/event-plan-entitlements.js";
 import { guardGeneration } from "../lib/credit-guard.js";
-import { getModelPrice } from "../lib/model-price-cache.js";
-import { planStudioCreditBudget } from "../lib/studio-credit-budget.js";
+import { getModelPrice, getOpenRouterListPrice } from "../lib/model-price-cache.js";
+import { runPlaytest, summarizePlaytest } from "../lib/studio-tools/playtest-runner.js";
+import { estimateAgentJob, estimateStudioPromptTokens, estimateStudioSystemTokens, estimateStudioTurnFloorCredits, planStudioCreditBudget } from "../lib/studio-credit-budget.js";
 import { studioCreditRecoveryEnabled, getAvailableCredits, reserveStudioCredits, renewStudioCreditReservation, releaseStudioCreditReservation } from "../lib/credit-reservations.js";
 import { settleStudioCreditReservation } from "../lib/credit-service.js";
 import {
@@ -38,7 +42,9 @@ import { getImageBatchBindingState } from "../lib/generation/image-batch-binding
 import { resolveContext } from "../lib/studio-tools/context-resolver.js";
 import { loadAssetCatalog } from "../lib/studio-tools/asset-catalog.js";
 import { executeReadEntities, executeApplyChanges, executeGrepWorld, executeValidateWorld, executeAnalyzeTokenCost, toolCallsToSchemaChanges } from "../lib/studio-tools/tool-executor.js";
+import { executeReadUiDoc } from "../lib/studio-tools/ui-doc-tools.js";
 import { buildSystemPrompt, type SystemPromptParts } from "../lib/studio-tools/system-prompt.js";
+import { ADVISOR_READ_TOOLS, SAVE_BRIEF_TOOL, advisorPrompt, briefBlock, describeLanguage, loadBrief, referenceIndex, saveBrief } from "../lib/studio-advisor.js";
 import { getSkillContent } from "../lib/studio-skills/index.js";
 import { parseToolArgs } from "../lib/studio-tools/parse-tool-args.js";
 import { generateStreamWithRetry } from "../lib/studio-tools/generate-stream-with-retry.js";
@@ -51,7 +57,8 @@ import {
   readRepeatNudge,
   readWanderNudge,
 } from "../lib/studio-tools/read-progress.js";
-import { harnessTurn, outputBudgetGuidance, withToolNote } from "../lib/studio-tools/harness-notes.js";
+import { harnessTurn, isHarnessTurn, outputBudgetGuidance, replyAnnouncesAction, withToolNote } from "../lib/studio-tools/harness-notes.js";
+import { describeAgentWriteConflicts } from "../lib/studio-tools/rebase-agent-write.js";
 import { migrateWorldDefinition } from "@yumina/engine";
 import type { WorldDefinition } from "@yumina/engine";
 import { resolveWorkingSchema, writeStudioWorldSchema } from "../lib/pending-edit.js";
@@ -63,8 +70,24 @@ const MAX_OUTPUT = 64000; // Claude Sonnet max output with streaming
 // and (b) per-entity re-read detection injects guidance and terminates cleanly before runaway loops.
 // Typical flows still finish in 1-2 iterations; this only bites pathological cases we now handle explicitly.
 const MAX_ITERATIONS = 50;
+const JOB_MAX_ITERATIONS = 150;
 
 type AgentRunRow = typeof agentRuns.$inferSelect;
+
+type ChangeComparePart = {
+  action: string;
+  entityType: string;
+  id?: string;
+  /** The entity's name as the editor shows it (after the change, or before
+   *  a delete) — so the client can title the change 「修改变量「好感度」」
+   *  instead of an id. */
+  name?: string;
+  original: string;
+  changed: string;
+  /** Interface changes: the document before and after, for a readable
+   *  summary (parts added / changed / removed, colours) instead of JSON. */
+  uiDoc?: { before: unknown; after: unknown };
+};
 
 type ChangeComparePayload = {
   title: string;
@@ -72,7 +95,17 @@ type ChangeComparePayload = {
   original: string;
   changed: string;
   source: "agent-run-snapshot";
+  parts: ChangeComparePart[];
 };
+
+function entityDisplayName(entity: unknown): string | undefined {
+  if (!isRecord(entity)) return undefined;
+  for (const key of ["name", "title", "label"]) {
+    const value = entity[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
+}
 
 const NO_ORIGINAL = "No existing version. This is a new item.";
 const DELETED_VALUE = "This action deletes the listed item(s).";
@@ -125,6 +158,9 @@ function getEntityForChange(world: WorldDefinition, change: SchemaChange): unkno
   }
   if (change.entityType === "settings") {
     return draft;
+  }
+  if (change.entityType === "uiDoc") {
+    return draft.uiDoc;
   }
   return undefined;
 }
@@ -237,7 +273,7 @@ function collectRunWriteToolCalls(run: AgentRunRow): ToolCall[] {
   return calls;
 }
 
-function buildChangeCompareFromRun(
+export function buildChangeCompareFromRun(
   snapshotWorld: WorldDefinition,
   writeToolCalls: ToolCall[],
   toolCallId: string,
@@ -246,7 +282,7 @@ function buildChangeCompareFromRun(
   const targetToolCall = writeToolCalls.find((tc) => tc.id === toolCallId);
   if (!targetToolCall) return null;
 
-  const parts: Array<{ label: string; original: string; changed: string }> = [];
+  const parts: ChangeComparePart[] = [];
 
   for (const toolCall of writeToolCalls) {
     const parsedCalls = toolCallsToSchemaChanges([toolCall], simulatedWorld);
@@ -259,10 +295,17 @@ function buildChangeCompareFromRun(
       const compareValues = getComparableValues(simulatedWorld, nextWorld, change);
 
       if (isTarget) {
+        const name = entityDisplayName(getEntityForChange(nextWorld, change)) ?? entityDisplayName(getEntityForChange(simulatedWorld, change))
+          ?? entityDisplayName(change.data);
         parts.push({
-          label: `${change.action} ${change.entityType}${change.id ? ` ${change.id}` : ""}`,
+          // write_* tools create-or-update; what the creator sees is which one happened.
+          action: change.action === "create" && getEntityForChange(simulatedWorld, change) !== undefined ? "update" : change.action,
+          entityType: change.entityType,
+          ...(change.id ? { id: change.id } : {}),
+          ...(name ? { name } : {}),
           original: compareValues.original === undefined ? NO_ORIGINAL : formatCompareValue(compareValues.original),
           changed: compareValues.changed === undefined ? formatCompareValue(parseCompareToolArgs(toolCall)) : formatCompareValue(compareValues.changed),
+          ...(change.entityType === "uiDoc" ? { uiDoc: { before: simulatedWorld.uiDoc ?? null, after: nextWorld.uiDoc ?? null } } : {}),
         });
       }
 
@@ -272,11 +315,12 @@ function buildChangeCompareFromRun(
 
   if (parts.length === 0) return null;
   const joinParts = (key: "original" | "changed") => parts
-    .map((part) => parts.length === 1 ? part[key] : `### ${part.label}\n${part[key]}`)
+    .map((part) => parts.length === 1 ? part[key] : `### ${part.name ?? part.id ?? part.entityType}\n${part[key]}`)
     .join("\n\n");
 
   return {
-    title: getCompareTitle(targetToolCall),
+    title: parts.length === 1 && parts[0]!.name ? parts[0]!.name : getCompareTitle(targetToolCall),
+    parts,
     toolName: targetToolCall.function.name,
     original: joinParts("original"),
     changed: joinParts("changed"),
@@ -317,6 +361,7 @@ if (redisSub) {
         console.log(`[Agent] Cross-replica stop received for run ${runId}`);
         controller.abort();
       }
+      stopDigests({ runId });
     } catch { /* malformed message */ }
   });
 }
@@ -338,6 +383,12 @@ agentRoutes.post("/:worldId/agent/start", async (c) => {
       activePanel?: string;
       selectedElementId?: string;
       selectedElementType?: string;
+      /** Canvas ids the creator pointed the assistant at. */
+      focusIds?: string[];
+      /** The creator pressed Start on a proposed job. */
+      jobApproved?: boolean;
+      /** "advise": talk the idea through (lib/studio-advisor.ts); default builds. */
+      mode?: "build" | "advise";
     };
     attachments?: Array<{ url: string; key: string; mimeType: string; name: string }>;
     /** Existing conversation messages to continue from */
@@ -450,8 +501,12 @@ agentRoutes.post("/:worldId/agent/start", async (c) => {
     userContent,
   ];
 
-  const tools = STUDIO_TOOLS;
-  const maxIter = MAX_ITERATIONS;
+  // Talking an idea through needs no building tools: a few reads and the brief.
+  const tools = body.context?.mode === "advise"
+    ? [...STUDIO_TOOLS.filter((t) => (ADVISOR_READ_TOOLS as readonly string[]).includes(t.function.name)), SAVE_BRIEF_TOOL]
+    : STUDIO_TOOLS;
+  // A job the creator started gets room to finish; a chat turn keeps the usual cap.
+  const maxIter = body.context?.jobApproved ? JOB_MAX_ITERATIONS : MAX_ITERATIONS;
 
   // Create agent run record
   const createRun = async (executor: typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0]) => executor
@@ -753,7 +808,7 @@ agentRoutes.post("/:worldId/agent/approve", async (c) => {
       provider: rejResolved.provider,
       isByok: rejResolved.isByok,
       apiKeyTier: rejResolved.apiKeyTier,
-      context: run.context as { activePanel?: string; selectedElementId?: string; selectedElementType?: string },
+      context: run.context as { activePanel?: string; selectedElementId?: string; selectedElementType?: string; focusIds?: string[]; jobApproved?: boolean },
       iteration: nextIteration,
       maxIterations: nextIteration + 1,
       tools: STUDIO_TOOLS,
@@ -791,7 +846,7 @@ agentRoutes.post("/:worldId/agent/approve", async (c) => {
     provider: appResolved.provider,
     isByok: appResolved.isByok,
     apiKeyTier: appResolved.apiKeyTier,
-    context: run.context as { activePanel?: string; selectedElementId?: string; selectedElementType?: string },
+    context: run.context as { activePanel?: string; selectedElementId?: string; selectedElementType?: string; focusIds?: string[]; jobApproved?: boolean },
     iteration: nextIteration,
     maxIterations: run.maxIterations,
     tools: STUDIO_TOOLS,
@@ -920,7 +975,7 @@ agentRoutes.post("/:worldId/agent/generate-image", async (c) => {
       provider: resolved.provider,
       isByok: resolved.isByok,
       apiKeyTier: resolved.apiKeyTier,
-      context: run.context as { activePanel?: string; selectedElementId?: string; selectedElementType?: string },
+      context: run.context as { activePanel?: string; selectedElementId?: string; selectedElementType?: string; focusIds?: string[]; jobApproved?: boolean },
       iteration: nextIteration,
       maxIterations: opts.oneMoreTurn ? nextIteration + 1 : run.maxIterations,
       tools: STUDIO_TOOLS,
@@ -1154,6 +1209,68 @@ agentRoutes.get("/:worldId/agent/changes/:runId/:toolCallId", async (c) => {
   return c.json({ data: compare });
 });
 
+// ── GET /api/studio/:worldId/agent/estimate — Least a turn can cost right now ──
+
+agentRoutes.get("/:worldId/agent/estimate", async (c) => {
+  const currentUser = c.get("user");
+  const worldId = c.req.param("worldId");
+  const model = c.req.query("model") || "qwen/qwen3-vl-235b-a22b-instruct";
+  const conversationId = c.req.query("conversationId");
+  const advise = c.req.query("mode") === "advise";
+
+  const [row] = await db
+    .select({ schema: worlds.schema, status: worlds.status })
+    .from(worlds)
+    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)))
+    .limit(1);
+  if (!row) return c.json({ error: "World not found or not authorized" }, 404);
+
+  const resolved = await resolveProviderForModel(currentUser.id, model, { allowNonPriced: STUDIO_MODEL_IDS.has(model) });
+  if (!resolved || resolved.isByok) return c.json({ data: { billed: false } });
+  const wallet = await ensureWallet(currentUser.id);
+  const plan = await resolveEffectivePlanWithEventEntitlements(currentUser.id, wallet.plan);
+  if (PLANS[plan]?.unlimited) return c.json({ data: { billed: false } });
+
+  const working = await resolveWorkingSchema(worldId, row.status, row.schema as unknown as Record<string, unknown>);
+  const world = migrateWorldDefinition(working as unknown as WorldDefinition);
+  const resolvedContext = await resolveContext(world, "", {
+    userId: currentUser.id,
+    worldId,
+    contextWindow: getContextBudget(model),
+  });
+  // Talking it through carries the advisor's short prompt and a handful of tools.
+  const prompt = advise
+    ? advisorPrompt({ world, sources: [], brief: await loadBrief(currentUser.id, worldId), language: "Chinese" })
+    : buildSystemPrompt(resolvedContext, {});
+  const estimateTools = advise
+    ? [...STUDIO_TOOLS.filter((t) => (ADVISOR_READ_TOOLS as readonly string[]).includes(t.function.name)), SAVE_BRIEF_TOOL]
+    : STUDIO_TOOLS;
+  const history = conversationId
+    ? await loadAgentHistoryForConversation({ userId: currentUser.id, worldId, conversationId }) ?? []
+    : [];
+  // A run that touched this card inside the 1h cache TTL left its system
+  // blocks cached; 55 minutes leaves room for the next call to still land.
+  const [recent] = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(and(
+      eq(agentRuns.worldId, worldId),
+      eq(agentRuns.userId, currentUser.id),
+      sql`${agentRuns.updatedAt} > now() - interval '55 minutes'`,
+    ))
+    .limit(1);
+  const warmCache = !!recent;
+  const floorCredits = estimateStudioTurnFloorCredits({
+    systemTokens: estimateStudioSystemTokens(prompt.static + (prompt.world ?? "")),
+    conversationTokens: estimateStudioPromptTokens(buildWindowedMessages(compressOldToolResults(history, COMPRESS_BATCH), model), estimateTools),
+    price: await getModelPrice(model) ?? await getOpenRouterListPrice(model),
+    warmCache,
+  });
+  // Only Claude prices the first call of the hour differently.
+  const coldCache = !warmCache && model.toLowerCase().includes("claude");
+  return c.json({ data: { billed: true, floorCredits, coldCache } });
+});
+
 // ── GET /api/studio/:worldId/agent/status — Poll current agent state ──
 
 agentRoutes.get("/:worldId/agent/status", async (c) => {
@@ -1169,7 +1286,13 @@ agentRoutes.get("/:worldId/agent/status", async (c) => {
         ? eq(agentRuns.conversationId, conversationId) : sql`${agentRuns.conversationId} IS NULL`);
 
   const runs = await db
-    .select()
+    .select({
+      id: agentRuns.id, conversationId: agentRuns.conversationId, status: agentRuns.status,
+      iteration: agentRuns.iteration, maxIterations: agentRuns.maxIterations, textContent: agentRuns.textContent,
+      committedTurns: agentRuns.committedTurns, pendingToolCalls: agentRuns.pendingToolCalls,
+      readToolResults: agentRuns.readToolResults, context: agentRuns.context, error: agentRuns.error,
+      creditCheckpoint: agentRuns.creditCheckpoint, updatedAt: agentRuns.updatedAt,
+    })
     .from(agentRuns)
     .where(query!)
     .orderBy(desc(agentRuns.createdAt))
@@ -1208,9 +1331,13 @@ agentRoutes.get("/:worldId/agent/status", async (c) => {
       pendingToolCalls: run.pendingToolCalls,
       readToolResults: run.readToolResults,
       ...(imageBatchProposal ? { imageBatchProposal, imageBatches } : {}),
+      // A job waiting for Start survives a refresh or a dropped stream.
+      ...(run.status === "awaiting_user" && run.context?.jobProposal ? { jobProposal: run.context.jobProposal } : {}),
       error: run.error,
+      ...(run.error ? { errorCode: agentErrorCode(run.error) } : {}),
       ...(recoveryEnabled ? { creditPause } : {}),
-      messages: run.messages,
+      // No `messages`: the full LLM transcript (tool payloads included) was
+      // shipped on every 5s recovery poll, and no client reads it.
       updatedAt: run.updatedAt,
     },
   });
@@ -1221,13 +1348,28 @@ agentRoutes.get("/:worldId/agent/status", async (c) => {
 agentRoutes.post("/:worldId/agent/stop", async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("worldId");
-  const body = await c.req.json<{ runId: string }>();
+  const body = await c.req.json<{ runId: string; discardPause?: boolean }>();
+  if (typeof body?.runId !== "string" || !body.runId) return c.json({ error: "runId is required" }, 400);
+  // "Start over from the card as it is" is the creator choosing to throw the
+  // paused result away; a plain stop never does.
+  const discardPause = body.discardPause === true;
+
+  // Ownership first: a run id alone must not let anyone abort or broadcast a
+  // stop for somebody else's run.
+  const [owned] = await db
+    .select({ id: agentRuns.id, status: agentRuns.status })
+    .from(agentRuns)
+    .where(and(eq(agentRuns.id, body.runId), eq(agentRuns.userId, currentUser.id), eq(agentRuns.worldId, worldId)))
+    .limit(1);
+  if (!owned) return c.json({ error: "Run not found" }, 404);
 
   // Try local abort first (same replica)
   const localController = activeAgentRuns.get(body.runId);
   if (localController) {
     localController.abort();
   }
+  // A book digest the run started is not tied to its controller; Stop ends it too.
+  stopDigests({ runId: body.runId });
 
   // Broadcast stop to all replicas via Redis pub/sub.
   // If the run is on a different replica, that replica receives
@@ -1236,14 +1378,25 @@ agentRoutes.post("/:worldId/agent/stop", async (c) => {
     redis.publish(AGENT_STOP_CHANNEL, JSON.stringify({ runId: body.runId })).catch(() => {});
   }
 
+  // Only a live run (or a proposal the creator is dismissing) is stopped, and
+  // only a running row's journal is discarded. A paused run (awaiting_credits)
+  // keeps its checkpoint — it can hold a paid, not-yet-applied result — and a
+  // finished run keeps its own terminal status.
   await db
     .update(agentRuns)
-    .set({ status: "completed", error: "Stopped by user.", creditCheckpoint: null, updatedAt: new Date() })
+    .set({
+      status: "completed", error: "Stopped by user.",
+      creditCheckpoint: discardPause
+        ? null
+        : sql`CASE WHEN ${agentRuns.status} = 'running' THEN NULL ELSE ${agentRuns.creditCheckpoint} END`,
+      updatedAt: new Date(),
+    })
     .where(
       and(
         eq(agentRuns.id, body.runId),
         eq(agentRuns.userId, currentUser.id),
         eq(agentRuns.worldId, worldId),
+        inArray(agentRuns.status, discardPause ? ["running", "awaiting_approval", "awaiting_credits"] : ["running", "awaiting_approval"]),
       )
     );
 
@@ -1405,17 +1558,23 @@ const COMPRESS_THRESHOLD = 1500; // chars (~375 tokens) — down from 3000
 // Keep 4 recent tool results uncompressed so the model has room to reason across a
 // read→search→slice→edit chain without its own inputs being snipped mid-flow.
 const KEEP_RECENT_TOOL_RESULTS = 4;
+// With the stable prompt, compress in batches of this many. Compressing a result
+// edits an earlier message, and everything after it falls out of the prompt
+// cache and is written again at the cache-write price — once per batch.
+const COMPRESS_BATCH = 4;
 
-function compressOldToolResults(messages: ChatMessage[]): ChatMessage[] {
+function compressOldToolResults(messages: ChatMessage[], batch = 1): ChatMessage[] {
   // Find all tool result indices
   const toolIndices: number[] = [];
   for (let i = 0; i < messages.length; i++) {
     if (messages[i]!.role === "tool") toolIndices.push(i);
   }
-  if (toolIndices.length <= KEEP_RECENT_TOOL_RESULTS) return messages;
+  const eligible = toolIndices.length - KEEP_RECENT_TOOL_RESULTS;
+  const compressCount = eligible > 0 ? Math.floor(eligible / batch) * batch : 0;
+  if (compressCount === 0) return messages;
 
-  // Indices to compress: all except the most recent N
-  const toCompress = new Set(toolIndices.slice(0, -KEEP_RECENT_TOOL_RESULTS));
+  // Indices to compress: the oldest whole batches, leaving the recent ones raw
+  const toCompress = new Set(toolIndices.slice(0, compressCount));
 
   return messages.map((msg, i) => {
     if (!toCompress.has(i) || msg.role !== "tool") return msg;
@@ -1432,6 +1591,30 @@ function compressOldToolResults(messages: ChatMessage[]): ChatMessage[] {
     ].join("\n");
     return { ...msg, content: snipped };
   });
+}
+
+/** Whether this creator's runs keep the world block through their own writes
+ *  (see streamAgentLoop). STUDIO_STABLE_PROMPT: "on", "off" (default), or a
+ *  0–100 share of creators, stable per creator — for a gradual rollout. */
+export function stablePromptEnabled(userId: string): boolean {
+  const raw = (process.env.STUDIO_STABLE_PROMPT ?? "off").trim().toLowerCase();
+  if (raw === "on") return true;
+  const pct = Number(raw);
+  if (!Number.isFinite(pct) || pct <= 0) return false;
+  return createHash("sha1").update(userId).digest().readUInt16BE(0) % 100 < Math.min(100, pct);
+}
+
+/** A content key for a world: the same card gives the same key whatever its
+ *  object key order (it may come back from the database or from memory). */
+function worldContentKey(world: WorldDefinition): string {
+  const canonical = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(canonical);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(Object.keys(value).sort().map((k) => [k, canonical((value as Record<string, unknown>)[k])]));
+    }
+    return value;
+  };
+  return createHash("sha1").update(JSON.stringify(canonical(world))).digest("hex");
 }
 
 function assistantToolCallMessage(content: string, toolCalls: ToolCall[], reasoningContent: string): ChatMessage {
@@ -1486,6 +1669,28 @@ function snipLargeResult(result: unknown): unknown {
   return serialized.slice(0, 8000) + `\n... (snipped, ${serialized.length} chars total — re-fetching returns the same preview)`;
 }
 
+/**
+ * Stable code for a stored/streamed run error. `error` strings are English,
+ * sometimes raw provider or database text, and change over time; clients map
+ * the code to their own localized copy and never display the raw string.
+ */
+export function agentErrorCode(error: string | null | undefined): string {
+  const text = (error ?? "").trim();
+  if (!text) return "AGENT_ERROR";
+  if (/^(CLAIM_LOST|NOT_FOUND|INVALID_CHECKPOINT|STALE_WORLD|NO_CREDITS|OUTPUT_BUDGET_EXHAUSTED)$/.test(text)) return text;
+  if (/^Agent stalled\b/i.test(text)) return "AGENT_STALLED";
+  if (/^Agent timed out\b/i.test(text)) return "AGENT_TIMEOUT";
+  if (/^Server restarted\b|^SERVER_RESTART$/i.test(text)) return "SERVER_RESTART";
+  if (/^Superseded\b/i.test(text)) return "SUPERSEDED";
+  if (/^Stopped by user\b/i.test(text)) return "STOPPED";
+  if (/^Credits exhausted\b|^INSUFFICIENT_CREDITS$/i.test(text)) return "NO_CREDITS";
+  if (/whole output budget/i.test(text)) return "OUTPUT_BUDGET_EXHAUSTED";
+  return "AGENT_ERROR";
+}
+
+/** Shown when the model re-sends the exact same write batch twice in a row. */
+const DUPLICATE_WRITE_STOP_NOTICE = "Stopped: the assistant repeated exactly the same edit twice in a row, so the run was ended to avoid a loop. Whatever the first attempt changed is already saved — check the result, then tell the assistant what still needs to change.";
+
 /** Compact, faithful trace of a set of tool calls: op name + target (entity id /
  *  query), never tool output bodies. Stamped on `step` turns so cross-run history
  *  can read "what changed" from structure instead of guessing from text. */
@@ -1519,6 +1724,9 @@ export interface AgentLoopParams {
     activePanel?: string;
     selectedElementId?: string;
     selectedElementType?: string;
+    focusIds?: string[];
+    jobApproved?: boolean;
+    mode?: "build" | "advise";
   };
   iteration: number;
   maxIterations: number;
@@ -1570,6 +1778,16 @@ function hasKnownStudioUsage(usage: StreamChunk["usage"]): boolean {
  * Extract compact metadata from a just-written entity so the agent
  * doesn't need to call read_entities to see what it just created/updated.
  */
+/** Top-level fields whose value differs between two entity summaries, as
+ *  { field: { from, to } }; undefined when nothing the summary shows moved. */
+export function diffEntityMeta(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, { from: unknown; to: unknown }> | undefined {
+  const out: Record<string, { from: unknown; to: unknown }> = {};
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (JSON.stringify(before[key]) !== JSON.stringify(after[key])) out[key] = { from: before[key] ?? null, to: after[key] ?? null };
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 function extractEntityMeta(
   world: WorldDefinition,
   entityType: string,
@@ -1614,6 +1832,10 @@ function extractEntityMeta(
     }
     case "settings":
       return { id: "settings", updated: true };
+    case "uiDoc": {
+      if (!world.uiDoc) return null;
+      return { id: "ui-doc", pages: world.uiDoc.pages.map((p) => `${p.id} (${p.elements.length} parts)`), entryPage: world.uiDoc.entryPageId };
+    }
     default:
       return null;
   }
@@ -1737,6 +1959,14 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       const balances = await sendCreditBalance();
       await safeSend("credits_paused", JSON.stringify({ runId, ...publicCreditPause(creditCheckpoint), ...balances }));
     };
+    // A journal step that could not be staged (world gone, claim taken over,
+    // bad checkpoint) ends the run. Without the terminal write the row stayed
+    // "running" and the creator's next message hit ACTIVE_RUN. The write is
+    // fenced by ownedRunWhere, so a worker that took over is left alone.
+    const failStagedStep = async (code: string) => {
+      await finalizeRun({ status: "error", error: code, iteration }).catch(() => {});
+      await safeSend("error", JSON.stringify({ error: code, code }));
+    };
 
     // Progress-aware watchdog (checked from the heartbeat interval below).
     // The old absolute 10-minute timeout killed runs that were healthily
@@ -1747,7 +1977,11 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
     // for IDLE_TIMEOUT_MS) or hits a generous absolute backstop sized so one
     // maxed-out iteration (MAX_OUTPUT tokens ≈ 24min at 45 tok/s) still fits.
     const IDLE_TIMEOUT_MS = 3 * 60 * 1000;
-    const ABSOLUTE_TIMEOUT_MS = 30 * 60 * 1000;
+    // A job the creator started (build, playtest, fix, play again) gets two
+    // hours; a chat turn keeps thirty minutes. The client's own wait outlasts both.
+    const CHAT_TIMEOUT_MS = 30 * 60 * 1000;
+    const JOB_TIMEOUT_MS = 120 * 60 * 1000;
+    const ABSOLUTE_TIMEOUT_MS = context?.jobApproved ? JOB_TIMEOUT_MS : CHAT_TIMEOUT_MS;
     const runStartedAt = Date.now();
     let lastProgressAt = Date.now();
     const noteProgress = () => { lastProgressAt = Date.now(); };
@@ -1845,13 +2079,13 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
     // *describes* the change instead of *making* it), we inject a follow-up pushing it
     // to call tools. Capped at MAX_TEXT_NUDGES per run to avoid infinite loops.
     //
-    // We nudge on any non-empty text-only turn. The previous ">200 chars" gate let dense
-    // CJK plans slip straight through to "completed" — e.g. "现在直接修复——把" (8 chars) or the
-    // 195-char Chinese plan from the reported screenshot — which was the single biggest
-    // cause of "the agent said it would do something and then just stopped" (~30% of runs).
-    // A genuine short final answer ("validation clean, nothing to change") costs at most
-    // MAX_TEXT_NUDGES cheap extra round-trips before the run still completes.
-    const MAX_TEXT_NUDGES = 2;
+    // No length gate: the old ">200 chars" gate let dense CJK plans slip straight
+    // through to "completed" — e.g. "现在直接修复——把" (8 chars) — the single biggest
+    // cause of "the agent said it would do something and then just stopped".
+    // But nudging EVERY text-only turn (twice) turned a plain Q&A answer into
+    // three model calls and two extra bubbles. So a turn is nudged only when it
+    // announces an action (replyAnnouncesAction), and at most once per run.
+    const MAX_TEXT_NUDGES = 1;
     let textOnlyNudges = 0;
 
     // Consecutive length-stops with nothing usable. The credit planner sizes
@@ -1907,9 +2141,12 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
       const writeToolCalls = opts?.writeToolCalls;
       const trimmed = text.trim();
       if (!trimmed && !writeToolCalls?.length && !opts?.allowEmpty) return;
-      if (committedTurns.some((t) => t.iteration === iter)) return;
-      const commitId = crypto.randomUUID();
       const lane = opts?.lane;
+      // One regular turn and at most one server notice per iteration: a guard
+      // that stops the run after this step's own bubble (read spiral, duplicate
+      // write) must still be able to say why.
+      if (committedTurns.some((t) => t.iteration === iter && (t.lane === "notice") === (lane === "notice"))) return;
+      const commitId = crypto.randomUUID();
       const entry = {
         iteration: iter,
         textContent: text,
@@ -1961,12 +2198,82 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
     // so the world doesn't change and the prompt stays valid. The approve handler
     // creates a new streamAgentLoop invocation with the updated world, getting a fresh prompt.
     let cachedSystemPrompt: SystemPromptParts | null = null;
+    /** What this run's writes created, for the prompt (see StudioPromptContext.madeThisRun). */
+    const madeThisRun: Array<{ type: string; id: string; name?: string }> = [];
+    // The world block is built once per request. Rebuilt after every write, it
+    // changed the prompt ahead of the conversation, so each step after a write
+    // wrote the whole history into the prompt cache again at the write price.
+    // The model sees its own writes in their results; the block is rebuilt only
+    // when the stored card changed some other way (an editor save).
+    let builtPrompt: { parts: SystemPromptParts; worldKey: string } | null = null;
+    /** Content key of the world as this run's last writes left it. */
+    let ownWorldKey: string | null = null;
+    /** A write this step was merged with an editor save: the result is not only ours. */
+    let writeMergedSave = false;
+    const stablePrompt = stablePromptEnabled(userId);
+    /** Earlier conversation was just summarized away: rebuild the world block so
+     *  the inventory again shows what this request made (its results are gone). */
+    let forceWorldRebuild = false;
+    let lastWindowCut = 0;
+    /** Entities this request changed whose copy in the world block is now stale (noted once each). */
+    const staleNoted = new Set<string>();
+
+    // Outside credit recovery (BYOK, unlimited plans, recovery flag off) nothing
+    // else re-reads the world during a run, and a run lasts minutes: an editor
+    // save in the meantime used to be overwritten by the next write computed
+    // from the world loaded at run start. `syncedWorld` is the stored working
+    // copy the in-memory `world` was last read from or written as, and
+    // `syncedUpdatedAt` the worlds.updated_at save token it corresponds to.
+    // Each step starts from a fresh read when the token moved, and each write
+    // hands both to writeStudioWorldSchema, which merges a save that landed
+    // mid-step instead of clobbering it. Recovery mode keeps its own revision
+    // journal (captureStudioCreditWorldRevision + STALE_WORLD restarts).
+    let syncedWorld: WorldDefinition | null = null;
+    let syncedUpdatedAt: number | null = null;
+    const refreshWorkingWorld = async () => {
+      const [stamp] = await db.select({ updatedAt: worlds.updatedAt }).from(worlds)
+        .where(and(eq(worlds.id, params.worldId), eq(worlds.creatorId, userId))).limit(1);
+      if (!stamp) return;
+      if (syncedWorld && (stamp.updatedAt?.getTime() ?? null) === syncedUpdatedAt) return;
+      const [row] = await db.select({ schema: worlds.schema, status: worlds.status, updatedAt: worlds.updatedAt })
+        .from(worlds).where(and(eq(worlds.id, params.worldId), eq(worlds.creatorId, userId))).limit(1);
+      if (!row) return;
+      const working = await resolveWorkingSchema(params.worldId, row.status, row.schema as unknown as Record<string, unknown>);
+      world = migrateWorldDefinition(working as unknown as WorldDefinition);
+      syncedWorld = world;
+      syncedUpdatedAt = row.updatedAt?.getTime() ?? null;
+      cachedSystemPrompt = null;
+    };
 
     async function getSystemPromptParts(): Promise<SystemPromptParts> {
       if (cachedSystemPrompt) return cachedSystemPrompt;
+      const brief = await loadBrief(userId, params.worldId);
+      if (context?.mode === "advise") {
+        const lastAsk = [...messages].reverse().find((m) => m.role === "user" && !isHarnessTurn(m));
+        const askText = lastAsk && typeof lastAsk.content === "string" ? lastAsk.content : "";
+        const sources = await listSources(userId, params.worldId).catch(() => []);
+        // A canon reference's index (names as the book writes them) rides along; its contents stay behind read_source.
+        const references = await Promise.all(sources.filter((src) => src.name.endsWith(BIBLE_SUFFIX)).slice(0, 2).map(async (src) => ({
+          name: src.name, index: referenceIndex(await loadSourceText(userId, params.worldId, src.id).catch(() => "")),
+        })));
+        cachedSystemPrompt = advisorPrompt({
+          world, brief, sources, references,
+          language: askText ? describeLanguage(askText) : "Chinese",
+        });
+        return cachedSystemPrompt;
+      }
+
+      const key = worldContentKey(world);
+      if (stablePrompt && !forceWorldRebuild && builtPrompt && (key === builtPrompt.worldKey || key === ownWorldKey)) {
+        cachedSystemPrompt = builtPrompt.parts;
+        return cachedSystemPrompt;
+      }
+      if (stablePrompt && builtPrompt) console.log(`[Agent] Run ${runId}: ${forceWorldRebuild ? "earlier steps summarized" : "the card changed outside this request"} — rebuilding the world block.`);
 
       // Tiered context resolver — Layer 1 (rich inventory) + Layer 2 (pre-loaded matches)
-      const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
+      // The creator's own request, never a loop-authored nudge: after one,
+      // "[System: …]" became the preload keywords and churned the world block.
+      const lastUserMsg = [...messages].reverse().find((m) => m.role === "user" && !isHarnessTurn(m));
       const requestText = lastUserMsg && typeof lastUserMsg.content === "string"
         ? lastUserMsg.content
         : "";
@@ -1976,18 +2283,32 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         worldId: params.worldId,
         selectedEntityId: context?.selectedElementId,
         activePanel: context?.activePanel,
+        focusIds: Array.isArray(context?.focusIds)
+          ? context.focusIds.filter((id): id is string => typeof id === "string").slice(0, 40)
+          : undefined,
         // Pass the message budget as the resolver's "context window" — it takes 45% of
         // this for Layer 2 preload. For Sonnet 4.6 (1M window, 600K budget) this yields
         // ~270K for preloaded custom UI content, so the agent can skip read_entities for
         // most components. Default 120K budget still maps to ~54K preload (no regression).
         contextWindow: getContextBudget(model),
       });
-      cachedSystemPrompt = buildSystemPrompt(resolved, {
+      const built = buildSystemPrompt(resolved, {
         activePanel: context?.activePanel,
+        jobApproved: context?.jobApproved === true,
+        // Only a mid-request rebuild lists this request's own writes in the inventory.
+        madeThisRun: !stablePrompt || builtPrompt ? madeThisRun : undefined,
+        stableInventory: stablePrompt,
         selectedEntity: context?.selectedElementId
           ? { id: context.selectedElementId, type: context.selectedElementType }
           : undefined,
       });
+      // The card's source texts, by name only — the assistant looks inside
+      // them with search_source / read_source.
+      const sourcesBlock = describeSources(await listSources(userId, params.worldId).catch(() => []));
+      const extraWorld = `${sourcesBlock}${briefBlock(brief)}`;
+      cachedSystemPrompt = extraWorld ? { ...built, world: `${built.world ?? ""}${extraWorld}` } : built;
+      builtPrompt = { parts: cachedSystemPrompt, worldKey: key };
+      forceWorldRebuild = false;
       return cachedSystemPrompt;
     }
 
@@ -2000,7 +2321,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           const errMsg = error instanceof Error ? error.message : "The resumed step failed";
           console.error("[Agent] prelude failed:", error);
           await finalizeRun({ status: "error", error: errMsg, iteration }).catch(() => {});
-          await safeSend("error", JSON.stringify({ error: errMsg }));
+          await safeSend("error", JSON.stringify({ error: errMsg, code: "AGENT_ERROR" }));
           return;
         }
       }
@@ -2013,11 +2334,25 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           world = migrateWorldDefinition(sourceRevision.schema as unknown as WorldDefinition);
           cachedSystemPrompt = null;
         }
+        if (!creditRecovery) {
+          // A failed read keeps the in-memory world and the last sync point;
+          // the write-time merge still guards whatever was synced before.
+          await refreshWorkingWorld().catch((error) => {
+            console.warn(`[Agent] Run ${runId}: world refresh failed:`, error instanceof Error ? error.message : error);
+          });
+        }
 
         // Compress large tool results from earlier iterations to save context
-        const compressedMessages = compressOldToolResults(messages);
+        const compressedMessages = compressOldToolResults(messages, stablePrompt ? COMPRESS_BATCH : 1);
         // Sliding window: keep recent messages raw, summarize older ones (budget varies by model)
         const windowedMessages = buildWindowedMessages(compressedMessages, model);
+        // Earlier steps summarized away: their results (what this request made)
+        // are gone, so rebuild the world block once to show the card as it is.
+        const windowCut = windowedMessages.length < compressedMessages.length ? compressedMessages.length - windowedMessages.length : 0;
+        if (stablePrompt && windowCut !== lastWindowCut) {
+          lastWindowCut = windowCut;
+          if (windowCut > 0) { forceWorldRebuild = true; cachedSystemPrompt = null; }
+        }
 
         // Three-tier system prompt for higher cache hit rate, all blocks at 1h TTL
         // so the tool→system→messages chain stays monotonically non-increasing
@@ -2078,7 +2413,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
               await pauseForCredits(preflight, "STALE_WORLD");
               return;
             }
-            await safeSend("error", JSON.stringify({ error: staged.code, code: staged.code }));
+            await failStagedStep(staged.code);
             return;
           }
           creditCheckpoint = staged.checkpoint;
@@ -2180,7 +2515,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
                 surface: "studio-agent",
                 iteration,
               });
-              await safeSend("error", JSON.stringify({ error: chunk.content }));
+              await safeSend("error", JSON.stringify({ error: chunk.content, code: "PROVIDER_ERROR" }));
               // Mark run as error
               await finalizeRun({
                 status: "error",
@@ -2211,7 +2546,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             textContent: textContent || lastTextContent || undefined,
           }).catch(() => {});
           if (!controller.signal.aborted) {
-            await safeSend("error", JSON.stringify({ error: errMsg }));
+            await safeSend("error", JSON.stringify({ error: errMsg, code: "PROVIDER_ERROR" }));
           }
           return;
         }
@@ -2287,7 +2622,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
                     await pauseForCredits(generatedCheckpoint, "STALE_WORLD");
                     return;
                   }
-                  await safeSend("error", JSON.stringify({ error: staged.code, code: staged.code }));
+                  await failStagedStep(staged.code);
                   return;
                 }
                 creditCheckpoint = staged.checkpoint;
@@ -2305,6 +2640,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
                 await sendCreditBalance(cost);
               } else {
                 await deductCredits(userId, cost, usageLogId, `${model} — ${pTokens + cTokens} tokens (agent)`);
+                await sendCreditBalance(cost).catch(() => {});
               }
             } catch (err) {
               const msg = err instanceof Error ? err.message : String(err);
@@ -2370,13 +2706,15 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           }
 
           // Nudge: if the model described changes without calling tools, push it to execute.
-          // Fires on ANY non-empty text-only turn (no char gate — CJK plans are short but
-          // are still "describe instead of do"). Capped at MAX_TEXT_NUDGES per run. This
-          // handles models (Sonnet, Qwen3, DeepSeek, GPT, Gemini) that sometimes "plan" in
-          // text instead of calling tools.
+          // Fires only when the text announces an action (no char gate — CJK plans are
+          // short but are still "describe instead of do"); a finished answer is left
+          // alone. Capped at MAX_TEXT_NUDGES per run. This handles models (Sonnet,
+          // Qwen3, DeepSeek, GPT, Gemini) that sometimes "plan" in text instead of
+          // calling tools.
           if (
             textOnlyNudges < MAX_TEXT_NUDGES &&
-            textContent.trim().length > 0 &&
+            context?.mode !== "advise" &&
+            replyAnnouncesAction(textContent) &&
             iteration < maxIterations - 1 &&
             !anyToolExecuted
           ) {
@@ -2479,6 +2817,171 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             runId,
             status: "awaiting_user",
           }));
+          return;
+        }
+
+        // The assistant plays the card through the real game, live in the
+        // creator's playtest panel, and reads the turns back.
+        const play = controlCalls.find((tc) => tc.function.name === "playtest");
+        if (play) {
+          const playArgs = parseToolArgs(play.function.arguments);
+          const moves = ((Array.isArray(playArgs.moves) ? playArgs.moves : []) as unknown[])
+            .filter((move): move is string => typeof move === "string" && move.trim().length > 0)
+            .map((move: string) => move.trim().slice(0, 2000))
+            .slice(0, 10);
+          const purpose = typeof playArgs.purpose === "string" ? playArgs.purpose.trim().slice(0, 120) : "";
+          let summary: string;
+          let failed = false;
+          if (moves.length === 0) {
+            summary = "Give 1-10 moves: what a player would type.";
+            failed = true;
+          } else {
+            try {
+              const progress = (sessionId: string, turn: number, error?: string) => safeSend("playtest_progress",
+                JSON.stringify({ runId, sessionId, purpose, turn, total: moves.length, ...(error ? { error } : {}) }));
+              const result = await runPlaytest({
+                userId,
+                worldId: params.worldId,
+                moves,
+                // A game turn is progress: the idle watchdog must not take a
+                // run that is waiting on the card's own model for a stall.
+                onSession: (sessionId) => { noteProgress(); return progress(sessionId, 0); },
+                onTurn: ({ sessionId, index, turn }) => { noteProgress(); return progress(sessionId, index + 1, turn.error); },
+                shouldStop: () => controller.signal.aborted || sseDisconnected,
+              });
+              summary = summarizePlaytest(result);
+              await safeSend("playtest_progress", JSON.stringify({ runId, sessionId: result.sessionId, purpose,
+                turn: result.turns.length, total: moves.length, done: true }));
+            } catch (error) {
+              summary = `The playtest could not run: ${error instanceof Error ? error.message : String(error)}`;
+              failed = true;
+            }
+          }
+          messages = [
+            ...messages,
+            assistantToolCallMessage(textContent, toolCalls, reasoningContent),
+            ...buildToolResultMessages(toolCalls.map((call) => call.id === play.id
+              ? { tool_call_id: call.id, name: call.function.name, status: failed ? "error" as const : "success" as const,
+                  result: failed ? null : summary, ...(failed ? { error: summary } : {}) }
+              : { tool_call_id: call.id, name: call.function.name, status: "error" as const, result: null,
+                  error: "Call playtest alone. This call was not run." })),
+          ];
+          await commitTextTurn(iteration, textContent, { lane: "step" });
+          await finishCreditIteration(messages, iteration + 1);
+          iteration++;
+          lastTextContent = textContent;
+          continue;
+        }
+
+        // Reading a whole book into a canon reference (lib/studio-source-digest.ts).
+        // Not yet started: it asks like a big job, with its own time and cost.
+        // Started: it runs here, parts in parallel, reporting each one.
+        const digest = controlCalls.find((tc) => tc.function.name === "digest_source");
+        if (digest) {
+          const digestArgs = parseToolArgs(digest.function.arguments);
+          const wanted = typeof digestArgs.source_id === "string" ? digestArgs.source_id.trim() : "";
+          const sources = await listSources(userId, params.worldId).catch(() => []);
+          const meta = sources.find((s) => s.id === wanted || s.name === wanted)
+            ?? (sources.filter((s) => !s.name.endsWith(BIBLE_SUFFIX)).length === 1 ? sources.find((s) => !s.name.endsWith(BIBLE_SUFFIX)) : undefined);
+          let summary: string;
+          let failed = false;
+          if (!meta) {
+            summary = `No such source. Sources: ${sources.map((s) => `${s.id}「${s.name}」`).join(", ") || "none"}.`;
+            failed = true;
+          } else if (context?.jobApproved !== true) {
+            const estimate = await estimateDigest(meta, await loadSourceText(userId, params.worldId, meta.id), isByok,
+              await countReadParts(userId, params.worldId, meta).catch(() => 0));
+            messages = [...messages, assistantToolCallMessage(textContent, toolCalls, reasoningContent)];
+            const payload = { runId, toolCallId: digest.id, plan: estimate.plan, minutes: estimate.minutes, mushies: estimate.mushies, byKey: isByok };
+            const [savedRun] = await db.select({ context: agentRuns.context }).from(agentRuns).where(eq(agentRuns.id, runId));
+            await commitTextTurn(iteration, textContent, { lane: "answer", allowEmpty: true });
+            await finalizeRun({
+              status: "awaiting_user",
+              messages: messages as unknown as Array<Record<string, unknown>>,
+              context: { ...savedRun?.context, jobProposal: payload },
+              textContent,
+              iteration,
+            });
+            await safeSend("job_proposal", JSON.stringify(payload));
+            await safeSend("done", JSON.stringify({ runId, status: "awaiting_user" }));
+            return;
+          } else {
+            // The digest outlives this turn (see runDigest); the turn only watches it.
+            const watch = runDigest({
+              userId,
+              worldId: params.worldId,
+              sourceId: meta.id,
+              runId,
+              // Every part read is progress: a book takes many minutes.
+              onProgress: async (p) => { noteProgress(); await safeSend("digest_progress", JSON.stringify({ runId, source: meta.name, ...p })); },
+            });
+            const turnEnded = new Promise<never>((_, reject) => {
+              const end = () => reject(controller.signal.reason ?? new DOMException("This operation was aborted", "AbortError"));
+              if (controller.signal.aborted) end(); else controller.signal.addEventListener("abort", end, { once: true });
+            });
+            turnEnded.catch(() => {});
+            try {
+              // One section can take minutes without a new count; the digest is alive while it runs.
+              const alive = setInterval(noteProgress, 60_000);
+              const result = await Promise.race([watch.promise, turnEnded]).finally(() => { clearInterval(alive); watch.detach(); });
+              await safeSend("digest_progress", JSON.stringify({ runId, source: meta.name, phase: "save", done: 1, total: 1, label: result.bible.name, finished: true }));
+              summary = `Digest stored with the card as source ${result.bible.id}「${result.bible.name}」 (${result.bible.chars} chars, ${result.sections} sections from ${result.parts} parts; ${result.quotesChecked} quotes checked, ${result.quotesMissing} marked 〔未核实〕; ${result.questionsSettled} open questions checked against the book). It covers the whole book, from 「${result.covers.first}」 to 「${result.covers.last}」; its sections: ${result.covers.sections.join(" / ")}. Tell the creator in two or three sentences what the reference covers and suggest entry points from it. Before writing the card, read_source the sections you need from it (list_chapters shows them), and search the book for details.`;
+            } catch (error) {
+              if (!(error instanceof DigestStopped) && !controller.signal.aborted) console.warn(`[SourceDigest] ${meta.name} failed:`, error);
+              summary = error instanceof DigestStopped
+                ? `The digest stopped: ${error.message} Parts already read are kept; running digest_source again continues from there.`
+                : `The digest failed: ${error instanceof Error ? error.message : String(error)}. Parts already read are kept; running it again continues from there.`;
+              failed = true;
+              await safeSend("digest_progress", JSON.stringify({ runId, source: meta.name, phase: "read", done: 0, total: 0, label: "", finished: true, error: summary }));
+            }
+          }
+          messages = [
+            ...messages,
+            assistantToolCallMessage(textContent, toolCalls, reasoningContent),
+            ...buildToolResultMessages(toolCalls.map((call) => call.id === digest.id
+              ? { tool_call_id: call.id, name: call.function.name, status: failed ? "error" as const : "success" as const,
+                  result: failed ? null : summary, ...(failed ? { error: summary } : {}) }
+              : { tool_call_id: call.id, name: call.function.name, status: "error" as const, result: null,
+                  error: "Call digest_source alone. This call was not run." })),
+          ];
+          // The digest was work done: the summary that follows is an answer, not a plan to nudge.
+          anyToolExecuted = true;
+          await commitTextTurn(iteration, textContent, { lane: "step" });
+          await finishCreditIteration(messages, iteration + 1);
+          iteration++;
+          lastTextContent = textContent;
+          continue;
+        }
+
+        // A big job: the assistant says its plan, the platform adds the time and
+        // cost, and the run waits for the creator to start it — like ask_user.
+        const job = controlCalls.find((tc) => tc.function.name === "propose_job");
+        if (job) {
+          const jobArgs = parseToolArgs(job.function.arguments);
+          const plan = ((Array.isArray(jobArgs.plan) ? jobArgs.plan : []) as unknown[])
+            .filter((line): line is string => typeof line === "string" && line.trim().length > 0)
+            .map((line: string) => line.trim().slice(0, 200))
+            .slice(0, 8);
+          const steps = Math.min(40, Math.max(plan.length, Math.round(Number(jobArgs.steps) || 0), 1));
+          const estimate = estimateAgentJob({
+            steps,
+            systemTokens: estimateStudioSystemTokens(promptParts.static + (promptParts.world ?? "")),
+            conversationTokens: estimateStudioPromptTokens(windowedMessages, tools),
+            price: isByok ? null : await getModelPrice(model),
+          });
+          messages = [...messages, assistantToolCallMessage(textContent, toolCalls, reasoningContent)];
+          const payload = { runId, toolCallId: job.id, plan, ...estimate, byKey: isByok };
+          const [savedRun] = await db.select({ context: agentRuns.context }).from(agentRuns).where(eq(agentRuns.id, runId));
+          await commitTextTurn(iteration, textContent, { lane: "answer", allowEmpty: true });
+          await finalizeRun({
+            status: "awaiting_user",
+            messages: messages as unknown as Array<Record<string, unknown>>,
+            context: { ...savedRun?.context, jobProposal: payload },
+            textContent,
+            iteration,
+          });
+          await safeSend("job_proposal", JSON.stringify(payload));
+          await safeSend("done", JSON.stringify({ runId, status: "awaiting_user" }));
           return;
         }
 
@@ -2628,6 +3131,38 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
                 name: tc.function.name,
                 status: "success",
                 result: validationResult,
+              });
+            } else if (tc.function.name === "read_ui_doc") {
+              allResults.push({
+                tool_call_id: tc.id,
+                name: tc.function.name,
+                status: "success",
+                result: executeReadUiDoc(world, { page: args.page, parts: args.parts }),
+              });
+            } else if (tc.function.name === "save_brief") {
+              // The advisor's one write: the brief the build mode reads (lib/studio-advisor.ts).
+              const saved = await saveBrief(userId, params.worldId, args.brief);
+              const saveError = "error" in saved ? saved.error : undefined;
+              if (!saveError) await safeSend("brief_saved", JSON.stringify({ runId, chars: (saved as { chars: number }).chars }));
+              allResults.push({
+                tool_call_id: tc.id,
+                name: tc.function.name,
+                status: saveError ? "error" : "success",
+                result: saveError ? null : { saved: true, ...saved },
+                error: saveError,
+              });
+            } else if (tc.function.name === "search_source" || tc.function.name === "read_source") {
+              // The creator's attached source texts (lib/studio-sources.ts).
+              const sourceResult = tc.function.name === "search_source"
+                ? await searchSource(userId, params.worldId, args)
+                : await readSource(userId, params.worldId, args);
+              const sourceError = "error" in sourceResult ? sourceResult.error as string : undefined;
+              allResults.push({
+                tool_call_id: tc.id,
+                name: tc.function.name,
+                status: sourceError ? "error" : "success",
+                result: sourceResult,
+                error: sourceError,
               });
             } else if (tc.function.name === "analyze_token_cost") {
               // On-demand per-turn cost analysis — surfaces the keyword-lore pool
@@ -2808,6 +3343,15 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           if (!parsed.change) continue;
           const change = parsed.change;
 
+          // Whether this write makes something new or changes what was there.
+          // The result must say so: the next iteration's inventory already
+          // lists the entity, and without this the model reported a variable
+          // it had just created as one that "already existed".
+          const metaBefore = change.action !== "delete" && change.id !== undefined
+            ? extractEntityMeta(world, change.entityType, change.id)
+            : null;
+          const existedBefore = metaBefore !== null;
+
           // Apply this single change
           const singleResult = executeApplyChanges(world, [change]);
 
@@ -2822,7 +3366,19 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
             let richResult: string | Record<string, unknown> = `${change.action} ${change.entityType} "${resultId}": OK${note ? ` (${note})` : ""}`;
             if (change.action !== "delete") {
               const meta = extractEntityMeta(world, change.entityType, resultId);
-              if (meta) richResult = { status: "OK", ...meta, ...(note ? { note } : {}) };
+              // An update also says what it moved from. Given only the new
+              // value, the model read "defaultValue: 20" back and told the
+              // creator it had "already been 20" — after changing it from 10.
+              const changed = metaBefore && meta ? diffEntityMeta(metaBefore, meta) : undefined;
+              if (meta) richResult = { status: "OK", result: existedBefore ? "updated" : "created", ...(changed ? { changed } : {}), ...meta, ...(note ? { note } : {}) };
+              // The world block keeps the card as of the request: after changing
+              // something it showed, its copy there is out of date.
+              const staleKey = `${change.entityType}:${resultId}`;
+              if (stablePrompt && existedBefore && typeof richResult === "object" && !staleNoted.has(staleKey)) {
+                staleNoted.add(staleKey);
+                richResult = { ...richResult, context: `Any copy of "${resultId}" earlier in your context is from before this change. Before you change it again, read_entities it — never rewrite it from the old copy.` };
+              }
+              if (!existedBefore) madeThisRun.push({ type: change.entityType, id: resultId, ...(typeof meta?.name === "string" ? { name: meta.name } : {}) });
             }
 
             allResults.push({
@@ -2847,7 +3403,26 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
                 });
                 creditCheckpoint = saved.checkpoint;
               } else {
-                await writeStudioWorldSchema({ worldId, creatorId: params.userId, schema: world as unknown as Record<string, unknown> });
+                const saved = await writeStudioWorldSchema({
+                  worldId, creatorId: params.userId, schema: world as unknown as Record<string, unknown>,
+                  ...(syncedWorld ? { base: { schema: syncedWorld as unknown as Record<string, unknown>, updatedAt: syncedUpdatedAt } } : {}),
+                });
+                if (saved.rebased && saved.schema) {
+                  // The creator saved mid-step: continue from the merged world,
+                  // and tell the model which of its edits their save overrode.
+                  world = migrateWorldDefinition(saved.schema as unknown as WorldDefinition);
+                  writeMergedSave = true;
+                  console.log(`[Agent] Run ${runId}: merged a concurrent editor save (${saved.rebased.conflicts.length} conflict(s)).`);
+                  if (saved.rebased.conflicts.length > 0) {
+                    allResults[allResults.length - 1] = {
+                      ...saveResult, status: "error", error: describeAgentWriteConflicts(saved.rebased.conflicts),
+                    };
+                  }
+                }
+                if (syncedWorld && saved.updatedAt) {
+                  syncedWorld = world;
+                  syncedUpdatedAt = saved.updatedAt.getTime();
+                }
               }
             } catch (saveErr) {
               // The transaction left both the stored world and journal intact.
@@ -2879,6 +3454,10 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
           }
         }
 
+        // These writes are this request's own: the world block stays as built —
+        // unless one was merged with an editor save, which the model must see.
+        ownWorldKey = stablePrompt && !writeMergedSave ? worldContentKey(world) : null;
+        writeMergedSave = false;
         cachedSystemPrompt = null;
 
         // Add all results to messages ONCE — collapsed to one tool message per
@@ -2894,7 +3473,12 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         // and write-only iterations alike — the implicit read_tools_executed commit path
         // never covered write-only turns, which is why their text used to carry over into
         // subsequent iterations' chatStreamContent on the client.
-        await commitTextTurn(iteration, textContent, { lane: "step", writeToolCalls: writeCalls, actions: toolCallActions(writeCalls) });
+        // Only the writes that landed: the bubble shows them under 「已应用」, and a
+        // rejected probe (an edit whose find text matched nothing) read as a
+        // change made to the card.
+        const landedIds = new Set(allResults.filter((r) => r.status === "success").map((r) => r.tool_call_id));
+        const landedCalls = writeCalls.filter((tc) => landedIds.has(tc.id));
+        await commitTextTurn(iteration, textContent, { lane: "step", writeToolCalls: landedCalls, actions: toolCallActions(landedCalls) });
 
         // Auto-validate after writes (opencode's LSP-diagnostics-after-edit analog): surface
         // only the structural errors THIS change introduced, so the model self-heals on the
@@ -2920,6 +3504,11 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         // Catch duplicate write batches (model retrying a failing write with identical args).
         const toolKey = toolCalls.map((tc) => tc.function.name + ":" + tc.function.arguments).sort().join("|");
         if (toolKey === lastWriteToolKey) {
+          // Say why the run ended — it used to stop as "completed" with no
+          // explanation, looking like the assistant simply gave up mid-task.
+          // lane:"notice": shown in the UI, never re-fed to the model.
+          console.warn(`[Agent] Run ${runId} iteration ${iteration}: identical write batch repeated — stopping.`);
+          await commitTextTurn(iteration, DUPLICATE_WRITE_STOP_NOTICE, { lane: "notice" });
           await finalizeRun({
             status: "completed",
             messages: messages as unknown as Array<Record<string, unknown>>,
@@ -2975,7 +3564,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         textContent: lastTextContent || undefined,
       }).catch(() => {});
       if (!controller.signal.aborted) {
-        await safeSend("error", JSON.stringify({ error: errMsg }));
+        await safeSend("error", JSON.stringify({ error: errMsg, code: agentErrorCode(errMsg) }));
       }
     } finally {
       if (isShutdownAbort(controller.signal)) {

@@ -11,6 +11,7 @@ function installDom() {
     document: dom.window.document,
     navigator: dom.window.navigator,
     HTMLElement: dom.window.HTMLElement,
+    HTMLInputElement: dom.window.HTMLInputElement,
     Element: dom.window.Element,
     Node: dom.window.Node,
     Event: dom.window.Event,
@@ -59,7 +60,9 @@ function button(name: string) {
 async function openMenu() {
   const trigger = button("More actions");
   await act(async () => {
-    trigger.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+    trigger.dispatchEvent(
+      new window.MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+    );
     trigger.click();
   });
   const menu = document.querySelector<HTMLElement>('[role="menu"]');
@@ -67,7 +70,7 @@ async function openMenu() {
   return menu;
 }
 
-test("story dock keeps extensions in a menu and fullscreen primary", async () => {
+test("fullscreen extensions render inside one menu and keep fullscreen primary", async () => {
   const h = installDom();
   const { FullscreenFloatingControls } = await import(
     "../features/chat/fullscreen-floating-controls"
@@ -82,6 +85,12 @@ test("story dock keeps extensions in a menu and fullscreen primary", async () =>
           backLabel: "Back to library",
           moreLabel: "More actions",
           modelLabel: "Model",
+          gallery: {
+            label: "Scene images",
+            revealed: 2,
+            total: 5,
+            onSelect: () => calls.push("gallery"),
+          },
           memoryLabel: "Memory",
           stateGuardLabel: "State Update Guard",
           fullscreenLabel: "Return to fullscreen",
@@ -90,6 +99,8 @@ test("story dock keeps extensions in a menu and fullscreen primary", async () =>
           onModel: () => calls.push("model"),
           onMemory: () => calls.push("memory"),
           onStateGuard: () => calls.push("guard"),
+          sceneVideoLabel: "Scene video",
+          onSceneVideo: () => calls.push("video"),
           onFullscreen: () => calls.push("fullscreen"),
           onInteractionStart: () => calls.push("interaction"),
           onMenuOpenChange: (open) => menuTransitions.push(open),
@@ -97,26 +108,28 @@ test("story dock keeps extensions in a menu and fullscreen primary", async () =>
       );
     });
 
+    const fullscreen = button("Return to fullscreen");
+    assert.equal(fullscreen.closest('[role="menu"]'), null);
+    assert.equal(document.body.textContent?.includes("Model"), false);
     const back = button("Back to library");
     const more = button("More actions");
-    const fullscreen = button("Return to fullscreen");
     assert.equal(back.textContent?.trim(), "");
     assert.equal(more.textContent?.trim(), "");
     assert.match(back.className, /h-11 w-11/);
     assert.match(more.className, /h-11 w-11/);
     assert.match(fullscreen.className, /bg-primary/);
-    assert.equal(fullscreen.closest('[role="menu"]'), null);
-    assert.equal(document.body.textContent?.includes("Model"), false);
 
     for (const [label, expected] of [
       ["Model", "model"],
+      ["Scene images2/5", "gallery"],
       ["Memory", "memory"],
       ["State Update Guard", "guard"],
+      ["Scene video", "video"],
     ] as const) {
       const menu = await openMenu();
       assert.equal(menuTransitions.at(-1), true);
       const item = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-        (candidate) => candidate.textContent?.trim() === label,
+        (candidate) => candidate.textContent?.replaceAll(" ", "").trim() === label.replaceAll(" ", ""),
       );
       assert.ok(item, `Missing menu item: ${label}`);
       assert.match(item.className, /min-h-11/);
@@ -131,7 +144,6 @@ test("story dock keeps extensions in a menu and fullscreen primary", async () =>
     await act(async () => {
       root.render(
         createElement(FullscreenFloatingControls, {
-          backLabel: "Back to library",
           moreLabel: "More actions",
           modelLabel: "Model",
           fullscreenLabel: "Return to fullscreen",
@@ -139,6 +151,7 @@ test("story dock keeps extensions in a menu and fullscreen primary", async () =>
           onBack: () => {},
           onModel: () => {},
           onMemory: () => {},
+          onStateGuard: () => {},
           onFullscreen: () => {},
           onInteractionStart: () => {},
           onMenuOpenChange: () => {},

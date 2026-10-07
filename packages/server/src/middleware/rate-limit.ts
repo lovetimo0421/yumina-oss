@@ -14,6 +14,7 @@ const CONCURRENCY_TTL_S = 90;
 // ─── In-memory fallback (dev / no Redis / Redis runtime failure) ────
 
 const memTimestamps = new Map<string, number[]>();
+const memWindows = new Map<string, number>();
 /** In-memory concurrency: tracks count + timestamp of last acquire for TTL eviction */
 const memInflight = new Map<string, { count: number; lastAcquire: number; ttlSeconds: number }>();
 
@@ -64,13 +65,14 @@ function memSlidingWindowCheck(
 
   recent.push(now);
   memTimestamps.set(key, recent);
+  memWindows.set(key, windowMs);
   return null;
 }
 
 // ─── Generic sliding-window check ──────────────────────────────────
 // Supports arbitrary window sizes (not just 60s).
 
-async function slidingWindowCheck(
+export async function slidingWindowCheck(
   key: string,
   max: number,
   windowMs: number,
@@ -432,10 +434,10 @@ export async function releaseConcurrency(userId: string): Promise<void> {
 
 const cleanupInterval = setInterval(() => {
   const now = Date.now();
-  const rateCutoff = now - DEFAULT_WINDOW_MS;
+
   for (const [userId, timestamps] of memTimestamps) {
-    const fresh = timestamps.filter((t) => t > rateCutoff);
-    if (fresh.length === 0) memTimestamps.delete(userId);
+    const fresh = timestamps.filter((t) => t > now - (memWindows.get(userId) ?? DEFAULT_WINDOW_MS));
+    if (fresh.length === 0) { memTimestamps.delete(userId); memWindows.delete(userId); }
     else memTimestamps.set(userId, fresh);
   }
   for (const [userId, entry] of memInflight) {

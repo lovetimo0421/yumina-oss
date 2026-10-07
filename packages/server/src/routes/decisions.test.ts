@@ -74,6 +74,9 @@ test("choice-only side decisions validate and isolate each authenticated request
     assert.equal(seen.at(-1)!.key, "Bearer synthetic-platform-key");
     const [log] = await db.select().from(usageLogs).where(and(eq(usageLogs.sessionId, f.session.id), eq(usageLogs.endpoint, "side-decision")));
     assert.equal(log?.apiKeyTier, "regular"); assert.equal(log?.promptTokens, 12);
+    assert.equal(log?.analyticsWorldId, f.session.worldId);
+    const [world] = await db.select({ count: worlds.messageCount }).from(worlds).where(eq(worlds.id, f.session.worldId));
+    assert.equal(world?.count, 0, "internal choice checks do not count as extra narrative interactions");
     assert.equal(USAGE_ENDPOINT_BILLING_POLICY["side-decision"], "free-by-design");
     const [saved] = await db.select().from(playSessions).where(eq(playSessions.id, f.session.id));
     assert.deepEqual(saved!.state, f.state);

@@ -327,6 +327,18 @@ const HANDLERS: MacroHandler[] = [
   modelHandler,
 ];
 
+/**
+ * The card's own character, for {{char}}: the first one that does not live in
+ * a frame with an AI of its own. That one belongs to its AI and speaks only
+ * when its AI does; a card whose characters all live in such frames still
+ * gets the first of them.
+ */
+export function primaryCharacterEntry(world: Pick<WorldDefinition, "entries" | "worldbooks">) {
+  const aiFrames = new Set((world.worldbooks ?? []).filter((b) => b.station).map((b) => b.id));
+  const characters = world.entries.filter((e) => e.role === "character" && e.enabled);
+  return characters.find((e) => !e.worldbookId || !aiFrames.has(e.worldbookId)) ?? characters[0];
+}
+
 // ── Main expansion function ──
 
 const MACRO_RE = /\{\{((?:[^{}]|\{(?!\{)|\}(?!\}))*)\}\}/g;
@@ -342,8 +354,7 @@ export function expandMacros(
   world: WorldDefinition,
   state: GameState
 ): string {
-  const charEntry = world.entries.find((e) => e.role === "character" && e.enabled);
-  const charName = charEntry?.name ?? "Assistant";
+  const charName = primaryCharacterEntry(world)?.name ?? "Assistant";
   // Final fallback label. Precedence is:
   //   personaName (server-populated: active persona OR account username) →
   //   world.settings.playerName (creator's default) →

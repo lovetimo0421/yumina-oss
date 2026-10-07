@@ -10,5 +10,6 @@ export function createEmptyRuleState(): RuleRuntimeState {
     prevVars: {},
     toggledEntries: {},
     toggledVariables: {},
+    toggledWorldbooks: {},
   };
 }

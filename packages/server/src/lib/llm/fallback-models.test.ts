@@ -12,7 +12,11 @@ import {
   isFreeRouterFallback,
   turnNeedsVision,
 } from "./fallback-models.js";
-import { isFreePoolExhaustedError, shouldFallbackToAnotherModel } from "./openrouter.js";
+import {
+  isFreePoolExhaustedError,
+  isRetiredModelError,
+  shouldFallbackToAnotherModel,
+} from "./openrouter.js";
 
 // ── isFreePoolExhaustedError ──
 
@@ -64,6 +68,36 @@ test("a 400 never triggers a fallback — the request itself is wrong", () => {
   assert.equal(shouldFallbackToAnotherModel(400, "invalid request", true), false);
 });
 
+// ── isRetiredModelError ──
+
+/** The body OpenRouter returns for an id it no longer serves. */
+const RETIRED_404 = JSON.stringify({
+  error: { message: "No endpoints found for inclusionai/ling-2.6-flash.", code: 404 },
+});
+
+test("404 'no endpoints found' is a retired model id", () => {
+  assert.equal(isRetiredModelError(404, RETIRED_404), true);
+});
+
+test("a 404 that is not about endpoints is not a retirement", () => {
+  // Route-level 404s from a proxy in front of the API must not be read as
+  // "this model is gone" — that would swap models over a routing mistake.
+  assert.equal(isRetiredModelError(404, JSON.stringify({ error: { message: "Not Found" } })), false);
+});
+
+test("the retirement wording on a non-404 status does not count", () => {
+  // Mirrors the free-pool guard: the status carries as much meaning as the text.
+  assert.equal(isRetiredModelError(500, RETIRED_404), false);
+});
+
+test("a retired id falls back regardless of the transient opt-in", () => {
+  // Deterministic by nature: a retired id cannot return between two calls a
+  // second apart, so descending is the only move that can help. This is the
+  // condition whose absence let a dead first rung kill free turns outright.
+  assert.equal(shouldFallbackToAnotherModel(404, RETIRED_404, false), true);
+  assert.equal(shouldFallbackToAnotherModel(404, RETIRED_404, true), true);
+});
+
 test("a retired model id (404) falls back even without the transient opt-in", () => {
   // The 2026-08-25 regression: OpenRouter pulled every provider endpoint from
   // inclusionai/ling-2.6-flash, then the free chain's first rung. Without this
@@ -88,6 +122,18 @@ test("Yumina Free falls back to the near-free chain, not the ToS model", () => {
     FREE_ROUTER_FALLBACK_MODEL,
     FREE_ROUTER_LAST_RESORT_MODEL,
   ]);
+  assert.equal(
+    getOfficialProviderFallbackModels(FREE_ROUTER_MODEL, false)?.includes(OFFICIAL_PROVIDER_TOS_FALLBACK_MODEL),
+    false,
+    "the ToS fallback is a paid model we would be donating on the tier that promises free",
+  );
+});
+
+test("no rung repeats — a duplicate would read as depth the chain does not have", () => {
+  for (const needsVision of [false, true]) {
+    const chain = getOfficialProviderFallbackModels(FREE_ROUTER_MODEL, false, needsVision) ?? [];
+    assert.equal(new Set(chain).size, chain.length, `duplicate rung with needsVision=${needsVision}`);
+  }
 });
 
 test("a Free turn carrying an image gets its own vision-only chain", () => {

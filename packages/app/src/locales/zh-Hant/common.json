@@ -36,13 +36,17 @@
   },
   "search": {
     "hub": "搜尋世界、角色、故事...",
-    "library": "搜尋庫..."
+    "library": "搜尋庫...",
+    "bundles": "搜尋資源包、作者或功能..."
   },
   "aria": {
     "showSidebar": "顯示側邊欄",
     "hideSidebar": "隱藏側邊欄",
     "closeNav": "關閉導航選單",
-    "openNav": "開啟導航選單"
+    "openNav": "開啟導航選單",
+    "pagination": "分頁",
+    "prevPage": "上一頁",
+    "nextPage": "下一頁"
   },
   "auth": {
     "signInToContinue": "登入以繼續",
@@ -66,7 +70,10 @@
       "sendMessages": "傳送私信",
       "viewSensitiveContent": "查看無限制內容",
       "writeReviews": "撰寫評論"
-    }
+    },
+    "signUpToContinue": "註冊即可繼續",
+    "signUpFree": "免費註冊",
+    "haveAccountSignIn": "已有帳號，登入"
   },
   "hint": {
     "sidebarCollapse": "將滑鼠懸停在左側邊緣以顯示選單"
@@ -207,7 +214,7 @@
     "tipRefunded": "一筆 {{amount}} 的打賞已退款",
     "wechatRenewalReminder": "你的方案即將到期——點選續費",
     "reviewSubmitted": "你的作品「{{worldName}}」已提交稽覈。我們會在 24 小時內通知你。",
-    "reviewApproved": "你的作品「{{worldName}}」已透過稽覈，已在 Discover 上線。",
+    "reviewApproved": "你的作品「{{worldName}}」已通過審核，已在發現頁上線。",
     "reviewRejected": "你的作品「{{worldName}}」需要修改（{{reason}}）。",
     "reviewRejectedWithDetail": "你的作品「{{worldName}}」需要修改（{{reason}}）：{{detail}}",
     "reviewPendingAdmin": "{{author}} 提交了「{{worldName}}」等待稽覈",
@@ -279,7 +286,8 @@
     "giftBonusExpires": "{{amount}} 獎勵蘑菇於 {{date}} 到期",
     "promptPackApproved": "你的提示詞「{{packTitle}}」審核通過，已出現在提示詞廣場",
     "promptPackRejected": "你的提示詞「{{packTitle}}」沒通過審核，原因見 庫 › 提示詞",
-    "worldUnpublishedDefaultName": "「{{worldName}}」因仍使用預設名字已被下架。請改成一個真正的名字後重新發布。"
+    "worldUnpublishedDefaultName": "「{{worldName}}」因仍使用預設名字已被下架。請改成一個真正的名字後重新發布。",
+    "planGiftReceived": "你收到了一份 {{days}} 天的 {{plan}} 會員禮物。"
   },
   "time": {
     "justNow": "剛剛",
@@ -461,7 +469,7 @@
   "languageLabel": "語言",
   "creatorHub": "創作者中心",
   "openingStandalone": "正在開啟獨立創作者站點...",
-  "loadingStudio": "正在載入 Studio...",
+  "loadingStudio": "正在打開編輯器…",
   "friends": {
     "title": "Friends",
     "subtitle": "People you follow who follow you back",
@@ -518,5 +526,28 @@
     "signIn": "登入",
     "createAccount": "建立帳戶",
     "krew": "Krew.io"
-  }
+  },
+  "planAlert": {
+    "cancelsOn": "你的訂閱將於 {{date}} 取消，在此之前仍可使用目前權益。",
+    "downgradesOn": "你的方案將於 {{date}} 降級。",
+    "giftExpiresOn": "你的贈送方案將於 {{date}} 到期。",
+    "dismiss": "關閉"
+  },
+  "studioNotYours": "這個世界不是你的，只能開啟自己建立的卡。",
+  "studioLoadFailed": "這個世界沒能載入。檢查一下網路再試試。",
+  "backToMyWorlds": "我的世界",
+  "userMute": {
+    "until": "禁言至 {{date}}",
+    "permanent": "永久禁言",
+    "help": "禁言期間無法發帖、評論、發布動態或傳送私訊，仍可瀏覽和遊玩故事。"
+  },
+  "communityMutedPermanent": "你已被永久禁言，無法在社群和留言區發言。",
+  "notFound": {
+    "title": "找不到這個頁面",
+    "description": "連結可能寫錯了，或者頁面已經搬走了。",
+    "back": "返回",
+    "home": "回到發現",
+    "library": "回到庫"
+  },
+  "macroYou": "你"
 }

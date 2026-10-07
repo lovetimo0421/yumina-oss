@@ -4,6 +4,8 @@ export interface StateGuardSettings {
   model: string | null;
   /** Server-reported capability; omitted by older/hosted servers. Not a setting. */
   officialModels?: boolean;
+  /** Server-reported: on by platform default (not installed). Only `enabled` is writable. */
+  byDefault?: boolean;
 }
 
 export interface StateValidationAudit {
@@ -11,7 +13,9 @@ export interface StateValidationAudit {
   attemptId: string;
   targetMessageId?: string;
   path: "send" | "regenerate" | "continue";
-  outcome: "validating" | "repairing" | "valid-updates" | "explicit-none" | "not-required" | "unverified" | "failed" | "cancelled" | "stale";
+  /** "failed-open": an on-by-default (not installed) check failed, so the turn
+   * was delivered unguarded, exactly as without the guard. */
+  outcome: "validating" | "repairing" | "valid-updates" | "explicit-none" | "not-required" | "unverified" | "failed" | "failed-open" | "cancelled" | "stale";
   initialOutcome?: string;
   diagnostics: string[];
   declaredCount?: number;

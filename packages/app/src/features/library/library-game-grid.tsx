@@ -447,7 +447,7 @@ export function LibraryGameGrid({
             <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
               <Search size={48} className="mb-4 opacity-20" />
               <p className="text-sm">
-                No results for &ldquo;{searchQuery}&rdquo; - try clearing your search.
+                {t("games.noResults", { query: searchQuery })}
               </p>
             </div>
           ) : (

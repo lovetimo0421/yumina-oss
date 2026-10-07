@@ -1,5 +1,6 @@
 import { CheckSquare, ChevronDown, Copy, Download, FolderInput, Link, Trash2, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 interface BulkActionsBarProps {
@@ -12,6 +13,7 @@ interface BulkActionsBarProps {
   onDelete: () => void;
   disableDelete?: boolean;
   selectLabel?: string;
+  selectClassName?: string;
   onMove?: () => void;
   onDownload?: () => void;
   onCopyRefs?: () => void;
@@ -29,6 +31,7 @@ export function BulkActionsBar({
   onDelete,
   disableDelete,
   selectLabel,
+  selectClassName,
   onMove,
   onDownload,
   onCopyRefs,
@@ -43,7 +46,7 @@ export function BulkActionsBar({
       <button
         onClick={onToggle}
         disabled={totalCount === 0}
-        className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
+        className={cn("flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30", selectClassName)}
       >
         <CheckSquare size={14} strokeWidth={2} />
         {selectLabel ?? t("bulk.select")}

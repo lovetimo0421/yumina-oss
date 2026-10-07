@@ -4,7 +4,7 @@ import type {
   WorldEntry,
   Directive,
 } from "../types/index.js";
-import { expandMacros } from "./macros.js";
+import { expandMacros, primaryCharacterEntry } from "./macros.js";
 import { estimateTokens } from "./token-utils.js";
 import { filterEntriesByActiveWorldbooks } from "../lorebook/worldbook.js";
 import { filterEntriesByActiveLoreSlots } from "../lorebook/lore-slot.js";
@@ -12,6 +12,8 @@ import { isVariableBoundEntry } from "../lorebook/entry-triggers.js";
 import { isAiReadable, isAiWritable, isContinuityOwned, isSceneImageJudgeOn } from "../state/variable-activation.js";
 import { getAiAudioTracks } from "../audio/ai-audio.js";
 import { getAiSceneImages, buildSceneImagePromptBlock, resolveSceneImageDirectives } from "../parser/scene-image-directives.js";
+import { buildBackgroundPromptBlock } from "../parser/background-directives.js";
+import { aiSelectableBackgrounds } from "../world/background.js";
 import { buildSpeakerFormatBlock } from "./speaker-tag.js";
 
 /** State-free compatibility check for callers without a runtime snapshot. */
@@ -20,8 +22,8 @@ function isAiExposedStatic(v: { internal?: boolean; aiAccess?: "write" | "read" 
 }
 
 /** Static check: may AI directives ever write this variable? */
-function isAiWritableStatic(v: { internal?: boolean; aiAccess?: "write" | "read" | "none" }): boolean {
-  return !v.internal && (v.aiAccess ?? "write") === "write";
+function isAiWritableStatic(v: { internal?: boolean; formula?: string; aiAccess?: "write" | "read" | "none" }): boolean {
+  return !v.internal && !v.formula && (v.aiAccess ?? "write") === "write";
 }
 
 export interface ChatMessage {
@@ -188,13 +190,10 @@ export class PromptBuilder {
     // `[image: img1]` in it gets the same expansion an AI reply gets — the
     // renderer never sees a handle it cannot resolve.
     const images = world.sceneImages ?? [];
-    return world.entries
-      .filter((e) => e.role === "greeting" && e.enabled)
-      .sort(entrySort)
-      .map((e) => {
-        const text = this.interpolate(e.content, world, state);
-        return images.length > 0 ? resolveSceneImageDirectives(text, images).text : text;
-      });
+    return this.buildGreetingEntries(world).map((e) => {
+      const text = this.interpolate(e.content, world, state);
+      return images.length > 0 ? resolveSceneImageDirectives(text, images).text : text;
+    });
   }
 
   /** The ordered greeting ENTRIES (same filter + entrySort order as
@@ -202,8 +201,10 @@ export class PromptBuilder {
    *  initialVariables for "scenario presets" — aligned index-for-index with
    *  the strings buildGreetings returns. */
   buildGreetingEntries(world: WorldDefinition): WorldEntry[] {
+    // Templates seed an empty greeting (its guidance lives in the editor
+    // placeholder). Empty means "no opening yet" — never a blank narrator turn.
     return world.entries
-      .filter((e) => e.role === "greeting" && e.enabled)
+      .filter((e) => e.role === "greeting" && e.enabled && e.content.trim().length > 0)
       .sort(entrySort);
   }
 
@@ -271,11 +272,14 @@ export class PromptBuilder {
     // reliable placement.
     const sceneImages = isSceneImageJudgeOn(world) ? [] : getAiSceneImages(world.sceneImages ?? [], opts?.activeGreetingId);
     const hasSceneImages = sceneImages.length > 0;
+    // Same scoping rule as scene images: fixed for the session, so cacheable.
+    const backgrounds = aiSelectableBackgrounds(world, opts?.activeGreetingId);
+    const hasBackgrounds = backgrounds.length > 0;
     // Several characters with portraits: the AI names the speaker up front so
     // the chat can show the right face before the prose streams in.
     const speakerBlock = buildSpeakerFormatBlock(world);
 
-    if (!hasVariables && !hasAudio && !hasSceneImages && !speakerBlock) return "";
+    if (!hasVariables && !hasAudio && !hasSceneImages && !hasBackgrounds && !speakerBlock) return "";
 
     const parts: string[] = [];
     if (speakerBlock) parts.push(speakerBlock);
@@ -393,7 +397,7 @@ export class PromptBuilder {
     // actually have a json variable, so non-json cards pay zero extra tokens.
     // Prose only: no literal bracket example (see method doc).
     const hasJsonVar = world.variables.some(
-      (v) => v.type === "json" && isAiReadable(v, state)
+      (v) => v.type === "json" && isAiReadable(v, state, world.worldbooks)
     );
     const jsonClause = hasJsonVar
       ? " For JSON variables, target the specific changed sub-field with a dot-path rather than rewriting the whole object."
@@ -444,7 +448,7 @@ export class PromptBuilder {
       const variable = world.variables.find((v) => v.id === rootId);
       // Same visibility gate as <game-state>: a change the AI can't see the
       // variable for would just be confusing bookkeeping noise.
-      if (!variable || !isAiReadable(variable, state)) continue;
+      if (!variable || !isAiReadable(variable, state, world.worldbooks)) continue;
       const prev = byId.get(rootId);
       byId.set(rootId, {
         oldValue: prev ? prev.oldValue : ch.oldValue,
@@ -686,10 +690,7 @@ export class PromptBuilder {
 
   /** Resolve the character name from world entries */
   private resolveCharName(world: WorldDefinition): string {
-    const charEntry = world.entries.find(
-      (e) => e.role === "character" && e.enabled
-    );
-    return charEntry?.name || world.name || "Character";
+    return primaryCharacterEntry(world)?.name || world.name || "Character";
   }
 
   /**
@@ -955,7 +956,7 @@ export class PromptBuilder {
     return world.variables
       // Full AI-visibility gate: internal, aiAccess "none" and currently
       // inactive variables (enable gate / conditions / greeting) never render.
-      .filter((v) => isAiReadable(v, state))
+      .filter((v) => isAiReadable(v, state, world.worldbooks))
       .map((v) => {
         const value = state.variables[v.id] ?? v.defaultValue;
         // Sanitize before injecting: strips inline base64 images / oversized blobs
@@ -982,7 +983,7 @@ export class PromptBuilder {
     for (const v of world.variables) {
       // Runtime prompts expose rules only for currently readable variables.
       // Design-time/state-free callers preserve their broader reference.
-      if (!(state ? isAiReadable(v, state) : isAiExposedStatic(v))) continue;
+      if (!(state ? isAiReadable(v, state, world.worldbooks) : isAiExposedStatic(v))) continue;
       const rules = v.behaviorRules || v.updateHints;
       if (rules) {
         // Compact header: [id | display-name] or just [id] if they match
@@ -1119,6 +1120,19 @@ export class PromptBuilder {
       });
     }
 
+    // Background instructions — counted separately so the breakdown says which
+    // of the two picture systems is costing the author tokens.
+    const promptBackgrounds = aiSelectableBackgrounds(world, state.activeGreetingId);
+    if (promptBackgrounds.length > 0) {
+      const bgText = buildBackgroundPromptBlock(promptBackgrounds);
+      blocks.push({
+        label: "Background Instructions",
+        category: "background-instructions",
+        tokens: estimateTokens(bgText),
+        chars: bgText.length,
+      });
+    }
+
     const totalTokens = blocks.reduce((sum, b) => sum + b.tokens, 0);
     const totalChars = blocks.reduce((sum, b) => sum + b.chars, 0);
 
@@ -1128,7 +1142,7 @@ export class PromptBuilder {
 
 export interface PromptCostBlock {
   label: string;
-  category: "entry" | "variable-summary" | "format-instructions" | "audio-instructions" | "scene-image-instructions";
+  category: "entry" | "variable-summary" | "format-instructions" | "audio-instructions" | "scene-image-instructions" | "background-instructions";
   tokens: number;
   chars: number;
 }

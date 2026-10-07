@@ -1,5 +1,5 @@
 import { isValidTtsVoice } from "@yumina/shared";
-import { resolveSpeaker, type SpeakerEntry } from "@/../sandbox/chat/speaker";
+import { aiFrameIds, resolveSpeaker, type SpeakerEntry } from "@/../sandbox/chat/speaker";
 
 /**
  * The voice a card asks for a reply to be read in.
@@ -21,12 +21,13 @@ import { resolveSpeaker, type SpeakerEntry } from "@/../sandbox/chat/speaker";
  */
 export interface CardVoiceWorld {
   entries?: ReadonlyArray<SpeakerEntry & { voice?: string | null }> | null;
+  worldbooks?: ReadonlyArray<{ id: string; station?: unknown }> | null;
   settings?: { narratorVoice?: string | null } | null;
 }
 
 export function resolveCardVoice(world: CardVoiceWorld | null | undefined, text: string): string | undefined {
   if (!world) return undefined;
-  const speaker = resolveSpeaker(world.entries ?? [], text);
+  const speaker = resolveSpeaker(world.entries ?? [], text, aiFrameIds(world.worldbooks));
   if (speaker?.voice && isValidTtsVoice(speaker.voice)) return speaker.voice;
   const narrator = world.settings?.narratorVoice;
   return narrator && isValidTtsVoice(narrator) ? narrator : undefined;

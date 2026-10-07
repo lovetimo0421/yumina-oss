@@ -47,14 +47,20 @@ interface UiState {
   /** In-play "share this playthrough" overlay. Opened from the composer "+"
    *  menu (sandbox → world-renderer → this store). Transient — not persisted. */
   sharePlaythroughOpen: boolean;
-  /** In-play scene-image gallery. Opened from the play header or the
-   *  fullscreen floating bar. Transient — not persisted. */
+  /** In-play scene-image gallery. Opened from the play header, the fullscreen
+   *  floating bar, or a card via the bridge. Transient — not persisted. */
   sceneGalleryOpen: boolean;
   /** In-play "support the creator" overlay. Opened by a card calling
    *  api.openSupport() (sandbox → world-renderer → this store), so a card can
    *  put a tip entry in its own UI instead of relying on the play header —
    *  which fullscreen custom-UI cards cover up. Transient — not persisted. */
   tipModalOpen: boolean;
+  /** The Studio's player view has taken the whole viewport. The shell's
+   *  sidebar sits at the root stacking context (z 30) while the Studio lives
+   *  inside `app-shell-content` (z 10), so no z-index of the Studio's own can
+   *  put the player view over the rail — the rail simply has to go, the way
+   *  it does for theater mode on a play page. Transient — not persisted. */
+  studioTakeover: boolean;
   guestContentLevel: ContentLevel;
   guestBlurSensitive: boolean;
   setPlayZoomPercent: (percent: number) => void;
@@ -80,6 +86,7 @@ interface UiState {
   closeSceneGallery: () => void;
   openTipModal: () => void;
   closeTipModal: () => void;
+  setStudioTakeover: (on: boolean) => void;
   setGuestContentLevel: (level: ContentLevel) => void;
   setGuestBlurSensitive: (blur: boolean) => void;
 }
@@ -131,6 +138,7 @@ export const useUiStore = create<UiState>()(
       sharePlaythroughOpen: false,
       sceneGalleryOpen: false,
       tipModalOpen: false,
+      studioTakeover: false,
       guestContentLevel: "safe" satisfies ContentLevel as ContentLevel,
       guestBlurSensitive: true,
       setPlayZoomPercent: (percent) => set({ playZoomPercent: clampPlayZoom(percent) }),
@@ -160,6 +168,7 @@ export const useUiStore = create<UiState>()(
       closeSceneGallery: () => set({ sceneGalleryOpen: false }),
       openTipModal: () => set({ tipModalOpen: true }),
       closeTipModal: () => set({ tipModalOpen: false }),
+      setStudioTakeover: (on) => set((s) => (s.studioTakeover === on ? s : { studioTakeover: on })),
       setGuestContentLevel: (level) => set({ guestContentLevel: level }),
       setGuestBlurSensitive: (blur) => set({ guestBlurSensitive: blur }),
       recordRecentPlayedWorld: (world) =>
@@ -179,7 +188,7 @@ export const useUiStore = create<UiState>()(
       name: "yumina-ui",
       // Don't persist the transient persona-manager overlay flag, or it would
       // auto-reopen on the next page load.
-      partialize: ({ personaManagerOpen: _omit, sharePlaythroughOpen: _omit2, tipModalOpen: _omit3, sceneGalleryOpen: _omit4, ...rest }) => rest,
+      partialize: ({ personaManagerOpen: _omit, sharePlaythroughOpen: _omit2, tipModalOpen: _omit3, studioTakeover: _omit4, sceneGalleryOpen: _omit5, ...rest }) => rest,
       // Migrate the legacy "r18" guestContentLevel value (persisted before the
       // sensitive-content rename) so old browser caches don't keep round-tripping it.
       // Also drop the retired sidebar-collapse keys so old persisted state can't

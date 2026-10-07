@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { refreshMessageWindow } from "./refresh-message-window";
+import { reconcileSessionStateConfirmation } from "../../lib/session-state-confirmation";
 
 const rows = Array.from({ length: 650 }, (_, i) => ({
   id: `m${String(i).padStart(4, "0")}`, createdAt: new Date(1000 * i).toISOString(), content: `row ${i}`,
@@ -79,4 +80,116 @@ test("same-millisecond turns with different microseconds retain server order reg
   assert.equal(calls, 2);
   assert.deepEqual(result?.messages, ordered);
   assert.equal(result?.hasEarlierMessages, false);
+});
+
+const checkpointMessages = () => [{
+  id: "opening", createdAt: "2026-10-05T20:00:00.000Z", content: "Synthetic opening",
+  metadata: { usage: { input: 12, output: 8 }, tags: ["opening", "room"], note: null as string | null },
+}];
+function checkpointSnapshot(messages: readonly unknown[]) {
+  const gameState = { room: { rev: 1 } };
+  const before = { session: { id: "room", state: { variables: gameState, turnCount: 0 } }, gameState, messages };
+  const requested = { room: { rev: 2 } };
+  return { before, requested, confirmed: { ...before.session.state, variables: requested } };
+}
+function jsonCopy<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value));
+}
+
+test("unchanged JSON foreground refresh accepts a pending checkpoint PATCH acknowledgement", async () => {
+  const messages = checkpointMessages();
+  const { before, requested, confirmed } = checkpointSnapshot(messages);
+  let current = before;
+  let acknowledge!: () => void;
+  const response = new Promise<void>(resolve => { acknowledge = resolve; });
+  const pending = response.then(() => reconcileSessionStateConfirmation("room", before, current, requested, confirmed));
+  const refreshed = await refreshMessageWindow(messages, async () => ({ data: jsonCopy(messages), meta: { hasMore: false } }));
+  assert.ok(refreshed);
+  current = { ...current, messages: refreshed.messages };
+  acknowledge();
+  assert.equal(await pending, confirmed);
+  assert.equal(refreshed.messages, messages);
+  assert.equal(refreshed.messages[0], messages[0]);
+});
+
+test("unchanged multi-page JSON refresh retains history identity and reports pagination metadata", async () => {
+  const existing = rows.slice(200);
+  const source = loader(jsonCopy(rows));
+  const refreshed = await refreshMessageWindow(existing, source.load);
+  assert.equal(source.calls.length, 3);
+  assert.equal(refreshed?.messages, existing);
+  assert.equal(refreshed?.hasEarlierMessages, true);
+
+  const allLoaded = rows.slice();
+  const complete = await refreshMessageWindow(allLoaded, loader(jsonCopy(rows)).load);
+  assert.equal(complete?.messages, allLoaded);
+  assert.equal(complete?.hasEarlierMessages, false);
+});
+
+test("JSON object insertion order does not invalidate unchanged message history", async () => {
+  const messages = checkpointMessages();
+  const original = messages[0]!;
+  const reordered = [{
+    metadata: { note: null, tags: ["opening", "room"], usage: { output: 8, input: 12 } },
+    content: original.content, createdAt: original.createdAt, id: original.id,
+  }];
+  const refreshed = await refreshMessageWindow(messages, async () => ({ data: jsonCopy(reordered) }));
+  assert.equal(refreshed?.messages, messages);
+});
+
+test("unchanged readonly history retains identity while pagination metadata changes", async () => {
+  const messages = Object.freeze(checkpointMessages());
+  for (const hasMore of [true, false]) {
+    const refreshed = await refreshMessageWindow(messages, async () => ({ data: jsonCopy([...messages]), meta: { hasMore } }));
+    assert.equal(refreshed?.messages, messages);
+    assert.equal(refreshed?.hasEarlierMessages, hasMore);
+  }
+});
+
+test("authoritative message content, metadata and history changes invalidate a pending checkpoint ACK", async () => {
+  const messages = checkpointMessages();
+  const { before, requested, confirmed } = checkpointSnapshot(messages);
+  const changes = [
+    [{ ...messages[0]!, content: "Edited opening" }],
+    [{ ...messages[0]!, metadata: { ...messages[0]!.metadata, usage: { input: 12, output: 9 } } }],
+    [{ ...messages[0]!, metadata: { ...messages[0]!.metadata, tags: ["room", "opening"] } }],
+    [{ ...messages[0]!, metadata: { ...messages[0]!.metadata, tags: ["opening"] } }],
+    [{ ...messages[0]!, metadata: { ...messages[0]!.metadata, note: "Changed" } }],
+    [],
+    [...messages, { ...messages[0]!, id: "new-turn", createdAt: "2026-10-05T20:00:01.000Z" }],
+  ];
+  for (const server of changes) {
+    const refreshed = await refreshMessageWindow(messages, async () => ({ data: jsonCopy(server) }));
+    assert.ok(refreshed);
+    assert.deepEqual(refreshed.messages, server);
+    assert.notEqual(refreshed.messages, messages);
+    assert.equal(reconcileSessionStateConfirmation("room", before, { ...before, messages: refreshed.messages }, requested, confirmed), null);
+  }
+});
+
+test("new or removed JSON object keys remain authoritative even when key counts match", async () => {
+  const extra: Record<string, boolean> = { left: true };
+  const messages = checkpointMessages().map(message => ({ ...message, extra }));
+  const server = messages.map(message => ({ ...message, extra: { right: true } }));
+  const refreshed = await refreshMessageWindow(messages, async () => ({ data: jsonCopy(server) }));
+  assert.deepEqual(refreshed?.messages, server);
+  assert.notEqual(refreshed?.messages, messages);
+});
+
+test("unchanged refresh preserves session switch, rewind, restore and newer state protections", async () => {
+  const messages = checkpointMessages();
+  const { before, requested, confirmed } = checkpointSnapshot(messages);
+  const refreshed = await refreshMessageWindow(messages, async () => ({ data: jsonCopy(messages) }));
+  assert.ok(refreshed);
+  const current = { ...before, messages: refreshed.messages };
+  const competingSnapshots = [
+    { ...current, session: { ...before.session, id: "other" } },
+    { ...current, messages: [] },
+    { ...current, messages: jsonCopy(messages) },
+    { ...current, session: { ...before.session, state: jsonCopy(before.session.state) } },
+    { ...current, gameState: { room: { rev: 3 } } },
+  ];
+  for (const competing of competingSnapshots) {
+    assert.equal(reconcileSessionStateConfirmation("room", before, competing, requested, confirmed), null);
+  }
 });

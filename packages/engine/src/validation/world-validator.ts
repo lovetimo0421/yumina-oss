@@ -20,6 +20,15 @@ export interface WorldWarning {
 export function validateWorld(world: WorldDefinition): WorldWarning[] {
   const warnings: WorldWarning[] = [];
   const variableIds = new Set(world.variables.map((v) => v.id));
+  const jsonVariableIds = new Set(world.variables.filter((v) => v.type === "json").map((v) => v.id));
+  // Conditions use getByPath: exact flat IDs win, otherwise traversal starts
+  // at the first dot segment. JSON defaults do not constrain dynamic children.
+  // Bracket notation and longest dotted-prefix matching are not path syntax.
+  const conditionVariableId = (path: string): string | undefined => {
+    if (variableIds.has(path)) return path;
+    const root = path.split(".")[0]!;
+    return jsonVariableIds.has(root) ? root : undefined;
+  };
 
   // Track which variables are referenced (for unused-variable check)
   const referencedVarIds = new Set<string>();
@@ -27,7 +36,8 @@ export function validateWorld(world: WorldDefinition): WorldWarning[] {
   // 1. Check rules for orphaned variable references
   for (const rule of world.rules) {
     for (const cond of rule.conditions) {
-      if (!variableIds.has(cond.variableId)) {
+      const variableId = conditionVariableId(cond.variableId);
+      if (variableId === undefined) {
         warnings.push({
           type: "rule-refs-deleted-var",
           severity: "warning",
@@ -36,7 +46,7 @@ export function validateWorld(world: WorldDefinition): WorldWarning[] {
           entityName: rule.name,
         });
       } else {
-        referencedVarIds.add(cond.variableId);
+        referencedVarIds.add(variableId);
       }
     }
     // Check actions for variable references (Rules 2.0)
@@ -83,7 +93,8 @@ export function validateWorld(world: WorldDefinition): WorldWarning[] {
   if (world.uiBlueprint) {
     for (const trigger of world.uiBlueprint.triggers ?? []) {
       for (const cond of trigger.conditions ?? []) {
-        if (!variableIds.has(cond.variableId)) {
+        const variableId = conditionVariableId(cond.variableId);
+        if (variableId === undefined) {
           warnings.push({
             type: "orphaned-var-ref",
             severity: "warning",
@@ -92,7 +103,7 @@ export function validateWorld(world: WorldDefinition): WorldWarning[] {
             entityName: trigger.name ?? trigger.id,
           });
         } else {
-          referencedVarIds.add(cond.variableId);
+          referencedVarIds.add(variableId);
         }
       }
     }
@@ -146,7 +157,8 @@ export function validateWorld(world: WorldDefinition): WorldWarning[] {
     // Check entry conditions for orphaned variable refs
     if (entry.conditions) {
       for (const cond of entry.conditions) {
-        if (!variableIds.has(cond.variableId)) {
+        const variableId = conditionVariableId(cond.variableId);
+        if (variableId === undefined) {
           warnings.push({
             type: "orphaned-var-ref",
             severity: "warning",
@@ -155,7 +167,7 @@ export function validateWorld(world: WorldDefinition): WorldWarning[] {
             entityName: entry.name,
           });
         } else {
-          referencedVarIds.add(cond.variableId);
+          referencedVarIds.add(variableId);
         }
       }
     }

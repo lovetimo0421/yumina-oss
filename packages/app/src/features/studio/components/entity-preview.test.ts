@@ -15,7 +15,8 @@ let EntityPreview: ComponentType<{ toolCall: ToolCall }>;
 const i18n = createInstance();
 
 before(async () => {
-  await i18n.init({ lng: "en", resources: { en: { editor: { studio: { entity: {
+  // Tool names render through studio.entity.tool.<name>; the fixture keeps the raw name visible.
+  await i18n.init({ lng: "en", parseMissingKeyHandler: (key: string) => key.replace(/^studio\.entity\.tool\./, ""), resources: { en: { editor: { studio: { entity: {
     invalidArgs: "Invalid arguments for {{name}}", write: "Write", viewFull: "View full content",
   } } } } } });
   server = await createServer({
@@ -28,7 +29,8 @@ before(async () => {
       name: "preview-editor-fixture",
       resolveId(id) { if (id === "virtual:preview-editor") return "\0preview-editor"; },
       load(id) {
-        if (id === "\0preview-editor") return `export const useEditorStore = { getState: () => ({ worldDraft: { entries: [], variables: [], rules: [], reactions: [], audioTracks: [] } }) };`;
+        if (id === "\0preview-editor") return `const state = { worldDraft: { entries: [], variables: [{ id: "inventory", name: "inventory", type: "json", defaultValue: {} }], rules: [], reactions: [], audioTracks: [] } };
+export const useEditorStore = Object.assign((selector) => selector(state), { getState: () => state });`;
       },
     }],
     optimizeDeps: { noDiscovery: true },

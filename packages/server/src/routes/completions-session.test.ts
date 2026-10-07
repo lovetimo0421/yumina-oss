@@ -31,13 +31,37 @@ test("session side completions share narrative context without changing gameplay
     entry("EXAMPLE", { role: "example", content: "<START>\n{{user}}: example question\n{{char}}: example answer" }),
     entry("DEPTH", { section: "chat-history", depth: 1, apiRole: "assistant" }),
     entry("POST", { section: "post-history", apiRole: "user" }),
-  ], worldbooks: [{ id: "closed", name: "Closed", order: 0, activation: { mode: "conditions", conditions: [{ variableId: "score", operator: "eq", value: 99 }], conditionLogic: "all" } }], variables: [], rules: [], reactions: [], components: [], audioTracks: [], customUI: [], settings: { maxTokens: 1800, temperature: 0.7, topP: 0.8 } } as unknown as WorldDefinition);
+    entry("ROLE_E", { worldbookId: "actor-e", role: "character", name: "Estragon", content: "ROLE_E {{char}}" }),
+    entry("ROLE_V", { worldbookId: "actor-v", role: "character", name: "Vladimir", content: "ROLE_V {{char}}" }),
+    entry("ROLE_V_EXAMPLE", { worldbookId: "actor-v", role: "example", content: "<START>\n{{user}}: ROLE_V_EXAMPLE\n{{char}}: ROLE_V_ANSWER" }),
+    entry("ROLE_V_DEPTH", { worldbookId: "actor-v", section: "chat-history", depth: 1 }),
+    entry("ROLE_V_POST", { worldbookId: "actor-v", section: "post-history" }),
+    entry("ROLE_E_CLOSED_ENTRY", { worldbookId: "actor-e", conditions: [{ variableId: "score", operator: "eq", value: 99 }] }),
+    entry("DISABLED_BOOK", { worldbookId: "disabled-book" }),
+    entry("HIDDEN_MACROS", { content: "HIDDEN_MACROS {{private_thoughts}} / {{internal_notes}} / {{sleeping_value}}" }),
+    entry("HIDDEN_CONDITION_PASSED", { conditions: [{ variableId: "internal_notes", operator: "eq", value: "INTERNAL_CANARY" }] }),
+    entry("PUBLIC_SYSTEM", { content: "PUBLIC_SYSTEM {{public_active}} / {{public_inactive}}" }),
+    entry("PUBLIC_DEPTH", { section: "chat-history", depth: 1, content: "PUBLIC_DEPTH {{public_active}} / {{public_inactive}}" }),
+    entry("PUBLIC_POST", { section: "post-history", content: "PUBLIC_POST {{public_active}} / {{public_inactive}}" }),
+    entry("PUBLIC_EXAMPLE", { role: "example", content: "<START>\n{{user}}: PUBLIC_EXAMPLE {{public_active}}\n{{char}}: {{public_inactive}}" }),
+  ], worldbooks: [
+    { id: "closed", name: "Closed", order: 0, activation: { mode: "conditions", conditions: [{ variableId: "score", operator: "eq", value: 99 }], conditionLogic: "all" } },
+    { id: "actor-e", name: "Estragon", order: 1, activation: { mode: "conditions", conditions: [{ variableId: "internal_notes", operator: "eq", value: "INTERNAL_CANARY" }], conditionLogic: "all" } },
+    { id: "actor-v", name: "Vladimir", order: 2, activation: { mode: "always" } },
+    { id: "disabled-book", name: "Disabled", order: 3, enabled: false, activation: { mode: "always" } },
+  ], variables: [
+    { id: "private_thoughts", name: "Private", type: "json", defaultValue: [], aiAccess: "none" },
+    { id: "internal_notes", name: "Internal", type: "string", defaultValue: "", internal: true },
+    { id: "sleeping_value", name: "Inactive", type: "string", defaultValue: "", enabled: false },
+    { id: "public_active", name: "Visible dependent", type: "string", defaultValue: "PUBLIC_CANARY", aiAccess: "read", activation: { mode: "conditions", conditions: [{ variableId: "internal_notes", operator: "eq", value: "INTERNAL_CANARY" }], conditionLogic: "all" } },
+    { id: "public_inactive", name: "Hidden dependent", type: "string", defaultValue: "CLOSED_PUBLIC_CANARY", aiAccess: "read", activation: { mode: "conditions", conditions: [{ variableId: "internal_notes", operator: "eq", value: "" }], conditionLogic: "all" } },
+  ], rules: [], reactions: [], components: [], audioTracks: [], customUI: [], settings: { maxTokens: 1800, temperature: 0.7, topP: 0.8 } } as unknown as WorldDefinition);
   await db.insert(worlds).values({ id: worldId, creatorId: userId, name: schema.name, status: "draft", schema: schema as unknown as Record<string, unknown> });
   const [personaA, personaB] = await db.insert(userPersonas).values([
     { userId, name: "Persona A", isActive: true, backstory: "A_STORY", note: "PRIVATE_A" },
     { userId, name: "Persona B", isActive: false, backstory: "B_STORY", note: "PRIVATE_B" },
   ]).returning();
-  const savedState = { worldId, variables: { score: 7 }, turnCount: 11, metadata: { personaName: "STALE", personaBackstory: "STALE_STORY" } };
+  const savedState = { worldId, variables: { score: 7, private_thoughts: ["PRIVATE_THOUGHT_CANARY"], internal_notes: "INTERNAL_CANARY", sleeping_value: "INACTIVE_CANARY" }, turnCount: 11, metadata: { personaName: "STALE", personaBackstory: "STALE_STORY" } };
   const [session] = await db.insert(playSessions).values({ userId, worldId, state: savedState, sessionPersona: captureSessionPersona(personaB!) }).returning();
   const [folder] = await db.insert(promptFolders).values({ userId, name: "Disabled", enabled: false }).returning();
   await db.insert(userPrompts).values([
@@ -103,6 +127,73 @@ test("session side completions share narrative context without changing gameplay
     assert.match(text(result.params), /DRAWING 7/);
     assert.match(text(result.params), /ACTIVE_CONDITION/);
     assert.doesNotMatch(text(result.params), /INACTIVE_CONDITION|INACTIVE_BOOK|DISABLED/);
+  });
+  await t.test("each call selects native actor lore in every prompt zone while retaining core and player preferences", async () => {
+    for (const [id, own, other, includeLorebook] of [["actor-e", "ROLE_E Estragon", "ROLE_V", "matched"], ["actor-v", "ROLE_V Vladimir", "ROLE_E", "all"]]) {
+      const result = await request({ context: "session", includeLorebook, worldbookIds: [id] });
+      assert.equal(result.status, 200);
+      const prompt = text(result.params);
+      for (const value of [own!, "CORE Persona A 7", "PREFERENCE Persona A", "A_STORY", "CLAUDE_ONLY"]) assert.ok(prompt.includes(value), value);
+      assert.ok(!prompt.includes(other!), prompt);
+      assert.doesNotMatch(prompt, /ROLE_E_CLOSED_ENTRY|INACTIVE_BOOK|DISABLED_BOOK/);
+    }
+    const unscoped = await request({ context: "session" });
+    assert.match(text(unscoped.params), /ROLE_E/);
+    assert.match(text(unscoped.params), /ROLE_V/);
+  });
+  await t.test("empty scope is core only and selecting an inactive book does not activate it", async () => {
+    for (const worldbookIds of [[], ["closed", "disabled-book"]]) {
+      const result = await request({ context: "session", includeLorebook: "all", worldbookIds });
+      assert.equal(result.status, 200);
+      assert.match(text(result.params), /CORE Persona A 7/);
+      assert.doesNotMatch(text(result.params), /ROLE_E|ROLE_V|INACTIVE_BOOK|DISABLED_BOOK/);
+    }
+  });
+  await t.test("private or inactive saved variables cannot leak through native lore macros", async () => {
+    const result = await request({ context: "session", worldbookIds: ["actor-e"] });
+    assert.equal(result.status, 200);
+    assert.match(text(result.params), /HIDDEN_MACROS/);
+    assert.doesNotMatch(text(result.params), /PRIVATE_THOUGHT_CANARY|INTERNAL_CANARY|INACTIVE_CANARY/);
+    assert.match(text(result.params), /ACTIVE_CONDITION/);
+    assert.match(text(result.params), /HIDDEN_CONDITION_PASSED/);
+    assert.match(text(result.params), /CORE Persona A 7/);
+  });
+  await t.test("hidden values retain their real activation semantics for public variables in every prompt zone", async () => {
+    const result = await request({ context: "session", worldbookIds: ["actor-e"] });
+    assert.equal(result.status, 200);
+    const prompt = text(result.params);
+    for (const zone of ["SYSTEM", "DEPTH", "POST", "EXAMPLE"]) assert.ok(prompt.includes(`PUBLIC_${zone} PUBLIC_CANARY`), zone);
+    assert.match(prompt, /ROLE_E Estragon/);
+    assert.match(prompt, /HIDDEN_CONDITION_PASSED/);
+    assert.doesNotMatch(prompt, /CLOSED_PUBLIC_CANARY|PRIVATE_THOUGHT_CANARY|INTERNAL_CANARY/);
+  });
+  await t.test("upstream conversation identity isolates book sets and core-only calls while remaining stable", async () => {
+    const conversation = async (extra: Record<string, unknown>) => {
+      const result = await request({ context: "session", ...extra });
+      assert.equal(result.status, 200);
+      assert.ok(result.params.conversationId);
+      return result.params.conversationId;
+    };
+    const main = await conversation({});
+    const estragon = await conversation({ worldbookIds: ["actor-e"] });
+    const vladimir = await conversation({ worldbookIds: ["actor-v"] });
+    const core = await conversation({ worldbookIds: [] });
+    const both = await conversation({ worldbookIds: ["actor-e", "actor-v"] });
+    assert.equal(main, `play:${session!.id}`);
+    assert.equal((await request()).params.conversationId, main);
+    assert.equal(new Set([main, estragon, vladimir, core, both]).size, 5);
+    assert.equal(await conversation({ worldbookIds: ["actor-e"] }), estragon);
+    assert.equal(await conversation({ worldbookIds: [] }), core);
+    assert.equal(await conversation({ worldbookIds: ["actor-v", "actor-e"] }), both);
+    assert.match(estragon, /:side-books:[a-f0-9]{64}$/);
+  });
+  await t.test("invalid or unknown book scopes reject before inference instead of falling back to all lore", async () => {
+    const count = observed.length;
+    const invalid = [null, "actor-e", [1], [""], ["actor-e", "actor-e"], ["missing"], ["x".repeat(129)], Array.from({ length: 33 }, (_, i) => `book-${i}`)];
+    for (const worldbookIds of invalid) assert.equal((await request({ context: "session", worldbookIds })).status, 400, JSON.stringify(worldbookIds));
+    assert.equal((await request({ worldbookIds: ["actor-e"] })).status, 400);
+    assert.equal((await request({ context: "session", includeLorebook: false, worldbookIds: ["missing"] })).status, 400);
+    assert.equal(observed.length, count);
   });
   await t.test("locks persona by live ID and clears stale description for explicit no-persona", async () => {
     await db.update(playSessions).set({ personaLocked: true }).where(eq(playSessions.id, session!.id));

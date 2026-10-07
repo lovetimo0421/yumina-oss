@@ -141,7 +141,7 @@ function ExtensionPreviewContent({
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center overflow-y-auto overscroll-contain px-3 py-[calc(env(safe-area-inset-top,0px)+2.5rem)] md:p-4">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="absolute inset-0 modal-backdrop" onClick={onClose} />
 
       <div
         ref={modalRef}

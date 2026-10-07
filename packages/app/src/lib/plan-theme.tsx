@@ -41,6 +41,11 @@ export function fmt(n: number): string {
   return n.toLocaleString();
 }
 
+/** Full, locale-aware amount for balances shown in detailed billing surfaces. */
+export function fmtExact(n: number): string {
+  return n.toLocaleString();
+}
+
 export function daysUntil(iso: string | null): number | null {
   if (!iso) return null;
   const ms = new Date(iso).getTime() - Date.now();

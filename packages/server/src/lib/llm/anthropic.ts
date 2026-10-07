@@ -90,6 +90,9 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   async *generateStream(params: GenerateParams): AsyncIterable<StreamChunk> {
+    if (params.responseFormat?.type === "json_schema") {
+      throw new Error("This provider does not support JSON Schema side completions.");
+    }
     // Non-streaming branch: see OpenRouterProvider for rationale.
     if (params.stream === false) {
       yield* this.generateNonStream(params);

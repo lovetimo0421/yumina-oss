@@ -7,6 +7,7 @@ import {
   type ChannelDataMap,
   type SandboxMode,
   type VoicePlaybackFrame,
+  type VoiceEvent,
 } from "../../../sandbox/protocol";
 import type { StateChannel } from "@yumina/engine";
 import { loadTranscriptPosition, saveTranscriptPosition } from "../../lib/transcript-position-storage";
@@ -69,6 +70,12 @@ export class SandboxBridge {
   private onPlayInteraction: () => void;
   private boundListener: (event: MessageEvent) => void;
   private transcriptScope: { accountId: string; sessionId: string } | null = null;
+  private voiceSessionId = "";
+  private voiceReadOnly = true;
+  private voiceAvailable = false;
+  private voiceMode: SandboxMode = "session";
+  private mediaSuspended = false;
+  private pendingVoiceFrame: number | null = null;
 
   constructor(opts: {
     onApiCall: ApiHandler;
@@ -138,6 +145,7 @@ export class SandboxBridge {
     compileError?: string,
     mode?: SandboxMode,
   ): void {
+    this.voiceMode = mode ?? "session";
     this.send({ type: "install-root", entryFile, files, compiledCode, compileError, mode });
   }
 
@@ -147,12 +155,24 @@ export class SandboxBridge {
     data: ChannelDataMap[C],
     version: number,
   ): void {
+    if (channel === "session") {
+      const sessionId = (data as ChannelDataMap["session"]).sessionId;
+      if (sessionId !== this.voiceSessionId) this.pendingVoiceFrame = null;
+      this.voiceSessionId = sessionId;
+    }
+    if (channel === "ui") {
+      const ui = data as ChannelDataMap["ui"];
+      this.voiceReadOnly = ui.readOnly;
+      this.voiceAvailable = ui.capabilities?.canUseSessionApis !== false;
+      this.voiceMode = ui.mode ?? this.voiceMode;
+    }
     this.send({ type: "channel", channel, data, version });
   }
 
   /** Tell the sandbox to pause all raw `<video>`/`<audio>` tags. Called when the
    *  parent hides the iframe without unmounting it. */
   setMediaSuspended(suspended: boolean): void {
+    this.mediaSuspended = suspended;
     this.send({ type: "suspend-media", suspended });
   }
 
@@ -185,6 +205,40 @@ export class SandboxBridge {
     this.send({ type: "room-frame", frame });
   }
 
+  /** An event the AI set off (`[event: name]`) — api.onStoryEvent listens. */
+  sendStoryEvent(event: { id: string; name: string; ai?: { channel: string; id: string; name: string; text: string; fields: Record<string, unknown> }; code?: { reactionId: string; source: string; names: Record<string, string> } }): void {
+    this.send({ type: "story-event", event });
+  }
+
+  /** Voice traffic is already validated by the host controller. */
+  sendVoiceEvent(event: VoiceEvent): void {
+    if (event.type === "video-frame") {
+      const discard = () => {
+        event.frame.close();
+        void this.onApiCall("realtimeVoice.ackVideoFrame", [event.id]);
+      };
+      if (!this.ready || !this.iframe?.contentWindow || !this.voiceSessionId || this.voiceReadOnly || !this.voiceAvailable || this.voiceMode !== "session" || this.mediaSuspended || this.pendingVoiceFrame !== null) {
+        discard(); return;
+      }
+      this.pendingVoiceFrame = event.id;
+      try {
+        // Transfer ownership directly. Frames must never enter the JSON fallback or ready queue.
+        this.iframe.contentWindow.postMessage(wrapMessage({ type: "voice-event", event, sessionId: this.voiceSessionId }), "*", [event.frame]);
+      } catch {
+        this.pendingVoiceFrame = null;
+        discard();
+      }
+      return;
+    }
+    if (event.type === "video-status" && event.status === "stopped") this.pendingVoiceFrame = null;
+    this.send({ type: "voice-event", event });
+  }
+
+  /** Realtime video state for cards that drive api.realtimeVideo. */
+  sendVideoEvent(event: Record<string, unknown>): void {
+    this.send({ type: "video-event", event });
+  }
+
   /** Ask the sandbox to open the session-memory panel (play-controls bar
    *  fallback for worlds whose custom UI has no Memory pill). */
   openMemoryPanel(): void {
@@ -197,6 +251,8 @@ export class SandboxBridge {
     this.iframe = null;
     this.ready = false;
     this.messageQueue = [];
+    this.pendingVoiceFrame = null;
+    this.voiceSessionId = "";
   }
 
   private handleMessage(event: MessageEvent): void {
@@ -222,6 +278,11 @@ export class SandboxBridge {
         break;
 
       case "api-call": {
+        if (msg.method === "realtimeVoice.ackVideoFrame") {
+          const id = msg.args[0];
+          if (msg.args.length !== 1 || typeof id !== "number" || !Number.isSafeInteger(id) || id < 0 || id !== this.pendingVoiceFrame) return;
+          this.pendingVoiceFrame = null;
+        }
         // Streaming calls (LLM completions) — route to stream handler
         if (msg.callId.startsWith("stream-")) {
           this.onStreamCall(msg.method, msg.args, {

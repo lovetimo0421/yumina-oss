@@ -118,8 +118,8 @@ export async function guardTurnOutput(ctx: TurnOutputContext): Promise<Validated
     if (remaining < 1000) return unverified("deadline");
     audit.outcome = "repairing";
     await ctx.progress(audit);
-    const variables = ctx.world.variables.filter((v) => isAiReadable(v, ctx.state));
-    const writableVariableIds = variables.filter((v) => isAiWritable(v, ctx.state)).map((v) => v.id);
+    const variables = ctx.world.variables.filter((v) => isAiReadable(v, ctx.state, ctx.world.worldbooks));
+    const writableVariableIds = variables.filter((v) => isAiWritable(v, ctx.state, ctx.world.worldbooks)).map((v) => v.id);
     let data = JSON.stringify({
       variables, writableVariableIds, state: Object.fromEntries(variables.map((v) => [v.id, ctx.state.variables[v.id]])),
       history: ctx.history.slice(-4).map((m) => ({ role: m.role, content: typeof m.content === "string" ? m.content.slice(-6000) : "[attachment]" })),

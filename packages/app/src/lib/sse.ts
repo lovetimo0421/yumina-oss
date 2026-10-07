@@ -69,8 +69,16 @@ function abortableDelay(ms: number, signal: AbortSignal): Promise<void> {
  *                 The origin may STILL be generating and will persist+charge
  *                 the reply it never delivered — a blind re-request duplicates
  *                 the turn (the cxyyy/Misa duplicated-reply incidents).
+ * - "offline":    the browser reported no network before the request was
+ *                 sent. Nothing left this device, so nothing can be running
+ *                 server-side — the turn can simply be offered again.
  */
-export type SSEErrorOrigin = "server" | "http" | "connection";
+export type SSEErrorOrigin = "server" | "http" | "connection" | "offline";
+
+/** Error text for a request the browser refused to send while offline. */
+export const OFFLINE_ERROR = "You're offline — the message was not sent.";
+/** Error text for a stream cut by the browser going offline mid-reply. */
+export const WENT_OFFLINE_ERROR = "Connection lost — the browser went offline.";
 
 export interface SSEErrorMeta {
   origin: SSEErrorOrigin;
@@ -107,6 +115,41 @@ export function connectSSE(
 ): AbortController {
   const controller = new AbortController();
   const startedAt = Date.now();
+  const callbacks = options.callbacks;
+  // Exactly one terminal report per stream. The offline handler below can
+  // report first; whatever the request it aborted does next stays silent.
+  let terminalReported = false;
+  const cb: SSECallbacks = {
+    ...callbacks,
+    onDone: (data) => {
+      if (terminalReported) return;
+      terminalReported = true;
+      stopWatchingNetwork();
+      callbacks.onDone(data);
+    },
+    onError: (error, meta) => {
+      if (terminalReported) return;
+      terminalReported = true;
+      stopWatchingNetwork();
+      callbacks.onError(error, meta);
+    },
+  };
+
+  // Going offline mid-stream: an open fetch can sit silent until the idle
+  // deadline (2 min) instead of failing — launch QA saw "generating" never
+  // clear, not even after the network came back. Cut it now and hand the
+  // caller a connection failure (the server may still finish the reply, so
+  // the caller's connection-loss path decides what happens next).
+  const onOffline = () => {
+    if (terminalReported || controller.signal.aborted) return;
+    captureFailure("went_offline", "window offline event mid-stream");
+    cb.onError(WENT_OFFLINE_ERROR, { origin: "connection" });
+    controller.abort();
+  };
+  const canWatchNetwork = typeof window !== "undefined" && typeof window.addEventListener === "function";
+  function stopWatchingNetwork() {
+    if (canWatchNetwork) window.removeEventListener("offline", onOffline);
+  }
 
   // Record a stream failure so the client-side "connection lost" symptom is
   // measurable — it never reaches the server, so today we are blind to it.
@@ -127,6 +170,18 @@ export function connectSSE(
       /* analytics must never break streaming */
     }
   };
+
+  // Nothing leaves an offline browser: say so at once instead of letting the
+  // request hang in "generating".
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    queueMicrotask(() => {
+      if (controller.signal.aborted) return;
+      captureFailure("offline", "navigator.onLine=false at send");
+      cb.onError(OFFLINE_ERROR, { origin: "offline" });
+    });
+    return controller;
+  }
+  if (canWatchNetwork) window.addEventListener("offline", onOffline);
 
   const run = async (): Promise<void> => {
     for (let attempt = 0; ; attempt++) {
@@ -157,7 +212,7 @@ export function connectSSE(
           await abortableDelay(EDGE_RETRY_DELAY_MS, controller.signal);
           continue;
         }
-        options.callbacks.onError(
+        cb.onError(
           isEdgeStatus
             ? `Connection to the server failed (Cloudflare ${response.status}). Please try again in a moment.`
             : `HTTP ${response.status}: ${summarizeErrorBody(text)}`,
@@ -168,7 +223,7 @@ export function connectSSE(
 
       const reader = response.body?.getReader();
       if (!reader) {
-        options.callbacks.onError("No response body", { origin: "connection" });
+        cb.onError("No response body", { origin: "connection" });
         return;
       }
 
@@ -187,7 +242,7 @@ export function connectSSE(
           if (readErr instanceof DOMException && readErr.name === "AbortError") return;
           const msg = readErr instanceof Error ? readErr.message : "Stream read failed";
           captureFailure("read_error", msg);
-          options.callbacks.onError(msg, { origin: "connection" });
+          cb.onError(msg, { origin: "connection" });
           return;
         }
         if (done) break;
@@ -204,23 +259,23 @@ export function connectSSE(
               const parsed = JSON.parse(data);
               switch (currentEvent) {
                 case "text":
-                  options.callbacks.onText(parsed.content ?? "");
+                  cb.onText(parsed.content ?? "");
                   break;
                 case "state-validation":
-                  options.callbacks.onStateValidation?.(parsed);
+                  cb.onStateValidation?.(parsed);
                   break;
                 case "reasoning":
-                  options.callbacks.onReasoning?.(parsed.content ?? "");
+                  cb.onReasoning?.(parsed.content ?? "");
                   break;
                 case "segment":
-                  options.callbacks.onSegment?.(parsed);
+                  cb.onSegment?.(parsed);
                   break;
                 case "bg":
-                  options.callbacks.onBg?.(parsed);
+                  cb.onBg?.(parsed);
                   break;
                 case "done":
                   receivedTerminalEvent = true;
-                  options.callbacks.onDone(parsed);
+                  cb.onDone(parsed);
                   break;
                 case "error":
                   receivedTerminalEvent = true;
@@ -228,7 +283,7 @@ export function connectSSE(
                   // chat store's onError can route it to the right toast/popup.
                   // The store JSON-parses the string and reads `.code`; a plain
                   // message (no code) passes through unchanged.
-                  options.callbacks.onError(
+                  cb.onError(
                     parsed.code
                       ? JSON.stringify(parsed)
                       : (parsed.error ?? "Unknown error"),
@@ -252,14 +307,14 @@ export function connectSSE(
       if (!receivedTerminalEvent) {
         console.warn("[SSE] Stream closed without done/error event");
         captureFailure("closed_no_terminal", "Stream closed without done/error event");
-        options.callbacks.onError("Connection closed unexpectedly. Try regenerating.", { origin: "connection" });
+        cb.onError("Connection closed unexpectedly. Try regenerating.", { origin: "connection" });
       }
       return;
     }
   };
 
-  run().catch((err) => {
-    if (err instanceof DOMException && err.name === "AbortError") return;
+  run().then(stopWatchingNetwork).catch((err) => {
+    if (err instanceof DOMException && err.name === "AbortError") { stopWatchingNetwork(); return; }
     // Translate the browser-specific "fetch threw" error to a single
     // actionable line. Safari uses "Load failed", Chrome uses "Failed to
     // fetch", Firefox uses "NetworkError when attempting to fetch resource"
@@ -271,7 +326,7 @@ export function connectSSE(
     const isNetworkError =
       /load failed|failed to fetch|networkerror|network request failed/i.test(rawMessage);
     captureFailure(isNetworkError ? "network" : "fetch_other", rawMessage);
-    options.callbacks.onError(
+    cb.onError(
       isNetworkError
         ? "Connection lost — the model may have timed out. Try regenerating, or switch to a faster model."
         : rawMessage,

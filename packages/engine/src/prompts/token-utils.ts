@@ -42,6 +42,13 @@ export function preloadTokenizer(): Promise<void> {
   return loadPromise;
 }
 
+/** True once exact counts are available. Before that (and forever, if the
+ *  rank data failed to load) estimateTokens returns a heuristic, so callers
+ *  that cache counts must not keep a pre-load answer. */
+export function isTokenizerReady(): boolean {
+  return encoder !== null;
+}
+
 function tryGetEncoder(): Tiktoken | null {
   if (encoder) return encoder;
   if (!initFailed) void preloadTokenizer();

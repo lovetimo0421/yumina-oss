@@ -706,7 +706,7 @@ function InlineModelPickerModal({
           aria-modal="true"
           aria-label={title ?? t("chooseModel")}
         >
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div className="absolute inset-0 modal-backdrop" />
 
           <div
             onClick={(e) => e.stopPropagation()}
@@ -1883,7 +1883,10 @@ export function ModelTrigger({ onClick, model, className, provider, showBalance 
       data-hint-anchor="model"
       className={[
         // em paddings/gap — see the mix-mode pill above.
-        "group flex min-w-0 items-center gap-[0.5em] rounded-full border border-white/[0.12] bg-white/[0.05] px-[0.75em] py-[0.375em] transition-all hover:border-white/20 hover:bg-white/[0.09]",
+        // Colour comes from the text colour, so a card theme that sets the
+        // composer's ink (--yc-input-fg → .play-composer-model) recolours the
+        // pill, its border and its wash together.
+        "play-composer-model group flex min-w-0 items-center gap-[0.5em] rounded-full border border-current/[0.14] bg-current/[0.05] px-[0.75em] py-[0.375em] text-foreground/80 transition-all hover:border-current/25 hover:bg-current/[0.09] hover:text-foreground",
         className ?? "mx-auto",
       ].join(" ")}
       title={displayName}

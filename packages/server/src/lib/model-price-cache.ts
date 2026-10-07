@@ -100,3 +100,39 @@ export async function invalidateModelPriceCache(): Promise<void> {
   lastLoaded = 0;
   await refreshCache();
 }
+
+const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+const LIST_PRICE_TTL = 6 * 60 * 60 * 1000;
+let listPrices: Map<string, ModelPriceEntry> | null = null;
+let listPricesLoadedAt = 0;
+let listPricesLoading: Promise<void> | null = null;
+
+/** OpenRouter's public list price for a model that has no model_prices row
+ *  (Studio models are billed from OpenRouter's reported cost with no markup).
+ *  For estimates only; billing never reads this. */
+export async function getOpenRouterListPrice(modelId: string): Promise<ModelPriceEntry | null> {
+  if (!listPrices || Date.now() - listPricesLoadedAt > LIST_PRICE_TTL) {
+    listPricesLoading ??= (async () => {
+      try {
+        const res = await fetch(OPENROUTER_MODELS_URL, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8000) });
+        if (!res.ok) return;
+        const json = await res.json() as { data?: Array<{ id: string; pricing?: { prompt?: string; completion?: string } }> };
+        const next = new Map<string, ModelPriceEntry>();
+        for (const model of json.data ?? []) {
+          const input = Number(model.pricing?.prompt) * 1e6;
+          const output = Number(model.pricing?.completion) * 1e6;
+          if (!Number.isFinite(input) || !Number.isFinite(output) || input < 0 || output < 0) continue;
+          next.set(model.id, { modelId: model.id, inputPricePerM: input, outputPricePerM: output, contextThreshold: null,
+            inputPriceAboveThreshold: null, outputPriceAboveThreshold: null, minPlan: "free", markupMultiplier: 1 });
+        }
+        if (next.size) { listPrices = next; listPricesLoadedAt = Date.now(); }
+      } catch {
+        /* keep the previous catalog */
+      } finally {
+        listPricesLoading = null;
+      }
+    })();
+    await listPricesLoading;
+  }
+  return listPrices?.get(modelId) ?? null;
+}

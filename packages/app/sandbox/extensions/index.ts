@@ -22,6 +22,7 @@ import { makeExtensionClientContext, setEnabledExtensionEntries, type ExtensionC
 import registerSessionMemory from "./session-memory/client";
 import registerTurnCounter from "./turn-counter/client";
 import registerStateUpdateGuard from "./state-update-guard/client";
+import registerLiveCanon from "./live-canon/client";
 
 type ExtensionRegister = (ctx: ExtensionClientContext) => void;
 
@@ -29,6 +30,7 @@ const EXTENSION_CLIENT_MODULES: Record<string, ExtensionRegister> = {
   "session-memory": registerSessionMemory,
   "turn-counter": registerTurnCounter,
   "state-update-guard": registerStateUpdateGuard,
+  "live-canon": registerLiveCanon,
 };
 
 const registered = new Set<string>();

@@ -50,6 +50,22 @@ describe("runReactionChain", () => {
     expect(result.firedIds).toEqual(["RA", "RB", "RC"]);
   });
 
+  it("names the reaction behind each change, hop by hop", () => {
+    const mgr = new GameStateManager(createMockWorld({ variables: [numVar("a"), numVar("b")] }));
+    const reactions: Reaction[] = [
+      {
+        id: "RA", name: "RA", when: { eventType: "turn:complete" },
+        conditions: [], conditionLogic: "all",
+        then: [{ type: "set", path: "a", value: 1, operation: "set" }],
+        priority: 0, enabled: true,
+      },
+      onVarChanged("RB", "a", { path: "b", value: 1 }),
+    ];
+    const result = runReactionChain(evaluator, mgr, [{ type: "turn:complete", turnCount: 1 }], reactions, []);
+    expect(result.changes.map((c) => c.variableId)).toEqual(["a", "b"]);
+    expect(result.changeCauses).toEqual([["RA"], ["RB"]]);
+  });
+
   it("does NOT cascade with a single evaluation (control)", () => {
     const mgr = new GameStateManager(createMockWorld({ variables: [numVar("a"), numVar("b")] }));
     const reactions: Reaction[] = [

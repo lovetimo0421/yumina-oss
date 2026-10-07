@@ -9,6 +9,7 @@
  */
 
 import React, { Component, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { scheduleRootRendered } from "./schedule-root-rendered";
 
 /**
  * Track every AudioContext a card creates so the host can suspend them when the
@@ -67,7 +68,7 @@ function suspendTrackedAudioContexts(suspended: boolean): void {
     } catch {}
   }
 }
-import { buildComponent } from "../src/features/studio/lib/tsx-component-builder";
+import { buildComponent } from "../src/lib/tsx/tsx-component-builder";
 import { useAssetFont } from "../src/lib/asset-font";
 import { originalImageUrl, resolveAssetUrl, resolveAssetRefs } from "../src/lib/asset-url";
 import { rewriteSandboxRootSelectors } from "../src/lib/sandbox-style-isolation";
@@ -95,7 +96,9 @@ import type {
   SandboxMode,
   UIChannelData,
 } from "./protocol";
-import { YuminaContext, buildAPI, useYumina, resolveApiCall, receiveStreamChunk, AUDIO_ENDED_EVENT, VOICE_PLAYBACK_FRAME_EVENT, COMPOSER_DRAFT_EVENT, ROOM_FRAME_EVENT, OPEN_MEMORY_PANEL_EVENT } from "./sandbox-context";
+import { YuminaContext, buildAPI, useYumina, resolveApiCall, receiveStreamChunk, AUDIO_ENDED_EVENT, VOICE_PLAYBACK_FRAME_EVENT, COMPOSER_DRAFT_EVENT, ROOM_FRAME_EVENT, VIDEO_EVENT, STORY_EVENT, OPEN_MEMORY_PANEL_EVENT } from "./sandbox-context";
+import { runBehaviorCode, type BehaviorCodeApi } from "./behavior-code";
+import { dispatchVoiceEvent } from "./voice-api";
 import { withVariableNameAliases } from "./variable-alias";
 import { installCompatShims, resolveShimCall, updateShimState } from "./compat-shims";
 import { syncInstalledExtensions } from "./extensions";
@@ -264,6 +267,7 @@ function assembleState(channels: ChannelState): SandboxState {
     // Session channel
     worldName: channels.session?.worldName ?? "",
     worldCover: channels.session?.worldCover ?? null,
+    background: channels.ui?.background ?? null,
     worldId: channels.session?.worldId ?? "",
     sessionId: channels.session?.sessionId ?? "",
     currentUser: channels.session?.currentUser ?? null,
@@ -271,6 +275,7 @@ function assembleState(channels: ChannelState): SandboxState {
     entries: channels.session?.entries ?? [],
     loreUiBindings: channels.session?.loreUiBindings ?? [],
     worldbooks: channels.session?.worldbooks ?? [],
+    speakerBubbles: channels.session?.speakerBubbles === true,
 
     // UI channel
     canvasMode: "custom",
@@ -968,6 +973,9 @@ export function ComponentHost() {
   // (not state) so the message handler closure stays stable across re-renders —
   // otherwise the window message listener gets re-bound on every install.
   const installedFilesKeyRef = useRef<string>("");
+  // Updated on message receipt, before React commits, so a previous session's
+  // transferable can never paint into the next room during a render transition.
+  const voiceScopeRef = useRef({ sessionId: "", readOnly: true, available: false, mode: "session" as SandboxMode, suspended: false });
   const [rootComponent, setRootComponent] = useState<{
     filesKey: string;
     CompiledComponent: React.ComponentType<Record<string, unknown>> | null;
@@ -991,6 +999,19 @@ export function ComponentHost() {
   // Assemble channel state into a single SandboxState for the API
   const assembledState = useMemo(() => assembleState(channels), [channels]);
   const api = useMemo(() => buildAPI(assembledState), [assembledState]);
+  // 代码行为: a behaviour with code of its own fired; it runs here, in the
+  // card's sandbox, against the live API (see behavior-code.ts).
+  const apiRef = useRef(api);
+  apiRef.current = api;
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const code = (e as CustomEvent).detail?.code as { reactionId: string; source: string; names?: Record<string, string> } | undefined;
+      if (!code?.source) return;
+      void runBehaviorCode(code.source, apiRef.current as unknown as BehaviorCodeApi, code.names ?? {}, { reactionId: code.reactionId });
+    };
+    window.addEventListener(STORY_EVENT, handler);
+    return () => window.removeEventListener(STORY_EVENT, handler);
+  }, []);
 
   // Force the hydration gate open if the initial channel pushes never arrive
   // (an unexpected host) — degrades to pre-gate behavior instead of hanging.
@@ -1099,6 +1120,7 @@ export function ComponentHost() {
 
     switch (msg.type) {
       case "install-root": {
+        voiceScopeRef.current.mode = msg.mode ?? "session";
         const { entryFile, files, mode, compiledCode, compileError } = msg as {
           entryFile?: string;
           files?: Record<string, string>;
@@ -1143,7 +1165,7 @@ export function ComponentHost() {
             // Legacy fallback: parent sent raw files without precompile. Keep the dynamic
             // import so the bundler chunk only loads for these rare cases, not every boot.
             try {
-              const { bundleAndCompile } = await import("../src/features/studio/lib/tsx-bundler");
+              const { bundleAndCompile } = await import("../src/lib/tsx/tsx-bundler");
               const result = bundleAndCompile(
                 { files: files ?? {}, entryFile: entryFile ?? "index.tsx" },
                 useYumina,
@@ -1192,7 +1214,14 @@ export function ComponentHost() {
         // Keep compat shims in sync
         if (channel === "session") {
           const session = data as SessionChannelData;
+          voiceScopeRef.current.sessionId = session.sessionId;
           updateShimState(session.sessionId, session.worldId);
+        }
+        if (channel === "ui") {
+          const ui = data as UIChannelData;
+          voiceScopeRef.current.readOnly = ui.readOnly;
+          voiceScopeRef.current.available = ui.capabilities?.canUseSessionApis !== false;
+          voiceScopeRef.current.mode = ui.mode ?? voiceScopeRef.current.mode;
         }
         break;
       }
@@ -1206,6 +1235,7 @@ export function ComponentHost() {
       }
 
       case "suspend-media": {
+        voiceScopeRef.current.suspended = msg.suspended;
         setTranscriptActive(!msg.suspended);
         // Universal pause for raw <video>/<audio> tags in creator TSX.
         // Called when the parent hides the iframe (navigation, theater exit) without
@@ -1248,6 +1278,27 @@ export function ComponentHost() {
         // Multiplayer frame from the parent-held game WebSocket — re-dispatch
         // as a window event; api.room.on* subscribers (creator code) listen.
         window.dispatchEvent(new CustomEvent(ROOM_FRAME_EVENT, { detail: msg.frame }));
+        break;
+      }
+
+      case "voice-event": {
+        const scope = voiceScopeRef.current;
+        dispatchVoiceEvent(msg.event, {
+          available: !!scope.sessionId && !scope.readOnly && scope.available && scope.mode === "session" && !scope.suspended &&
+            (msg.event.type !== "video-frame" || msg.sessionId === scope.sessionId),
+          target: window,
+          post: (method, args) => postToParentWindow(wrapMessage({ type: "api-call", callId: "fire-video-frame", method, args })),
+        });
+        break;
+      }
+
+      case "video-event": {
+        window.dispatchEvent(new CustomEvent(VIDEO_EVENT, { detail: msg.event }));
+        break;
+      }
+
+      case "story-event": {
+        window.dispatchEvent(new CustomEvent(STORY_EVENT, { detail: msg.event }));
         break;
       }
 
@@ -1528,29 +1579,19 @@ export function ComponentHost() {
     };
   }, [rootComponent?.CompiledComponent]);
 
-  // Tell the parent the world has actually painted (root installed + first
-  // frame), so it can drop its loading overlay exactly when the world's own UI
-  // is on screen — not at the boot handshake, which fires before any world
-  // content exists. Fires after a double-rAF on every (re)install, including
-  // world switches, and also when a compile-error panel is shown (that is still
-  // "something on screen", not a grey gap).
+  // Notify after the committed root gets two animation frames. A timer fallback
+  // prevents throttled iframe callbacks from holding the overlay indefinitely;
+  // it reports committed content, not proof of a physical screen paint.
   // Gate must match the render below: with the hydration gate closed the world
   // hasn't painted yet, so reporting "rendered" would drop the parent overlay
   // onto a blank frame. Error panels are ungated (they ARE the paint).
   const canPaintRoot = !!rootComponent && (!!rootComponent.error || stateHydrated || hydrationTimedOut);
   useEffect(() => {
     if (!canPaintRoot) return;
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        const msg: RenderedMessage = { type: "rendered" };
-        postToParentWindow(wrapMessage(msg));
-      });
+    return scheduleRootRendered(window, () => {
+      const msg: RenderedMessage = { type: "rendered" };
+      postToParentWindow(wrapMessage(msg));
     });
-    return () => {
-      cancelAnimationFrame(raf1);
-      if (raf2) cancelAnimationFrame(raf2);
-    };
   }, [canPaintRoot, rootComponent]);
 
   // If no root component is installed yet, stay visually empty. The parent

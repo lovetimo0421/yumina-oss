@@ -56,7 +56,7 @@ function historyStatus(audit: StateValidationAudit, language = "en") {
     return statusCopy[key][audit.correctionCount > 0 && outcome !== "not-required" ? 0 : 1];
   }
   if (outcome === "unverified") return unverifiedCopy[key];
-  return labels[({ validating: 5, repairing: 6, failed: 7, cancelled: 8, stale: 9 } as const)[outcome]];
+  return labels[({ validating: 5, repairing: 6, failed: 7, "failed-open": 7, cancelled: 8, stale: 9 } as const)[outcome]];
 }
 
 export function StateGuardDetails({ records, language }: { records: StateValidationAudit[]; language?: string }) {

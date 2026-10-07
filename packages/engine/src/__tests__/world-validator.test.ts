@@ -21,6 +21,50 @@ describe("validateWorld", () => {
     resetIdCounter();
   });
 
+  describe.each(["entry", "rule", "ui"] as const)("%s condition dot-path references", (target) => {
+    function worldWithCondition(variableId: string, variables: ReturnType<typeof createMockVariable>[]) {
+      const conditions = [{ variableId, operator: "eq" as const, value: true }];
+      return createMockWorld({
+        variables,
+        entries: target === "entry" ? [createMockEntry({ conditions })] : [],
+        rules: target === "rule" ? [createMockRule({ conditions })] : [],
+        ...(target === "ui" ? { uiBlueprint: { version: "1", layouts: [], components: [], triggers: [{ id: "conditional-ui", conditions }] } } : {}),
+      });
+    }
+
+    it.each(["room.phase", "room.household.current", "room.residents.0.present"])("accepts %s and counts its declared JSON root as used", (path) => {
+      const world = worldWithCondition(path, [createMockVariable({ id: "room", type: "json", defaultValue: {} })]);
+      // JSON children can be created at runtime; defaults are not a schema.
+      expect(validateWorld(world)).toEqual([]);
+    });
+
+    it.each(["missing.phase", "scalar.phase", "residents[0].present", "dotted.root.phase"])("warns for unsupported root traversal %s", (path) => {
+      const world = worldWithCondition(path, [
+        createMockVariable({ id: "scalar", type: "string", defaultValue: "text" }),
+        createMockVariable({ id: "residents", type: "json", defaultValue: [] }),
+        createMockVariable({ id: "dotted.root", type: "json", defaultValue: {} }),
+      ]);
+      const warnings = validateWorld(world);
+      expect(warnings.filter(warning => warning.severity === "warning")).toEqual([
+        expect.objectContaining({ type: target === "rule" ? "rule-refs-deleted-var" : "orphaned-var-ref", message: expect.stringContaining(path) }),
+      ]);
+      expect(warnings.filter(warning => warning.type === "unused-variable")).toHaveLength(3);
+    });
+
+    it("prefers an exact dotted ID and counts that ID rather than the JSON root", () => {
+      const world = worldWithCondition("room.phase", [
+        createMockVariable({ id: "room", type: "json", defaultValue: {} }),
+        createMockVariable({ id: "room.phase", type: "boolean", defaultValue: true }),
+      ]);
+      expect(validateWorld(world)).toEqual([expect.objectContaining({ type: "unused-variable", entityId: "room" })]);
+    });
+
+    it("preserves exact bracket-literal IDs without interpreting array notation", () => {
+      const world = worldWithCondition("residents[0].present", [createMockVariable({ id: "residents[0].present", type: "boolean", defaultValue: true })]);
+      expect(validateWorld(world)).toEqual([]);
+    });
+  });
+
   // =========================================================================
   // Valid world — no warnings
   // =========================================================================

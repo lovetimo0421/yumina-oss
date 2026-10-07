@@ -1,0 +1,7 @@
+/* Shared by Radix dialogs, custom modals, sheets and sandbox popups.
+   Keep this on the backdrop, never blur the dialog's foreground contents. */
+.modal-backdrop {
+  background-color: rgb(0 0 0 / 45%);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}

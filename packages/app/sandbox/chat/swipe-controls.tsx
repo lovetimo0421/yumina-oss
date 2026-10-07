@@ -9,9 +9,17 @@ interface SwipeControlsProps {
     activeSwipeIndex?: number;
     model?: string | null;
   };
+  /** Disable switching (e.g. while this message is open for editing). */
+  locked?: boolean;
+  /** Told when a switch request starts and when it settles, so the edit
+   *  action can wait for the swipe it would target (see edit-target.ts).
+   *  `landedIndex` is the index the host reported, or null when the switch
+   *  failed / reported nothing: the answer can reach this frame before the
+   *  updated message does, so "settled" is not yet "on screen". */
+  onSwitchPendingChange?: (messageId: string, pending: boolean, landedIndex?: number | null) => void;
 }
 
-export function SwipeControls({ message }: SwipeControlsProps) {
+export function SwipeControls({ message, locked = false, onSwitchPendingChange }: SwipeControlsProps) {
   const api = useYumina();
   const t = useMemo(() => makeChatT(api.language), [api.language]);
 
@@ -38,7 +46,7 @@ export function SwipeControls({ message }: SwipeControlsProps) {
   if (totalSwipes <= 1 && !message.model) return null;
 
   const handleSwipe = async (direction: "left" | "right") => {
-    if (api.isStreaming || swipePending) return;
+    if (api.isStreaming || swipePending || locked) return;
 
     if (direction === "right" && isAtLastSwipe) {
       if (!message.model) return;
@@ -50,12 +58,17 @@ export function SwipeControls({ message }: SwipeControlsProps) {
     }
 
     setSwipePending(true);
+    onSwitchPendingChange?.(message.id, true);
+    let landedIndex: number | null = null;
     try {
-      await api.swipeMessage(message.id, direction);
+      const result = await api.swipeMessage(message.id, direction);
+      const reported = (result as { activeSwipeIndex?: unknown } | undefined)?.activeSwipeIndex;
+      landedIndex = typeof reported === "number" ? reported : null;
     } catch {
       api.showToast(t("failedSwitchVariant"), "error");
     } finally {
       setSwipePending(false);
+      onSwitchPendingChange?.(message.id, false, landedIndex);
     }
   };
 
@@ -63,7 +76,7 @@ export function SwipeControls({ message }: SwipeControlsProps) {
     <div className="flex items-center gap-1 rounded-full bg-muted/30 px-2 py-0.5">
       <button
         onClick={() => handleSwipe("left")}
-        disabled={currentIndex <= 0 || api.isStreaming || swipePending}
+        disabled={currentIndex <= 0 || api.isStreaming || swipePending || locked}
         className="hover-surface play-action-btn flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground/50 disabled:pointer-events-none disabled:opacity-20"
         title={t("previousResponse")}
       >
@@ -88,7 +101,7 @@ export function SwipeControls({ message }: SwipeControlsProps) {
 
       <button
         onClick={() => handleSwipe("right")}
-        disabled={api.isStreaming || swipePending || (isAtLastSwipe && !message.model)}
+        disabled={api.isStreaming || swipePending || locked || (isAtLastSwipe && !message.model)}
         className={[
           "hover-surface play-action-btn flex h-7 w-7 items-center justify-center rounded-md disabled:pointer-events-none disabled:opacity-20",
           canGenerateNew

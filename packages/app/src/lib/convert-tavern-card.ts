@@ -19,6 +19,8 @@ interface STDepthPrompt {
 }
 
 interface STLorebookEntryV2 {
+  /** V2 optional / V3 entry title. */
+  name?: string;
   keys?: string[];
   secondary_keys?: string[];
   comment?: string;
@@ -96,7 +98,62 @@ interface STCharacterCard {
 }
 
 interface STWorldbook {
+  name?: string;
   entries: Record<string, STWorldbookEntry>;
+}
+
+/**
+ * The words the converter writes INTO the card — entry titles and the one
+ * heading inside the character entry. They are content the AI reads, so they
+ * follow the card's language (see `tavernLabelsFor` in import-world), not the
+ * interface's. English is the fallback so the converter stays usable alone.
+ */
+export interface TavernImportLabels {
+  /** Heading for the personality section inside the character entry. */
+  personality: string;
+  scenario: string;
+  systemPrompt: string;
+  exampleDialogue: string;
+  greeting: string;
+  /** `{{n}}` = 2, 3, … for alternate greetings. */
+  greetingN: string;
+  postHistory: string;
+  depthPrompt: string;
+  /** `{{n}}` = 1-based position, for a lorebook entry with no title or key. */
+  lorebookEntryN: string;
+  worldbookName: string;
+  cardName: string;
+}
+
+export const DEFAULT_TAVERN_LABELS: TavernImportLabels = {
+  personality: "Personality",
+  scenario: "Scenario",
+  systemPrompt: "System prompt",
+  exampleDialogue: "Example dialogue",
+  greeting: "Greeting",
+  greetingN: "Greeting {{n}}",
+  postHistory: "Post-history instructions",
+  depthPrompt: "Character note",
+  lorebookEntryN: "Lorebook entry {{n}}",
+  worldbookName: "Imported lorebook",
+  cardName: "Imported card",
+};
+
+const withN = (template: string, n: number) => template.replace("{{n}}", String(n));
+
+/** A lorebook entry's title: its comment (what SillyTavern shows as the
+ *  title), else its V2/V3 `name`, else its first key, else a numbered one. */
+function lorebookEntryName(
+  entry: { comment?: string; name?: string; keys?: string[]; key?: string[] },
+  index: number,
+  labels: TavernImportLabels,
+): string {
+  const keys = Array.isArray(entry.keys) ? entry.keys : Array.isArray(entry.key) ? entry.key : [];
+  const firstKey = keys.find((k) => typeof k === "string" && k.trim());
+  for (const candidate of [entry.comment, entry.name, firstKey]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return withN(labels.lorebookEntryN, index + 1);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -255,7 +312,9 @@ function makeEntry(
 
 function convertV2LorebookEntry(
   entry: STLorebookEntryV2,
-  positionOffset: number
+  positionOffset: number,
+  index: number,
+  labels: TavernImportLabels,
 ): WorldEntry {
   const ext = entry.extensions ?? {};
   const { section, depth } = mapSTPosition(
@@ -276,7 +335,7 @@ function convertV2LorebookEntry(
   const isKeywordTriggered = !isConstant && keywords.length > 0;
 
   return makeEntry({
-    name: entry.comment || "Imported Entry",
+    name: lorebookEntryName(entry, index, labels),
     content: entry.content || "",
     role: "lore",
     apiRole: mapSTRole(ext.role),
@@ -303,7 +362,9 @@ function convertV2LorebookEntry(
 
 function convertWorldbookEntry(
   entry: STWorldbookEntry,
-  positionOffset: number
+  positionOffset: number,
+  index: number,
+  labels: TavernImportLabels,
 ): WorldEntry {
   const { section, depth } = mapSTPosition(
     entry.position,
@@ -323,7 +384,7 @@ function convertWorldbookEntry(
   const isKeywordTriggered = !isConstant && keywords.length > 0;
 
   return makeEntry({
-    name: entry.comment || "Imported Entry",
+    name: lorebookEntryName(entry as { comment?: string; name?: string; key?: string[] }, index, labels),
     content: entry.content || "",
     role: "lore",
     apiRole: mapSTRole(entry.role),
@@ -350,11 +411,17 @@ function convertWorldbookEntry(
 
 /**
  * Converts a SillyTavern character card (V1/V2/V3) into a WorldDefinition.
+ *
+ * A card is ONE character: its description and personality become one
+ * character entry named after the card, so the editor shows one character
+ * under its real name, {{char}} resolves to that name, and the card reads as
+ * a 1:1 character chat rather than a multi-NPC world.
  */
-export function convertTavernCard(card: STCharacterCard): WorldDefinition {
+export function convertTavernCard(card: STCharacterCard, labelOverrides: Partial<TavernImportLabels> = {}): WorldDefinition {
+  const labels = { ...DEFAULT_TAVERN_LABELS, ...labelOverrides };
   // V2/V3 data lives in card.data, V1 fallback to top-level
   const data = card.data ?? {};
-  const name = data.name || card.name || "Imported Card";
+  const name = (data.name || card.name || "").trim() || labels.cardName;
   const description = data.description || card.description || "";
   const personality = data.personality || card.personality || "";
   const scenario = data.scenario || card.scenario || "";
@@ -375,25 +442,20 @@ export function convertTavernCard(card: STCharacterCard): WorldDefinition {
 
   // --- Character-level fields → entries ---
 
-  if (description.trim()) {
-    entries.push(
-      makeEntry({
-        name: "Character Description",
-        content: description,
-        role: "character",
-        section: "system-presets",
-        alwaysSend: true,
-        position: systemPresetPos++,
-      })
-    );
-  }
-
+  // Description and personality are two halves of one character. The
+  // personality rides under its own heading so nothing is lost, and a card
+  // with only one of the two carries just that one.
+  const characterParts: string[] = [];
+  if (description.trim()) characterParts.push(description.trim());
   if (personality.trim()) {
+    characterParts.push(characterParts.length > 0 ? `## ${labels.personality}\n${personality.trim()}` : personality.trim());
+  }
+  if (characterParts.length > 0) {
     entries.push(
       makeEntry({
-        name: "Personality",
-        content: personality,
-        role: "personality",
+        name,
+        content: characterParts.join("\n\n"),
+        role: "character",
         section: "system-presets",
         alwaysSend: true,
         position: systemPresetPos++,
@@ -404,7 +466,7 @@ export function convertTavernCard(card: STCharacterCard): WorldDefinition {
   if (scenario.trim()) {
     entries.push(
       makeEntry({
-        name: "Scenario",
+        name: labels.scenario,
         content: scenario,
         role: "scenario",
         section: "system-presets",
@@ -417,7 +479,7 @@ export function convertTavernCard(card: STCharacterCard): WorldDefinition {
   if (systemPrompt.trim()) {
     entries.push(
       makeEntry({
-        name: "System Prompt",
+        name: labels.systemPrompt,
         content: systemPrompt,
         role: "system",
         section: "system-presets",
@@ -430,7 +492,7 @@ export function convertTavernCard(card: STCharacterCard): WorldDefinition {
   if (mesExample.trim()) {
     entries.push(
       makeEntry({
-        name: "Example Dialogue",
+        name: labels.exampleDialogue,
         content: mesExample,
         role: "example",
         section: "system-presets",
@@ -443,7 +505,7 @@ export function convertTavernCard(card: STCharacterCard): WorldDefinition {
   if (firstMes.trim()) {
     entries.push(
       makeEntry({
-        name: "Greeting",
+        name: labels.greeting,
         content: firstMes,
         role: "greeting",
         section: "system-presets",
@@ -458,7 +520,7 @@ export function convertTavernCard(card: STCharacterCard): WorldDefinition {
     if (typeof greeting === "string" && greeting.trim()) {
       entries.push(
         makeEntry({
-          name: `Greeting ${i + 2}`,
+          name: withN(labels.greetingN, i + 2),
           content: greeting,
           role: "greeting",
           section: "system-presets",
@@ -472,7 +534,7 @@ export function convertTavernCard(card: STCharacterCard): WorldDefinition {
   if (postHistoryInstructions.trim()) {
     entries.push(
       makeEntry({
-        name: "Post-History Instructions",
+        name: labels.postHistory,
         content: postHistoryInstructions,
         role: "custom",
         section: "post-history",
@@ -485,7 +547,7 @@ export function convertTavernCard(card: STCharacterCard): WorldDefinition {
   if (depthPrompt?.prompt?.trim()) {
     entries.push(
       makeEntry({
-        name: "Depth Prompt",
+        name: labels.depthPrompt,
         content: depthPrompt.prompt,
         role: "custom",
         section: "chat-history",
@@ -498,8 +560,8 @@ export function convertTavernCard(card: STCharacterCard): WorldDefinition {
 
   // --- Lorebook entries ---
 
-  const lorebookEntries = data.character_book?.entries ?? [];
-  for (const lbEntry of lorebookEntries) {
+  const lorebookEntries = Array.isArray(data.character_book?.entries) ? data.character_book.entries : [];
+  for (const [index, lbEntry] of lorebookEntries.entries()) {
     const { section } = mapSTPosition(
       lbEntry.position,
       lbEntry.extensions?.position,
@@ -510,7 +572,7 @@ export function convertTavernCard(card: STCharacterCard): WorldDefinition {
     else if (section === "post-history") pos = postHistoryPos++;
     else pos = chatHistoryPos++;
 
-    entries.push(convertV2LorebookEntry(lbEntry, pos));
+    entries.push(convertV2LorebookEntry(lbEntry, pos, index, labels));
   }
 
   const id = crypto.randomUUID();
@@ -534,7 +596,8 @@ export function convertTavernCard(card: STCharacterCard): WorldDefinition {
 /**
  * Converts a standalone SillyTavern worldbook into a WorldDefinition.
  */
-export function convertTavernWorldbook(wb: STWorldbook): WorldDefinition {
+export function convertTavernWorldbook(wb: STWorldbook, labelOverrides: Partial<TavernImportLabels> = {}): WorldDefinition {
+  const labels = { ...DEFAULT_TAVERN_LABELS, ...labelOverrides };
   const entries: WorldEntry[] = [];
 
   let systemPresetPos = 10;
@@ -551,7 +614,7 @@ export function convertTavernWorldbook(wb: STWorldbook): WorldDefinition {
     return (a.uid ?? 0) - (b.uid ?? 0);
   });
 
-  for (const wbEntry of wbEntries) {
+  for (const [index, wbEntry] of wbEntries.entries()) {
     const { section } = mapSTPosition(
       wbEntry.position,
       undefined,
@@ -562,14 +625,14 @@ export function convertTavernWorldbook(wb: STWorldbook): WorldDefinition {
     else if (section === "post-history") pos = postHistoryPos++;
     else pos = chatHistoryPos++;
 
-    entries.push(convertWorldbookEntry(wbEntry, pos));
+    entries.push(convertWorldbookEntry(wbEntry, pos, index, labels));
   }
 
   const id = crypto.randomUUID();
   return {
     id,
     version: "21.0.0",
-    name: "Imported Worldbook",
+    name: (typeof wb.name === "string" && wb.name.trim()) || labels.worldbookName,
     description: "",
     author: "",
     entries,
@@ -581,4 +644,27 @@ export function convertTavernWorldbook(wb: STWorldbook): WorldDefinition {
     rootComponent: makeDefaultRootComponent(id),
     settings: {},
   } as WorldDefinition;
+}
+
+/**
+ * The language a SillyTavern file is written in, from its own text — the
+ * titles the converter adds should match the card, whatever the interface is
+ * set to. Kana means Japanese, Han without kana Chinese (Traditional only when
+ * the interface is), Latin text English unless it reads as Spanish.
+ */
+export function guessTavernLanguage(json: unknown, uiLanguage = "en"): "zh" | "zh-Hant" | "ja" | "en" | "es" {
+  const texts: string[] = [];
+  const collect = (value: unknown, depth: number) => {
+    if (texts.length > 200 || depth > 5) return;
+    if (typeof value === "string") texts.push(value.slice(0, 2000));
+    else if (Array.isArray(value)) value.forEach((v) => collect(v, depth + 1));
+    else if (value && typeof value === "object") Object.values(value).forEach((v) => collect(v, depth + 1));
+  };
+  collect(json, 0);
+  const text = texts.join("\n");
+  if (/[぀-ヿ]/.test(text)) return "ja";
+  if (/[一-鿿]/.test(text)) return /^zh-(hant|tw|hk|mo)/i.test(uiLanguage) ? "zh-Hant" : "zh";
+  const spanish = (text.match(/[ñ¿¡]|\b(que|los|las|una|con|para|pero|está)\b/gi) ?? []).length;
+  const english = (text.match(/\b(the|and|you|with|her|his|is)\b/gi) ?? []).length;
+  return spanish > english ? "es" : "en";
 }

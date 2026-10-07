@@ -582,8 +582,16 @@ export function renderCommunityMarkdown(
       continue;
     }
 
-    // Horizontal rule: --- or *** or ___ (standalone)
-    if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line.trim())) {
+    // Setext heading: a text line underlined with ===. Creators paste these
+    // from other platforms; rendered raw they showed as a row of equals signs.
+    if (line.trim() && !line.trim().startsWith("#") && i + 1 < lines.length && /^\s{0,3}={3,}\s*$/.test(lines[i + 1])) {
+      lines[i + 1] = `# ${line.trim()}`;
+      i++;
+      continue;
+    }
+
+    // Horizontal rule: --- or *** or ___ (standalone), or a lone === divider
+    if (/^(-{3,}|\*{3,}|_{3,}|={3,})\s*$/.test(line.trim())) {
       outputLines.push("<hr />");
       i++;
       continue;
@@ -725,7 +733,7 @@ export function stripMarkdownForPreview(raw: string): string {
     .replace(/^\s{0,3}>\s?/gm, "")
     .replace(/^\s*[-*+]\s+/gm, "")
     .replace(/^\s*\d+\.\s+/gm, "")
-    .replace(/^\s*(?:-{3,}|\*{3,}|_{3,})\s*$/gm, " ")
+    .replace(/^\s*(?:-{3,}|\*{3,}|_{3,}|={2,})\s*$/gm, " ")
     .replace(/^\s*\|[\s:|-]*\|\s*$/gm, " ")
     .replace(/\|/g, " ")
     .replace(/`([^`]+)`/g, "$1")

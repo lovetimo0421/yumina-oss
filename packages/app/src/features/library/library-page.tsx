@@ -28,6 +28,8 @@ export function LibraryPage() {
   const loading = useWorldsStore(s => s.loading);
   const fetchWorlds = useWorldsStore(s => s.fetchWorlds);
   const libraryLoading = useLibraryStore(s => s.loading);
+  const libraryItems = useLibraryStore(s => s.items);
+  const libraryFetchedAt = useLibraryStore(s => s.lastFetchedAt);
   const fetchLibrary = useLibraryStore(s => s.fetchLibrary);
   const { data: session } = useSession();
   const { isAuthenticated } = useAuthGuard();
@@ -96,6 +98,18 @@ export function LibraryPage() {
     setActiveTab(features.library ? "games" : "projects");
     setSelectedItem(null);
   }, [defaultViewRequestId, setActiveTab, features.library]);
+
+  // A creator with drafts and no installed games used to land on an empty
+  // Games shelf and wonder where their card went. Once both lists are in,
+  // open My Projects instead — once, so a deliberate tab choice sticks.
+  const autoOpenedProjects = useRef(false);
+  useEffect(() => {
+    if (autoOpenedProjects.current || !userId || loading || libraryLoading || !libraryFetchedAt) return;
+    if (activeTab !== "games" || libraryItems.length > 0 || view === "assets" || searchWorldId) return;
+    if (!worlds.some((world) => world.creatorId === userId)) return;
+    autoOpenedProjects.current = true;
+    setActiveTab("projects");
+  }, [activeTab, libraryFetchedAt, libraryItems.length, libraryLoading, loading, searchWorldId, setActiveTab, userId, view, worlds]);
 
   const searchSelectedItem = useMemo(() => {
     if (!searchWorldId || loading || worlds.length === 0 || !session?.user?.id) return null;

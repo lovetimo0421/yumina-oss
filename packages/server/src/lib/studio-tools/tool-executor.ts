@@ -20,15 +20,17 @@ import type {
   LoreUiBinding,
 } from "@yumina/engine";
 import type { EventPattern, EventMatchCondition, VariableActivation } from "@yumina/engine";
-import { deriveSectionDefaults, deriveSectionDefaultsForEntry, isVariableBoundEntry, estimateTokens, withPreciseTrackingDefault } from "@yumina/engine";
+import { deriveSectionDefaults, deriveSectionDefaultsForEntry, isVariableBoundEntry, estimateTokens, moduleStationSchema, uiKnobGroupsSchema, withPreciseTrackingDefault, worldDefinitionSchema } from "@yumina/engine";
 import { isValidTtsVoice } from "@yumina/shared";
 import crypto from "crypto";
+import { posix } from "node:path";
 import { parseToolArgs } from "./parse-tool-args.js";
 import { toStringArray, computeLorebookHealth, LOREBOOK_BUDGETS } from "./context-resolver.js";
 import { assertNoInlineDataUris as assertNoInlineDataUrisShared, scanTextForInlineDataUris } from "../asset-validation.js";
 import { validateTsx, formatTsxIssue } from "./tsx-validate.js";
 import { resolveUniqueMatch, nearestRegion } from "./fuzzy-match.js";
 import { analyzeRootUiReachability, rootUiConnectionNote } from "./root-ui-reachability.js";
+import { applyUiDocOps, compileUiDocInto, uiDocOwnedFileError } from "./ui-doc-tools.js";
 
 /** Find up to 3 IDs similar to the given ID (prefix or substring match) for error hints */
 function suggestSimilarIds(target: string, allIds: string[]): string {
@@ -43,7 +45,7 @@ function suggestSimilarIds(target: string, allIds: string[]): string {
 
 export interface SchemaChange {
   action: "create" | "update" | "delete";
-  entityType: "entry" | "variable" | "rule" | "behavior" | "customUI" | "audio" | "sceneImage" | "settings" | "worldbook" | "loreBinding";
+  entityType: "entry" | "variable" | "rule" | "behavior" | "customUI" | "audio" | "sceneImage" | "settings" | "worldbook" | "loreBinding" | "uiKnobs" | "uiKnobGroups" | "uiDoc";
   id?: string;
   data?: Record<string, unknown>;
 }
@@ -98,6 +100,17 @@ export function classifyApproval(changes: SchemaChange[]): ApprovalDecision {
   );
   if (hasTSX) {
     return { autoExecute: false, reason: "contains TSX code" };
+  }
+
+  // Installing a decomposition rewrites the base frontend's code — always a
+  // reviewed proposal, never silent, however few tool calls carried it.
+  if (changes.some((c) => c.entityType === "uiKnobGroups")) {
+    return { autoExecute: false, reason: "decomposes the base frontend" };
+  }
+
+  // Leaving the visual editor for code is a one-way handover — always reviewed.
+  if (changes.some((c) => c.entityType === "uiDoc" && Array.isArray(c.data?.ops) && (c.data.ops as Array<{ op?: unknown }>).some((o) => o?.op === "detach_to_code"))) {
+    return { autoExecute: false, reason: "detaches the interface document" };
   }
 
   const hasSettings = changes.some((c) => c.entityType === "settings");
@@ -231,6 +244,11 @@ export function executeReadEntities(
 
     const sceneImage = (world.sceneImages ?? []).find((img) => img.id === id);
     if (sceneImage) { results[id] = { ...sceneImage, _type: "sceneImage" }; continue; }
+
+    // Worldbooks (modules) — the snapshot truncates their sticky note at 300
+    // chars and points here for the rest, so this lookup must exist.
+    const worldbook = (world.worldbooks ?? []).find((w) => w.id === id);
+    if (worldbook) { results[id] = { ...worldbook, _type: "worldbook" }; continue; }
 
     // Special IDs
     if (id === "settings") { results[id] = { ...world.settings, _type: "settings" }; continue; }
@@ -1051,6 +1069,12 @@ function applySingleChange(
         return applyLoreBindingChange(draft, change.action, id, data, index);
       case "settings":
         return applySettingsChange(draft, data, index);
+      case "uiKnobs":
+        return applyUiKnobsChange(draft, data, index);
+      case "uiKnobGroups":
+        return applyUiKnobGroupsChange(draft, data, index);
+      case "uiDoc":
+        return applyUiDocChange(draft, data, index);
       default:
         return { index, action: change.action, entityType: change.entityType, id, status: "error", error: `Unknown entity type: ${change.entityType}` };
     }
@@ -1423,8 +1447,11 @@ function applyVariableChange(draft: WorldDefinition, action: string, id: string,
       scope: data.scope as Variable["scope"] | undefined,
       internal: data.internal as boolean | undefined,
       aiAccess: normalizeAiAccess(data.aiAccess),
+      ...(typeof data.formula === "string" && data.formula.trim() ? { formula: data.formula.slice(0, 1000) } : {}),
+      ...(data.persist === "player" ? { persist: "player" as const } : {}),
       activation: normalizeVariableActivation(data.activation),
       enabled: typeof data.enabled === "boolean" ? data.enabled : undefined,
+      worldbookId: normalizeWorldbookId(data.worldbookId),
       ...preciseFields(data),
     };
     // Precise tracking is on for a new variable unless the assistant said
@@ -1466,8 +1493,11 @@ function applyVariableUpdates(variable: Variable, data: Record<string, unknown>)
   if (data.behaviorRules !== undefined) variable.behaviorRules = data.behaviorRules as string;
   if (data.scope !== undefined) variable.scope = data.scope as Variable["scope"];
   if (data.aiAccess !== undefined) variable.aiAccess = normalizeAiAccess(data.aiAccess);
+  if (data.persist !== undefined) variable.persist = data.persist === "player" ? "player" : undefined;
+  if (data.formula !== undefined) variable.formula = typeof data.formula === "string" && data.formula.trim() ? data.formula.slice(0, 1000) : undefined;
   if (data.activation !== undefined) variable.activation = normalizeVariableActivation(data.activation);
   if (data.enabled !== undefined) variable.enabled = typeof data.enabled === "boolean" ? data.enabled : undefined;
+  if (data.worldbookId !== undefined) variable.worldbookId = normalizeWorldbookId(data.worldbookId);
   const precise = preciseFields(data);
   for (const key of ["options", "precise", "deltaDown", "deltaUp"] as const) {
     if (key in precise) (variable as unknown as Record<string, unknown>)[key] = precise[key];
@@ -1520,6 +1550,9 @@ function applyBehaviorChange(draft: WorldDefinition, action: string, id: string,
       maxFireCount: data.maxFireCount as number | undefined,
       chance: data.chance as number | undefined,
       enabled: data.enabled !== false,
+      worldbookId: normalizeWorldbookId(data.worldbookId),
+      ...(typeof data.elseMessage === "string" && data.elseMessage.trim() ? { elseMessage: data.elseMessage.slice(0, 500) } : {}),
+      ...(typeof data.code === "string" && data.code.trim() ? { code: data.code.slice(0, 20000) } : {}),
     };
     draft.reactions.push(newBehavior);
     return { ...base, status: "success" };
@@ -1554,6 +1587,9 @@ function applyBehaviorUpdates(behavior: Reaction, data: Record<string, unknown>)
   if (data.maxFireCount !== undefined) behavior.maxFireCount = data.maxFireCount as number;
   if (data.chance !== undefined) behavior.chance = data.chance as number;
   if (data.enabled !== undefined) behavior.enabled = data.enabled as boolean;
+  if (data.worldbookId !== undefined) behavior.worldbookId = normalizeWorldbookId(data.worldbookId);
+  if (data.elseMessage !== undefined) behavior.elseMessage = typeof data.elseMessage === "string" && data.elseMessage.trim() ? data.elseMessage.slice(0, 500) : undefined;
+  if (data.code !== undefined) behavior.code = typeof data.code === "string" && data.code.trim() ? data.code.slice(0, 20000) : undefined;
 }
 
 // ── Rule CRUD ──
@@ -1663,6 +1699,17 @@ function applyRootComponentWrite(draft: WorldDefinition, action: string, id: str
       return { ...base, status: "error", error: "No root component to reset" };
     }
 
+    // A card built in the visual editor: resetting the root would drop the
+    // preserved base and the next save would recompile the document anyway.
+    if (draft.uiDoc) {
+      const target = id in draft.rootComponent.files ? id : draft.rootComponent.entryFile;
+      const isBase = target === draft.uiDoc.base?.file;
+      const owned = uiDocOwnedFileError(draft, target, "delete");
+      if (owned || isBase || !(id in draft.rootComponent.files)) {
+        return { ...base, status: "error", error: owned ?? `Refused to delete "${target}": it is this card's preserved frontend (the interface document's base layer). To remove parts of the interface use edit_ui_doc remove_part; to drop the whole visual interface, ask the creator first.` };
+      }
+    }
+
     // If id is a sub-file (not the entry file), delete just that file
     const isSubFile = id.includes(".") && id in draft.rootComponent.files && id !== draft.rootComponent.entryFile;
     if (isSubFile) {
@@ -1709,6 +1756,10 @@ function applyRootComponentWrite(draft: WorldDefinition, action: string, id: str
       ? id                            // new file like "helpers.tsx" — will be created
       : draft.rootComponent.entryFile; // default: write to entry file
 
+  // Never let a code write land in a file the interface document regenerates:
+  // the editor's next save would overwrite it without a trace.
+  const ownedErr = uiDocOwnedFileError(draft, targetFile, "write");
+  if (ownedErr) return { ...base, id: targetFile, status: "error", error: ownedErr };
   if (tsxCode !== undefined) {
     draft.rootComponent.files[targetFile] = tsxCode;
   }
@@ -1759,6 +1810,8 @@ function applyEditCustomUI(draft: WorldDefinition, id: string, data: Record<stri
     : isFilename && id.endsWith(".tsx")
       ? id
       : rc.entryFile;
+  const ownedErr = uiDocOwnedFileError(draft, targetFile, "edit");
+  if (ownedErr) return { ...base, id: targetFile, status: "error", error: ownedErr };
   const existingCode = rc.files[targetFile];
   if (!existingCode) {
     return { ...base, status: "error", error: `File not found: "${targetFile}" in rootComponent. Available: [${Object.keys(rc.files).join(", ")}]` };
@@ -1944,27 +1997,285 @@ function applySceneImageChange(draft: WorldDefinition, action: string, id: strin
 
 // ── Settings ──
 
+/**
+ * Set style knobs on a decomposed base frontend (the 拆积木 result) and
+ * recompile the interface so play sees the change without waiting for a
+ * client-side save. Values are validated against the knob's declared kind —
+ * a number knob rejects "red", which otherwise compiles to `"red" + "em"`.
+ */
+function applyUiKnobsChange(draft: WorldDefinition, data: Record<string, unknown>, index: number): ChangeResult {
+  const base = { index, action: "update", entityType: "uiKnobs", id: "ui-knobs" };
+  const groups = draft.uiDoc?.base?.groups;
+  if (!groups?.length) {
+    return { ...base, status: "error", error: "This card has no decomposed base knobs (uiDoc.base.groups is empty)." };
+  }
+  const edits = Array.isArray(data.knobs) ? (data.knobs as Array<{ id?: unknown; value?: unknown }>) : [];
+  if (edits.length === 0) {
+    return { ...base, status: "error", error: "set_ui_knobs requires a non-empty 'knobs' array of { id, value }." };
+  }
+
+  const byId = new Map<string, { kind: string; set: (v: string | number) => void }>();
+  for (const g of groups) {
+    for (const k of g.knobs) {
+      byId.set(k.id, { kind: k.kind, set: (v) => { k.value = v; } });
+    }
+  }
+
+  for (const edit of edits) {
+    const id = typeof edit.id === "string" ? edit.id : "";
+    const target = byId.get(id);
+    if (!target) {
+      const known = [...byId.keys()].slice(0, 40).join(", ");
+      return { ...base, status: "error", error: `Unknown knob id "${id}". Known knobs: ${known}` };
+    }
+    if (target.kind === "number") {
+      const num = typeof edit.value === "number" ? edit.value : Number(edit.value);
+      if (!Number.isFinite(num)) {
+        return { ...base, status: "error", error: `Knob "${id}" is a number knob; got ${JSON.stringify(edit.value)}.` };
+      }
+      target.set(num);
+    } else {
+      if (typeof edit.value !== "string" && typeof edit.value !== "number") {
+        return { ...base, status: "error", error: `Knob "${id}" needs a string value.` };
+      }
+      target.set(String(edit.value));
+    }
+  }
+
+  // Recompile so the change reaches play immediately. Mirrors the client's
+  // save-time compile: generated files overwrite, siblings survive, and the
+  // stale precompiled bundle is dropped (play falls back to the live compile).
+  try {
+    draft.rootComponent = compileUiDocInto(draft.uiDoc!, draft.rootComponent);
+  } catch (e) {
+    return { ...base, status: "error", error: `Knobs updated but the interface failed to recompile: ${e instanceof Error ? e.message : "unknown"}` };
+  }
+
+  return { ...base, status: "success" };
+}
+
+/**
+ * Install the 拆积木 decomposition itself: the knob GROUPS of a preserved base
+ * frontend, written by the studio AI after it rewrote the base code to read
+ * from `_knobs`. The executor is the gate — the rewrite (edit_custom_ui calls
+ * earlier in the same reply) and the groups land in one atomic batch, and any
+ * mismatch between what the code reads and what the groups declare rejects
+ * the whole batch, so a card can never persist half-decomposed.
+ */
+function applyUiKnobGroupsChange(draft: WorldDefinition, data: Record<string, unknown>, index: number): ChangeResult {
+  const base = { index, action: "update", entityType: "uiKnobGroups", id: "ui-knob-groups" };
+
+  const rc = draft.rootComponent;
+  if (!rc?.files || Object.keys(rc.files).length === 0) {
+    return { ...base, status: "error", error: "This card has no frontend code to decompose (rootComponent is empty)." };
+  }
+
+  const parsed = uiKnobGroupsSchema.safeParse(data.groups);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.slice(0, 5).map((i) => `groups.${i.path.join(".")}: ${i.message}`).join("; ");
+    return { ...base, status: "error", error: `Invalid groups: ${issues}` };
+  }
+  const groups = parsed.data;
+
+  // kind/value coherence + id uniqueness — the schema's union can't see
+  // across fields, and a "2.85" that should be 2.85 would compile to
+  // `"2.85" + "em"` silently.
+  const knobIds = new Set<string>();
+  const groupIds = new Set<string>();
+  for (const g of groups) {
+    if (groupIds.has(g.id)) return { ...base, status: "error", error: `Duplicate group id "${g.id}".` };
+    groupIds.add(g.id);
+    for (const k of g.knobs) {
+      if (knobIds.has(k.id)) return { ...base, status: "error", error: `Duplicate knob id "${k.id}".` };
+      knobIds.add(k.id);
+      if (k.kind === "number" && typeof k.value !== "number") {
+        return { ...base, status: "error", error: `Knob "${k.id}" is a number knob; its value must be a bare number, got ${JSON.stringify(k.value)}.` };
+      }
+      if (k.kind !== "number" && typeof k.value !== "string") {
+        return { ...base, status: "error", error: `Knob "${k.id}" is a ${k.kind} knob; its value must be a string.` };
+      }
+    }
+  }
+
+  // A card that never met the builder gets wrapped here, exactly the way the
+  // builder's own adoption does it: the current frontend becomes the
+  // document's preserved base — content untouched, entry regenerated below.
+  if (!draft.uiDoc) {
+    if (rc.generatedFrom === "uiDoc") {
+      return { ...base, status: "error", error: "Inconsistent card: a generated interface without its document. Open the interface builder once, or report this." };
+    }
+    const files = { ...rc.files };
+    let baseFile = rc.entryFile || "index.tsx";
+    if (baseFile === "index.tsx") {
+      baseFile = "_base.tsx";
+      for (let i = 2; baseFile in files; i++) baseFile = `_base-${i}.tsx`;
+      files[baseFile] = files["index.tsx"]!;
+    }
+    delete files["index.tsx"];
+    draft.uiDoc = {
+      version: 1,
+      entryPageId: "page-1",
+      pages: [{ id: "page-1", name: "Main", height: 812, elements: [] }],
+      base: { file: baseFile },
+    };
+    draft.rootComponent = { ...rc, files };
+  }
+  if (!draft.uiDoc.base) {
+    return { ...base, status: "error", error: "This card's interface is built from the visual document alone — there is no preserved base frontend to decompose." };
+  }
+
+  // The contract between code and groups, checked against the batch's OWN
+  // rewrites (changes apply in order, so the edit_custom_ui calls earlier in
+  // this reply are already in these files).
+  const files = draft.rootComponent!.files;
+  const contentFiles = Object.entries(files).filter(([p]) => p !== "index.tsx" && p !== "_knobs.tsx");
+  const allCode = contentFiles.map(([, c]) => c).join("\n");
+  for (const id of knobIds) {
+    if (!allCode.includes(`K["${id}"]`)) {
+      return { ...base, status: "error", error: `Knob "${id}" is never read: no K["${id}"] in the code. Rewrite the code first (edit_custom_ui, earlier in the SAME reply), then install the groups.` };
+    }
+  }
+  for (const gid of groupIds) {
+    if (!allCode.includes(`data-knob-group="${gid}"`)) {
+      return { ...base, status: "error", error: `Group "${gid}" has no data-knob-group="${gid}" tag in the code — the canvas cannot hit-test it. Tag the region's outermost JSX element.` };
+    }
+  }
+  const refRe = /\bK\[\s*"([^"]+)"\s*\]/g;
+  for (const [path, code] of contentFiles) {
+    const readsKnobs = /\bK\[\s*"/.test(code);
+    const knobImport = code.match(/\bimport\s+K\s+from\s*(["'])([^"']+)\1/)?.[2];
+    const importedPath = knobImport?.startsWith(".") ? posix.normalize(posix.join(posix.dirname(path), knobImport)) : null;
+    if (readsKnobs && importedPath !== "_knobs" && importedPath !== "_knobs.tsx") {
+      const relativePath = posix.relative(posix.dirname(path), "_knobs");
+      const expected = relativePath.startsWith(".") ? relativePath : `./${relativePath}`;
+      return { ...base, status: "error", error: `${path} reads K["…"] but never imports the knobs module at the card root — add \`import K from "${expected}";\` at its top.` };
+    }
+    if (!readsKnobs) continue;
+    for (const m of code.matchAll(refRe)) {
+      if (!knobIds.has(m[1]!)) {
+        return { ...base, status: "error", error: `${path} reads K["${m[1]}"] but no such knob is declared — declare it or remove the reference.` };
+      }
+    }
+  }
+
+  draft.uiDoc.base.groups = groups;
+
+  // Recompile so the decomposition (and _knobs.tsx) reaches play immediately.
+  try {
+    draft.rootComponent = compileUiDocInto(draft.uiDoc, draft.rootComponent);
+  } catch (e) {
+    return { ...base, status: "error", error: `Groups installed but the interface failed to recompile: ${e instanceof Error ? e.message : "unknown"}` };
+  }
+
+  const totalKnobs = groups.reduce((n, g) => n + g.knobs.length, 0);
+  return { ...base, status: "success", note: `${groups.length} groups, ${totalKnobs} knobs` };
+}
+
+/**
+ * edit_ui_doc: structural edits to the interface document, validated against
+ * the engine's schema and recompiled into rootComponent in the same step, so
+ * play reflects them without waiting for an editor save.
+ */
+function applyUiDocChange(draft: WorldDefinition, data: Record<string, unknown>, index: number): ChangeResult {
+  const base = { index, action: "update", entityType: "uiDoc", id: "ui-doc" };
+  const outcome = applyUiDocOps(draft, data.ops);
+  if (!outcome.ok) return { ...base, status: "error", error: outcome.error };
+  return { ...base, status: "success", ...(outcome.note ? { note: outcome.note } : {}) };
+}
+
+/** Numeric settings update_settings may write, with the ranges of
+ *  worldSettingsSchema (packages/engine/src/world/schema.ts). Keep in sync:
+ *  a value outside them fails the schema on the next load of the card. */
+const NUMERIC_SETTINGS: Record<string, { min: number; max: number; int?: boolean }> = {
+  maxTokens: { min: 1, max: Number.MAX_SAFE_INTEGER, int: true },
+  temperature: { min: 0, max: 2 },
+  topP: { min: 0, max: 1 },
+  frequencyPenalty: { min: -2, max: 2 },
+  presencePenalty: { min: -2, max: 2 },
+  topK: { min: 0, max: Number.MAX_SAFE_INTEGER, int: true },
+  minP: { min: 0, max: 1 },
+  lorebookScanDepth: { min: 1, max: Number.MAX_SAFE_INTEGER, int: true },
+  lorebookRecursionDepth: { min: 0, max: 10, int: true },
+  lorebookBudgetCap: { min: 0, max: Number.MAX_SAFE_INTEGER, int: true },
+  lorebookBudgetPercent: { min: 0, max: 100 },
+};
+
+/** A finite number, or a string that is exactly one ("0.8"); anything else is null. */
+function coerceSettingNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && /^\s*-?(\d+\.?\d*|\.\d+)(e-?\d+)?\s*$/i.test(value)) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
 function applySettingsChange(draft: WorldDefinition, data: Record<string, unknown>, index: number): ChangeResult {
   const base = { index, action: "update", entityType: "settings", id: "settings" };
-  const badVoice = invalidVoiceError("update_settings", "settings", "narratorVoice", data.narratorVoice);
-  if (badVoice) return { ...base, status: "error", error: badVoice };
-  if (!draft.settings) draft.settings = {} as WorldDefinition["settings"];
-  const s = draft.settings;
 
-  if (data.maxTokens !== undefined) s.maxTokens = data.maxTokens as number;
-  if (data.temperature !== undefined) s.temperature = data.temperature as number;
-  if (data.playerName !== undefined) s.playerName = data.playerName as string;
-  if (data.topP !== undefined) (s as Record<string, unknown>).topP = data.topP;
-  if (data.frequencyPenalty !== undefined) (s as Record<string, unknown>).frequencyPenalty = data.frequencyPenalty;
-  if (data.presencePenalty !== undefined) (s as Record<string, unknown>).presencePenalty = data.presencePenalty;
-  if (data.topK !== undefined) (s as Record<string, unknown>).topK = data.topK;
-  if (data.minP !== undefined) (s as Record<string, unknown>).minP = data.minP;
-  if (data.lorebookScanDepth !== undefined) (s as Record<string, unknown>).lorebookScanDepth = data.lorebookScanDepth;
-  if (data.lorebookRecursionDepth !== undefined) (s as Record<string, unknown>).lorebookRecursionDepth = data.lorebookRecursionDepth;
-  if (data.lorebookBudgetCap !== undefined) (s as Record<string, unknown>).lorebookBudgetCap = data.lorebookBudgetCap;
-  if (data.lorebookBudgetPercent !== undefined) (s as Record<string, unknown>).lorebookBudgetPercent = data.lorebookBudgetPercent;
-  if (typeof data.narratorVoice === "string") s.narratorVoice = voiceArg(data.narratorVoice);
-  if (data.voiceInputMode === "confirm" || data.voiceInputMode === "auto") s.voiceInputMode = data.voiceInputMode;
+  // Validate everything before writing anything: one bad value rejects the
+  // call, so the model sees the error and no half-applied settings persist.
+  const updates: Record<string, unknown> = {};
+  const invalid: string[] = [];
+  const adjusted: string[] = [];
+  for (const [key, range] of Object.entries(NUMERIC_SETTINGS)) {
+    if (data[key] === undefined) continue;
+    const n = coerceSettingNumber(data[key]);
+    if (n === null) { invalid.push(`${key} must be a number (got ${JSON.stringify(data[key])})`); continue; }
+    let value = range.int ? Math.round(n) : n;
+    value = Math.min(range.max, Math.max(range.min, value));
+    if (value !== n) adjusted.push(`${key} ${n} → ${value}`);
+    updates[key] = value;
+  }
+  if (data.playerName !== undefined) {
+    if (typeof data.playerName !== "string" || !data.playerName.trim()) invalid.push(`playerName must be a non-empty string`);
+    else updates.playerName = data.playerName;
+  }
+  // The card's own name and blurb live on the definition, not in settings.
+  // Without them a card the assistant wrote end to end still carried its
+  // template's name and blurb, and publishing stopped on both.
+  const card: { name?: string; description?: string } = {};
+  if (data.name !== undefined) {
+    if (typeof data.name !== "string" || !data.name.trim()) invalid.push(`name must be a non-empty string`);
+    else if (data.name.trim().length > 80) invalid.push(`name must be at most 80 characters`);
+    else card.name = data.name.trim();
+  }
+  if (data.description !== undefined) {
+    if (typeof data.description !== "string") invalid.push(`description must be a string`);
+    else if (data.description.trim().length > 500) invalid.push(`description must be at most 500 characters`);
+    else card.description = data.description.trim();
+  }
+  // 回复处理 rules and the per-speaker bubbles switch: checked by the
+  // engine's own schema; one bad rule rejects the call.
+  let replyRules: WorldDefinition["replyRules"] | null = null;
+  if (data.replyRules !== undefined) {
+    const parsed = worldDefinitionSchema.shape.replyRules.safeParse(data.replyRules);
+    if (!parsed.success) invalid.push(`replyRules: ${parsed.error.issues[0]?.message ?? "invalid"} at ${parsed.error.issues[0]?.path.join(".") ?? ""}`);
+    else replyRules = parsed.data ?? [];
+  }
+  if (data.speakerBubbles !== undefined) {
+    if (typeof data.speakerBubbles !== "boolean") invalid.push(`speakerBubbles must be true or false`);
+    else updates.speakerBubbles = data.speakerBubbles || undefined;
+  }
+  // Voices and voice input (main): a bad fish.audio id is an error the model
+  // sees, never a silently dropped write.
+  const badVoice = invalidVoiceError("update_settings", "settings", "narratorVoice", data.narratorVoice);
+  if (badVoice) invalid.push(badVoice);
+  else if (typeof data.narratorVoice === "string") updates.narratorVoice = voiceArg(data.narratorVoice);
+  if (data.voiceInputMode !== undefined) {
+    if (data.voiceInputMode === "confirm" || data.voiceInputMode === "auto") updates.voiceInputMode = data.voiceInputMode;
+    else invalid.push(`voiceInputMode must be "confirm" or "auto"`);
+  }
+  if (invalid.length > 0) {
+    return { ...base, status: "error", error: `update_settings rejected, nothing was changed: ${invalid.join("; ")}.` };
+  }
+  if (replyRules !== null) draft.replyRules = replyRules.length ? replyRules : undefined;
+  if (card.name !== undefined) draft.name = card.name;
+  if (card.description !== undefined) draft.description = card.description;
+
+  if (!draft.settings) draft.settings = {} as WorldDefinition["settings"];
+  Object.assign(draft.settings as Record<string, unknown>, updates);
+  // Smart tracking switches (the editor's 「智能追踪」).
   if (data.continuity && typeof data.continuity === "object" && !Array.isArray(data.continuity)) {
     const c = data.continuity as Record<string, unknown>;
     const next = { ...(draft.continuity ?? {}) };
@@ -1982,10 +2293,100 @@ function applySettingsChange(draft: WorldDefinition, data: Record<string, unknow
     draft.continuity = next;
   }
 
-  return { ...base, status: "success" };
+  return {
+    ...base, status: "success",
+    ...(adjusted.length > 0 ? { note: `adjusted to the allowed range: ${adjusted.join(", ")}` } : {}),
+  };
 }
 
 // ── Worldbook CRUD ──
+
+/** Normalize the AI-provided 模块总控. Structural cleanup only — an unknown
+ *  source id is left in place, because in a batched create the source module
+ *  may be written later in the same reply and the runtime skips dead wires
+ *  safely either way. Self-reference IS dropped: that one is never a
+ *  batching artefact, it is a mistake. */
+function normalizeStation(raw: unknown, selfId: string): Worldbook["station"] {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  const kind = r.kind === "worker" ? "worker" : r.kind === "narrator" ? "narrator" : null;
+  if (!kind) return undefined;
+
+  const inputs = Array.isArray(r.inputs)
+    ? r.inputs
+        .filter((i): i is Record<string, unknown> => !!i && typeof i === "object")
+        .map((i) => {
+          const from = typeof i.from === "string" ? i.from.trim() : "";
+          const as = i.as === "lore" ? ("lore" as const) : i.as === "history" ? ("history" as const) : undefined;
+          const rawLimit = typeof i.limit === "number" && Number.isFinite(i.limit) ? Math.floor(i.limit) : undefined;
+          if (i.kind === "transcript") {
+            return { kind: "transcript" as const, from, limit: Math.max(1, Math.min(40, rawLimit ?? 10)), ...(as ? { as } : {}) };
+          }
+          if (i.kind === "variables") return { kind: "variables" as const, from, ...(as ? { as } : {}) };
+          const k = i.kind === "worker" ? ("worker" as const) : ("memory" as const);
+          return {
+            kind: k,
+            from,
+            ...(as ? { as } : {}),
+            ...(rawLimit !== undefined ? { limit: Math.max(1, Math.min(20, rawLimit)) } : {}),
+          };
+        })
+        .filter((i) => i.from && (i.from !== selfId || i.kind === "variables") && i.from !== selfId)
+        .slice(0, 12)
+    : undefined;
+
+  let trigger: NonNullable<Worldbook["station"]>["trigger"];
+  const t = r.trigger;
+  if (kind === "worker" && t && typeof t === "object" && !Array.isArray(t)) {
+    const tr = t as Record<string, unknown>;
+    if (tr.on === "module-closed" && typeof tr.from === "string" && tr.from.trim()) {
+      trigger = { on: "module-closed", from: tr.from.trim() };
+    } else if (tr.on === "turns" && typeof tr.every === "number" && Number.isFinite(tr.every)) {
+      trigger = { on: "turns", every: Math.max(1, Math.min(100, Math.floor(tr.every))) };
+    } else if (tr.on === "conditions") {
+      trigger = { on: "conditions", conditions: mapConditions(tr.conditions), conditionLogic: tr.conditionLogic === "any" ? "any" : "all" };
+    } else if (tr.on === "after" && typeof tr.from === "string" && tr.from.trim()) {
+      trigger = { on: "after", from: tr.from.trim() };
+    } else if (tr.on === "quiet" && typeof tr.seconds === "number" && Number.isFinite(tr.seconds)) {
+      trigger = { on: "quiet", seconds: Math.max(15, Math.min(3600, Math.floor(tr.seconds))) };
+    } else if (tr.on === "ui") {
+      trigger = { on: "ui" };
+    }
+  }
+
+  return {
+    kind,
+    ...(typeof r.model === "string" && r.model.trim() ? { model: r.model.trim().slice(0, 200) } : {}),
+    ...(inputs && inputs.length > 0 ? { inputs } : {}),
+    ...(kind === "narrator" && (r.onClose === "keep" || r.onClose === "archive") ? { onClose: r.onClose } : {}),
+    // A pool name, or the legacy own-memory flag (a pool of one). Either way
+    // the reader is resolveStation, which knows both spellings.
+    ...(kind === "narrator" && typeof r.memoryPool === "string" && r.memoryPool.trim()
+      ? { memoryPool: r.memoryPool.trim().slice(0, 64) }
+      : kind === "narrator" && r.history === "own"
+        ? { history: "own" as const }
+        : {}),
+    ...(typeof r.archivePrompt === "string" && r.archivePrompt ? { archivePrompt: r.archivePrompt.slice(0, 2000) } : {}),
+    ...(trigger ? { trigger } : {}),
+    ...(kind === "worker" && typeof r.task === "string" && r.task.trim() ? { task: r.task.slice(0, 4000) } : {}),
+    ...(typeof r.name === "string" && r.name.trim() ? { name: r.name.trim().slice(0, 60) } : {}),
+    // 自定义: kept only when each part is the shape the engine reads.
+    ...customStationParts(r),
+  };
+}
+
+/** The custom (自定义) parts of a station, each validated by the engine's
+ *  own schema and dropped when it is not that shape. */
+function customStationParts(r: Record<string, unknown>): Partial<NonNullable<Worldbook["station"]>> {
+  const shape = moduleStationSchema.shape;
+  const out: Record<string, unknown> = {};
+  for (const key of ["sees", "pieces", "output", "say", "onError", "cooldownSec", "maxTokens"] as const) {
+    if (r[key] === undefined) continue;
+    const parsed = shape[key].safeParse(r[key]);
+    if (parsed.success && parsed.data !== undefined) out[key] = parsed.data;
+  }
+  return out as Partial<NonNullable<Worldbook["station"]>>;
+}
 
 /** Normalize a worldbookId arg: "", "core", null → undefined (the always-on Core book). */
 function normalizeWorldbookId(raw: unknown): string | undefined {
@@ -2020,6 +2421,17 @@ function normalizeWorldbookActivation(raw: unknown): Worldbook["activation"] {
     return { mode: "greeting", greetingIds };
   }
   if (mode === "manual") return { mode: "manual" };
+  if (mode === "keywords") {
+    // Dropping this mode made a "say 阁楼 to enter" situation always on: the
+    // assistant reported the door and the card had none.
+    const keywords = Array.isArray(a.keywords)
+      ? (a.keywords as unknown[]).filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => x.trim())
+      : [];
+    const leaveKeywords = Array.isArray(a.leaveKeywords)
+      ? (a.leaveKeywords as unknown[]).filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => x.trim())
+      : [];
+    return { mode: "keywords", keywords, ...(a.exclusive === true ? { exclusive: true } : {}), ...(leaveKeywords.length ? { leaveKeywords } : {}) };
+  }
   return { mode: "always" };
 }
 
@@ -2038,8 +2450,13 @@ function applyWorldbookChange(draft: WorldDefinition, action: string, id: string
       id,
       name: (data.name as string) ?? id,
       description: data.description as string | undefined,
+      note: typeof data.note === "string" ? data.note.slice(0, 4000) : undefined,
+      frontendFile: typeof data.frontendFile === "string" && data.frontendFile ? data.frontendFile.slice(0, 200) : undefined,
       enabled: data.enabled === undefined ? true : (data.enabled as boolean),
       activation: data.activation !== undefined ? normalizeWorldbookActivation(data.activation) : { mode: "always" },
+      station: normalizeStation(data.station, id),
+      ...(typeof data.host === "string" && data.host.trim() ? { host: data.host.trim().slice(0, 128) } : {}),
+      ...(data.narratorHere === true ? { narratorHere: true } : {}),
       order: (data.order as number) ?? maxOrder + 1,
       color: data.color as string | undefined,
     };
@@ -2058,9 +2475,15 @@ function applyWorldbookChange(draft: WorldDefinition, action: string, id: string
     const idx = draft.worldbooks.findIndex((w) => w.id === id);
     if (idx === -1) return { ...base, status: "error", error: `Worldbook not found: ${id}` };
     draft.worldbooks.splice(idx, 1);
-    // Orphan its entries back to Core so they don't silently vanish from the prompt.
+    // Orphan its members back to Core so they don't silently vanish/deactivate.
     for (const e of draft.entries) {
       if (e.worldbookId === id) e.worldbookId = undefined;
+    }
+    for (const v of draft.variables) {
+      if (v.worldbookId === id) v.worldbookId = undefined;
+    }
+    for (const r of draft.reactions ?? []) {
+      if (r.worldbookId === id) r.worldbookId = undefined;
     }
     for (const folder of draft.entryFolders ?? []) {
       if (folder.worldbookId === id) folder.worldbookId = undefined;
@@ -2074,6 +2497,25 @@ function applyWorldbookChange(draft: WorldDefinition, action: string, id: string
 function applyWorldbookUpdates(book: Worldbook, data: Record<string, unknown>): void {
   if (data.name !== undefined) book.name = data.name as string;
   if (data.description !== undefined) book.description = data.description as string;
+  // The blackboard note. "" erases it — a sticky you can peel off matters as
+  // much as one you can write.
+  if (data.note !== undefined) book.note = typeof data.note === "string" && data.note ? data.note.slice(0, 4000) : undefined;
+  // Which scene file of the frontend is this module's face. "" unsets it.
+  if (data.frontendFile !== undefined) {
+    book.frontendFile = typeof data.frontendFile === "string" && data.frontendFile ? data.frontendFile.slice(0, 200) : undefined;
+  }
+  // null is how a station is taken back off — the module survives, the
+  // machinery goes.
+  if (data.station !== undefined) book.station = normalizeStation(data.station, book.id);
+  // Where an AI lives; "" or null puts it back to the older shape.
+  if (data.host !== undefined) {
+    if (typeof data.host === "string" && data.host.trim()) book.host = data.host.trim().slice(0, 128);
+    else delete book.host;
+  }
+  if (data.narratorHere !== undefined) {
+    if (data.narratorHere === true) book.narratorHere = true;
+    else delete book.narratorHere;
+  }
   if (data.enabled !== undefined) book.enabled = data.enabled as boolean;
   if (data.activation !== undefined) book.activation = normalizeWorldbookActivation(data.activation);
   if (data.order !== undefined) book.order = data.order as number;
@@ -2316,6 +2758,36 @@ export function toolCallsToSchemaChanges(
 
     if (name === "update_settings") {
       results.push({ toolCallId: tc.id, toolName: name, change: { action: "update", entityType: "settings", id: "settings", data: args } });
+      continue;
+    }
+
+    // set_ui_knobs edits knob VALUES, not an entity with an id of its own.
+    if (name === "set_ui_knobs") {
+      if (!Array.isArray(args.knobs) || args.knobs.length === 0) {
+        results.push({ toolCallId: tc.id, toolName: name, error: "set_ui_knobs requires a non-empty 'knobs' array of { id, value }" });
+        continue;
+      }
+      results.push({ toolCallId: tc.id, toolName: name, change: { action: "update", entityType: "uiKnobs", id: "ui-knobs", data: args } });
+      continue;
+    }
+
+    // write_ui_knob_groups installs the WHOLE decomposition — one per card.
+    if (name === "write_ui_knob_groups") {
+      if (!Array.isArray(args.groups) || args.groups.length === 0) {
+        results.push({ toolCallId: tc.id, toolName: name, error: "write_ui_knob_groups requires a non-empty 'groups' array" });
+        continue;
+      }
+      results.push({ toolCallId: tc.id, toolName: name, change: { action: "update", entityType: "uiKnobGroups", id: "ui-knob-groups", data: args } });
+      continue;
+    }
+
+    // edit_ui_doc edits the one interface document — ops, not an entity id.
+    if (name === "edit_ui_doc") {
+      if (!Array.isArray(args.ops) || args.ops.length === 0) {
+        results.push({ toolCallId: tc.id, toolName: name, error: "edit_ui_doc requires a non-empty 'ops' array" });
+        continue;
+      }
+      results.push({ toolCallId: tc.id, toolName: name, change: { action: "update", entityType: "uiDoc", id: "ui-doc", data: args } });
       continue;
     }
 

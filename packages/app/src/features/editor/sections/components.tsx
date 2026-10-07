@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, X, Plus, Link2, Code2 } from "lucide-react";
+import { Check, X, Plus, Link2, Code2, LayoutTemplate } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { LoreBindingsPanel } from "../components/lore-bindings-panel";
 import { FieldError } from "@/components/ui/field-error";
 import { useEditorStore } from "@/stores/editor";
-import { compileTSX } from "@/features/studio/lib/tsx-compiler";
+import { compileTSX } from "@/lib/tsx/tsx-compiler";
 import { normalizeCardFileName, starterCardFile } from "@/features/studio/lib/card-file-names";
 import { cn } from "@/lib/utils";
 import { getBundleColor } from "@/lib/entry-constants";
@@ -68,6 +69,30 @@ function CompileIndicator({ tsxCode }: { tsxCode: string }) {
 
 export function ComponentsSection() {
   const { t } = useTranslation("editor");
+  const navigate = useNavigate();
+
+  /** The road to the slides editor. This section is the CODE view, and for a
+   *  long time it was the only thing "Custom UI" led to — the builder existed
+   *  and was unreachable from here, which reads as it not existing at all. */
+  const openBuilder = useCallback(async () => {
+    const store = useEditorStore.getState();
+    let id = store.serverWorldId;
+    if (!id) {
+      if (!store.worldDraft.name) store.setField("name", t("shell.untitledWorld"));
+      await store.saveDraft();
+      id = useEditorStore.getState().serverWorldId;
+    }
+    if (!id) return;
+    // Already in Studio (this page is one of its panels): switch to the
+    // screen editor there. The note below is read only when Studio mounts,
+    // so here it did nothing, then opened the editor on the next visit.
+    if (window.location.pathname.startsWith("/app/studio/")) {
+      window.dispatchEvent(new CustomEvent("yumina:studio-stage-open-panel", { detail: { panelId: "frontend" } }));
+      return;
+    }
+    sessionStorage.setItem("yumina-studio-open-panel", "frontend");
+    void navigate({ to: "/app/studio/$worldId", params: { worldId: id } });
+  }, [navigate, t]);
   const rootComponent = useEditorStore((s) => s.worldDraft.rootComponent);
   const updateRootComponent = useEditorStore((s) => s.updateRootComponent);
   const installedBundles = useEditorStore((s) => s.worldDraft.installedBundles);
@@ -100,16 +125,6 @@ export function ComponentsSection() {
     if (!fileExists) setActiveFile(entryFile);
   }, [fileExists, entryFile]);
 
-  // Worlds that arrived without rootComponent (shouldn't happen — migrator
-  // synthesizes one for every world loaded — but render a safety fallback).
-  if (!rootComponent) {
-    return (
-      <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
-        This world has no rootComponent. Save the draft to regenerate a default.
-      </div>
-    );
-  }
-
   const fileNames = Object.keys(files).sort((a, b) => {
     if (a === entryFile) return -1;
     if (b === entryFile) return 1;
@@ -120,7 +135,7 @@ export function ComponentsSection() {
   const activeFileCode = files[safeActiveFile] ?? "";
 
   const handleConfirmFileName = useCallback(() => {
-    if (!fileDialog) return;
+    if (!fileDialog || !rootComponent) return;
     const result = normalizeCardFileName(newFileName);
     if (!result.ok) {
       if (result.reason === "empty") return;
@@ -178,12 +193,24 @@ export function ComponentsSection() {
   };
 
   const handleRemoveFile = useCallback((name: string) => {
-    if (name === rootComponent.entryFile) return;
+    if (!rootComponent || name === rootComponent.entryFile) return;
     const newFiles = { ...rootComponent.files };
     delete newFiles[name];
     updateRootComponent({ files: newFiles });
     setActiveFile(rootComponent.entryFile);
   }, [rootComponent, updateRootComponent]);
+
+  // Worlds that arrived without rootComponent (shouldn't happen — migrator
+  // synthesizes one for every world loaded — but render a safety fallback).
+  // This must stay BELOW every hook: returning before the useCallbacks above
+  // changed the hook count when rootComponent toggled and crashed the page.
+  if (!rootComponent) {
+    return (
+      <div className="flex h-full items-center justify-center p-6 text-sm text-muted-foreground">
+        {t("components.noRootComponent", "This world has no custom UI yet. Save the draft to regenerate a default.")}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -197,6 +224,24 @@ export function ComponentsSection() {
               {t("components.description")}
             </p>
           </div>
+        </div>
+      </div>
+
+      {/* 像 PPT 一样摆 — the visual builder, one click away from the code. */}
+      <div className="shrink-0 border-b border-border/60 bg-primary/[0.06] px-6 py-3">
+        <div className="flex items-center gap-3">
+          <LayoutTemplate className="h-4 w-4 shrink-0 text-primary" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium text-foreground">{t("components.builderBanner")}</p>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">{t("components.builderBannerHint")}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void openBuilder()}
+            className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            {t("components.builderBannerCta")}
+          </button>
         </div>
       </div>
 
@@ -273,7 +318,7 @@ export function ComponentsSection() {
                 )}
                 {name}
                 {name === rootComponent.entryFile && (
-                  <span className="ml-1 text-[9px] text-muted-foreground/50">entry</span>
+                  <span className="ml-1 text-[9px] text-muted-foreground/50">{t("components.entryFileBadge", "entry")}</span>
                 )}
               </button>
               );

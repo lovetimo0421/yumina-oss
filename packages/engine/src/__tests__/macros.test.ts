@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { expandMacros } from "../prompts/macros.js";
+import { expandMacros, primaryCharacterEntry } from "../prompts/macros.js";
 import type { WorldDefinition, GameState } from "../types/index.js";
 import {
   createMockWorld,
@@ -979,5 +979,27 @@ describe("expandMacros", () => {
       const result = expandMacros("{{roll::3d6}}", world, state);
       expect(result).toMatch(/^-?\d+$/);
     });
+  });
+});
+
+describe("{{char}} on a card with AIs of their own", () => {
+  it("is the card's own character, not the one living in an AI's frame", () => {
+    const world = createMockWorld({
+      entries: [
+        createMockEntry({ role: "character", name: "沈霏", enabled: true, worldbookId: "up" }),
+        createMockEntry({ role: "character", name: "Mia", enabled: true }),
+      ],
+      worldbooks: [{ id: "up", name: "二楼", order: 0, activation: { mode: "always" }, station: { kind: "narrator" } }],
+    } as Partial<WorldDefinition>);
+    expect(primaryCharacterEntry(world)?.name).toBe("Mia");
+    expect(expandMacros("{{char}}", world, createMockGameState())).toBe("Mia");
+  });
+
+  it("falls back to an AI's character when the card has no other", () => {
+    const world = createMockWorld({
+      entries: [createMockEntry({ role: "character", name: "沈霏", enabled: true, worldbookId: "up" })],
+      worldbooks: [{ id: "up", name: "二楼", order: 0, activation: { mode: "always" }, station: { kind: "narrator" } }],
+    } as Partial<WorldDefinition>);
+    expect(primaryCharacterEntry(world)?.name).toBe("沈霏");
   });
 });

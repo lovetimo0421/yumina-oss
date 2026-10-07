@@ -267,6 +267,8 @@ Call inside any component body. Same API everywhere — no per-surface restricti
 |---|---|
 | **Core** | |
 | `sendMessage(text, attachments?)` | Send a player message, optionally with image uploads. Each attachment is `{ type: "image", mimeType, name, data }`, where `data` is bare base64 from FileReader (remove the `data:...;base64,` prefix). Empty text is allowed with an image. Up to 4 PNG/JPEG/WebP/GIF images, 8 MB each and 16 MB total. |
+| `setScene(scene, { events? })` | **现场 — what the game shows right now.** Call it whenever the screen changes (the player moved, hid, drew something). The next AI call — a reply, a regenerate, a quiet station's turn — reads it as its own block, and only that: anything not in the scene the AI does not know. `scene` is a short string or a small object (`{ room: "kitchen", onCamera: false, holding: "diary" }`, under ~4000 chars). `events` (`[{ name, when }]`, up to 12) are what this game lets the AI set off; the AI writes `[event: name]` and `onStoryEvent` hears it. Not stored — call again after a reload. |
+| `onStoryEvent(cb)` | An event the AI set off (`{ id, name }`). Play it out in the UI — the cutscene, the knock at the door. Returns an unsubscribe; call it from a `useEffect`. |
 | `setVariable(id, value, options?)` | Update a game variable. options: `{ scope?, targetUserId? }` for multiplayer scoping. |
 | `executeAction(actionId)` | Trigger a named action |
 | `variables` | Current variable values, keyed by variable ID (not display name). |

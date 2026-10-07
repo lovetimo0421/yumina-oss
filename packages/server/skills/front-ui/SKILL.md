@@ -74,6 +74,31 @@ To take over the viewport entirely — no platform chat at all — simply don't 
 | Streaming text | Check `api.isStreaming`, render `api.streamingContent` |
 | Session header | Optionally add your own title/controls |
 
+## 拆积木 — decompose a hand-written frontend into style knobs
+
+A card with a hand-written frontend (a preserved `uiDoc.base`, or any card whose rootComponent isn't `generatedFrom: "uiDoc"`) can have its **visual constants lifted out as knobs**: the creator then clicks the region on the builder canvas and edits 标题颜色 with a swatch — no code. When the creator asks to 拆积木 / "make the frontend visually editable" / "把前端拆成旋钮", this is the workflow.
+
+**Everything lands in ONE reply — the batch is atomic.** A half-done decomposition (code reads `K["…"]` but no groups installed) is rejected wholesale, so never split it across turns:
+
+1. **Read** the base file(s) with `read_entities` / `grep_world`. Identify the card's *visible regions* (banner, status bar, choices, narration…) and, in each, the **high-value constants**: theme colors, display strings, key font sizes/spacings. 3-8 groups with a handful of knobs each beats an exhaustive dump — lift what a creator would actually want to touch.
+2. **Rewrite** each constant with `edit_custom_ui` (exact-once search-replace, small chunks):
+   - Add `import K from "./_knobs";` at the top of every file you touch (the platform generates `_knobs.tsx` from the groups — you never write that file).
+   - Expression position: `color: "#8fe0ae"` → `color: K["night.title-color"]`
+   - JSX attribute: `color="#8fe0ae"` → `color={K["night.title-color"]}`
+   - JSX text: `>夜晚<` → `>{K["night.title-text"]}<`
+   - Inside a template literal: `` `2.85em` `` → `` `${K["night.title-size"]}em` `` (the **unit stays in the code**; the knob is the bare number)
+   - Tag each region's outermost JSX element with `data-knob-group="<group-id>"` — that's what the canvas hit-tests when the creator clicks.
+3. **Install** the groups with `write_ui_knob_groups`, as the LAST call of the same reply. Every knob's `value` is EXACTLY the literal you removed — **at default values the card must render pixel-identical to before**. That invariant is the whole deal: decomposition changes nothing the player sees.
+
+Knob design rules:
+- `id` is namespaced under its region with a dot: `night.title-color`. `label` is in the card's language.
+- `number` knobs: set `unit` ("em"/"px"/"rem"/"vw") plus sensible `min`/`max`/`step` — the inspector then offers a slider, and the canvas corner-handle can scale the region by drag. A unitless ratio (`line-height`) gets NO unit, so drag-scaling leaves it alone.
+- Gradients and long CSS values are `text` knobs (they still show a live swatch).
+- The validator rejects the batch if: a declared knob is never read as `K["id"]`; code reads a `K["…"]` that isn't declared; a file uses `K[…]` without importing `./_knobs`; a group id never appears as `data-knob-group`.
+- A card with no `uiDoc` yet is wrapped automatically (its frontend becomes the preserved base, byte-identical) — you do NOT need the creator to open the builder first.
+
+**After decomposition**: color/text/size changes covered by a knob go through `set_ui_knobs` — never `edit_custom_ui` — and the creator can also drag/click them on the canvas. Only structural changes (layout, new regions, logic) still edit code.
+
 ## Platform Conventions (do NOT reimplement)
 
 ### State & persistence: pick the store by what the state IS

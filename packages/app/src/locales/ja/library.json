@@ -202,7 +202,9 @@
     "noDescription": "説明なし",
     "get": "入手",
     "deleteBundle": "バンドルを削除",
-    "deleteConfirm": "<strong>{{name}}</strong> を削除してもよろしいですか? この操作は取り消せません。"
+    "deleteConfirm": "<strong>{{name}}</strong> を完全に削除しますか？",
+    "importBundle": "バンドルをインポート",
+    "deleteConsequence": "バンドルと編集可能な内容は完全に削除されます。"
   },
   "favorites": {
     "backToLibrary": "ライブラリに戻る",
@@ -320,7 +322,8 @@
       "viewInAssets": "アセットで表示",
       "shareInCommunity": "コミュニティで共有"
     },
-    "reviews": "レビュー"
+    "reviews": "レビュー",
+    "overviewSubtitle": "主要な情報、メモ、説明をひとつにまとめて表示。"
   },
   "bulk": {
     "select": "選択",
@@ -355,7 +358,11 @@
     "deleteAction": "削除",
     "deletePermanently": "完全に削除",
     "deleteIrreversible": "この操作は取り消せません。",
-    "authorDoesNotAllowEditing": "作者は編集を許可していません"
+    "authorDoesNotAllowEditing": "作者は編集を許可していません",
+    "deleteProjectConsequenceFiles": "編集可能なプロジェクトとローカルデータは完全に削除されます。",
+    "deletePublishedConsequence": "この公開ワールドを保存したプレイヤーはアクセスできなくなります。",
+    "removeGameConsequenceHistory": "このゲームの保存済みセッションとプレイ履歴は削除されます。",
+    "removeGameConsequenceHub": "公開済みゲームは引き続き「発見」から利用できます。"
   },
   "card": {
     "play": "プレイ",
@@ -412,7 +419,7 @@
   },
   "create": {
     "title": "新規作成",
-    "mobileTitle": "新しい物語を作成",
+    "mobileTitle": "新しい創作を始めよう",
     "mobileInstructionTitle": "創作方法を選択",
     "import": "インポート",
     "back": "戻る",
@@ -424,7 +431,8 @@
       "signInBody": "ログインすると、画像と音楽の生成、作品の保存、生成履歴の確認ができます。",
       "signInAction": "画像や音楽を生成",
       "signIn": "ログインして始める"
-    }
+    },
+    "mobileSubtitle": "世界を作り、キャラクターを描き、アイデアを一枚の絵に。"
   },
   "time": {
     "justNow": "たった今",
@@ -436,9 +444,9 @@
   },
   "templates": {
     "blank": "空のプロジェクト",
-    "blankDesc": "空のワールド — プリセットなし。",
+    "blankDesc": "空のワールド。既定のナレーションだけが入っています。",
     "importWorld": "ワールドをインポート",
-    "importWorldDesc": "JSON ファイルからワールドをインポートします。",
+    "importWorldDesc": "SillyTavern のキャラクターカード（PNG / JSON）、またはエクスポートした Yumina カード。",
     "characterChat": "キャラクターチャット",
     "characterChatDesc": "ペルソナをデザインして、没入感のある 1 対 1 の対話を楽しめます。",
     "worldSimulation": "ワールドシミュレーション",
@@ -865,7 +873,7 @@
       "sectionOutput": "出力サイズ",
       "tabVideo": "動画",
       "videoTitle": "AI 動画生成",
-      "videoLead": "動画は素材ライブラリに保存され、立ち絵とオープニングに使えます。"
+      "videoLead": "動画は素材ライブラリに保存され、立ち絵・オープニング・プレイヤー画面に使えます。"
     },
     "music": {
       "workshopTitle": "BGM を生成",
@@ -1002,13 +1010,17 @@
       },
       "placeFailed": {
         "noGreeting": "このカードにはまだオープニングがありません。",
-        "linkFailed": "動画をカードに紐づけられませんでした。もう一度お試しください。"
+        "linkFailed": "動画をカードに紐づけられませんでした。もう一度お試しください。",
+        "noUi": "このカードにはまだビジュアルのプレイヤー画面がありません。先に「プレイヤー画面」でテンプレートを選んでください。"
       },
       "style": "画風",
       "styleCost": "テキストのみの動画で選択可 · 最初のフレーム +{{count}} マッシー",
       "styleNone": "指定しない",
       "styleFromFrame": "最初か最後のフレームを入れているので、動画はその画像の画風になります。",
-      "howStyle": "{{style}}画風"
+      "howStyle": "{{style}}画風",
+      "placeUi": "プレイヤー画面（新しい動画枠）",
+      "styleHint": "まずこの画風で最初のフレームを描き、それを動かすので、動画全体がこの画風になります。",
+      "styleNoneHint": "{{model}} がテキストから直接生成します。写実寄りになります。"
     },
     "folderLoadFallback": "このカードのフォルダを読み込めませんでした。いまは「すべての素材」に生成します。",
     "quality": {

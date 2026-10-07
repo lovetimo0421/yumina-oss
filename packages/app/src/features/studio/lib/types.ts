@@ -99,6 +99,26 @@ export interface ChatAttachment {
   name: string;
 }
 
+/** Something on the canvas the creator pointed the assistant at. */
+export interface StudioFocusRef {
+  id: string;
+  kind: string;
+  title: string;
+}
+
+/** A big job the assistant proposed: its plan and the platform's estimate. */
+export interface StudioJobProposal {
+  runId: string;
+  toolCallId: string;
+  plan: string[];
+  minutes: number;
+  /** null when the creator's own key pays. */
+  mushies: number | null;
+  byKey: boolean;
+  /** Set once the creator pressed Start. */
+  started?: boolean;
+}
+
 /** A chat message in the Studio AI panel */
 export interface StudioChatMessage {
   /** Unique message identifier for stable React keys and state matching */
@@ -107,6 +127,10 @@ export interface StudioChatMessage {
   content: string;
   /** File attachments (images) on this message */
   attachments?: ChatAttachment[];
+  /** What the creator had pointed the assistant at when sending this. */
+  focus?: StudioFocusRef[];
+  /** A big job proposed in this reply, waiting for (or past) Start. */
+  jobProposal?: StudioJobProposal;
   /** Tool calls made by the assistant in this turn */
   toolCalls?: ToolCall[];
   /** Auto-applied write tool calls retained for mobile change review */
@@ -143,6 +167,8 @@ export function serializeStudioChatMessages(messages: StudioChatMessage[]): Arra
     role,
     content,
     attachments,
+    focus,
+    jobProposal,
     toolCalls,
     mobileReviewToolCalls,
     toolResults,
@@ -157,6 +183,8 @@ export function serializeStudioChatMessages(messages: StudioChatMessage[]): Arra
     role,
     content,
     ...(attachments && { attachments }),
+    ...(focus && focus.length > 0 && { focus }),
+    ...(jobProposal && { jobProposal }),
     ...(toolCalls && { toolCalls }),
     ...(mobileReviewToolCalls && { mobileReviewToolCalls }),
     ...(toolResults && { toolResults }),

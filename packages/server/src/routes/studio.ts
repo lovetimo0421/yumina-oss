@@ -2,29 +2,27 @@ import { Hono } from "hono";
 import { eq, and, desc, asc, inArray } from "drizzle-orm";
 import { diffWorldSchemas } from "@yumina/engine";
 import type { WorldDefinition } from "@yumina/engine";
-import { db } from "../db/index.js";
-import { worlds, studioConversations, worldSnapshots } from "../db/schema.js";
+import { db, readOwn } from "../db/index.js";
+import { worlds, studioConversations, worldSnapshots, playSessions } from "../db/schema.js";
 import { summarizeSnapshotTimeline } from "../lib/studio-tools/snapshot-summary.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../lib/types.js";
 import { readTemplateContent, readTemplateMeta } from "../lib/studio-tools/index.js";
 import { getTemplateCatalogSummary } from "../lib/studio-skills/index.js";
-import { isS3Configured, generateUploadUrl } from "../lib/s3.js";
+import { isS3Configured, generateUploadUrl, getObjectBuffer, deleteObject } from "../lib/s3.js";
 import { resolveImageCdn } from "../lib/cdn-url.js";
 import {
   deleteStudioConversationForWorld,
   loadStudioConversationForDisplay,
   updateStudioConversationForWorld,
 } from "../lib/studio-conversations.js";
-import { writeStudioWorldSchema } from "../lib/pending-edit.js";
+import { restoreStudioSnapshot } from "../lib/world-versioning.js";
+import { SourceLimitError, addSource, listSources, removeSource, sourceIncomingPrefix } from "../lib/studio-sources.js";
+import { BIBLE_SUFFIX, readDigestStatus, stopDigests } from "../lib/studio-source-digest.js";
 
 const studioRoutes = new Hono<AppEnv>();
 
 studioRoutes.use("/*", authMiddleware);
-
-// Auto-backup written before each rollback so the rollback itself is reversible.
-// Only the most recent one is kept — older backups are pruned at rollback time.
-const BEFORE_ROLLBACK_LABEL = "Before rollback";
 
 // POST /api/studio/upload-url — get presigned URL for studio chat file attachment
 const ALLOWED_IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"];
@@ -89,6 +87,24 @@ studioRoutes.post("/download-url", async (c) => {
 // eliminates the drift that caused missing BGM / persona / audio-effects in
 // playtest. See packages/app/src/features/studio/panels/playtest-panel.tsx.
 
+// ── Access ──
+
+/** Who may open the blueprint. `BLUEPRINT_ACCESS` = `all` (default) | `admins`
+ *  | `off`. The blueprint is an experimental entry inside the classic editor;
+ *  this is the switch that narrows or closes it without a deploy. */
+export function blueprintAccessFor(role: string | undefined, setting = process.env.BLUEPRINT_ACCESS): boolean {
+  const mode = (setting ?? "all").trim().toLowerCase();
+  if (mode === "off") return false;
+  if (mode === "admins") return role === "admin";
+  return true;
+}
+
+// GET /api/studio/access — may this account open the blueprint?
+studioRoutes.get("/access", (c) => {
+  const user = c.get("user");
+  return c.json({ data: { blueprint: blueprintAccessFor(user.role) } });
+});
+
 // ── Template API ──
 
 // GET /api/studio/templates — List all available templates
@@ -143,11 +159,70 @@ studioRoutes.get("/:worldId/conversations", async (c) => {
   return c.json({ data: rows });
 });
 
+/**
+ * GET /api/studio/:worldId/station-activity — what the card's stations have
+ * actually done, from the creator's most recent session on it.
+ *
+ * Without this the whole feature is invisible after it runs: a creator sets up
+ * a chronicler, plays, comes back, and has no way to tell whether it wrote
+ * anything, wrote nothing, or was never woken. The failure mode of a
+ * background AI is silence, and silence needs a place to be read.
+ *
+ * Their OWN latest session only — this is a debugging window onto the
+ * creator's own play, not a view of anyone else's.
+ */
+studioRoutes.get("/:worldId/station-activity", async (c) => {
+  const currentUser = c.get("user");
+  const worldId = c.req.param("worldId");
+
+  const readDb = await readOwn(currentUser.id);
+  const [session] = await readDb
+    .select({
+      id: playSessions.id,
+      updatedAt: playSessions.updatedAt,
+      runMemories: playSessions.runMemories,
+    })
+    .from(playSessions)
+    .where(and(eq(playSessions.worldId, worldId), eq(playSessions.userId, currentUser.id)))
+    .orderBy(desc(playSessions.updatedAt))
+    .limit(1);
+
+  if (!session) return c.json({ data: { sessionId: null, at: null, runs: [], workers: [] } });
+
+  const memories = (session.runMemories ?? {}) as {
+    open?: Record<string, { fromAt: string; runIndex: number }>;
+    closed?: Array<{ bookId: string; runIndex: number; closedAt: string; summary?: string; summaryStatus: string }>;
+    workers?: Array<{ bookId: string; index: number; at: string; text?: string; status: string; cause?: string }>;
+  };
+
+  // Newest first, and capped: this is a glance, not an archive browser.
+  const runs = [...(memories.closed ?? [])].slice(-20).reverse();
+  const workers = [...(memories.workers ?? [])].slice(-20).reverse();
+  // A run only reaches `closed` when the module lets go, and a keyword module
+  // holds the floor until something else takes it. Reading `closed` alone told
+  // an author who had just watched their station narrate that nothing from it
+  // had run at all - the exact silence this panel exists to break.
+  const open = Object.entries(memories.open ?? {})
+    .filter(([, run]) => run && typeof run.fromAt === "string")
+    .map(([bookId, run]) => ({ bookId, runIndex: run.runIndex, fromAt: run.fromAt }));
+
+  return c.json({
+    data: { sessionId: session.id, at: session.updatedAt, open, runs, workers },
+  });
+});
+
 // POST /api/studio/:worldId/conversations — Create a new conversation
 studioRoutes.post("/:worldId/conversations", async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("worldId");
   const body = await c.req.json<{ title?: string }>().catch(() => ({}));
+
+  // Verify ownership — a conversation may only be opened on the caller's own world.
+  const worldRows = await db
+    .select({ id: worlds.id })
+    .from(worlds)
+    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)));
+  if (worldRows.length === 0) return c.json({ error: "World not found" }, 404);
 
   const [row] = await db
     .insert(studioConversations)
@@ -228,6 +303,91 @@ studioRoutes.delete("/:worldId/conversations/:convId", async (c) => {
   return c.json({ ok: true });
 });
 
+// ── Source texts (a fan-work's novel, kept beside the card) ──
+// See lib/studio-sources.ts. The assistant reads them with search_source /
+// read_source; the creator only uploads, lists and removes.
+
+const MAX_SOURCE_BYTES = 40 * 1024 * 1024;
+
+async function ownsWorld(userId: string, worldId: string): Promise<boolean> {
+  const rd = await readOwn(userId);
+  const [row] = await rd
+    .select({ id: worlds.id })
+    .from(worlds)
+    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, userId)))
+    .limit(1);
+  return Boolean(row);
+}
+
+const publicSource = (s: { id: string; name: string; chars: number; chapters: unknown[]; createdAt: string }) =>
+  ({ id: s.id, name: s.name, chars: s.chars, chapters: s.chapters.length, createdAt: s.createdAt });
+
+// GET /api/studio/:worldId/sources
+studioRoutes.get("/:worldId/sources", async (c) => {
+  const userId = c.get("user").id;
+  const worldId = c.req.param("worldId");
+  if (!(await ownsWorld(userId, worldId))) return c.json({ error: "World not found" }, 404);
+  const sources = await listSources(userId, worldId);
+  // A digest in progress rides along, so the chip shows it after a reload too.
+  // One that has not moved for 10 minutes died with its server; it is not shown.
+  const rows = await Promise.all(sources.map(async (s) => {
+    const status = s.name.endsWith(BIBLE_SUFFIX) ? null : await readDigestStatus(userId, worldId, s.id);
+    const live = status && !status.finished && !status.error && Date.now() - Date.parse(status.updatedAt) < 10 * 60_000;
+    return { ...publicSource(s), ...(live ? { digest: { phase: status.phase, done: status.done, total: status.total } } : {}) };
+  }));
+  return c.json({ data: rows });
+});
+
+// A book is bigger than the API's body limit, so it goes straight to storage
+// (like every other upload) and the server picks it up from there.
+// POST /api/studio/:worldId/sources/upload-url  { size } → { uploadUrl, key }
+studioRoutes.post("/:worldId/sources/upload-url", async (c) => {
+  const userId = c.get("user").id;
+  const worldId = c.req.param("worldId");
+  if (!(await ownsWorld(userId, worldId))) return c.json({ error: "World not found" }, 404);
+  const body = await c.req.json<{ size?: number }>().catch(() => ({} as { size?: number }));
+  if (Number(body.size) > MAX_SOURCE_BYTES) return c.json({ error: "File too large (40 MB at most)." }, 413);
+  const key = `${sourceIncomingPrefix(userId, worldId)}${crypto.randomUUID()}.txt`;
+  return c.json({ data: { uploadUrl: await generateUploadUrl(key, "text/plain"), key } });
+});
+
+// POST /api/studio/:worldId/sources  { key, name } — the uploaded file becomes a source
+studioRoutes.post("/:worldId/sources", async (c) => {
+  const userId = c.get("user").id;
+  const worldId = c.req.param("worldId");
+  if (!(await ownsWorld(userId, worldId))) return c.json({ error: "World not found" }, 404);
+  const body = await c.req.json<{ key?: string; name?: string }>().catch(() => ({} as { key?: string; name?: string }));
+  if (typeof body.key !== "string" || !body.key.startsWith(sourceIncomingPrefix(userId, worldId))) {
+    return c.json({ error: "Invalid upload key" }, 403);
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array((await getObjectBuffer(body.key, { maxBytes: MAX_SOURCE_BYTES })).buffer);
+  } catch {
+    return c.json({ error: "The upload did not arrive, or it is over 40 MB." }, 400);
+  }
+  try {
+    if (bytes.byteLength === 0) return c.json({ error: "Empty file." }, 400);
+    const meta = await addSource(userId, worldId, body.name ?? "source.txt", bytes);
+    return c.json({ data: publicSource(meta) });
+  } catch (error) {
+    if (error instanceof SourceLimitError) return c.json({ error: error.message }, 400);
+    throw error;
+  } finally {
+    await deleteObject(body.key).catch(() => {});
+  }
+});
+
+// DELETE /api/studio/:worldId/sources/:sourceId
+studioRoutes.delete("/:worldId/sources/:sourceId", async (c) => {
+  const userId = c.get("user").id;
+  const worldId = c.req.param("worldId");
+  if (!(await ownsWorld(userId, worldId))) return c.json({ error: "World not found" }, 404);
+  stopDigests({ userId, worldId, sourceId: c.req.param("sourceId") });
+  const removed = await removeSource(userId, worldId, c.req.param("sourceId"));
+  return removed ? c.json({ ok: true }) : c.json({ error: "Source not found" }, 404);
+});
+
 // ── World Snapshots (revert support) ──
 
 // GET /api/studio/:worldId/snapshots — list recent snapshots
@@ -289,58 +449,10 @@ studioRoutes.post("/:worldId/rollback/:snapshotId", async (c) => {
   const snapshotId = c.req.param("snapshotId");
 
   // Verify ownership
-  const worldRows = await db
-    .select({ id: worlds.id })
-    .from(worlds)
-    .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)));
-  if (worldRows.length === 0) return c.json({ error: "World not found" }, 404);
-
-  // Load snapshot
-  const snapRows = await db
-    .select({ schemaData: worldSnapshots.schemaData })
-    .from(worldSnapshots)
-    .where(
-      and(
-        eq(worldSnapshots.id, snapshotId),
-        eq(worldSnapshots.worldId, worldId),
-      )
-    );
-  if (snapRows.length === 0) return c.json({ error: "Snapshot not found" }, 404);
-
-  // Capture CURRENT live state before rollback (so the rollback is itself
-  // revertible) — but only persist the backup if the rollback actually changes
-  // the live row (see below).
-  const currentWorld = await db
-    .select({ schema: worlds.schema })
-    .from(worlds)
-    .where(eq(worlds.id, worldId));
-
-  // Apply the rollback through the SAME material-edit gate as a manual/Studio
-  // save: on a PUBLISHED world a material rollback (entries/frontend) is parked
-  // in world_pending_edits and re-reviewed — it does NOT silently go live —
-  // while a non-material rollback (or any non-published world) writes through.
-  // This closes the bypass where a rollback rewrote published content unreviewed.
-  const { held, reasons } = await writeStudioWorldSchema({
-    worldId,
-    creatorId: currentUser.id,
-    schema: snapRows[0]!.schemaData as Record<string, unknown>,
-  });
-
-  // The "before rollback" backup only makes sense when the live row actually
-  // changed. When the rollback is held for review, live is untouched, so a
-  // backup would just duplicate the current state and clutter the timeline.
-  if (!held && currentWorld.length > 0) {
-    // Keep only the latest auto-backup: prune older ones before inserting the new.
-    await db
-      .delete(worldSnapshots)
-      .where(and(eq(worldSnapshots.worldId, worldId), eq(worldSnapshots.label, BEFORE_ROLLBACK_LABEL)));
-    await db.insert(worldSnapshots).values({
-      worldId,
-      userId: currentUser.id,
-      schemaData: currentWorld[0]!.schema as Record<string, unknown>,
-      label: BEFORE_ROLLBACK_LABEL,
-    });
-  }
+  const result = await restoreStudioSnapshot({ worldId, creatorId: currentUser.id, snapshotId });
+  if (result.kind === "worldNotFound") return c.json({ error: "World not found" }, 404);
+  if (result.kind === "snapshotNotFound") return c.json({ error: "Snapshot not found" }, 404);
+  const { held, reasons } = result;
 
   return c.json({ ok: true, restoredSnapshotId: snapshotId, held, reasons });
 });

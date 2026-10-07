@@ -25,12 +25,19 @@ import { useTranslation } from "react-i18next";
 import posthog from "posthog-js";
 import { useSandbox } from "../sandbox/use-sandbox";
 import { GameRoomConnection } from "./game-room-connection";
+import { VoiceChat } from "@/lib/voice-chat";
+import { useWorldVoice } from "./use-world-voice";
+import { VoiceConsent } from "./voice-consent";
+import type { VoiceEvent } from "../../../sandbox/voice-types";
 import { slimMessages } from "./slim-messages";
 import { scopeStorageKey, writeWorldStorage } from "./world-storage";
 import { createSideCallStreamReader } from "./side-call-stream";
 import { isCompiledValid, type CompiledRoot } from "@/features/studio/lib/compiled-format";
 import { absoluteImageUrl } from "@/lib/asset-url";
 import type { YuminaAPI } from "@/features/studio/lib/custom-component-renderer";
+import { dispatchAwaitedAction } from "./awaited-action";
+import { dispatchActorContextCall } from "./actor-context-bridge";
+import { hydrateVoiceSceneNotice } from "./voice-scene-notice";
 import type { Condition, LoreUiBinding, Worldbook, StateChannel } from "@yumina/engine";
 import type {
   VariablesChannelData,
@@ -65,6 +72,8 @@ import { chatSessionTarget, createdSessionId } from "@/lib/session-navigation";
 import { SANDBOX_DOC_URL, SANDBOX_DOC_RETRY_URL } from "@/lib/sandbox-doc-url";
 import { feedback } from "@/lib/feedback";
 import { haltTts, loadTtsUnlessHalted } from "@/lib/tts-stop-signal";
+import { getVideoController, type RealtimeVideoController, type VideoStartOptions } from "./realtime-video/controller";
+import { FastForwardVeil } from "./realtime-video/fast-forward-veil";
 import { toPillText } from "@/lib/feedback-policy";
 
 /**
@@ -162,13 +171,18 @@ interface WorldRendererProps {
     enabled: boolean;
     role?: string;
     tags?: string[];
+    worldbookId?: string;
     conditions?: Condition[];
     conditionLogic?: "all" | "any";
     portrait?: string;
     portraitVideo?: { idle?: string; speaking?: string };
+    folderId?: string;
+    audience?: SandboxEntry["audience"];
   }>;
   loreUiBindings?: LoreUiBinding[];
   worldbooks?: Worldbook[];
+  /** The card's setting: split one reply into a bubble per speaker. */
+  speakerBubbles?: boolean;
 }
 
 export function WorldRenderer({
@@ -189,6 +203,7 @@ export function WorldRenderer({
   entries,
   loreUiBindings,
   worldbooks,
+  speakerBubbles,
 }: WorldRendererProps) {
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelPickerChatTrial, setModelPickerChatTrial] = useState(true);
@@ -335,7 +350,30 @@ export function WorldRenderer({
   useEffect(() => { closeImagePicker(); return closeImagePicker; }, [sessionId, closeImagePicker]);
   useEffect(() => { if (!isActive) closeImagePicker(); }, [isActive, closeImagePicker]);
   const gameRoomRef = useRef<GameRoomConnection | null>(null);
+  // Table voice (real-time voice between seated humans + utterance transcripts),
+  // created lazily on the first room.voice call. Events ride the room-frame channel.
+  const voiceChatRef = useRef<VoiceChat | null>(null);
   const sendRoomFrameRef = useRef<((frame: Record<string, unknown>) => void) | null>(null);
+  const sendVoiceEventRef = useRef<((event: VoiceEvent) => void) | null>(null);
+  const sendVideoEventRef = useRef<((event: Record<string, unknown>) => void) | null>(null);
+  // Where a card wants the realtime video drawn, in the iframe's own viewport.
+  const [videoSlot, setVideoSlot] = useState<{ x: number; y: number; width: number; height: number; radius?: number } | null>(null);
+  const videoAllowedRef = useRef(false);
+  const storeReadOnly = useChatStore(state => state.readOnly);
+  const realtimeVoice = useWorldVoice({
+    sessionId,
+    enabled: isActive && mode === "session" && capabilities.canUseSessionApis && !!api.currentUser && !storeReadOnly && !(api as YuminaAPI & { readOnly?: boolean }).readOnly,
+    onEvent: event => {
+      if (sendVoiceEventRef.current) sendVoiceEventRef.current(event);
+      else if (event.type === "video-frame") event.frame.close();
+    },
+  });
+  const realtimeVoiceCallRef = useRef(realtimeVoice.call); realtimeVoiceCallRef.current = realtimeVoice.call;
+  const voiceEntriesRef = useRef(entries); voiceEntriesRef.current = entries;
+  // `gameState` also carries optimistic setVariable writes. Notices may only
+  // cite the loaded snapshot or a state acknowledgement returned by the server.
+  const confirmedSceneRef = useRef({ sessionId, variables });
+  if (confirmedSceneRef.current.sessionId !== sessionId) confirmedSceneRef.current = { sessionId, variables };
 
   // ── API call handler (reuse same pattern as SandboxedRenderer) ──
   const handleApiCall = useCallback(
@@ -362,6 +400,53 @@ export function WorldRenderer({
           const timeout = setTimeout(() => controller.abort(), 12_000);
           return requestSideDecision(sid, args[0], useConfigStore.getState().selectedModel, controller.signal)
             .finally(() => { clearTimeout(timeout); decisionControllersRef.current.delete(controller); });
+        }
+        case "ai.context": return dispatchActorContextCall(args, {
+          sessionId: sessionIdRef.current,
+          available: mode === "session" && capabilities.canUseSessionApis !== false && !(currentApi as YuminaAPI & { readOnly?: boolean }).readOnly,
+          currentSessionId: () => sessionIdRef.current,
+          fetch: (...request) => fetch(...request), apiBase,
+        });
+        case "realtimeVideo.start": case "realtimeVideo.stop": case "realtimeVideo.setSlot":
+        case "realtimeVideo.direct": case "realtimeVideo.setMuted": case "realtimeVideo.release": case "realtimeVideo.skip": case "realtimeVideo.rewind": {
+          const sid = sessionIdRef.current;
+          if (method === "realtimeVideo.setSlot") {
+            const r = args[0] as { x?: unknown; y?: unknown; width?: unknown; height?: unknown; radius?: unknown } | null;
+            const ok = r && [r.x, r.y, r.width, r.height].every((n) => typeof n === "number" && Number.isFinite(n));
+            setVideoSlot(ok ? { x: r!.x as number, y: r!.y as number, width: Math.max(0, r!.width as number), height: Math.max(0, r!.height as number), radius: typeof r!.radius === "number" ? r!.radius : undefined } : null);
+            return undefined;
+          }
+          if (!sid || !videoAllowedRef.current) return method === "realtimeVideo.start" ? { error: "Video is unavailable in this view." } : undefined;
+          const controller = getVideoController(sid);
+          if (method === "realtimeVideo.start") return controller.start((args[0] ?? {}) as VideoStartOptions);
+          if (method === "realtimeVideo.stop") controller.stop();
+          else if (method === "realtimeVideo.release") controller.release();
+          else if (method === "realtimeVideo.skip") controller.skip();
+          else if (method === "realtimeVideo.rewind") controller.rewind();
+          else if (method === "realtimeVideo.direct") controller.direct(String(args[0] ?? ""));
+          else controller.setMuted(!!args[0]);
+          return undefined;
+        }
+        case "realtimeVoice.prepare": case "realtimeVoice.start": case "realtimeVoice.stop": case "realtimeVoice.interrupt": case "realtimeVoice.setMuted":
+        case "realtimeVoice.updateContext": case "realtimeVoice.updateInstructions": case "realtimeVoice.cancelSceneReaction": case "realtimeVoice.reactToScene": case "realtimeVoice.resolveTool": case "realtimeVoice.setSpatial": case "realtimeVoice.ackVideoFrame": {
+          // The existing generic bridge resolves results; contain rejections here
+          // so consent denial reaches the SDK immediately instead of timing out.
+          try {
+            if (method === "realtimeVoice.reactToScene") {
+              const state = useChatStore.getState();
+              if (state.session?.id !== sessionIdRef.current || args.length !== 1) return { error: "Invalid voice scene request." };
+              if (confirmedSceneRef.current.sessionId !== sessionIdRef.current) return { error: "Voice scene session changed." };
+              const sceneSession = sessionIdRef.current;
+              const notice = hydrateVoiceSceneNotice(args[0], confirmedSceneRef.current.variables, voiceEntriesRef.current, state.session.world?.schema.version,
+                () => confirmedSceneRef.current.sessionId === sceneSession ? confirmedSceneRef.current.variables : {});
+              if (!notice) return { error: "Voice scene evidence is unavailable or obsolete." };
+              args = [notice];
+            }
+            const result = realtimeVoiceCallRef.current(method, args);
+            return result?.catch(error => ({ error: error instanceof Error ? error.message : "Voice could not connect." }));
+          } catch {
+            return { error: "Invalid voice request." };
+          }
         }
         case "social.get": case "social.action": case "social.generate": {
           const sid = sessionIdRef.current;
@@ -414,6 +499,11 @@ export function WorldRenderer({
             return uploadSessionImage(sid,file,options);
           })();
         }
+        case "setScene":
+          // 现场: kept for the next AI call only. A preview or replay has no
+          // AI call to send it with.
+          if (mode === "session") useChatStore.getState().setLiveScene(args[0], args[1]);
+          return;
         case "sendMessage":
           currentApi.sendMessage(args[0] as string, args[1] as import("@yumina/shared").ChatImageInput[] | undefined);
           return;
@@ -446,6 +536,7 @@ export function WorldRenderer({
                 session: s.session ? { ...s.session, state: next } : s.session,
               } : s;
             });
+            if (applied) confirmedSceneRef.current = { sessionId: sid, variables: confirmed.variables };
             return { applied };
           });
         }
@@ -485,8 +576,21 @@ export function WorldRenderer({
                   state: { metadata: { activeLoreSlots: slots } },
                 }),
               })
-                .then((res) => {
-                  if (res.status === 409 && retry) setTimeout(() => patchSlots(false), 2000);
+                .then(async (response) => {
+                  if (response.status === 409 && retry) {
+                    setTimeout(() => patchSlots(false), 2000);
+                    return;
+                  }
+                  if (!response.ok) return;
+                  const { data } = await response.json();
+                  const store = (await import("@/stores/chat")).useChatStore.getState();
+                  // Only mirror this patch's metadata. A concurrent turn/action
+                  // may have advanced variables or gates since it was sent.
+                  if (store.session?.id !== sid || !data?.state?.metadata) return;
+                  store.applyRuntimeResult(sid, { state: {
+                    ...store.session.state,
+                    metadata: { ...(store.session.state.metadata as Record<string, unknown> ?? {}), activeLoreSlots: data.state.metadata.activeLoreSlots },
+                  } });
                 })
                 .catch(() => {});
             };
@@ -497,6 +601,16 @@ export function WorldRenderer({
         case "executeAction":
           currentApi.executeAction?.(args[0] as string);
           return;
+        case "executeActionAndWait":
+          return dispatchAwaitedAction(args,
+            mode === "session" && !!sessionIdRef.current && sessionIdRef.current === useChatStore.getState().session?.id && capabilities.canUseSessionApis && !useChatStore.getState().readOnly && !(currentApi as YuminaAPI & { readOnly?: boolean }).readOnly,
+            currentApi.executeActionAndWait);
+        case "callAi":
+          // The card's screen calls one of its AIs and waits for the answer.
+          if (mode === "session" && !!sessionIdRef.current && sessionIdRef.current === useChatStore.getState().session?.id && capabilities.canUseSessionApis && !useChatStore.getState().readOnly && typeof args[0] === "string") {
+            return useChatStore.getState().callAi(args[0], args[1]);
+          }
+          return null;
         case "emitEvent":
           // TODO: Route through ReactionEvaluator in Phase 2
           console.log("[WorldRenderer] emitEvent:", args[0]);
@@ -542,7 +656,7 @@ export function WorldRenderer({
           if (!sid || !voiceHostAvailableRef.current) {
             return Promise.resolve({ ok: false, reason: "unavailable" });
           }
-          const opts = (args[0] ?? {}) as { messageId?: string; text?: string; key?: string; voice?: string };
+          const opts = (args[0] ?? {}) as { messageId?: string; text?: string; key?: string; voice?: string; waitForEnd?: boolean };
           if (opts.messageId && isPendingMessageId(opts.messageId)) {
             return Promise.resolve({ ok: false, reason: "pending" });
           }
@@ -570,6 +684,13 @@ export function WorldRenderer({
           void import("@/lib/tts-playback").then((m) => m.applyTtsPrefs(partial)).catch(() => {});
           return;
         }
+        case "voice.prepare": {
+          if (mode !== "session" || !sessionIdRef.current) return Promise.resolve({ ok: false, reason: "unavailable" });
+          const requireLevels = (args[0] as { requireLevels?: boolean } | undefined)?.requireLevels === true;
+          return import("@/lib/voice-input")
+            .then((m) => m.prepareVoiceInput({ requireLevels }))
+            .catch(() => ({ ok: false, reason: "error" }));
+        }
         case "voice.stop":
           void import("@/lib/voice-input").then((m) => m.stopVoiceRecording()).catch(() => {});
           return;
@@ -588,8 +709,10 @@ export function WorldRenderer({
             .catch(() => ({ ok: false, reason: "error" }));
         }
         case "switchGreeting":
-          currentApi.switchGreeting?.(args[0] as number);
-          return;
+          // Always answered, and only once the switch has landed: the
+          // sandbox awaits it before a card writes variables over the
+          // restored opening.
+          return Promise.resolve(currentApi.switchGreeting?.(args[0] as number)).then(() => true, () => false);
         case "swipeMessage": {
           const sid = sessionIdRef.current;
           if (!sid) return Promise.resolve({});
@@ -606,6 +729,7 @@ export function WorldRenderer({
             const json = await r.json();
             const data = json.data ?? json;
             const store = (await import("@/stores/chat")).useChatStore.getState();
+            if (store.session?.id !== sid) return {};
             if (data.content !== undefined) {
               store.updateMessage(swipeMsgId, {
                 content: data.content,
@@ -614,8 +738,7 @@ export function WorldRenderer({
               });
             }
             if (data.state && data.stateRestored !== false) {
-              const vars = (data.state as Record<string, unknown>)?.variables;
-              if (vars) store.setGameState(vars as Record<string, number | string | boolean | Record<string, unknown> | unknown[]>);
+              store.applyRuntimeResult(sid, data, "restore");
             }
             return data;
           }).catch(() => ({}));
@@ -797,18 +920,24 @@ export function WorldRenderer({
         case "editMessage": {
           const sid = sessionIdRef.current;
           if (!sid) return Promise.resolve(false);
-          const [messageId, content] = args as [string, string];
+          const [messageId, content, editOptions] = args as [string, string, { swipeIndex?: unknown } | undefined];
           if (isPendingMessageId(messageId)) return Promise.resolve(false);
+          // The variant the edit box was opened on. The server refuses the
+          // save if another variant became active in between, instead of
+          // writing this text over it (edit-target.ts).
+          const expectedSwipeIndex = typeof editOptions?.swipeIndex === "number" ? editOptions.swipeIndex : undefined;
           return fetch(`${apiBase}/api/messages/${messageId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ content }),
+            body: JSON.stringify(expectedSwipeIndex === undefined ? { content } : { content, expectedSwipeIndex }),
           }).then(async (r) => {
             if (!r.ok) return false;
             const { data } = await r.json();
             const store = (await import("@/stores/chat")).useChatStore.getState();
             if (store.session?.id !== sid) return false;
+            // The server row is the truth for the edit; it already clears the
+            // guard audit, which is stale once the text changed.
             store.updateMessage(messageId, data);
             const msgs = store.messages;
             const lastMsg = msgs[msgs.length - 1];
@@ -856,7 +985,9 @@ export function WorldRenderer({
           const [on] = args as [boolean];
           return fetch(`${apiBase}/api/users/me`, {
             method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ preferences: { autoTurnImages: on === true } }),
+            // Turning auto on also writes the switch explicitly: the server only honours
+            // auto next to experimentalTurnImages:true.
+            body: JSON.stringify({ preferences: on === true ? { autoTurnImages: true, experimentalTurnImages: true } : { autoTurnImages: false } }),
           }).then(async (r) => {
             if (r.ok) (await import("./turn-image-drawing")).forgetTurnImageSettings();
             return r.ok;
@@ -995,6 +1126,64 @@ export function WorldRenderer({
           if (!sid || mode !== "session") return Promise.reject(new Error("No active session"));
           return import("@/lib/state-guard-settings").then(({ requestStateGuardSettings }) =>
             requestStateGuardSettings(sid, method === "setStateGuardSettings" ? args[0] as Partial<import("@yumina/shared").StateGuardSettings> : undefined));
+        }
+        case "getLiveCanon":
+        case "updateLiveCanonState":
+        case "saveLiveCanonBaseEntry":
+        case "revertLiveCanonBaseEntry":
+        case "createLiveCanonEntry":
+        case "updateLiveCanonEntry":
+        case "deleteLiveCanonEntry": {
+          const sid = sessionIdRef.current;
+          if (!sid || mode !== "session") {
+            return Promise.resolve({
+              ok: false,
+              status: 403,
+              error: "Lore Shift is unavailable outside an active session",
+              code: "LIVE_CANON_FORBIDDEN",
+            });
+          }
+          const root = `${apiBase}/api/sessions/${encodeURIComponent(sid)}/live-canon`;
+          let url = root;
+          let requestMethod = "GET";
+          let body: unknown;
+          if (method === "updateLiveCanonState") {
+            url = `${root}/state`;
+            requestMethod = "PATCH";
+            body = { updates: args[0] };
+          } else if (method === "saveLiveCanonBaseEntry") {
+            url = `${root}/lore/base/${encodeURIComponent(String(args[0] ?? ""))}`;
+            requestMethod = "PUT";
+            body = { content: args[1] };
+          } else if (method === "revertLiveCanonBaseEntry") {
+            url = `${root}/lore/base/${encodeURIComponent(String(args[0] ?? ""))}`;
+            requestMethod = "DELETE";
+          } else if (method === "createLiveCanonEntry") {
+            url = `${root}/lore`;
+            requestMethod = "POST";
+            body = args[0];
+          } else if (method === "updateLiveCanonEntry") {
+            url = `${root}/lore/${encodeURIComponent(String(args[0] ?? ""))}`;
+            requestMethod = "PATCH";
+            body = args[1];
+          } else if (method === "deleteLiveCanonEntry") {
+            url = `${root}/lore/${encodeURIComponent(String(args[0] ?? ""))}`;
+            requestMethod = "DELETE";
+          }
+          return fetch(url, {
+            method: requestMethod,
+            credentials: "include",
+            ...(body !== undefined
+              ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
+              : {}),
+          }).then(async (response) => {
+            const payload = await response.json().catch(() => ({}));
+            return { ok: response.ok, status: response.status, ...payload };
+          }).catch((error) => ({
+            ok: false,
+            status: 0,
+            error: error instanceof Error ? error.message : "Network error",
+          }));
         }
         case "getSessionMemory":
         case "saveSessionMemory":
@@ -1277,7 +1466,20 @@ export function WorldRenderer({
         case "room.leave": {
           gameRoomRef.current?.destroy();
           gameRoomRef.current = null;
+          voiceChatRef.current?.leave();
           return;
+        }
+        case "room.voice": {
+          // api.room.voice(action, value): join(roomId) | leave | mic(bool) | listen(bool) | hint(text)
+          const action = String(args[0] ?? "");
+          const value = args[1];
+          const vc = (voiceChatRef.current ??= new VoiceChat((frame) => sendRoomFrameRef.current?.(frame)));
+          if (action === "join") return vc.join(String(value ?? ""));
+          if (action === "leave") { vc.leave(); return { ok: true }; }
+          if (action === "mic") return vc.setMic(value === true);
+          if (action === "listen") { vc.setListen(value !== false); return { ok: true }; }
+          if (action === "hint") { vc.setHint(String(value ?? "")); return { ok: true }; }
+          return { ok: false, reason: "unknown-action" };
         }
         case "room.input": {
           gameRoomRef.current?.sendInput((args[0] ?? {}) as Record<string, unknown>);
@@ -1429,7 +1631,7 @@ export function WorldRenderer({
                 lastLevel = q;
                 callbacks.onDelta(String(q));
               }
-            }),
+            }, { requireLevels: (args[0] as { requireLevels?: boolean } | undefined)?.requireLevels === true }),
           )
           .then((result) => callbacks.onDone(JSON.stringify(result)))
           .catch(() => callbacks.onDone(JSON.stringify({ ok: false, reason: "error" })));
@@ -1647,6 +1849,9 @@ export function WorldRenderer({
     restoreComposerDraft,
     restoreTranscriptPosition,
     sendRoomFrame,
+    sendVoiceEvent,
+    sendVideoEvent,
+    sendStoryEvent,
     openMemoryPanel,
   } = useSandbox({
     active: isActive,
@@ -1678,8 +1883,47 @@ export function WorldRenderer({
   // Multiplayer relay: keep the frame pump pointed at the live bridge, and
   // tear the socket down when the session unmounts or changes.
   sendRoomFrameRef.current = sendRoomFrame;
+  sendVoiceEventRef.current = sendVoiceEvent;
+  sendVideoEventRef.current = sendVideoEvent;
+  // Events the AI set off reach the card once each, in order. Only the live
+  // session's card hears them; a replay or preview has no game to play them.
+  const deliveredStoryEvents = useRef(new Set<string>());
+  useEffect(() => {
+    if (mode !== "session") return;
+    const deliver = (events: Array<{ id: string; name: string }>) => {
+      for (const event of events) {
+        if (deliveredStoryEvents.current.has(event.id)) continue;
+        deliveredStoryEvents.current.add(event.id);
+        sendStoryEvent(event);
+      }
+    };
+    deliver(useChatStore.getState().storyEvents);
+    return useChatStore.subscribe((s, prev) => { if (s.storyEvents !== prev.storyEvents) deliver(s.storyEvents); });
+  }, [mode, sendStoryEvent]);
+  videoAllowedRef.current = isActive && mode === "session" && capabilities.canUseSessionApis && !!api.currentUser && !storeReadOnly;
+  // Push the realtime video state to the card (cards that never call api.realtimeVideo ignore it).
+  useEffect(() => {
+    if (!sessionId) return;
+    const controller = getVideoController(sessionId);
+    // The recent steps, trimmed: cards show the pipeline (player → story → shot → on screen) and
+    // the passage each shot films.
+    const unsubscribe = controller.subscribe((state) => sendVideoEventRef.current?.(videoStateEvent(state)));
+    // Leaving the play page stops the film (after a short grace); coming back picks it up.
+    return () => { unsubscribe(); controller.leaveSoon(); };
+  }, [sessionId]);
+  // Whatever was pushed before the card's frame listened is lost: once the card is on screen it
+  // gets the current state again (whether scene video is offered, which engines, the film so far).
+  useEffect(() => {
+    if (!sessionId || !worldRendered) return;
+    const resend = () => sendVideoEventRef.current?.(videoStateEvent(getVideoController(sessionId).getState()));
+    resend();
+    const t = setTimeout(resend, 1000);
+    return () => clearTimeout(t);
+  }, [sessionId, worldRendered]);
   useEffect(() => {
     return () => {
+      voiceChatRef.current?.destroy();
+      voiceChatRef.current = null;
       gameRoomRef.current?.destroy();
       gameRoomRef.current = null;
     };
@@ -1860,7 +2104,7 @@ export function WorldRenderer({
           return;
         }
         if (fileKeys.length <= 1) {
-          const { transformTSX } = await import("@/features/studio/lib/tsx-compiler");
+          const { transformTSX } = await import("@/lib/tsx/tsx-compiler");
           const single = files[entryFile] ?? files[fileKeys[0] ?? ""] ?? "";
           const transformed = transformTSX(single);
           if (transformed.code) {
@@ -1869,7 +2113,7 @@ export function WorldRenderer({
             installRoot(entryFile, files, undefined, transformed.error ?? "Compile failed", mode);
           }
         } else {
-          const { bundleTSX } = await import("@/features/studio/lib/tsx-bundler");
+          const { bundleTSX } = await import("@/lib/tsx/tsx-bundler");
           const bundled = bundleTSX({ files, entryFile });
           if (bundled.code) {
             installRoot(entryFile, files, bundled.code, undefined, mode);
@@ -1923,7 +2167,9 @@ export function WorldRenderer({
   // global — it does nothing until a turn streams with auto-read enabled).
   useEffect(() => {
     if (mode !== "session") return;
-    void import("@/lib/tts-playback").then((m) => m.ensureStreamReadAlong());
+    // The chunk can resolve to undefined (mobile Chrome during a navigation /
+    // bfcache swap) or fail to load; a read-along nicety must never throw.
+    void import("@/lib/tts-playback").then((m) => m?.ensureStreamReadAlong?.()).catch(() => {});
   }, [mode]);
 
   // Slim the messages payload before it crosses the bridge (see slim-messages.ts):
@@ -1993,6 +2239,11 @@ export function WorldRenderer({
         enabled: e.enabled,
         role: e.role ?? "lore",
         tags: e.tags,
+        worldbookId: e.worldbookId,
+        // A part that lists entries by folder, and keeps text written only
+        // for the AI off the player's screen.
+        folderId: e.folderId,
+        audience: e.audience,
         conditions: e.conditions ?? [],
         conditionLogic: e.conditionLogic ?? "all",
         // Resolved here (the sandbox boundary) so the bubble can drop it straight
@@ -2030,9 +2281,10 @@ export function WorldRenderer({
       entries: slimEntries,
       loreUiBindings: loreUiBindings ?? [],
       worldbooks: worldbooks ?? [],
+      ...(speakerBubbles ? { speakerBubbles: true } : {}),
     };
     pushIfChanged("session", data);
-  }, [worldId, sessionId, mediaShareId, api.worldName, api.worldCover, api.currentUser, user, entries, loreUiBindings, worldbooks]);
+  }, [worldId, sessionId, mediaShareId, api.worldName, api.worldCover, api.currentUser, user, entries, loreUiBindings, worldbooks, speakerBubbles]);
 
   // Push UI channel. Intentionally left without a dependency array: it carries
   // ~15 small fields (pendingChoices, model picker, checkpoints, volumes, …),
@@ -2044,6 +2296,7 @@ export function WorldRenderer({
     const data: UIChannelData = {
       pendingChoices: (api as any).pendingChoices ?? [],
       error: (api as any).error ?? null,
+      background: ((api as any).background ?? null) as UIChannelData["background"],
       readOnly: (api as any).readOnly ?? false,
       checkpoints: (api as any).checkpoints ?? [],
       greetingContent: (api as any).greetingContent ?? null,
@@ -2133,8 +2386,8 @@ export function WorldRenderer({
           display: "block",
           background: "var(--color-background, #121316)",
           colorScheme: "dark",
-          opacity: revealed ? 1 : 0,
-          transition: "opacity 150ms ease",
+          // Keep the frame paintable while the opaque loading overlay covers it.
+          // An invisible frame can have its animation callbacks throttled by WebKit.
         }}
       />
       {isActive && modelPickerOpen && (
@@ -2146,6 +2399,15 @@ export function WorldRenderer({
           onClose={() => setModelPickerOpen(false)}
           onSelect={(modelId) => useConfigStore.getState().setConfig("selectedModel", modelId)}
         />
+      )}
+      <VoiceConsent request={realtimeVoice.consent} />
+      {videoSlot && sessionId && videoSlot.width > 0 && videoSlot.height > 0 && (
+        <VideoSlotOverlay controller={getVideoController(sessionId)} rect={videoSlot} />
+      )}
+      {realtimeVoice.status === "connected" && (
+        <button type="button" onClick={realtimeVoice.stop} className="absolute right-3 top-3 z-20 rounded-full border border-border bg-background/95 px-3 py-2 text-xs text-foreground shadow-md">
+          Live voice · Stop
+        </button>
       )}
       {!revealed && (
         <div
@@ -2188,6 +2450,35 @@ export function WorldRenderer({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** The realtime video state as cards receive it: the recent steps, trimmed (cards show the pipeline
+ *  player → story → shot → on screen, and the passage each shot films). */
+function videoStateEvent({ steps, ...state }: ReturnType<RealtimeVideoController["getState"]>) {
+  return {
+    type: "state",
+    state: { ...state, steps: steps.slice(-30).map((x) => ({ kind: x.kind, t: Math.round(x.t * 10) / 10, text: x.text.slice(0, 160), status: x.status ?? null, shot: x.shot ? x.shot.slice(0, 600) : null, version: x.version ?? null, excerpt: x.excerpt ?? null, shownAt: x.shownAt ?? null })) },
+  };
+}
+
+/** The realtime video drawn over the rectangle a card reserved (clicks pass through to the card). */
+function VideoSlotOverlay({ controller, rect }: { controller: RealtimeVideoController; rect: { x: number; y: number; width: number; height: number; radius?: number } }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    controller.attach(el);
+    return () => controller.detach(el);
+  }, [controller]);
+  return (
+    <div
+      className="pointer-events-none absolute z-10 overflow-hidden"
+      style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height, borderRadius: rect.radius ?? 0 }}
+    >
+      <div ref={ref} className="absolute inset-0" />
+      <FastForwardVeil controller={controller} />
     </div>
   );
 }

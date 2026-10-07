@@ -1,0 +1,386 @@
+{
+  "help": "Guide",
+  "title": "Guide",
+  "intro": "Start with three lessons: the opening, the character and world, and the player screen. After those, every other lesson is open.",
+  "next": "Next",
+  "finishTour": "Done",
+  "back": "Previous step",
+  "pause": "Pause the guide",
+  "expand": "Show instructions",
+  "collapse": "Hide instructions",
+  "locate": "Show me again",
+  "beatDone": "You did it ✧ Try out what just opened. When you're ready, press Next and I'll take you back to the canvas.",
+  "eyebrowRequired": "Tutorial · Lesson {{number}} of {{total}}",
+  "eyebrowMore": "Tutorial · {{title}}",
+  "stripLocked": "Finish these 3 and the other lessons open up",
+  "nextUp": "Next: ",
+  "allLessons": "All lessons",
+  "progressCount": "{{done}} of {{total}} done",
+  "tagNext": "Next",
+  "nextLesson": "Next lesson: {{title}}",
+  "notNow": "Back to my card",
+  "end": {
+    "required": {
+      "title": "First 3 done ╰(*°▽°*)╯",
+      "body": "Press Play at the top to play a round. Come back for the rest whenever you like."
+    },
+    "lesson": {
+      "title": "{{title}}: done"
+    },
+    "all": {
+      "title": "That's all of them",
+      "body": "Forgot something? Press Guide at the top."
+    }
+  },
+  "parts": {
+    "required": {
+      "name": "Start with these 3",
+      "blurb": "The opening, the character and world, the player screen."
+    },
+    "more": {
+      "name": "Other lessons",
+      "blurb": "Open after the first three. Take them in any order."
+    }
+  },
+  "lessons": {
+    "opening": {
+      "title": "Opening",
+      "goal": "The first thing a player reads.",
+      "body": "This is the first thing players read when they open your card — the story starts here. Click the line and write your own.",
+      "bodyMobile": "This is the first thing players read when they open your card. Write your own in the text box.",
+      "bodyOwn": "This is the first thing players read when they open your card — the story starts here. Click the line to change it.",
+      "bodyOwnMobile": "This is the first thing players read when they open your card. Change it in the text box.",
+      "beats": {
+        "add": {
+          "title": "Add another opening",
+          "body": "Click this ＋ in the corner to add another opening. Players can start in a different scene, a different storyline, even a different starting state (variables).",
+          "after": {
+            "added": {
+              "title": "Your new opening",
+              "body": "The new opening is open — just write in the Content box. It can start somewhere else entirely."
+            }
+          }
+        }
+      }
+    },
+    "interface": {
+      "title": "Player screen",
+      "goal": "What the player actually sees.",
+      "body": "This is what players see while they play, and it follows your opening as you edit it. Phone / Desktop underneath switches between the two; to change the layout and colours, click Edit interface and pick a template.",
+      "bodyMobile": "The Player screen page is what players see while they play. You can switch between phone and desktop there; pick a template to change the layout and colours.",
+      "beats": {
+        "pages": {
+          "title": "Give your card a screen",
+          "body": "Want your card to have its own screen? Press the pencil (Edit interface) in the player interface's top-right corner, then New on the left — a whole set of ready-made templates is in there: pick an opening, enter a name, inventory, map, phone messages… Pick one and it just plays, no code.",
+          "after": {
+            "strip": {
+              "title": "All your card's pages",
+              "body": "This column on the left is every page in your card, like slides: click one to edit it, drag to reorder, right-click to copy or delete. Didn't pick a template? No problem — New is right below whenever you want one."
+            },
+            "stage": {
+              "title": "Edit right on the screen",
+              "body": "Click anything on the screen to select it, and drag to move it. Its settings open on the right: text, colour and size are all there, and you see changes straight away."
+            },
+            "look": {
+              "title": "Restyle the whole card",
+              "body": "Click Colour to pick a scheme, and the whole card changes at once. Templates follow it, so there is no restyling page by page."
+            },
+            "exit": {
+              "title": "Done? Head back",
+              "body": "Click ← in the top-left to go back to the canvas. Or just press Next and I'll take you back (ง •̀_•́)ง"
+            }
+          }
+        }
+      }
+    },
+    "setting": {
+      "title": "Character and world",
+      "goal": "Written for the AI: who it plays, what the world is.",
+      "body": "The opening is for the player; this block is for the AI — who it plays, what the world is like, what the rules are. I put in an example; just rewrite it as your character.",
+      "bodyMobile": "The opening is for the player; settings are for the AI — who it plays, what the world is like, the rules. Rewrite my example as your character. \"Default narration\" comes with the platform; leave it.",
+      "beats": {
+        "add": {
+          "title": "Add a setting",
+          "body": "Press this ＋ to add another one. One entry per character and one per place keeps the AI from mixing them up.",
+          "after": {
+            "added": {
+              "title": "Added!",
+              "body": "The new entry is at the bottom of this list, already open — give it a name and write it."
+            }
+          }
+        }
+      }
+    },
+    "state": {
+      "title": "Variables",
+      "goal": "What the story remembers.",
+      "body": "Variables are what the story remembers: affection, health, gold. The AI changes them as the story goes, and your screen can show them. I've added Affection — its settings are open right below it. Let's go through them one by one ↓",
+      "bodyMobile": "Variables are what the story remembers: affection, health, gold. The AI changes them as the story goes, and your screen can show them. I've added Affection: it starts at 30, runs 0 to 100, and moves at most 10 a turn. Open it on the Variables page.",
+      "beats": {
+        "add": {
+          "title": "Add a variable",
+          "body": "Click this ＋ to add a new variable — gold, health, trust.",
+          "after": {
+            "added": {
+              "title": "It's added",
+              "body": "The new variable is on the canvas, and its settings are open on the right. Rename it at the top, like affection, money or stamina, then set where it starts and its range. To let the player see it, click \"Show on the player screen\"."
+            }
+          }
+        },
+        "range": {
+          "title": "Where it starts, how far it goes",
+          "body": "Affection starts at 30 and runs from 0 to 100. 30 for someone you just met; be nice to Yumina and it climbs. At 100 it stops."
+        },
+        "precise": {
+          "title": "How much it moves a turn",
+          "body": "Keep careful count is on: at most +10 or −10 a turn, and the AI picks a number in between to fit the story. A compliment +3, a gift +8, snapping at her −10 — so affection never jumps around wildly."
+        },
+        "rules": {
+          "title": "What each level means",
+          "body": "Here you write when it goes up, when it goes down, and what the numbers mean. I've filled it in: 0–30 cold, 30–60 friends, 60–80 close and trusting, 80+ she likes you. The AI plays Yumina's attitude from this."
+        }
+      }
+    },
+    "behavior": {
+      "title": "Behaviours",
+      "goal": "If this, then that.",
+      "body": "A behaviour is \"if… then…\". I've added one: affection reaches 80 → turn on the entry \"Yumina's feelings\". That entry is off until then, so the AI can't see it; once it's on, Yumina starts quietly caring about you. Besides turning on an entry, a behaviour can change a variable, play a song, or notify the player.",
+      "bodyMobile": "A behaviour is \"if… then…\". I've added one: affection reaches 80 → turn on \"Yumina's feelings\", and she starts quietly caring about you. Edit it on the Behaviours page.",
+      "beats": {
+        "add": {
+          "title": "Add a behaviour",
+          "body": "Press this ＋ to add one. Pick the condition first, then what should happen.",
+          "after": {
+            "added": {
+              "title": "A behaviour in one sentence",
+              "body": "The new behaviour is on the canvas. On the right, fill in the sentence: when it checks, which number reaches what, and what happens: tell the AI something, change a number, or pop up a note for the player. Once it's filled in, it just works."
+            }
+          }
+        }
+      }
+    },
+    "atmosphere": {
+      "title": "Music and scene images",
+      "goal": "Sound and pictures for the story.",
+      "body": "These two add sound and pictures to your story. Neither is required — add them when you want. In Audio, upload a song and write one line on when it plays, like \"when a fight starts\", and the story switches to it there.",
+      "bodyMobile": "In Audio, upload a song and write one line on when it plays. In Scene images, upload a picture and write one line on when it shows. Neither is required.",
+      "beats": {
+        "image": {
+          "title": "Scene images: a picture at the right moment",
+          "body": "I've added a happy Yumina with the condition \"when the player compliments Yumina\". Compliment her, and this picture pops up in the chat (｡•̀ᴗ-)✧ Swap in your own picture and write one line on when it should show."
+        }
+      }
+    },
+    "assistant": {
+      "title": "The assistant",
+      "goal": "It can do all of the above.",
+      "body": "Everything above, you can hand to it. Tell it what you want — \"add a trust variable that unlocks a secret scene at 80\" — and it'll make the change, showing you first. Only want a few things changed? Select them on the canvas first (hold Ctrl to pick several). You can leave Studio while it works; a notice appears when it finishes or needs your input. Messages use credits, so just have a look for now.",
+      "bodyMobile": "Everything above, you can hand to it. Tell it what you want and it makes the change, showing you first. You can leave Studio while it works and return when notified. Messages use credits, so no need to send one now."
+    },
+    "card": {
+      "title": "Cover, description and variants",
+      "goal": "What players see on Discover, and other versions of your card.",
+      "body": "This block is what players see first on Discover: cover, name and description. You can edit the name and description right on the block. The Background block beside it sits behind the chat; it can simply use the cover.",
+      "bodyMobile": "Cover, name and description are in Card settings; the chat background is in Background. The cover needs a 2:3 portrait and a 16:9 landscape — check the title and buttons don't cover a face.",
+      "beats": {
+        "cover": {
+          "title": "Click the cover",
+          "body": "Click the cover and everything about your card opens on the right.",
+          "after": {
+            "variants": {
+              "title": "Variants on top",
+              "body": "The same card can have several versions, like Chinese and English. Switch between them here, or make a new language version."
+            },
+            "cover": {
+              "title": "Cover",
+              "body": "A card has two covers: 2:3 portrait for phones, 16:9 landscape for desktop. Upload each, or crop the landscape from the portrait. Keep faces clear of the title and buttons."
+            },
+            "gallery": {
+              "title": "Gallery",
+              "body": "Up to 8 pictures on your card's detail page, so players can see your world before they start."
+            },
+            "language": {
+              "title": "Language",
+              "body": "Which language your card is written in. Discover filters by it, and translated versions are linked through it."
+            }
+          }
+        }
+      }
+    },
+    "knowledge": {
+      "title": "When settings reach the AI",
+      "goal": "Always, keyword, condition, standby.",
+      "body": "Entries are for the AI, but they don't all have to be sent every turn: send one only when it's needed and you save words and keep the AI focused.",
+      "bodyMobile": "Four ways: always, by keyword, by condition, or standby until a behaviour turns it on. Change it under the setting's text.",
+      "beats": {
+        "delivery": {
+          "title": "How it is sent",
+          "body": "Every entry has this line underneath. Open it.",
+          "after": {
+            "modes": {
+              "title": "Four ways",
+              "body": "Always: sent every turn. Keywords: sent when a word comes up in the chat. Conditions: sent when variables match. Standby: never sent on its own, waiting for a behaviour to switch it on, like \"Yumina's feelings\" from the Behaviours lesson."
+            }
+          }
+        }
+      }
+    },
+    "looks": {
+      "title": "More ways to change the screen",
+      "goal": "New pages, the look of each part, or your own code.",
+      "body": "Besides templates, here is how else the player screen can change.",
+      "bodyMobile": "The Player screen page lets you add pages and change how each part looks. Frontend code has the source if you want to build it yourself.",
+      "beats": {
+        "new": {
+          "title": "New",
+          "body": "The quickest way: press Edit interface, then pick a ready-made template under New on the left. Every one of them plays straight away."
+        },
+        "code": {
+          "title": "Write your own code",
+          "body": "Want to build it all yourself? Open Front End Code from Panels: the screen's source is there to write by hand or have the Creation assistant change."
+        }
+      }
+    },
+    "modules": {
+      "title": "Scenarios",
+      "goal": "Content that is only used in a certain scenario.",
+      "body": "Once a card grows, add a scenario: like a card inside the card, with its own entries, variables and behaviours. Drag things in and they only apply in that scenario.",
+      "bodyMobile": "The Scenarios page splits content by chapter or scene, each with its own settings, variables and behaviours. Dragging needs a computer.",
+      "beats": {
+        "add": {
+          "title": "Add",
+          "body": "Click here to add a scenario.",
+          "after": {
+            "module": {
+              "title": "Scenarios and things outside",
+              "body": "Click here to add a scenario. Then click its title and choose under \"When it's used\" how the player gets in: always on, a word, a condition… With \"When something is said\" you can also give the words that take the player back out. Not now? Click an empty spot to close the menu."
+            }
+          }
+        }
+      }
+    },
+    "ais": {
+      "title": "AIs",
+      "goal": "Every AI is one more call to the model, living on the card or in a scenario.",
+      "body": "The card and every scenario end on an 「AI」 block: one row per AI, its name and its type. A card starts with one, called AI, turn-based: it answers every time the player speaks. Each AI you add is one more call to the model. Turn-based ones run on the player's turn; UI-based ones wait for a button in the Player interface to call them; code-based ones run on their own when a value meets a condition or a scenario ends. What an AI knows is where it lives: on the card it uses the card's settings, in a scenario that scenario's. Beside it, 「Context」 is the conversation kept there, and which AIs read it.",
+      "bodyMobile": "AIs are added and edited on the canvas on a computer. On a phone, skip ahead.",
+      "beats": {
+        "add": {
+          "title": "Add",
+          "body": "Click here and choose 一个 AI.",
+          "after": {
+            "ai": {
+              "title": "An AI",
+              "body": "Click it: a new row appears in the 「AI」 block of the scenario you are in (or the card), open to set up — type first. To skip, click an empty spot to close the menu."
+            }
+          }
+        }
+      }
+    },
+    "canvas": {
+      "title": "Moving around the canvas",
+      "goal": "Pan, zoom, find things.",
+      "body": "The canvas is your whole card; each block holds one kind of content. Click to select and just type to edit; double-click for its full editor; hold Ctrl and click or drag a box to pick several. Here are the tools for finding things, one at a time ↓",
+      "bodyMobile": "On a phone the editor is a set of pages; switch with the tabs at the top. The full canvas needs a computer, so skip ahead.",
+      "beats": {
+        "fit": {
+          "title": "See everything",
+          "body": "Lost? Click this to see the whole card. The wheel scrolls, Ctrl + wheel zooms; drag on empty canvas to move the board, hold Ctrl and drag a box to select several."
+        },
+        "search": {
+          "title": "Search",
+          "body": "Remember a name or a line from the text? Search for it. Enter jumps to the first result."
+        },
+        "surface": {
+          "title": "Don't like the canvas?",
+          "body": "Turn off the Canvas switch top-left and the same card opens in the page-by-page editor — same content, different view. Turn it back on to come back. Switch any time; nothing is lost."
+        }
+      }
+    },
+    "ship": {
+      "title": "Save, test, publish",
+      "goal": "Save keeps versions; publish makes it public.",
+      "body": "Last: saving, playtesting and publishing.",
+      "bodyMobile": "Save keeps a version; Test starts a real round and uses credits. To publish, the cover needs a 2:3 portrait and a 16:9 landscape.",
+      "beats": {
+        "save": {
+          "title": "Save",
+          "body": "Save keeps a version of your card."
+        },
+        "playtest": {
+          "title": "Playtest",
+          "body": "This is the playtest: a real round with the model you chose; it uses credits. You can watch variables change and see which behaviours ran."
+        },
+        "publish": {
+          "title": "Publish",
+          "body": "Nobody can see your card until you publish. The cover needs a 2:3 portrait and a 16:9 landscape. You can keep editing after publishing and submit updates."
+        }
+      }
+    }
+  },
+  "hello": "Hello, Yumina!",
+  "sample": {
+    "entryName": "Yumina",
+    "entryContent": "You play Yumina, a small talking mushroom who smiles a lot and says little. Answer the player in one or two short lines, and never decide for them.",
+    "variableName": "Affection",
+    "behaviorName": "Affection 80: feelings",
+    "variableRules": "Goes up when the player cares for Yumina, compliments or helps her; goes down when they snap at her, lie or brush her off. 0–30 cold, says little; 30–60 friends, answers with a smile; 60–80 close and trusting, starts conversations; 80+ likes you but won't admit it.",
+    "heartName": "Yumina's feelings",
+    "heartContent": "Yumina has fallen for the player: she starts conversations, notices everything they do and gets flustered when complimented, but would never admit it.",
+    "imageName": "Happy Yumina",
+    "imageScene": "When the player compliments Yumina"
+  },
+  "recovery": {
+    "model": {
+      "title": "Choose a model to try your story",
+      "body": "Select a model, then send your message from the chat. Your draft stays here."
+    },
+    "provider": {
+      "title": "No model is available from this provider",
+      "body": "Check your AI provider or API key in Settings, or choose an available model. Then return here to send your message."
+    },
+    "credits": {
+      "title": "This message needs credits",
+      "body": "View your credits, or choose another available model. Your draft and message are still here; send again when you are ready."
+    },
+    "promptCost": {
+      "title": "Your balance does not cover this request",
+      "body": "This story may need more context than your balance covers. Try a less expensive model or view your credits, then send again."
+    },
+    "modelAccess": {
+      "title": "This model is not available for your account",
+      "body": "Choose a model your account can use, then send your message again."
+    },
+    "busy": {
+      "title": "The model is busy",
+      "body": "Wait a moment. Check the conversation for a reply before sending again, or choose another model."
+    },
+    "tooLong": {
+      "title": "This message is too long",
+      "body": "Shorten your message in the chat, then send again. Your story draft is unchanged."
+    },
+    "access": {
+      "title": "This conversation is not available",
+      "body": "Check the account or story access message. You can review your account in Settings; your draft stays here."
+    },
+    "connection": {
+      "title": "The reply may still be on its way",
+      "body": "The connection ended before we could confirm the result. Check the conversation first to avoid sending a second paid request."
+    },
+    "request": {
+      "title": "The reply could not be completed",
+      "body": "Check whether a reply arrived. If it did not, choose another model or send again when you are ready."
+    },
+    "chooseModel": "Choose model",
+    "viewCredits": "View credits",
+    "settings": "Open Settings",
+    "checkConversation": "Check conversation",
+    "checking": "Checking…",
+    "checked": "Conversation refreshed. If no reply appears, wait a little before deciding whether to send again.",
+    "checkFailed": "Could not check the conversation. Try checking again before sending another message."
+  },
+  "activity": {
+    "error": "Couldn't load it — press Reload to try again.",
+    "source": "Latest playtest · {{at}}. Removed once the playtest is closed."
+  }
+}

@@ -42,7 +42,7 @@ export function StateGuardModal({ open, onClose }: { open: boolean; onClose: () 
   }, [open, Boolean(picker), api.sessionId]);
   if (!open) return null;
   return <><SandboxPlatformOverlay>
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4" onClick={(event) => {
+    <div className="fixed inset-0 z-[100] flex items-center justify-center modal-backdrop p-4" onClick={(event) => {
       if (event.target === event.currentTarget && !picker) onClose();
     }}>
       <div ref={dialog} role="dialog" aria-modal="true" aria-label={text[0]} className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-zinc-950 p-5 text-white shadow-2xl">

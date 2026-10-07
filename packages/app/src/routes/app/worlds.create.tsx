@@ -1,5 +1,6 @@
 import { createFileRoute, useNavigate, useRouter } from "@tanstack/react-router";
-import { Suspense, useState, useRef, useCallback, useLayoutEffect } from "react";
+import { Suspense, useState, useRef, useCallback, useEffect, useLayoutEffect } from "react";
+import { useModalFocus } from "@/hooks/use-modal-focus";
 import {
   ChevronRight,
   Loader2,
@@ -12,7 +13,7 @@ import { useTranslation } from "react-i18next";
 import { useEditorStore } from "@/stores/editor";
 import { clampWorldTags } from "@yumina/shared";
 import { useAuthGuard } from "@/hooks/use-auth-guard";
-import { WORLD_TEMPLATES, type WorldTemplate } from "@/lib/world-templates";
+import { WORLD_TEMPLATES, type WorldTemplate, defaultOpening } from "@/lib/world-templates";
 import { parseImportedFileFlexible } from "@/lib/import-world";
 import type { WorldDefinition } from "@yumina/engine";
 import { ApplyChangesDialog } from "@/features/world-changes/apply-changes-dialog";
@@ -20,7 +21,11 @@ import { findImportTargets, type ApplyTarget } from "@/features/world-changes/ap
 import { useCreatePageStore } from "@/stores/create-page";
 import { lazyRouteComponent } from "@/lib/lazy-route-component";
 import i18n from "@/lib/i18n";
-import { getGlobalEditorMode, saveGlobalEditorMode } from "@/features/editor/quick-create-editor";
+import { getGlobalEditorMode, saveGlobalEditorMode } from "@/features/editor/lib/editor-mode";
+import { prepareStudioEntry } from "@/features/editor/editor-entry";
+import { fetchBlueprintAccess } from "@/lib/blueprint-access";
+import { getEditorSurface, saveEditorSurface, shouldOpenVisual } from "@/lib/editor-surface";
+import { requestQuietTour } from "@/lib/studio-entry";
 import { useUnsavedChangesGuard } from "@/features/editor/use-unsaved-changes-guard";
 import { UnsavedChangesDialog } from "@/features/editor/unsaved-changes-dialog";
 import { navigateBackSafely } from "@/lib/safe-back";
@@ -39,14 +44,19 @@ const QuickCreateEditor = lazyRouteComponent(
   (m) => m.QuickCreateEditor
 );
 
+// Ordered by what someone who just signed up is most likely to want.
+// "Import a world from a JSON file" led this list while being the one
+// option that requires a file you already have — and the page carries a
+// second Import button in its own corner. Image generation is a tool that
+// navigates away rather than a world you start, so it sits last.
 const CREATE_OPTIONS = [
   {
-    id: "import",
-    template: null,
-    titleKey: "templates.importWorld",
-    descKey: "templates.importWorldDesc",
-    artwork: "/create/import-existing.webp",
-    accent: "#72E6C8",
+    id: "character-chat",
+    template: "character-chat",
+    titleKey: "templates.characterChat",
+    descKey: "templates.characterChatDesc",
+    artwork: "/create/character-chat.webp",
+    accent: "#B661F3",
   },
   {
     id: "world-simulation",
@@ -57,12 +67,20 @@ const CREATE_OPTIONS = [
     accent: "#61C7F3",
   },
   {
-    id: "character-chat",
-    template: "character-chat",
-    titleKey: "templates.characterChat",
-    descKey: "templates.characterChatDesc",
-    artwork: "/create/character-chat.webp",
-    accent: "#B661F3",
+    id: "blank",
+    template: null,
+    titleKey: "templates.blank",
+    descKey: "templates.blankDesc",
+    artwork: "/create/blank-project.webp",
+    accent: "#F2D479",
+  },
+  {
+    id: "import",
+    template: null,
+    titleKey: "templates.importWorld",
+    descKey: "templates.importWorldDesc",
+    artwork: "/create/import-existing.webp",
+    accent: "#72E6C8",
   },
   {
     id: "image-generation",
@@ -71,14 +89,6 @@ const CREATE_OPTIONS = [
     descKey: "templates.imageGenerationDesc",
     artwork: "/create/image-generation.webp",
     accent: "#76D8EA",
-  },
-  {
-    id: "blank",
-    template: null,
-    titleKey: "templates.blank",
-    descKey: "templates.blankDesc",
-    artwork: "/create/blank-project.webp",
-    accent: "#F2D479",
   },
 ] as const;
 
@@ -295,18 +305,26 @@ function ModeSelectionDialog({
   onClose: () => void;
 }) {
   const { t } = useTranslation("editor");
+  // Escape used to be wired to a div nobody could focus, so the key never
+  // reached the handler: the backdrop closed the dialog and the keyboard did
+  // not. Trapping focus inside the panel puts the keydown back in range, and
+  // brings Tab containment and focus return with it.
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalFocus(panelRef, open);
   if (!open) return null;
 
   return (
     <div
+      ref={panelRef}
       className="fixed inset-0 z-50 flex items-center justify-center"
       role="dialog"
       aria-modal="true"
+      aria-labelledby="mode-dialog-title"
       onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}
     >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 modal-backdrop" onClick={onClose} />
       <div className="relative z-10 w-full max-w-lg mx-4 rounded-2xl border border-border bg-popover p-6 shadow-2xl animate-[fadeInUp_0.3s_ease-out_both]">
-        <h2 className="text-xl font-bold text-foreground mb-1">
+        <h2 id="mode-dialog-title" className="text-xl font-bold text-foreground mb-1">
           {t("quickCreate.modeDialogTitle")}
         </h2>
         <p className="text-sm text-muted-foreground mb-6">
@@ -348,20 +366,38 @@ function ModeSelectionDialog({
 function WorldCreatePage() {
   const [picked, setPicked] = useState(false);
   const [quickCreate, setQuickCreate] = useState(false);
+  /** An advanced card on its way to the canvas: the save it needs first is a
+   *  round trip, and rendering the classic editor meanwhile was a flash of the
+   *  surface the creator is not going to use. */
+  const [enteringStudio, setEnteringStudio] = useState(false);
+  const mounted = useRef(true);
   const [pendingTemplate, setPendingTemplate] = useState<WorldTemplate | null | undefined>(undefined);
-  const [showModeDialog, setShowModeDialog] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
+  const [pendingLoadedDraft, setPendingLoadedDraft] = useState(false);
+  const pendingCover = useRef<Blob | null>(null);
+  /** An imported file becomes a saved card the moment it opens, PNG or JSON
+   *  alike. A PNG always had to save first (its cover uploads against a real
+   *  world); a JSON used to open unsaved, so the same card imported two ways
+   *  appeared in 我的卡 once and not the other time. */
+  const pendingImportSave = useRef(false);
+  const importInFlight = useRef(false);
   const [applyOffer, setApplyOffer] = useState<{
     world: WorldDefinition;
     coverImage: Blob | null;
     targets: ApplyTarget[];
     fileName: string;
   } | null>(null);
+  const [showModeDialog, setShowModeDialog] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const setPickerActive = useCreatePageStore((s: { setPickerActive: (active: boolean) => void }) => s.setPickerActive);
   const isDirty = useEditorStore((s) => s.isDirty);
   const { isAuthenticated, requireAuth } = useAuthGuard();
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   // Set guest mode before paint so the editor never exposes an interactive
   // frame while the auth-derived store flag is still catching up.
@@ -372,7 +408,29 @@ function WorldCreatePage() {
   }, [isAuthenticated]);
 
   // Block SPA navigation + browser close when there are unsaved changes (skip for guests)
-  const blocker = useUnsavedChangesGuard(isAuthenticated && picked && isDirty);
+  const blocker = useUnsavedChangesGuard(isAuthenticated && (picked || pendingLoadedDraft) && isDirty, {
+    getIsDirty: () => isAuthenticated && (picked || pendingLoadedDraft) && useEditorStore.getState().isDirty,
+  });
+
+  // Once the first save gives the card an id, the address bar says where it
+  // lives. Left on /create, a refresh dropped the creator back on the template
+  // picker with no sign their card existed. Only the URL changes: navigating
+  // would remount the editor and end the first-run tour halfway through.
+  const serverWorldId = useEditorStore((s) => s.serverWorldId);
+  const swappedUrl = useRef(false);
+  useEffect(() => {
+    if (!picked) {
+      // Back to the picker: the address goes back to the page on screen.
+      if (swappedUrl.current) window.history.replaceState(window.history.state, "", "/app/worlds/create");
+      swappedUrl.current = false;
+      return;
+    }
+    if (enteringStudio || !serverWorldId) return;
+    const path = `/app/worlds/${serverWorldId}/edit`;
+    if (window.location.pathname === path) return;
+    window.history.replaceState(window.history.state, "", path);
+    swappedUrl.current = true;
+  }, [picked, enteringStudio, serverWorldId]);
 
   useLayoutEffect(() => {
     // Switch the picker header/scroll owner before the editor can paint.
@@ -383,44 +441,117 @@ function WorldCreatePage() {
     };
   }, [picked, setPickerActive]);
 
-  const applyTemplate = useCallback((template: WorldTemplate | null, mode: "simple" | "advanced") => {
+  // Simple mode opens in place. Advanced goes to the canvas, because that is
+  // where an advanced card is edited from now on: leaving the first session
+  // here would teach someone one editor and hand them another the next time
+  // they open the card. The canvas needs a saved card, so this saves once —
+  // and a save that cannot happen (no name yet, offline, signed out) leaves
+  // them in this editor, which still works and still carries the switch.
+  const openLoadedDraft = useCallback(async (mode: "simple" | "advanced", fromTemplate = false) => {
+    useEditorStore.getState().setField("editorMode", mode);
+    setPendingLoadedDraft(false);
+    setPendingTemplate(undefined);
+    setQuickCreate(mode === "simple");
+    // Held on a spinner until we know whether this card opens on the canvas;
+    // only a card that stays here (phone, switch turned off, save failed)
+    // ever shows the classic editor.
+    setEnteringStudio(mode === "advanced");
+    setPicked(true);
+    try {
+      const importing = pendingImportSave.current;
+      pendingImportSave.current = false;
+      if (pendingCover.current) {
+        const cover = pendingCover.current;
+        pendingCover.current = null;
+        await useEditorStore.getState().applyImportedCover(cover);
+        // The cover lands in the draft after the save that made the world, so
+        // save once more — otherwise the next visit offers to 「恢复」 an edit
+        // the creator never made.
+        if (importing && useEditorStore.getState().isDirty) await useEditorStore.getState().saveDraft();
+      } else if (importing && !useEditorStore.getState().serverWorldId) {
+        const store = useEditorStore.getState();
+        if (!store.worldDraft.name?.trim()) {
+          store.setField("name", i18n.t("editor:shell.untitledWorld", { defaultValue: "Untitled World" }));
+        }
+        await store.saveDraft();
+      }
+      // Everything so far — the template, its screen, the bundle and the
+      // name it brought, the mode — is how the card STARTS, not an edit:
+      // the first Ctrl+Z must not take the whole template away.
+      useEditorStore.getState().clearHistory();
+      if (mode !== "advanced") return;
+      if (!shouldOpenVisual({ mode: "advanced", last: getEditorSurface(),
+        allowed: await fetchBlueprintAccess(), guest: !isAuthenticated })) return;
+      const id = await prepareStudioEntry(useEditorStore.getState);
+      if (!id) return;
+      saveEditorSurface("visual");
+      // A template or an imported card opens on a board it filled; the
+      // first-visit welcome would cover it, and its first lesson talks about
+      // a greeting we wrote (it stays one click away under 帮助).
+      if (fromTemplate || importing) requestQuietTour();
+      await router.navigate({ to: "/app/studio/$worldId", params: { worldId: id } });
+    } finally {
+      setEnteringStudio(false);
+    }
+  }, [isAuthenticated, router]);
+
+  const applyTemplate = useCallback(async (template: WorldTemplate | null, mode: "simple" | "advanced") => {
+    pendingCover.current = null;
+    pendingImportSave.current = false;
     const store = useEditorStore.getState();
     if (template) {
       store.loadTemplate(template);
     } else {
-      store.createNew();
+      // A blank card still opens on something: its first moment, as a real
+      // opening the author writes over. With none, the player's screen on
+      // the board was an empty chat.
+      store.createNew(defaultOpening());
     }
-    store.setField("editorMode", mode);
     const uiLang = i18n.language?.split("-")[0];
     if (uiLang) {
       store.setLanguage(uiLang);
     }
-    setQuickCreate(mode === "simple");
-    setPicked(true);
-  }, []);
+    // Guests retain their existing local preview and sign-in entry points.
+    // Signed-in advanced creators always enter Studio, including after retry.
+    await openLoadedDraft(mode, !!template);
+  }, [openLoadedDraft]);
 
-  const handleSelect = useCallback(async (template: WorldTemplate | null) => {
-    await i18n.loadNamespaces("templates-content");
+  /** The saved editor-mode preference short-circuits straight into the
+   *  editor, otherwise ask simple/advanced. */
+  const proceedWithTemplate = useCallback((template: WorldTemplate | null) => {
     const globalPref = getGlobalEditorMode();
     if (globalPref) {
-      applyTemplate(template, globalPref);
+      void applyTemplate(template, globalPref);
     } else {
       setPendingTemplate(template);
+      setPendingLoadedDraft(false);
       setShowModeDialog(true);
     }
   }, [applyTemplate]);
 
+  const handleSelect = useCallback(async (template: WorldTemplate | null) => {
+    if (importInFlight.current) return;
+    await i18n.loadNamespaces("templates-content");
+    // Like a new deck: the card starts as its skeleton, and ready-made
+    // screens (选开局, 填名字, 背包…) are added from 新建一页 when wanted.
+    proceedWithTemplate(template);
+  }, [proceedWithTemplate]);
+
   const handleModeSelected = useCallback((mode: "simple" | "advanced") => {
     saveGlobalEditorMode(mode);
     setShowModeDialog(false);
-    if (pendingTemplate !== undefined) {
-      applyTemplate(pendingTemplate, mode);
+    if (pendingLoadedDraft) {
+      void openLoadedDraft(mode);
+    } else if (pendingTemplate !== undefined) {
+      void applyTemplate(pendingTemplate, mode);
     }
-  }, [pendingTemplate, applyTemplate]);
+  }, [pendingLoadedDraft, pendingTemplate, openLoadedDraft, applyTemplate]);
 
   // Continue an import as a brand-new card (also the "keep as a new project"
   // answer when the file turned out to be one of the creator's own cards).
-  const importAsNewWorld = useCallback((worldDef: WorldDefinition, coverImage: Blob | null) => {
+  const importAsNewWorld = useCallback(async (worldDef: WorldDefinition, coverImage: Blob | null) => {
+    pendingCover.current = null;
+    pendingImportSave.current = true;
     const store = useEditorStore.getState();
     store.loadWorldDefinition(worldDef);
     // Default to UI language if the imported file has none. Re-read state:
@@ -434,29 +565,26 @@ function WorldCreatePage() {
       const uiLang = i18n.language?.split("-")[0];
       if (uiLang) store.setLanguage(uiLang);
     }
-    // Respect global editor mode preference for imports
+    // The imported draft is already initialized. Choosing a mode may only
+    // open it — it must never run createNew/loadTemplate again.
+    store.stopAutosave();
+    pendingCover.current = coverImage ?? null;
     const globalPref = getGlobalEditorMode();
-    if (globalPref === "simple") {
-      store.setField("editorMode", "simple");
-      setQuickCreate(true);
-    } else if (!globalPref) {
-      // No preference set — show mode dialog after import
-      setPendingTemplate(null);
+    if (!globalPref) {
+      setPendingTemplate(undefined);
+      setPendingLoadedDraft(true);
       setShowModeDialog(true);
     }
-    setPicked(true);
-    // Use the PNG card image as the cover. Skipped when the no-preference
-    // mode dialog will run, since choosing a mode calls createNew() and
-    // discards this imported world (the cover would be orphaned).
-    if (coverImage && globalPref) {
-      void store.applyImportedCover(coverImage);
-    }
     // The editor that appears next is the confirmation; no pill needed.
-  }, []);
+    // openLoadedDraft also applies the PNG card image as the cover (it is
+    // parked in pendingCover above). When no mode is stored the dialog runs
+    // first, so the cover waits for that choice rather than being orphaned.
+    if (globalPref) await openLoadedDraft(globalPref);
+  }, [openLoadedDraft]);
 
   const handleFileImport = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || importInFlight.current) return;
 
     // Reset input so same file can be re-selected
     e.target.value = "";
@@ -466,17 +594,18 @@ function WorldCreatePage() {
       return;
     }
 
+    importInFlight.current = true;
     setImportError(null);
 
     try {
       const result = await parseImportedFileFlexible(file, { sourceHint: "auto" });
+      if (!mounted.current) return;
+      pendingCover.current = null;
+      pendingImportSave.current = true;
 
       // Bundle file → seed a brand-new card from it. The create screen starts
-      // from a blank world, so importBundle merges with zero conflicts. We skip
-      // the simple/advanced mode DIALOG here on purpose: its no-preference path
-      // runs applyTemplate(null) → createNew(), which would wipe the bundle we
-      // just applied. Bundles are content-rich (entries/vars/rules/UI), so we
-      // default to the advanced editor unless the user already prefers simple.
+      // from a blank world, so importBundle merges with zero conflicts.
+      // Content-rich bundles default to Studio unless simple was preferred.
       if (result.kind === "bundle") {
         const store = useEditorStore.getState();
         const bundle = result.bundle;
@@ -495,11 +624,11 @@ function WorldCreatePage() {
           if (uiLang) store.setLanguage(uiLang);
         }
         const mode = getGlobalEditorMode() ?? "advanced";
-        store.setField("editorMode", mode);
-        setQuickCreate(mode === "simple");
         // The editor that appears next — with the bundle's entries, variables,
         // and rules already loaded — is the confirmation; no pill needed.
-        setPicked(true);
+        // openLoadedDraft records the mode, switches to the right shell and,
+        // for a signed-in advanced creator, creates the server draft.
+        await openLoadedDraft(mode);
         return;
       }
 
@@ -507,11 +636,12 @@ function WorldCreatePage() {
       // elsewhere, re-imported): offer to update that card rather than
       // quietly making yet another copy of it.
       const targets = await findImportTargets(result.world, result.originWorldId);
+      if (!mounted.current) return;
       if (targets.length > 0) {
         setApplyOffer({ world: result.world, coverImage: result.coverImage, targets, fileName: file.name });
         return;
       }
-      importAsNewWorld(result.world, result.coverImage);
+      await importAsNewWorld(result.world, result.coverImage);
     } catch (err) {
       // Show WHY it failed, not just a contentless "import failed" — e.g. a
       // Yumina bundle or UI-package (what the editor's export / AI assistant
@@ -520,8 +650,10 @@ function WorldCreatePage() {
       // picked, so it lives inline on the picker rather than in a pill.
       const reason = err instanceof Error ? err.message : null;
       setImportError(reason || i18n.t("toasts:failedImportWorld", { defaultValue: "Import failed" }));
+    } finally {
+      importInFlight.current = false;
     }
-  }, [isAuthenticated, requireAuth, importAsNewWorld]);
+  }, [isAuthenticated, requireAuth, openLoadedDraft, importAsNewWorld]);
 
   if (!picked) {
     return (
@@ -553,6 +685,7 @@ function WorldCreatePage() {
           onSelect={handleModeSelected}
           onClose={() => setShowModeDialog(false)}
         />
+        <UnsavedChangesDialog blocker={blocker} />
         {applyOffer && (
           <ApplyChangesDialog
             open
@@ -560,10 +693,10 @@ function WorldCreatePage() {
             targets={applyOffer.targets}
             incoming={applyOffer.world}
             source={{ kind: "file", fileName: applyOffer.fileName }}
-            onSaveAsNew={() => {
+            onSaveAsNew={async () => {
               const offer = applyOffer;
               setApplyOffer(null);
-              importAsNewWorld(offer.world, offer.coverImage);
+              await importAsNewWorld(offer.world, offer.coverImage);
             }}
           />
         )}
@@ -571,12 +704,15 @@ function WorldCreatePage() {
     );
   }
 
+  if (enteringStudio) return <LoadingSpinner />;
+
   if (quickCreate) {
     return (
       <>
         <Suspense fallback={<LoadingSpinner />}>
           <QuickCreateEditor
-            onOpenFullEditor={() => setQuickCreate(false)}
+            autoTour
+            onOpenFullEditor={() => void openLoadedDraft("advanced")}
             onBack={() => { setPicked(false); setQuickCreate(false); }}
           />
         </Suspense>
@@ -588,7 +724,7 @@ function WorldCreatePage() {
   return (
     <>
       <Suspense fallback={<LoadingSpinner />}>
-        <EditorShell onSwitchToSimple={() => setQuickCreate(true)} />
+        <EditorShell autoTour onSwitchToSimple={() => setQuickCreate(true)} />
       </Suspense>
       <UnsavedChangesDialog blocker={blocker} />
     </>

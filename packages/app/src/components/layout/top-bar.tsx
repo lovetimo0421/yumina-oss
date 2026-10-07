@@ -241,7 +241,23 @@ export function TopBar() {
 
   const searchValue = isLibraryPage ? libraryQuery : hubQuery;
   const searchPlaceholder = isLibraryPage ? t("search.library") : t("search.hub");
-  const setSearchValue = isLibraryPage ? setLibraryQuery : setHubQuery;
+  const setSearchValueRaw = isLibraryPage ? setLibraryQuery : setHubQuery;
+
+  // Chromium ignores autocomplete="off" on everything but password fields, so
+  // signing in could leave the address the browser had just seen sitting in
+  // this box — and because the input is controlled, that silent fill fires
+  // onChange and runs a real search. A new player's first Discover opened on
+  // their own email and a "no players matched" block.
+  //
+  // A fill that happens without the field ever being touched is not the user
+  // typing, so ignore it. Chromium's silent autofill never focuses the input;
+  // picking a suggestion from the dropdown does, and so does typing or
+  // pasting, which all keep working.
+  const searchTouched = useRef(false);
+  const setSearchValue = (value: string) => {
+    if (!searchTouched.current) return;
+    setSearchValueRaw(value);
+  };
 
   if (isEditPage || (isCreatePage && !isCreatePicker) || isPlayPage || isAdminWorldInspect) return null;
 
@@ -288,8 +304,11 @@ export function TopBar() {
                 <Search className="topbar-search-icon pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
                 <input
                   type="search"
+                  name="q"
+                  autoComplete="off"
                   placeholder={searchPlaceholder}
                   value={searchValue}
+                  onFocus={() => { searchTouched.current = true; }}
                   onChange={(e) => setSearchValue(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.nativeEvent.isComposing || e.keyCode === 229) return;
@@ -298,6 +317,7 @@ export function TopBar() {
                       e.currentTarget.blur();
                     }
                   }}
+                  aria-label={searchPlaceholder}
                   className="topbar-search-input topbar-search-input--glass w-full rounded-full border border-white/5 bg-white/5 pl-11 pr-4 text-sm text-foreground placeholder:text-muted-foreground/60 transition-all focus:border-white/10 focus:bg-white/10 focus:outline-none"
                 />
                 {isDiscoverPage && discoverPreview && <button type="button" className="discover-search-submit" aria-label={searchPlaceholder}

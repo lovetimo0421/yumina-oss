@@ -1,5 +1,6 @@
-import type { Effect, GameState, Variable, WorldDefinition } from "../types/index.js";
+import type { Effect, GameState, Variable, Worldbook, WorldDefinition } from "../types/index.js";
 import { checkConditions } from "./condition-evaluator.js";
+import { isMemberActive } from "../lorebook/worldbook.js";
 
 /**
  * Variable activation + AI-access resolution — the single authority every
@@ -13,8 +14,18 @@ import { checkConditions } from "./condition-evaluator.js";
  * other variable's own activation) is what keeps mutual bindings cycle-free.
  */
 
-/** Whether the variable is currently active (exposed + gate-able). */
-export function isVariableActive(variable: Variable, state: GameState): boolean {
+/** Whether the variable is currently active (exposed + gate-able).
+ *  `worldbooks` is required (pass the card's worldbooks, or undefined for a
+ *  card without modules) so no call site can silently skip the module gate. */
+export function isVariableActive(
+  variable: Variable,
+  state: GameState,
+  worldbooks: Worldbook[] | undefined,
+): boolean {
+  // Module gate: a variable belonging to an inactive worldbook (module) is
+  // inactive, whatever its own gates say. Fail-open rules in isMemberActive.
+  if (!isMemberActive(variable.worldbookId, worldbooks, state)) return false;
+
   // Enable gate: runtime toggle (via @vars.enabled.<id>) beats the authored
   // default, in both directions. Applies to every activation mode.
   const toggle = state.ruleState?.toggledVariables?.[variable.id];
@@ -39,17 +50,27 @@ export function isVariableActive(variable: Variable, state: GameState): boolean 
 }
 
 /** Whether the AI should see this variable in <game-state> / behavior rules. */
-export function isAiReadable(variable: Variable, state: GameState): boolean {
+export function isAiReadable(
+  variable: Variable,
+  state: GameState,
+  worldbooks: Worldbook[] | undefined,
+): boolean {
   if (variable.internal) return false;
-  if (!isVariableActive(variable, state)) return false;
+  if (!isVariableActive(variable, state, worldbooks)) return false;
   return (variable.aiAccess ?? "write") !== "none";
 }
 
 /** Whether AI directives may change this variable. */
-export function isAiWritable(variable: Variable, state: GameState): boolean {
+export function isAiWritable(
+  variable: Variable,
+  state: GameState,
+  // Optional so callers without a world at hand (main's state guard) still
+  // compile; pass it wherever the world is known, or module gating is skipped.
+  worldbooks?: Worldbook[],
+): boolean {
   if (variable.internal) return false;
-  if (!isVariableActive(variable, state)) return false;
-  return (variable.aiAccess ?? "write") === "write";
+  if (!isVariableActive(variable, state, worldbooks)) return false;
+  return !variable.formula && (variable.aiAccess ?? "write") === "write";
 }
 
 /** Active variable ids for a world — for UI layers that filter by id. */
@@ -59,7 +80,7 @@ export function resolveActiveVariableIds(
 ): Set<string> {
   const active = new Set<string>();
   for (const v of world.variables) {
-    if (isVariableActive(v, state)) active.add(v.id);
+    if (isVariableActive(v, state, world.worldbooks)) active.add(v.id);
   }
   return active;
 }
@@ -179,11 +200,26 @@ export function filterAiEffects(
   for (const effect of effects) {
     const rootId = effect.variableId.split(".")[0]!;
     const variable = world.variables.find((v) => v.id === rootId);
-    if (!variable || (isAiWritable(variable, state) && !(judgeOwns && isContinuityOwned(world, variable)))) {
+    if (!variable || (isAiWritable(variable, state, world.worldbooks) && !(judgeOwns && isContinuityOwned(world, variable)))) {
       kept.push(effect);
     } else {
       dropped.push(effect);
     }
   }
   return { kept, dropped };
+}
+
+/** Why `filterAiEffects` dropped an AI write — shown to the author in the
+ *  playtest so a value that "should have changed" names its real gate. */
+export type AiDropReason = "internal" | "read-only" | "inactive" | "judge";
+
+export function aiDropReason(world: WorldDefinition, state: GameState, effect: Effect): AiDropReason | null {
+  const rootId = effect.variableId.split(".")[0]!;
+  const variable = world.variables.find((v) => v.id === rootId);
+  if (!variable) return null;
+  if (variable.internal) return "internal";
+  if (!isVariableActive(variable, state, world.worldbooks)) return "inactive";
+  if (variable.formula || (variable.aiAccess ?? "write") !== "write") return "read-only";
+  if (isContinuityOwned(world, variable)) return "judge";
+  return null;
 }

@@ -40,7 +40,7 @@ export function validateAiBatch(world: WorldDefinition, state: GameState, batch:
     if (path.some((part) => !part || unsafeKey(part))) { reject("unsafe_path"); continue; }
     const root = world.variables.find((v) => v.id === path[0]) ?? [...world.variables].reverse().find((v) => v.name === path[0]);
     if (!root) { reject("unknown_variable"); continue; }
-    if (!isAiWritable(root, state)) { reject("not_writable"); continue; }
+    if (!isAiWritable(root, state, world.worldbooks)) { reject("not_writable"); continue; }
     path[0] = root.id;
     const effect = { ...raw, variableId: path.join(".") };
     let old: unknown = engine.get(root.id);
@@ -244,7 +244,7 @@ export function parseGuardedResponse(raw: string, world: WorldDefinition, state:
   }
   const checked = validateAiBatch(world, state, parsed.effects);
   diagnostics.push(...checked.diagnostics);
-  const required = world.variables.some((v) => isAiWritable(v, state));
+  const required = world.variables.some((v) => isAiWritable(v, state, world.worldbooks));
   // No writable state requires no model receipt, but never accepts rogue writes.
   const relevant = !required && !parsed.effects.length ? diagnostics.filter((d) => !["missing_receipt", "missing_state_changes"].includes(d.code)) : diagnostics;
   return {

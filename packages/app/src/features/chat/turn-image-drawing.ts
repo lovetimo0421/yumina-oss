@@ -60,7 +60,7 @@ export async function drawTurnImage(messageId: string, auto: boolean, note?: str
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ auto, ...(note ? { note } : {}), ...(fine ? { fine } : {}) }),
     });
-    // 403: the player hasn't opted in (Settings › Display › Experimental) — end quietly.
+    // 403: the player switched it off (Settings › Display › Story illustrations) — end quietly.
     result = r.ok ? ((await r.json()) as { data: IllustrateResponse }).data
       : { ok: false, reason: r.status === 403 ? "off" : "unavailable" };
   } catch {

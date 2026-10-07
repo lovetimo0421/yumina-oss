@@ -16,7 +16,7 @@ import {
   Check,
   X,
 } from "lucide-react";
-import { formatPlaytimeHours } from "@/lib/playtime";
+import { formatPlaytimeShort } from "@/lib/playtime";
 import { formatTimeAgo } from "@/lib/format-time";
 import { useUiStore } from "@/stores/ui";
 import {
@@ -337,7 +337,7 @@ function SessionManagerModalImpl() {
     const isConfirming = confirmDeleteId === session.id;
     const isEntering = enteringId === session.id;
     const ordinal = stableOrdinalsRef.current.get(session.id) ?? 1;
-    const displayName = session.name?.trim() || `Session ${ordinal}`;
+    const displayName = session.name?.trim() || t("header.sessionOrdinal", { n: ordinal });
     // Preserve the branch relationship without pushing deep production trees
     // hundreds of pixels off-screen on phones (the current maximum is 78).
     const indentStyle = { paddingLeft: `${Math.min(depth, 4) * 16}px` };
@@ -433,7 +433,7 @@ function SessionManagerModalImpl() {
                 </span>
                 <span className="flex items-center gap-1">
                   <Clock className="h-2.5 w-2.5" />
-                  {formatPlaytimeHours(session.playtimeSeconds)}
+                  {formatPlaytimeShort(session.playtimeSeconds, i18n.language)}
                 </span>
                 <span>{formatTimeAgo(session.updatedAt, i18n.language)}</span>
               </div>

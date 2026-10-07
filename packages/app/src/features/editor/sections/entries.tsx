@@ -1,4 +1,6 @@
+import { useTokenizerReady } from "@/hooks/use-tokenizer-ready";
 import { useState, useRef, useMemo, useCallback, useEffect, memo } from "react";
+import { useEditorFocus } from "@/features/studio/lib/use-editor-focus";
 import { useTranslation } from "react-i18next";
 import {
   Plus,
@@ -27,7 +29,7 @@ import {
 import { EntriesTriggerBoard } from "../components/entries-trigger-board";
 import { TagManagerDialog } from "../components/tag-manager-dialog";
 import { StyledCheckbox } from "../components/styled-checkbox";
-import { useTemplateContentPlaceholder } from "../template-placeholders";
+import { isInternalEntryTag, useTemplateContentPlaceholder } from "../template-placeholders";
 import { KeywordsInput } from "../components/keywords-input";
 import { ConditionEditor } from "../components/condition-editor";
 import { DebouncedInput, DebouncedTextarea } from "../components/debounced-field";
@@ -49,13 +51,13 @@ import { EntryPortraitVideoField } from "../components/entry-portrait-video-fiel
 import { VoiceField } from "../components/voice-field";
 import {
   estimateTokens,
+  isTokenizerReady,
   deriveSectionDefaults,
   deriveSectionDefaultsForEntry,
-  OFFICIAL_PRESETS,
 } from "@yumina/engine";
+import { getUnmodifiedOfficialPresetIds, officialPresetsForCard } from "../lib/official-presets";
 import {
   formatConditionLabel,
-  getEntryBoundSlotId,
   normalizeLoreUiBindingsList,
 } from "../lib/lore-ui-bindings";
 import {
@@ -63,16 +65,20 @@ import {
   entryUsesVariableBinding,
 } from "../lib/entry-conditions";
 import {
+  canEditAsTurns,
   parseExampleContent,
+  removeTurnAt,
   serializeTurns,
   type ExampleTurn,
 } from "../lib/example-turns";
 import { getUiBoundEntryIds, isVariableBoundEntry } from "@yumina/engine";
-import type { Worldbook } from "@yumina/engine";
+import type { Worldbook, Variable } from "@yumina/engine";
 
 // Stable empty-array reference — never inline `?? []` inside a Zustand selector
 // (allocates a new array each render → useSyncExternalStore infinite loop).
 const EMPTY_WORLDBOOKS: Worldbook[] = [];
+const EMPTY_VARIABLES: Variable[] = [];
+const EMPTY_SLOT_MAP: ReadonlyMap<string, string> = new Map();
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -89,7 +95,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import type { WorldEntry, EntryFolder } from "@yumina/engine";
+import type { WorldEntry, EntryFolder, Condition } from "@yumina/engine";
 import {
   DndContext,
   closestCenter,
@@ -165,14 +171,24 @@ function getEntryTokens(entry: WorldEntry): number {
   const cached = entryTokenCache.get(entry);
   if (cached !== undefined) return cached;
   const tokens = estimateTokens(entry.content);
-  entryTokenCache.set(entry, tokens);
+  // A pre-load heuristic must not outlive the tokenizer: the entry object
+  // would keep answering the estimate until it happened to be replaced.
+  if (isTokenizerReady()) entryTokenCache.set(entry, tokens);
   return tokens;
 }
 
 // ── Main component ──
 
 export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { compact?: boolean; mobileListMode?: boolean; scopeWorldbookId?: string | null } = {}) {
-  const { t } = useTranslation("editor");
+  const { t, i18n } = useTranslation("editor");
+  /** The template's untouched scaffolding, folded away by default.
+   *
+   *  A first-time author opening a card met Fiction Mode, Task, Style,
+   *  Instructions and CoT Bypass sitting in the same list as the three slots
+   *  they were meant to fill, with nothing saying which was which. The canvas
+   *  has folded them for a while; this is the same fold, on the same
+   *  predicate, so an entry the author edits leaves it on its own. */
+  const [scaffoldingOpen, setScaffoldingOpen] = useState(false);
 
   const SECTION_META = useMemo(() => SECTION_META_IDS.map((m) => ({
     id: m.id,
@@ -218,11 +234,23 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
   const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [showTagManager, setShowTagManager] = useState(false);
   const [confirmAlwaysSendOff, setConfirmAlwaysSendOff] = useState(false);
+  // Conditions cleared by switching an entry to Manual, kept per entry id for
+  // this session so switching back to Bind variables restores them.
+  const stashedConditionsRef = useRef(new Map<string, Condition[]>());
 
   const selectEntry = useCallback((id: string | null) => {
     setSelectedId(id);
     setConfirmAlwaysSendOff(false);
   }, []);
+
+  // Another page (the module page, the canvas) asked for one entry: open it.
+  const pendingFocus = useEditorStore((s) => s.pendingFocus);
+  const clearPendingFocus = useEditorStore((s) => s.clearPendingFocus);
+  useEffect(() => {
+    if (pendingFocus?.kind !== "entry") return;
+    selectEntry(pendingFocus.id);
+    clearPendingFocus();
+  }, [pendingFocus, selectEntry, clearPendingFocus]);
 
   // PERF: stable, id-keyed row handlers. Passing fresh inline closures to each
   // SortableEntryCard would defeat React.memo (props change every render), so
@@ -298,7 +326,9 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
       for (const t of e.tags ?? []) entryTags.add(t);
     }
     const known = new Set([...DEFAULT_TAGS, ...custom]);
-    const legacy = [...entryTags].filter((t) => !known.has(t));
+    // Template plumbing (template-content:*, chat:*) drives placeholders and
+    // the simple editor's section lookup — it is not a tag for creators.
+    const legacy = [...entryTags].filter((t) => !known.has(t) && !isInternalEntryTag(t));
     return [...DEFAULT_TAGS, ...custom.filter((t) => !DEFAULT_TAGS.includes(t)), ...legacy];
   }, [worldDraft.customTags, worldDraft.entries]);
 
@@ -313,10 +343,25 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
     return counts;
   }, [worldDraft.entries]);
 
-  const uiBoundEntryIds = useMemo(
-    () => getUiBoundEntryIds(normalizeLoreUiBindingsList(worldDraft.loreUiBindings)),
+  const normalizedLoreUiBindings = useMemo(
+    () => normalizeLoreUiBindingsList(worldDraft.loreUiBindings),
     [worldDraft.loreUiBindings],
   );
+  const uiBoundEntryIds = useMemo(
+    () => getUiBoundEntryIds(normalizedLoreUiBindings),
+    [normalizedLoreUiBindings],
+  );
+  // entry id → bound LoreSlot id, built once per bindings change. Rows read
+  // their slot from here instead of each running its own normalize + find.
+  // First binding wins, matching getEntryBoundSlotId.
+  const uiSlotIdByEntry = useMemo(() => {
+    if (normalizedLoreUiBindings.length === 0) return EMPTY_SLOT_MAP;
+    const map = new Map<string, string>();
+    for (const b of normalizedLoreUiBindings) {
+      if (b.entryId && b.slotId && !map.has(b.entryId)) map.set(b.entryId, b.slotId);
+    }
+    return map;
+  }, [normalizedLoreUiBindings]);
 
   // Filter entries by tags. OR mode = any selected tag matches (default).
   // AND mode = entry must carry every selected tag.
@@ -408,6 +453,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
   //                       these NEVER fire — usually a setup mistake
   //   disabled          — enabled=false; zero cost until re-enabled
   // Sums on `worldDraft.entries` directly — tag filtering must not affect totals.
+  const tokenizerReady = useTokenizerReady();
   const tokenSummary = useMemo(() => {
     const buckets = {
       greeting: 0,
@@ -435,7 +481,9 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
     const health: "healthy" | "caution" | "heavy" =
       total < 30_000 ? "healthy" : total < 60_000 ? "caution" : "heavy";
     return { ...buckets, greetingCount, perTurn: buckets.alwaysSent, total, health };
-  }, [worldDraft.entries]);
+    // tokenizerReady: recount once exact counts arrive.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [worldDraft.entries, tokenizerReady]);
 
   // Toggle for the token-breakdown footer. Persisted so creators don't have to
   // re-expand on every visit.
@@ -452,10 +500,14 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
   }, []);
 
   // Check which official presets are missing from this world
+  const cardPresets = useMemo(
+    () => officialPresetsForCard(worldDraft.entries, i18n.language),
+    [worldDraft.entries, i18n.language],
+  );
   const missingPresets = useMemo(() => {
     const existingPresetIds = new Set(worldDraft.entries.filter((e) => e.presetId).map((e) => e.presetId));
-    return OFFICIAL_PRESETS.filter((p) => !existingPresetIds.has(p.presetId));
-  }, [worldDraft.entries]);
+    return cardPresets.filter((p) => !existingPresetIds.has(p.presetId));
+  }, [worldDraft.entries, cardPresets]);
 
   const toggleTagFilter = (tag: string) => {
     setActiveTagFilters((prev) => {
@@ -597,32 +649,40 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
           Object.assign(updates, deriveSectionDefaultsForEntry(activeEntry, overSection));
         }
       }
-      if (Object.keys(updates).length > 0) {
-        updateEntry(activeRealId, updates);
+      // One drop = one undo step: the folder/section update and the reorder
+      // below are batched so Ctrl+Z doesn't need two presses.
+      const store = useEditorStore.getState();
+      store.beginBatch();
+      try {
+        if (Object.keys(updates).length > 0) {
+          updateEntry(activeRealId, updates);
+        }
+
+        // Reorder in the section's FULL cross-book order, not just the visible
+        // slice: splice the dragged entry next to the drop target and re-emit the
+        // whole section. Positions are global across books (the prompt builder
+        // interleaves every book by `position`), so re-emitting only the visible
+        // subset would shove this book/filter to the tail of the section and
+        // silently destroy any cross-book arrangement.
+        const globalSection = allEntries
+          .filter((e) => e.id !== activeRealId && classifyEntry(e) === overSection)
+          .sort(entrySort);
+        const overIdx = globalSection.findIndex((e) => e.id === overRealId);
+        if (overIdx === -1) return;
+
+        // Mirror the visible-list drop semantics: dragging downward lands AFTER
+        // the target row, dragging upward (or in from another section) BEFORE it.
+        const visible = sectionEntries[overSection];
+        const visOld = visible.findIndex((e) => e.id === activeRealId);
+        const visNew = visible.findIndex((e) => e.id === overRealId);
+        const insertAt = visOld !== -1 && visNew !== -1 && visOld < visNew ? overIdx + 1 : overIdx;
+
+        const ids = globalSection.map((e) => e.id);
+        ids.splice(insertAt, 0, activeRealId);
+        reorderEntries(ids);
+      } finally {
+        store.commitBatch();
       }
-
-      // Reorder in the section's FULL cross-book order, not just the visible
-      // slice: splice the dragged entry next to the drop target and re-emit the
-      // whole section. Positions are global across books (the prompt builder
-      // interleaves every book by `position`), so re-emitting only the visible
-      // subset would shove this book/filter to the tail of the section and
-      // silently destroy any cross-book arrangement.
-      const globalSection = allEntries
-        .filter((e) => e.id !== activeRealId && classifyEntry(e) === overSection)
-        .sort(entrySort);
-      const overIdx = globalSection.findIndex((e) => e.id === overRealId);
-      if (overIdx === -1) return;
-
-      // Mirror the visible-list drop semantics: dragging downward lands AFTER
-      // the target row, dragging upward (or in from another section) BEFORE it.
-      const visible = sectionEntries[overSection];
-      const visOld = visible.findIndex((e) => e.id === activeRealId);
-      const visNew = visible.findIndex((e) => e.id === overRealId);
-      const insertAt = visOld !== -1 && visNew !== -1 && visOld < visNew ? overIdx + 1 : overIdx;
-
-      const ids = globalSection.map((e) => e.id);
-      ids.splice(insertAt, 0, activeRealId);
-      reorderEntries(ids);
       return;
     }
 
@@ -645,7 +705,15 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
     }
   }
 
+  /** Untouched official presets. Recomputed from the draft, so editing one
+   *  drops it out of the fold the moment the change lands. */
+  const scaffoldingIds = useMemo(
+    () => getUnmodifiedOfficialPresetIds(worldDraft.entries),
+    [worldDraft.entries],
+  );
+
   const selected = worldDraft.entries.find((e) => e.id === selectedId);
+  useEditorFocus("entry", selected?.id, worldDraft);
   const dragActiveRealId = dragActiveId?.replace(/^(entry|folder):/, "") ?? null;
   const dragActiveEntry = dragActiveRealId ? worldDraft.entries.find((e) => e.id === dragActiveRealId) : null;
   const dragActiveFolder = dragActiveRealId ? (worldDraft.entryFolders ?? []).find((f) => f.id === dragActiveRealId) : null;
@@ -678,11 +746,14 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
         }
       }
       for (const entry of unfolderedEntries) {
+        // Folded scaffolding is not in the DOM, so it must not be in the
+        // sortable list either — the same rule a collapsed folder follows.
+        if (!scaffoldingOpen && scaffoldingIds.has(entry.id)) continue;
         ids.push(`entry:${entry.id}`);
       }
     }
     return ids;
-  }, [SECTION_META, sectionEntries, sectionFolders, collapsedFolders]);
+  }, [SECTION_META, sectionEntries, sectionFolders, collapsedFolders, scaffoldingIds, scaffoldingOpen]);
 
   return (
     <div ref={rootRef} className={cn("entries-section-root @container flex min-h-0 flex-1 flex-col", mobileListMode && "studio-mobile-list-mode")}>
@@ -1027,6 +1098,42 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                   <p className="mt-1 text-xs text-muted-foreground/40">{t("entries.scanDepthHint")}</p>
                 </div>
                 <div>
+                  <label className="mb-1.5 block text-sm font-bold text-foreground">{t("entries.historyLimit")}</label>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={worldDraft.settings.historyLimit ? "latest" : "all"}
+                      onChange={(e) => setSettings("historyLimit", e.target.value === "latest" ? (worldDraft.settings.historyLimit ?? 20) : undefined)}
+                      className="rounded-lg border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+                    >
+                      <option value="all">{t("blueprint.insp.historyAll")}</option>
+                      <option value="latest">{t("blueprint.insp.historyLatest")}</option>
+                    </select>
+                    {worldDraft.settings.historyLimit ? (
+                      <NumberInput
+                        value={worldDraft.settings.historyLimit}
+                        onChange={(val) => setSettings("historyLimit", val === "" ? 20 : Math.min(Math.max(val, 1), 500))}
+                        min={1}
+                        max={500}
+                      />
+                    ) : null}
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground/40">{t(worldDraft.settings.historyLimit ? "entries.historyLimitHint" : "entries.historyLimitHintAll")}</p>
+                </div>
+                <div>
+                  <label className="flex cursor-pointer items-start gap-2">
+                    <input
+                      type="checkbox"
+                      checked={worldDraft.settings.contextPolicy === "author"}
+                      onChange={(e) => setSettings("contextPolicy", e.target.checked ? "author" : "player")}
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-amber-500"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-sm font-bold text-foreground">{t("blueprint.insp.contextLock")}</span>
+                      <span className="block text-xs text-muted-foreground/40">{t("blueprint.insp.contextLockHint", { tokens: worldDraft.settings.maxContext ?? 200000 })}</span>
+                    </span>
+                  </label>
+                </div>
+                <div>
                   <label className="mb-1.5 block text-sm font-bold text-foreground">{t("entries.recursionDepth")}</label>
                   <NumberInput
                     value={worldDraft.settings.lorebookRecursionDepth ?? 0}
@@ -1067,7 +1174,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                 className="mb-3 flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-500/30 bg-indigo-500/5 px-3 py-2.5 text-xs font-medium text-indigo-400 transition-colors hover:bg-indigo-500/10 hover:border-indigo-500/50"
               >
                 <Shield className="h-3.5 w-3.5" />
-                Add Official Presets ({missingPresets.length} missing)
+                {t("entries.addOfficialPresets", { count: missingPresets.length })}
               </button>
             )}
 
@@ -1090,7 +1197,11 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                   // remain visible — otherwise the header count stays > 0 while the
                   // list silently goes empty.
                   const knownFolderIds = new Set(folders.map((f) => f.id));
-                  const unfolderedEntries = entries.filter((e) => !e.folderId || !knownFolderIds.has(e.folderId));
+                  const allUnfoldered = entries.filter((e) => !e.folderId || !knownFolderIds.has(e.folderId));
+                  // The author's own writing first; the template's untouched
+                  // scaffolding behind one row underneath it.
+                  const scaffolding = allUnfoldered.filter((e) => scaffoldingIds.has(e.id));
+                  const unfolderedEntries = allUnfoldered.filter((e) => !scaffoldingIds.has(e.id));
                   const entriesByFolder = new Map<string, WorldEntry[]>();
                   for (const entry of entries) {
                     if (entry.folderId && knownFolderIds.has(entry.folderId)) {
@@ -1119,7 +1230,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                       {meta.id === "chat-history" && !isCollapsed && (
                         <div className="ml-5 flex items-center gap-2 px-2 py-1 text-[10px] text-muted-foreground/30 italic">
                           <MessageCircle className="h-3 w-3" />
-                          ...messages...
+                          {t("entries.messages")}
                         </div>
                       )}
 
@@ -1133,6 +1244,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                             return (
                               <FolderCard
                                 key={folder.id}
+                                uiSlotIdByEntry={uiSlotIdByEntry}
                                 folder={folder}
                                 entries={folderEntries}
                                 isCollapsed={isFolderCollapsed}
@@ -1152,12 +1264,13 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                           })}
 
                           {/* Unfoldered entries */}
-                          {unfolderedEntries.length === 0 && folders.length === 0 ? (
+                          {unfolderedEntries.length === 0 && folders.length === 0 && scaffolding.length === 0 ? (
                             <div className="px-2 py-2 text-[11px] text-muted-foreground/40 italic">{t("entries.noEntriesLabel")}</div>
                           ) : (
                             unfolderedEntries.map((entry) => (
                               <SortableEntryCard
                                 key={entry.id}
+                                uiSlotId={uiSlotIdByEntry.get(entry.id)}
                                 entry={entry}
                                 sortableId={`entry:${entry.id}`}
                                 isActive={selectedId === entry.id}
@@ -1168,6 +1281,41 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                                 consumeAutoEdit={consumeAutoEdit}
                               />
                             ))
+                          )}
+
+                          {/* The template's own entries, as one row. Same words
+                              the canvas uses, so the two editors describe the
+                              same thing the same way. */}
+                          {scaffolding.length > 0 && (
+                            <div className="rounded-lg border border-border/50 bg-white/[0.02]">
+                              <button
+                                type="button"
+                                onClick={() => setScaffoldingOpen((v) => !v)}
+                                className="flex w-full items-center gap-1.5 px-2 py-1.5 text-left text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+                              >
+                                <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform", scaffoldingOpen && "rotate-90")} />
+                                <span className="font-semibold">{t("blueprint.starter.presetsTitle")}</span>
+                                <span className="tabular-nums text-muted-foreground/60">{scaffolding.length}</span>
+                              </button>
+                              {scaffoldingOpen && (
+                                <div className="space-y-0.5 border-t border-border/50 p-1">
+                                  {scaffolding.map((entry) => (
+                                    <SortableEntryCard
+                                      key={entry.id}
+                                      uiSlotId={uiSlotIdByEntry.get(entry.id)}
+                                      entry={entry}
+                                      sortableId={`entry:${entry.id}`}
+                                      isActive={selectedId === entry.id}
+                                      onSelect={handleSelectEntry}
+                                      onDelete={handleDeleteEntry}
+                                      onDuplicate={handleDuplicateEntry}
+                                      onRename={handleRenameEntry}
+                                      consumeAutoEdit={consumeAutoEdit}
+                                    />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           )}
                         </div>
                       )}
@@ -1192,7 +1340,10 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
             </DndContext>
 
             {/* Empty state */}
-            {worldDraft.entries.length === 0 && (
+            {/* Keyed on what this list can actually show: a new card holding
+                only greetings, or a module scope with nothing of its own, is
+                still empty here (greetings live on the First Message page). */}
+            {filteredEntries.length === 0 && activeTagFilters.size === 0 && (
               <div className="px-4 py-10 text-center">
                 <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-accent">
                   <FileText className="h-5 w-5 text-muted-foreground" />
@@ -1227,7 +1378,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                     ~{tokenSummary.perTurn.toLocaleString()}
                     <span className="mx-2 opacity-30">·</span>
                     <span className="opacity-70">{t("entries.tokenBreakdown.totalLabel")}</span>{" "}
-                    ~{tokenSummary.total.toLocaleString()} tok
+                    ~{tokenSummary.total.toLocaleString()} {t("entries.tokenBreakdown.tokUnit", "tok")}
                   </span>
                 </span>
               </button>
@@ -1301,7 +1452,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                 </div>
                 <div className="mt-1.5 flex items-center justify-between border-t border-border/50 pt-1.5 font-medium text-foreground/80">
                   <span>{t("entries.tokenBreakdown.totalLabel")}</span>
-                  <span className="tabular-nums">~{tokenSummary.total.toLocaleString()} tok</span>
+                  <span className="tabular-nums">~{tokenSummary.total.toLocaleString()} {t("entries.tokenBreakdown.tokUnit", "tok")}</span>
                 </div>
               </div>
             )}
@@ -1314,14 +1465,14 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
           !selectedId && "hidden @[640px]:flex"
         )}>
           {selected ? (
-            <div className="p-8 lg:p-12" data-tour="entries-detail">
+            <div className="p-8 lg:p-12" data-tour="entries-detail" data-onboarding-entry={selected.id}>
               {/* Back button — narrow mode only */}
               <button
                 onClick={() => selectEntry(null)}
                 className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground @[640px]:hidden mb-4"
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
-                Back
+                {t("entries.back")}
               </button>
               <div className="mb-8 flex max-w-3xl items-center justify-between gap-2">
                 <h2 className="text-xl font-bold text-foreground">{t("entries.editEntry")}</h2>
@@ -1447,6 +1598,23 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                     )}
                   </div>
                 )}
+                {selected.role === "character" && (
+                  <EntryPortraitVideoField
+                    value={selected.portraitVideo}
+                    onChange={(portraitVideo) => updateEntry(selected.id, { portraitVideo })}
+                  />
+                )}
+
+                {/* Voice — how this character sounds when the player turns readout on */}
+                {selected.role === "character" && (
+                  <VoiceField
+                    label={t("voiceField.characterLabel")}
+                    hint={t("voiceField.characterHint")}
+                    title={t("blueprint.voice.character", { name: selected.name })}
+                    value={selected.voice}
+                    onChange={(voice) => updateEntry(selected.id, { voice })}
+                  />
+                )}
 
                 {/* Worldbook (lore module) membership */}
                 {scopeWorldbookId === undefined && worldbooks.length > 0 && (
@@ -1502,6 +1670,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                   </label>
                   {selected.section === "examples" ? (
                     <ExampleTurnsEditor
+                      key={selected.id}
                       entry={selected}
                       onUpdate={(content) => updateEntry(selected.id, { content })}
                     />
@@ -1516,7 +1685,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                     {selected.presetId ? (
                       <button
                         onClick={() => {
-                          const official = OFFICIAL_PRESETS.find((p) => p.presetId === selected.presetId);
+                          const official = cardPresets.find((p) => p.presetId === selected.presetId);
                           if (official) {
                             updateEntry(selected.id, { content: official.content, apiRole: official.apiRole, name: official.name });
                           }
@@ -1528,7 +1697,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                       </button>
                     ) : <span />}
                     <p className="text-right text-xs text-muted-foreground/40">
-                      ~{estimateTokens(selected.content).toLocaleString()} {estimateTokens(selected.content) === 1 ? "token" : "tokens"}
+                      {t("firstMessage.tokens", { count: estimateTokens(selected.content) })}
                     </p>
                   </div>
                 </div>
@@ -1640,6 +1809,13 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                         type="button"
                         onClick={() => {
                           if (!entryUsesVariableBinding(selected)) return;
+                          // The data model treats any stored condition as
+                          // "bound", so Manual has to clear them — but keep a
+                          // copy for this editing session so flipping back to
+                          // Bind variables restores what was written.
+                          if ((selected.conditions ?? []).length > 0) {
+                            stashedConditionsRef.current.set(selected.id, selected.conditions ?? []);
+                          }
                           updateEntry(selected.id, {
                             variableBound: false,
                             conditions: [],
@@ -1668,7 +1844,8 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                             conditions:
                               (selected.conditions ?? []).length > 0
                                 ? selected.conditions
-                                : [defaultConditionForVariable(vars[0]!)],
+                                : stashedConditionsRef.current.get(selected.id)
+                                  ?? [defaultConditionForVariable(vars[0]!)],
                           });
                         }}
                         className={cn(
@@ -1708,7 +1885,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                                 : "text-muted-foreground hover:text-foreground",
                             )}
                           >
-                            ALL
+                            {t("blueprint.logic.all")}
                           </button>
                           <button
                             type="button"
@@ -1720,7 +1897,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                                 : "text-muted-foreground hover:text-foreground",
                             )}
                           >
-                            ANY
+                            {t("blueprint.logic.any")}
                           </button>
                         </div>
                       </div>
@@ -1906,17 +2083,23 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                 <div className="pb-12" />
               </div>
             </div>
-          ) : (
+          ) : filteredEntries.length > 0 ? (
+            // Nothing picked yet. "No entries" here, beside a list of them,
+            // read as if the card had lost its writing.
             <div className="flex flex-1 flex-col items-center justify-center pb-20 text-center opacity-50">
               <FileText className="mb-4 h-16 w-16 text-muted-foreground opacity-50" />
-              <h2 className="mb-2 text-xl font-bold text-foreground">{t("entries.emptyTitle")}</h2>
+              <p className="text-sm text-muted-foreground">{t("entries.pickToEdit")}</p>
             </div>
-          )}
+          ) : null}
         </div>
       </div>
       )}
 
-      <TagManagerDialog open={showTagManager} onClose={() => setShowTagManager(false)} />
+      {/* Mounted only while open: the dialog recounts every tag across all
+          entries on each render, which is wasted work on every commit. */}
+      {showTagManager && (
+        <TagManagerDialog open={showTagManager} onClose={() => setShowTagManager(false)} />
+      )}
     </div>
   );
 }
@@ -2031,7 +2214,7 @@ function DroppableSectionHeader({
           ? "bg-primary/10 ring-1 ring-primary/40"
           : "hover:bg-muted/50"
       )}>
-        <button onClick={onToggle} className="text-muted-foreground">
+        <button onClick={onToggle} aria-label={label} aria-expanded={!isCollapsed} className="text-muted-foreground">
           {isCollapsed ? <ChevronRight className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
         </button>
         <div className="flex-1 min-w-0">
@@ -2052,7 +2235,7 @@ function DroppableSectionHeader({
           <DropdownMenuTrigger asChild>
             <button
               className="touch-reveal opacity-0 group-hover/sh:opacity-100 text-muted-foreground hover:text-primary transition-opacity"
-              title={`Add to ${label}`}
+              title={`${t("action.add", { ns: "common" })} · ${label}`}
             >
               <Plus className="h-3.5 w-3.5" />
             </button>
@@ -2086,8 +2269,12 @@ const SortableEntryCard = memo(function SortableEntryCard({
   onDuplicate,
   onRename,
   consumeAutoEdit,
+  uiSlotId,
 }: {
   entry: WorldEntry;
+  /** LoreSlot this entry is bound to — resolved once by the parent from a
+   *  single id → slot map instead of each row normalizing every binding. */
+  uiSlotId?: string | null;
   sortableId?: string;
   isActive: boolean;
   onSelect: (id: string) => void;
@@ -2127,19 +2314,13 @@ const SortableEntryCard = memo(function SortableEntryCard({
       ? s.worldDraft.installedBundles?.find((b) => b.installId === entry.bundleInstallId)?.name
       : undefined,
   );
-  const uiSlotId = useEditorStore((s) =>
-    getEntryBoundSlotId(
-      entry.id,
-      normalizeLoreUiBindingsList(s.worldDraft.loreUiBindings),
-    ),
-  );
   // Narrow primitive selector (memo-stable) for the entry's worldbook name.
   const worldbookName = useEditorStore((s) =>
-    entry.worldbookId
+    entry.worldbookId && s.moduleScope !== `mod:${entry.worldbookId}`
       ? s.worldDraft.worldbooks?.find((w) => w.id === entry.worldbookId)?.name
       : undefined,
   );
-  const variables = useEditorStore((s) => s.worldDraft.variables ?? []);
+  const variables = useEditorStore((s) => s.worldDraft.variables) ?? EMPTY_VARIABLES;
   const bundleColor = bundleColorKey ? getBundleColor(bundleColorKey) : null;
 
   const style = {
@@ -2246,7 +2427,7 @@ const SortableEntryCard = memo(function SortableEntryCard({
         {entry.keywords.length > 0 && !entry.alwaysSend && entry.section !== "chat-history" && (
           <span
             className="shrink-0 flex items-center"
-            title="Keyword-triggered entry outside chat-history breaks prompt caching — move to chat-history section"
+            title={t("entries.cacheWarningTitle")}
           >
             <AlertTriangle className="h-3 w-3 text-amber-400" />
           </span>
@@ -2257,7 +2438,7 @@ const SortableEntryCard = memo(function SortableEntryCard({
             className="shrink-0 max-w-[7rem] truncate rounded bg-primary/15 px-1.5 py-0.5 text-[9px] font-bold text-primary"
             title={t("entries.uiBindBadge", { slot: uiSlotId })}
           >
-            UI:{uiSlotId}
+            {t("entries.uiBindBadge", { slot: uiSlotId })}
           </span>
         )}
 
@@ -2292,7 +2473,7 @@ const SortableEntryCard = memo(function SortableEntryCard({
               apiRole === "user" ? "bg-secondary text-primary/80" : "bg-secondary text-muted-foreground"
             )}
           >
-            {apiRole === "user" ? "USR" : "AI"}
+            {apiRole === "user" ? t("entries.sendAsOptions.user") : t("entries.sendAsOptions.assistant")}
           </span>
         )}
 
@@ -2346,7 +2527,9 @@ function FolderCard({
   onDuplicateEntry,
   onRenameEntry,
   consumeAutoEdit,
+  uiSlotIdByEntry,
 }: {
+  uiSlotIdByEntry: ReadonlyMap<string, string>;
   folder: EntryFolder;
   entries: WorldEntry[];
   isCollapsed: boolean;
@@ -2485,6 +2668,7 @@ function FolderCard({
             entries.map((entry) => (
               <SortableEntryCard
                 key={entry.id}
+                uiSlotId={uiSlotIdByEntry.get(entry.id)}
                 entry={entry}
                 sortableId={`entry:${entry.id}`}
                 isActive={selectedId === entry.id}
@@ -2511,60 +2695,106 @@ function ExampleTurnsEditor({
   entry: WorldEntry;
   onUpdate: (content: string) => void;
 }) {
-  const turns = useMemo(() => parseExampleContent(entry.content), [entry.content]);
   const { t: tr } = useTranslation("editor");
+  // The structured view can only show content that re-serializes to itself.
+  // Anything else (prose, text before the first role line, lowercase markers,
+  // missing separator spaces) is edited as plain text so nothing is dropped.
+  // Once an entry has needed plain text it stays there for this mount (the
+  // parent keys this editor by entry id) so the field never swaps out from
+  // under the cursor mid-edit.
+  const lossy = useMemo(() => !canEditAsTurns(entry.content), [entry.content]);
+  const [latchedPlain, setLatchedPlain] = useState(lossy);
+  useEffect(() => { if (lossy) setLatchedPlain(true); }, [lossy]);
+  const plainText = latchedPlain || lossy;
+
+  const turns = useMemo(
+    () => (plainText ? [] : parseExampleContent(entry.content)),
+    [entry.content, plainText],
+  );
+  // Debounced commits land after later renders; always rebuild from the
+  // freshest stored content so a late commit can't resurrect a stale turn list.
+  const contentRef = useRef(entry.content);
+  contentRef.current = entry.content;
 
   const updateTurn = (index: number, updates: Partial<ExampleTurn>) => {
-    const newTurns = turns.map((t, i) => (i === index ? { ...t, ...updates } : t));
-    onUpdate(serializeTurns(newTurns));
+    const current = parseExampleContent(contentRef.current);
+    if (!current[index]) return;
+    onUpdate(serializeTurns(current.map((turn, i) => (i === index ? { ...turn, ...updates } : turn))));
   };
 
   const addTurn = () => {
-    const lastRole = turns.length > 0 ? turns[turns.length - 1].role : "assistant";
+    const lastRole = turns.length > 0 ? turns[turns.length - 1]!.role : "assistant";
     const newRole = lastRole === "user" ? "assistant" : "user";
     onUpdate(serializeTurns([...turns, { role: newRole, content: "" }]));
   };
 
   const removeTurn = (index: number) => {
-    onUpdate(serializeTurns(turns.filter((_, i) => i !== index)));
+    onUpdate(serializeTurns(removeTurnAt(turns, index)));
   };
+
+  if (plainText) {
+    return (
+      <div className="space-y-2">
+        <DebouncedTextarea
+          value={entry.content ?? ""}
+          onCommit={onUpdate}
+          syncKey={entry.id}
+          rows={8}
+          className="min-h-[160px] w-full resize-y rounded-xl border border-border bg-card px-4 py-4 font-mono text-sm leading-relaxed text-foreground shadow-inner transition-all placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+        />
+        <p className="text-xs text-muted-foreground/50">
+          {tr("entries.examplePlainTextHint", "This example contains text outside the dialogue lines, so it's edited as plain text to keep every line intact.")}
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3">
       {turns.map((turn, i) => (
-        <div key={i} className="flex gap-2 items-start">
-          <button
-            onClick={() => updateTurn(i, { role: turn.role === "user" ? "assistant" : "user" })}
-            className={cn(
-              "shrink-0 mt-2.5 w-12 rounded-md px-1.5 py-1 text-[11px] font-bold transition-colors text-center",
-              turn.role === "user"
-                ? "bg-primary/10 text-primary border border-primary/30"
-                : "bg-secondary text-muted-foreground border border-border"
-            )}
-          >
-            {turn.role === "user" ? "User" : "AI"}
-          </button>
-          <textarea
-            value={turn.content}
-            onChange={(e) => updateTurn(i, { content: e.target.value })}
-            rows={2}
-            placeholder={turn.role === "user" ? tr("extra.userMsg") : tr("extra.aiResponse")}
-            className="flex-1 min-h-[60px] resize-y rounded-xl border border-border bg-card px-3 py-2.5 font-mono text-sm leading-relaxed text-foreground shadow-inner transition-all placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
-          />
-          <button
-            onClick={() => removeTurn(i)}
-            className="shrink-0 mt-2.5 p-1 text-muted-foreground/40 hover:text-destructive transition-colors"
-            title={tr("entries.removeTurn")}
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+        <div key={i} className="space-y-3">
+          {turn.startsBlock && (
+            <div className="flex items-center gap-2 text-[10px] font-mono text-muted-foreground/50">
+              <span className="h-px flex-1 bg-border" />
+              {"<START>"}
+              <span className="h-px flex-1 bg-border" />
+            </div>
+          )}
+          <div className="flex gap-2 items-start">
+            <button
+              onClick={() => updateTurn(i, { role: turn.role === "user" ? "assistant" : "user" })}
+              className={cn(
+                "shrink-0 mt-2.5 w-12 rounded-md px-1.5 py-1 text-[11px] font-bold transition-colors text-center",
+                turn.role === "user"
+                  ? "bg-primary/10 text-primary border border-primary/30"
+                  : "bg-secondary text-muted-foreground border border-border"
+              )}
+            >
+              {turn.role === "user" ? tr("entries.sendAsOptions.user") : tr("entries.sendAsOptions.assistant")}
+            </button>
+            <DebouncedTextarea
+              value={turn.content}
+              onCommit={(content) => updateTurn(i, { content })}
+              syncKey={`${entry.id}:${i}`}
+              rows={2}
+              placeholder={turn.role === "user" ? tr("extra.userMsg") : tr("extra.aiResponse")}
+              className="flex-1 min-h-[60px] resize-y rounded-xl border border-border bg-card px-3 py-2.5 font-mono text-sm leading-relaxed text-foreground shadow-inner transition-all placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50"
+            />
+            <button
+              onClick={() => removeTurn(i)}
+              className="shrink-0 mt-2.5 p-1 text-muted-foreground/40 hover:text-destructive transition-colors"
+              title={tr("entries.removeTurn")}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         </div>
       ))}
       <button
         onClick={addTurn}
         className="flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/30 hover:text-primary"
       >
-        <Plus className="h-3 w-3" /> Add message
+        <Plus className="h-3 w-3" /> {tr("entries.addExampleMessage", "Add message")}
       </button>
     </div>
   );

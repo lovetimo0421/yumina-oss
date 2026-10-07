@@ -5,6 +5,7 @@ import { db } from "../db/index.js";
 import { playSessions, messages, worlds, user, userPersonas, userWorldPersonas, worldMemories, summaryceptionSnippets } from "../db/schema.js";
 import { eq, asc } from "drizzle-orm";
 import { branchSession } from "./sessions.js";
+after(async () => { const client = (db as unknown as { $client: { closed?: boolean; close(): Promise<void> } }).$client; if (!client.closed) await client.close(); });
 
 // Tests call `branchSession()` directly as a plain async function, bypassing
 // Hono and the auth middleware. Task 3 factors the branch handler this way so
@@ -355,4 +356,4 @@ describe("branchSession", () => {
   });
 });
 
-after(async () => { await (db as unknown as { $client: { close(): Promise<void> } }).$client.close(); });
+after(async () => { const client = (db as unknown as { $client: { closed?: boolean; close(): Promise<void> } }).$client; if (!client.closed) await client.close(); });

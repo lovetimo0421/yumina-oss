@@ -144,7 +144,9 @@ export async function approveGroup(
 
     // Snapshot exactly what this transaction made public, including edits
     // saved after the earlier variants read. Only this path grants live provenance.
-    for (const world of updated) await captureAutomaticVersion(tx, world, "live", world);
+    for (const world of updated) {
+      await captureAutomaticVersion(tx, world, "live", world);
+    }
 
     await tx
       .update(worldReviewSubmissions)

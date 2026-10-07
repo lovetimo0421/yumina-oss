@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { authClient } from "@/lib/auth-client";
+import { readSafeAuthReturnTo } from "@/lib/auth-return";
 import { AuthLayout } from "./auth-layout";
 
 interface VerificationPendingProps {
@@ -17,6 +18,10 @@ export function VerificationPending({ email }: VerificationPendingProps) {
   const [resendError, setResendError] = useState("");
   const [cooldown, setCooldown] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval>>(undefined);
+  // The card a guest signed up from rides along to the verified page.
+  const [returnTo] = useState(() =>
+    typeof window === "undefined" ? undefined : readSafeAuthReturnTo(window.location.search),
+  );
 
   useEffect(() => () => clearInterval(timerRef.current), []);
 
@@ -40,7 +45,7 @@ export function VerificationPending({ email }: VerificationPendingProps) {
       // "resent ✓" while nothing was sent.
       const result = await authClient.sendVerificationEmail({
         email,
-        callbackURL: "/verified",
+        callbackURL: returnTo ? `/verified?returnTo=${encodeURIComponent(returnTo)}` : "/verified",
       });
       if (result.error) {
         setResendError(t("register.verification.resendFailed"));
@@ -70,7 +75,14 @@ export function VerificationPending({ email }: VerificationPendingProps) {
           <p className="mb-1 text-sm text-[#B9B6AE]">
             {t("register.verification.sentTo")}
           </p>
-          <p className="mb-8 text-sm font-semibold text-gold">{email}</p>
+          <p className="mb-2 text-sm font-semibold text-gold">{email}</p>
+          {/* sendEmail() can fail after the account exists (a rejected domain,
+              a provider quota) and nothing upstream reads its boolean, so this
+              screen cannot promise delivery. It names the resend button that is
+              already below rather than leaving the wait open-ended. */}
+          <p className="mb-8 text-xs leading-relaxed text-[#B9B6AE]/70">
+            {t("register.verification.sentHint")}
+          </p>
 
           {resendError && (
             <div className="mb-4 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-400">
@@ -86,7 +98,7 @@ export function VerificationPending({ email }: VerificationPendingProps) {
             >
               {resent ? `\u2713 ${t("register.verification.resent")}` : resending ? t("register.verification.resending") : cooldown > 0 ? `${t("register.verification.resend")} (${cooldown}s)` : t("register.verification.resend")}
             </button>
-            <Link to="/login" className="block">
+            <Link to="/login" search={returnTo ? { returnTo } : undefined} className="block">
               <button className="w-full rounded-xl px-4 py-3 text-sm font-medium text-[#B9B6AE]/60 transition-colors hover:text-[#E6E4DD]">
                 {t("register.verification.backToSignIn")}
               </button>

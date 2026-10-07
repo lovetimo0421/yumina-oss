@@ -5,6 +5,7 @@ import { compileRuleToReaction } from "./compile-rule.js";
 import { keywordMatches } from "../lorebook/keyword-matcher.js";
 import { createEmptyRuleState } from "../rules/rule-state.js";
 import { getByPath } from "../state/path-utils.js";
+import { bindEventParams } from "./params.js";
 
 /** Result of reaction evaluation */
 export interface ReactionEvalResult {
@@ -18,10 +19,14 @@ export interface ReactionEvalResult {
   legacyAudioEffects: AudioEffect[];
   /** Emitted events from "emit" effects (for chaining) */
   emittedEvents: GameEvent[];
-  /** Notifications from "ui:notification" emit effects */
-  notifications: Array<{ message: string; style: string }>;
+  /** Notifications from "ui:notification" emit effects; a moment ("ui:moment")
+   *  carries its title and picture. */
+  notifications: Array<{ message: string; style: string; title?: string; image?: string }>;
   /** Context messages from "ai:context" emit effects */
   contextMessages: Array<{ message: string; role: string }>;
+  /** Notices the chain runner cannot derive from system effects: a
+   *  behaviour's 条件不满足时 message (it fired nothing) and moments. */
+  notices?: Array<{ message: string; style: string; title?: string; image?: string }>;
 }
 
 const EMPTY_RESULT: ReactionEvalResult = {
@@ -72,9 +77,13 @@ export class ReactionEvaluator {
 
     const allEffects: ReactionEffect[] = [];
     const firedIds: string[] = [];
+    const failNotes: Array<{ message: string; style: string }> = [];
 
-    for (const reaction of sorted) {
-      if (!reaction.enabled) continue;
+    for (const raw of sorted) {
+      if (!raw.enabled) continue;
+      // What a button passed in (`{参数.商品}`) is read into the behaviour
+      // before anything is checked.
+      const reaction = bindEventParams(raw, event);
 
       // Check runtime disabled
       if (ruleState.disabledRules.includes(reaction.id)) continue;
@@ -83,7 +92,10 @@ export class ReactionEvaluator {
       if (!this.matchesEvent(event, reaction.when, state)) continue;
 
       // Check IF conditions
-      if (!this.checkConditions(state, reaction.conditions, reaction.conditionLogic)) continue;
+      if (!this.checkConditions(state, reaction.conditions, reaction.conditionLogic)) {
+        if (reaction.elseMessage?.trim()) failNotes.push({ message: reaction.elseMessage.trim(), style: "warning" });
+        continue;
+      }
 
       // Check STOP conditions — while ANY is true, the reaction is suppressed
       // ("fire until X"). Complements IF without hand-inverted operators.
@@ -118,7 +130,12 @@ export class ReactionEvaluator {
     }
 
     // Classify effects for legacy compat and chaining
-    return this.classifyEffects(allEffects, firedIds);
+    const result = this.classifyEffects(allEffects, firedIds);
+    const moments = result.notifications.filter((n) => n.style === "moment");
+    const notices = [...failNotes, ...moments];
+    return failNotes.length || moments.length
+      ? { ...result, notifications: [...failNotes, ...result.notifications], notices }
+      : result;
   }
 
   /**
@@ -157,6 +174,7 @@ export class ReactionEvaluator {
       merged.emittedEvents.push(...result.emittedEvents);
       merged.notifications.push(...result.notifications);
       merged.contextMessages.push(...result.contextMessages);
+      if (result.notices?.length) (merged.notices ??= []).push(...result.notices);
     }
 
     return merged;
@@ -352,7 +370,7 @@ export class ReactionEvaluator {
     const legacyEffects: Effect[] = [];
     const legacyAudioEffects: AudioEffect[] = [];
     const emittedEvents: GameEvent[] = [];
-    const notifications: Array<{ message: string; style: string }> = [];
+    const notifications: Array<{ message: string; style: string; title?: string; image?: string }> = [];
     const contextMessages: Array<{ message: string; role: string }> = [];
 
     for (const effect of effects) {
@@ -381,6 +399,13 @@ export class ReactionEvaluator {
           notifications.push({
             message: effect.event.message as string,
             style: (effect.event.style as string) ?? "info",
+          });
+        } else if (effect.event.type === "ui:moment") {
+          notifications.push({
+            message: String(effect.event.message ?? ""),
+            style: "moment",
+            title: String(effect.event.title ?? ""),
+            ...(typeof effect.event.image === "string" && effect.event.image ? { image: effect.event.image } : {}),
           });
         } else if (effect.event.type === "ai:context") {
           contextMessages.push({
@@ -412,6 +437,16 @@ export class ReactionEvaluator {
  * ("keep", emits nothing).
  */
 export function resolveDynamicEffect(effect: ReactionEffect, state: GameState): ReactionEffect[] {
+  // 时刻: a moment unlocks once — it is collected into its list, and a list
+  // that already holds it (kept across playthroughs, or this one) stops it.
+  if (effect.type === "emit" && effect.event.type === "ui:moment") {
+    const title = String(effect.event.title ?? "").trim();
+    const collect = typeof effect.event.collect === "string" ? effect.event.collect : "";
+    if (!collect || !title) return [effect];
+    const list = getByPath(state.variables, collect);
+    if (Array.isArray(list) && list.map(String).includes(title)) return [];
+    return [effect, { type: "set", path: collect, operation: "push", value: title }];
+  }
   if (effect.type !== "set" || !effect.valueRandom) return [effect];
   const spec = effect.valueRandom;
 

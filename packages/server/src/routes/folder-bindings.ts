@@ -36,7 +36,10 @@ folderBindingRoutes.get("/worlds/:worldId/folder-bindings", async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("worldId");
 
-  if (!(await verifyWorldOwnership(worldId, currentUser.id))) {
+  // Reading the bindings is part of opening the card in Studio, and admins
+  // open cards they did not create (moderation, hand-offs to other accounts).
+  // Binding and unbinding below stay creator-only.
+  if (currentUser.role !== "admin" && !(await verifyWorldOwnership(worldId, currentUser.id))) {
     return c.json({ error: "World not found or not authorized" }, 404);
   }
 

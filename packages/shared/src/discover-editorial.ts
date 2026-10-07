@@ -6,10 +6,14 @@ export const EDITORIAL_LAYOUTS = ["mosaic", "cinema", "gallery"] as const;
 export type EditorialLanguage = typeof EDITORIAL_LANGUAGES[number];
 export type EditorialContentMode = typeof EDITORIAL_CONTENT_MODES[number];
 export type EditorialLayout = typeof EDITORIAL_LAYOUTS[number];
+const heroCopySchema = z.record(z.enum(["en", "zh", "zh-Hant", "es", "ja"]), z.object({
+  title: z.string().trim().max(200).optional(), description: z.string().trim().max(1000).optional(),
+}).strict());
 export const editorialSlotSchema = z.object({
   id: z.string().trim().min(1).max(200), worldId: z.string().trim().min(1).max(200),
   note: z.string().max(500).nullable(),
   startsAt: z.string().datetime({ offset: true }).nullable(), endsAt: z.string().datetime({ offset: true }).nullable(),
+  heroCopy: heroCopySchema.optional(),
 }).strict().refine(s => !s.startsAt || !s.endsAt || Date.parse(s.startsAt) < Date.parse(s.endsAt), "End must follow start");
 export const editorialCategorySchema = z.object({
   id: z.string().regex(/^[a-z][a-z0-9-]{0,63}$/),
@@ -43,6 +47,16 @@ export type EditorialCategory = z.infer<typeof editorialCategorySchema>;
 export type EditorialCollection = z.infer<typeof editorialCollectionSchema>;
 export type EditorialHeroCollection = z.infer<typeof editorialHeroCollectionSchema>;
 export type DiscoverEditorialConfig = z.infer<typeof discoverEditorialConfigSchema>;
+
+/** Banner wording is separate from the world opened by its Play button. */
+export function editorialHeroCopy(slot: EditorialSlot, locale: string): { heroTitle?: string; heroDescription?: string } {
+  const key = /^zh-(hant|tw|hk)/i.test(locale) ? "zh-Hant" : locale.split("-")[0]!.toLowerCase();
+  const copy = slot.heroCopy?.[key as keyof NonNullable<EditorialSlot["heroCopy"]>];
+  const fallback = key === "zh-Hant" ? slot.heroCopy?.zh : undefined;
+  const title = copy?.title || fallback?.title;
+  const description = copy?.description || fallback?.description;
+  return { ...(title ? { heroTitle: title } : {}), ...(description ? { heroDescription: description } : {}) };
+}
 
 function resolveScope<T extends { language: string; contentMode: string }>(rows: readonly T[], language: string, contentMode: string): T | undefined {
   const normalized = language === "zh-Hant" || language === "zh-Hans" ? "zh" : language;

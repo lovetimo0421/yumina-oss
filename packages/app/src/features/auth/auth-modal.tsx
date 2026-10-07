@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { LogIn, UserPlus } from "lucide-react";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Dialog,
@@ -9,16 +9,25 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useAuthModalStore } from "@/stores/auth-modal";
+import { parseSafeAuthReturnTo } from "@/lib/auth-return";
 
 export function AuthModal() {
   const { t } = useTranslation();
   const { isOpen, contextMessage, close } = useAuthModalStore();
   const returnFocusRef = useRef<HTMLElement | null>(null);
+  // Come back to this card after signing up / in, not to Discover.
+  const returnTo = useMemo(
+    () => (isOpen && typeof window !== "undefined"
+      ? parseSafeAuthReturnTo(`${window.location.pathname}${window.location.search}`)
+      : undefined),
+    [isOpen],
+  );
+  const authSearch = returnTo ? { returnTo } : undefined;
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && close()}>
       <DialogContent
-        className="z-[10001] max-w-sm gap-0 overflow-hidden p-0"
+        className="z-[10001] max-w-sm gap-0 overflow-y-auto p-0"
         overlayClassName="z-[10000]"
         onOpenAutoFocus={() => {
           const activeElement = document.activeElement;
@@ -52,33 +61,37 @@ export function AuthModal() {
             className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10"
             style={{ boxShadow: "0 0 30px rgba(225, 138, 36, 0.2)" }}
           >
-            <LogIn className="h-7 w-7 text-primary" />
+            <UserPlus className="h-7 w-7 text-primary" />
           </div>
 
           <DialogTitle className="text-xl font-black tracking-tight text-foreground">
-            {t("auth.signInToContinue")}
+            {t("auth.signUpToContinue")}
           </DialogTitle>
           <DialogDescription className="mt-2 text-sm text-muted-foreground">
             {t("auth.needAccount", { action: contextMessage || t("auth.useThisFeature") })}
           </DialogDescription>
         </div>
 
+        {/* Sign-up first: the entry points say "sign up to play", and most
+            people meeting this dialog have no account yet. */}
         <div className="space-y-3 px-6 pb-6">
           <Link
-            to="/login"
+            to="/register"
+            search={authSearch}
             onClick={close}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-bold text-primary-foreground transition-opacity hover:opacity-90"
           >
-            <LogIn className="h-4 w-4" />
-            {t("auth.signIn")}
+            <UserPlus className="h-4 w-4" />
+            {t("auth.signUpFree")}
           </Link>
           <Link
-            to="/register"
+            to="/login"
+            search={authSearch}
             onClick={close}
             className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-[#1A1A1C] py-3 text-sm font-bold text-foreground transition-colors hover:bg-white/10"
           >
-            <UserPlus className="h-4 w-4" />
-            {t("auth.createAccount")}
+            <LogIn className="h-4 w-4" />
+            {t("auth.haveAccountSignIn")}
           </Link>
         </div>
       </DialogContent>

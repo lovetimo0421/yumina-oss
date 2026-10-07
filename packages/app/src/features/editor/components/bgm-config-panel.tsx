@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Plus, Trash2, ChevronDown, ShieldAlert, X } from "lucide-react";
+import { Plus, Trash2, ChevronDown, ShieldAlert, X, ArrowLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/stores/editor";
 import { ConditionEditor } from "./condition-editor";
 import { StyledCheckbox } from "./styled-checkbox";
 import { NumberInput } from "@/components/ui/number-input";
+import { DebouncedInput } from "./debounced-field";
+import { DraftNumberInput } from "./condition-editor";
 import type { BGMTriggerType } from "@yumina/engine";
 import { TwoTapDeleteButton } from "@/components/ui/two-tap-delete-button";
 
@@ -28,7 +30,7 @@ const PLAY_MODES = [
  * Lives outside the per-track detail because both apply to the world,
  * not to any single track.
  */
-export function BgmConfigPanel() {
+export function BgmConfigPanel({ onBack }: { onBack?: () => void } = {}) {
   const { t } = useTranslation("editor");
   const worldDraft = useEditorStore((s) => s.worldDraft);
   const updateBgmPlaylist = useEditorStore((s) => s.updateBgmPlaylist);
@@ -43,6 +45,17 @@ export function BgmConfigPanel() {
 
   return (
     <div className="p-8 lg:p-12">
+      {/* Back button — narrow mode only. Below 640px opening this panel hides
+          the track list, so without it there was no way back. */}
+      {onBack && (
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground @[640px]:hidden mb-4"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" />
+          {t("audio.back")}
+        </button>
+      )}
       <div className="mx-auto max-w-3xl space-y-6">
         <div className="space-y-1">
           <h2 className="text-[22px] font-bold text-foreground tracking-tight">
@@ -185,12 +198,10 @@ export function BgmConfigPanel() {
                 >
                   {/* Rule name + delete */}
                   <div className="flex items-center justify-between mb-5">
-                    <input
+                    <DebouncedInput
                       type="text"
                       value={rule.name}
-                      onChange={(e) =>
-                        updateConditionalBGM(rule.id, { name: e.target.value })
-                      }
+                      onCommit={(name) => updateConditionalBGM(rule.id, { name })}
                       className="bg-transparent text-[14px] font-bold text-primary focus:outline-none focus:border-b focus:border-primary/50 px-1 w-64"
                     />
                     <TwoTapDeleteButton
@@ -292,16 +303,12 @@ export function BgmConfigPanel() {
                               <label className="text-[12px] font-bold text-muted-foreground">
                                 {t("audio.atTurn")}
                               </label>
-                              <input
-                                type="number"
-                                min={1}
-                                value={rule.atTurn ?? ""}
-                                onChange={(e) =>
-                                  updateConditionalBGM(rule.id, {
-                                    atTurn: e.target.value ? Number(e.target.value) : undefined,
-                                  })
-                                }
-                                placeholder="e.g. 5"
+                              <DraftNumberInput
+                                inputMode="numeric"
+                                value={rule.atTurn}
+                                onCommit={(n) => updateConditionalBGM(rule.id, { atTurn: n })}
+                                onEmpty={() => updateConditionalBGM(rule.id, { atTurn: undefined })}
+                                placeholder={t("audio.atTurnPlaceholder", "e.g. 5")}
                                 className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground focus:outline-none focus:border-primary/50"
                               />
                             </div>
@@ -309,16 +316,12 @@ export function BgmConfigPanel() {
                               <label className="text-[12px] font-bold text-muted-foreground">
                                 {t("audio.everyNTurns")}
                               </label>
-                              <input
-                                type="number"
-                                min={1}
-                                value={rule.everyNTurns ?? ""}
-                                onChange={(e) =>
-                                  updateConditionalBGM(rule.id, {
-                                    everyNTurns: e.target.value ? Number(e.target.value) : undefined,
-                                  })
-                                }
-                                placeholder="e.g. 10"
+                              <DraftNumberInput
+                                inputMode="numeric"
+                                value={rule.everyNTurns}
+                                onCommit={(n) => updateConditionalBGM(rule.id, { everyNTurns: n })}
+                                onEmpty={() => updateConditionalBGM(rule.id, { everyNTurns: undefined })}
+                                placeholder={t("audio.everyNTurnsPlaceholder", "e.g. 10")}
                                 className="w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground focus:outline-none focus:border-primary/50"
                               />
                             </div>
@@ -430,7 +433,7 @@ export function BgmConfigPanel() {
                             <option value="previous">{t("audio.returnToPrevious")}</option>
                             {bgmTracks.map((tr) => (
                               <option key={tr.id} value={tr.id}>
-                                Play: {tr.name}
+                                {t("audio.fallbackPlayTrack", { name: tr.name, defaultValue: "Play: {{name}}" })}
                               </option>
                             ))}
                           </select>

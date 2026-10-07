@@ -67,7 +67,7 @@ export interface GenerateParams {
   minP?: number;
   stream?: boolean;
   /** Request JSON structured output from the model */
-  responseFormat?: { type: "json_object" };
+  responseFormat?: import("@yumina/shared").CompletionResponseFormat;
   /** Tool definitions for function calling */
   tools?: ToolDefinition[];
   /** Controls how the model uses tools */

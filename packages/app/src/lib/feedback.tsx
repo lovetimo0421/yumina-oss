@@ -189,8 +189,12 @@ export const feedback = {
           onClose={() => toast.dismiss(t)}
         />
       ),
-      // Sonner spreads options over its generated ID. An undefined ID would
-      // replace it, leaving the close handlers pointing at a different toast.
+      // No `id` key unless there is an id. Sonner 2's `custom()` picks an id,
+      // hands it to the render callback, then spreads these options over it —
+      // an explicit `id: undefined` wins that spread, `create()` mints a
+      // second id, and the `t` every button here dismisses names a toast that
+      // does not exist. The pill's X and its action both did nothing, and each
+      // new persistent pill stacked under the last.
       { duration: durationFor("persistent"), ...(opts?.id ? { id: opts.id } : {}) },
     );
     return dismissAfter(id);

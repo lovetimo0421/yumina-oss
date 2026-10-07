@@ -109,7 +109,8 @@
         "protectedHistory": "This account has an active safety restriction. Contact support for assisted deletion.",
         "email": "We could not send the confirmation email. Try again later.",
         "invalidLink": "This deletion link is invalid or has expired. Request a new one from Account settings.",
-        "generic": "Could not start account deletion. Try again later."
+        "generic": "Could not start account deletion. Try again later.",
+        "privileged": "Privileged accounts must transfer administrative responsibilities before deletion. Contact support."
       }
     },
     "connectedAccounts": {
@@ -247,12 +248,13 @@
     }
   },
   "display": {
-    "experimental": {
-      "title": "Experimental",
-      "turnImages": {
-        "title": "Story illustrations",
-        "description": "Experimental: draws a picture for replies. Your first 5 are free, then 12 mushies each."
-      }
+    "turnImages": {
+      "title": "Story illustrations",
+      "description": "Adds a “Draw this scene” button to replies.",
+      "auto": "Illustrate every reply",
+      "free": "{{count}} free left, then {{price}} mushies each",
+      "price": "{{price}} mushies per picture",
+      "unlimited": "Included in your plan"
     },
     "title": "Display",
     "language": {
@@ -355,6 +357,10 @@
     "sendKey": {
       "title": "Press Enter to send",
       "description": "When on, Enter sends your message and Shift+Enter starts a new line. When off, Ctrl/⌘+Enter sends and Enter starts a new line."
+    },
+    "sceneVideo": {
+      "title": "Scene video (experimental)",
+      "description": "Films the story as it happens, with sound. Costs about 5,800 mushies a minute while it runs."
     }
   },
   "wallpaper": {

@@ -1,7 +1,7 @@
+import type { LedgerDatabase } from "./transaction-hash.js";
 import { PLANS, type PlanId } from "./plan-config.js";
 import { calculateCost, deductCredits, ensureWallet } from "./credit-service.js";
 import { resolveEffectivePlanWithEventEntitlements } from "./event-plan-entitlements.js";
-import type { LedgerDatabase } from "./transaction-hash.js";
 
 /**
  * Mushie billing for background LLM work (story compaction, session memory,
@@ -19,7 +19,10 @@ const BACKGROUND_BILLING_LABELS: Record<string, string> = {
   "story-compaction": "Story summary compaction",
   "session-memory": "Session memory update",
   "summaryception": "Layered summary",
+  "run-summary": "Run memory summary",
+  "module-worker": "Module worker briefing",
   "state-update-guard": "State update correction",
+  "source-digest": "Source text digest",
 };
 
 export function backgroundBillingLabel(endpoint: string): string {
@@ -80,6 +83,8 @@ export async function billBackgroundUsage(args: {
   completionTokens: number;
   usageLogId: string;
   endpoint: string;
+  /** The provider's own charge for the call, when it reported one: billed instead of the price table. */
+  providerCostUsd?: number;
 }, database?: LedgerDatabase): Promise<void> {
   const charge = await prepareBackgroundUsageBill(args);
   await charge?.(database);
@@ -90,10 +95,7 @@ export async function billBackgroundUsage(args: {
 export async function prepareBackgroundUsageBill(args: Parameters<typeof billBackgroundUsage>[0]): Promise<
   ((database?: LedgerDatabase) => Promise<void>) | null
 > {
-  const { plan } = await effectivePlanFor(args.userId);
-  if (PLANS[plan]?.unlimited) return null;
-
-  const cost = await calculateCost(args.model, args.promptTokens, args.completionTokens);
+  const cost = await backgroundUsageCost(args);
   if (cost <= 0) return null;
 
   return async (database) => {

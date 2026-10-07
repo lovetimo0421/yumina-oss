@@ -109,7 +109,8 @@
         "protectedHistory": "Esta cuenta tiene una restricción de seguridad activa. Contacta con soporte para una eliminación asistida.",
         "email": "No pudimos enviar el correo de confirmación. Inténtalo más tarde.",
         "invalidLink": "Este enlace de eliminación no es válido o ha caducado. Solicita uno nuevo en la configuración de la cuenta.",
-        "generic": "No se pudo iniciar la eliminación de la cuenta. Inténtalo más tarde."
+        "generic": "No se pudo iniciar la eliminación de la cuenta. Inténtalo más tarde.",
+        "privileged": "Las cuentas privilegiadas deben transferir sus responsabilidades administrativas antes de eliminarse. Contacta con soporte."
       }
     },
     "connectedAccounts": {
@@ -247,12 +248,13 @@
     }
   },
   "display": {
-    "experimental": {
-      "title": "Experimental",
-      "turnImages": {
-        "title": "Ilustraciones de la historia",
-        "description": "Experimental: dibuja una imagen para las respuestas. Las primeras 5 son gratis; después, 12 mushies cada una."
-      }
+    "turnImages": {
+      "title": "Ilustraciones de la historia",
+      "description": "Añade un botón “Dibujar esta escena” a las respuestas.",
+      "auto": "Ilustrar cada respuesta",
+      "free": "Te quedan {{count}} gratis, luego {{price}} mushies cada una",
+      "price": "{{price}} mushies por imagen",
+      "unlimited": "Incluido en tu plan"
     },
     "title": "Pantalla",
     "language": {
@@ -355,6 +357,10 @@
     "sendKey": {
       "title": "Pulsa Enter para enviar",
       "description": "Cuando está activado, Enter envía el mensaje y Shift+Enter inserta un salto de línea. Cuando está desactivado, Ctrl/⌘+Enter envía y Enter inserta un salto de línea. Se guarda en este dispositivo."
+    },
+    "sceneVideo": {
+      "title": "Vídeo de la escena (experimental)",
+      "description": "Filma la historia mientras ocurre, con sonido. Cuesta unos 5,800 mushies por minuto mientras está activo."
     }
   },
   "wallpaper": {

@@ -53,7 +53,7 @@ Pictures that appear on their own. Each scene image has a short id (`img1`), a p
 
 With smart tracking turned off in Overview, the story AI always inserts them itself.
 
-- Add them under **Scene Images** in the editor (Studio has the same page as a panel). Upload from your computer or pick from Assets; several files at once become several images, named after the files.
+- Add them under **Scene Images** in the editor, or in the blueprint's **Scene images** block (click a row to edit it in the right column). Upload from your computer or pick from Assets; several files at once become several images, named after the files.
 - Write `[image: img1]` in a first message to show a picture from the very start. The same works inside lore entries: the AI carries it into its reply when it uses that entry.
 - Limit an image to certain first messages under **Openings**.
 - Players get a gallery in the play header. Pictures the story has already shown are there in full; the rest show your **unlock hint** instead, so the player knows there is a moment worth reaching.

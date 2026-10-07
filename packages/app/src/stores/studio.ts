@@ -11,9 +11,12 @@ import type {
   ToolResult,
   ChatAttachment,
   StudioCreditPause,
+  StudioFocusRef,
+  StudioJobProposal,
 } from "@/features/studio/lib/types";
 import { selectScopedStudioHistory, shouldAcceptStudioChatScope } from "@/features/studio/lib/agent-history-scope";
 import { feedback } from "@/lib/feedback";
+import { openStudio } from "@/lib/studio-navigation";
 import i18n from "@/lib/i18n";
 import {
   decideBase,
@@ -190,7 +193,8 @@ function flushStreamNow() {
 }
 
 // ── World schema refresh ──
-function flushRefresh() {
+function flushRefresh(worldId?: string) {
+  if (worldId && useEditorStore.getState().serverWorldId !== worldId) return;
   useEditorStore.getState().refreshWorldSchema().catch(() => {});
 }
 
@@ -214,7 +218,9 @@ function isCurrentStudioWorld(worldId: string) {
 function isActiveStudioChatScope(scope: StudioAgentScope) {
   const state = useStudioStore.getState();
   return (
-    isCurrentStudioWorld(scope.worldId) &&
+    // A started task belongs to its conversation, even after leaving Studio.
+    // Preparation still requires the editor to be on the requested card.
+    (isCurrentStudioWorld(scope.worldId) || state.chatWorldId === scope.worldId) &&
     shouldAcceptStudioChatScope(
       { worldId: state.chatWorldId, conversationId: state.chatConversationId },
       scope,
@@ -232,16 +238,49 @@ function isActiveStudioStreamScope(scope: StudioAgentScope, runId: string | null
   return runId === null ? isActiveStudioChatScope(scope) : isActiveStudioRunScope(scope, runId);
 }
 
+function persistStudioResult(scope: StudioAgentScope) {
+  if (!scope.conversationId) return;
+  const state = useStudioStore.getState();
+  if (state.chatWorldId !== scope.worldId || state.chatConversationId !== scope.conversationId) return;
+  // The chat panel is unmounted outside Studio, so its debounced save cannot
+  // preserve the answer. The server also keeps committed turns for recovery.
+  void fetch(`${apiBase}/api/studio/${encodeURIComponent(scope.worldId)}/conversations/${encodeURIComponent(scope.conversationId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ messages: serializeStudioChatMessages(state.chatMessages) }),
+  }).catch((error) => { console.warn("[Studio] Failed to persist assistant result:", error); });
+}
+
+function notifyStudioResultWhenAway(scope: StudioAgentScope, kind: "completed" | "needsAction" | "interrupted") {
+  const path = typeof window !== "undefined" ? window.location?.pathname : undefined;
+  if (!path || path === `/app/studio/${encodeURIComponent(scope.worldId)}`) return;
+  const copy = {
+    completed: ["backgroundCompleted", "The assistant is done."],
+    needsAction: ["backgroundNeedsAction", "The assistant is waiting for you to confirm."],
+    interrupted: ["backgroundInterrupted", "The assistant stopped."],
+  } as const;
+  const [key, fallback] = copy[kind];
+  feedback.persistent(tr(`editor:studio.aiChat.${key}`, fallback), {
+    label: tr("editor:studio.aiChat.backgroundView", "View"),
+    onClick: () => openStudio(scope.worldId),
+  });
+}
+
 // Re-export types for backward compat
 export type { StudioChatMessage, ToolCall, ToolResult, StudioCreditPause };
 
 interface StudioState {
   // Chat
   chatMessages: StudioChatMessage[];
+  /** Mushrooms charged so far per agent run, summed from each settled model call. */
+  runCosts: Record<string, number>;
   isChatStreaming: boolean;
   chatStreamContent: string;
   chatAttachments: File[];
   chatWorldId: string | null;
+  /** Card name at send time, so another card's Studio can say whose task is running. */
+  chatWorldName: string | null;
   chatConversationId: string | null;
 
   // Agent (server-side)
@@ -257,6 +296,19 @@ interface StudioState {
   toolGenChars: number;
   /** Name of the tool currently being generated (e.g., "apply_changes") */
   toolGenName: string | null;
+  /** The assistant's latest tool call this run: the name while it streams,
+   *  the arguments once they are in. The canvas marks where it lands. */
+  agentToolCall: { name: string; arguments?: string } | null;
+  /** The assistant playing the card: its session, what it is checking, and
+   *  how far it is. The playtest panel follows this session while it plays. */
+  aiPlaytest: { runId: string; sessionId: string; purpose: string; turn: number; total: number; done?: boolean; error?: string } | null;
+  /** The assistant reading a whole source text into a reference (digest_source). */
+  aiDigest: { runId: string; source: string; phase: "read" | "merge" | "check" | "save"; done: number; total: number; label: string; finished?: boolean; error?: string } | null;
+  /** "advise" talks the idea through (and saves a creative brief); "build" makes the card. */
+  assistantMode: "build" | "advise";
+  setAssistantMode: (mode: "build" | "advise") => void;
+  /** The run that last saved the creative brief: its reply offers "build from the brief". */
+  briefSavedRunId: string | null;
   /** SSE stream was interrupted and tryRecoverAgentRun is polling for server-side
    *  liveness. UI shows a "reconnecting" banner instead of a terminal error until
    *  recovery succeeds (cleared by onDone/onProposal) or definitively fails
@@ -287,10 +339,13 @@ interface StudioState {
 
   // Mode
   mode: "edit" | "playtest";
+  /** Which page the canvas surface's centre shows. Lives here so the shell's
+   *  top bar (the big switch) and the stage (which draws the page) agree. */
+  stagePage: "blueprint" | "frontend" | "generation";
   activePanel: string;
 
   // Actions
-  sendChatMessage: (worldId: string, content: string, model: string, conversationId?: string | null) => Promise<void>;
+  sendChatMessage: (worldId: string, content: string, model: string, conversationId?: string | null, focus?: StudioFocusRef[], options?: { jobApproved?: boolean; mode?: "build" | "advise" }) => Promise<void>;
   resumeCreditPause: () => Promise<void>;
   refreshCreditPause: (worldId: string, conversationId?: string | null, runId?: string) => Promise<void>;
   /** Re-attach to a run whose stream died, from the "connection dropped" card.
@@ -307,6 +362,11 @@ interface StudioState {
   updateImageBatchProposal: (worldId: string, conversationId: string | null, proposal: StudioImageBatchProposal) => void;
   setSelectedElement: (id: string | null, type?: string | null) => void;
   setMode: (mode: "edit" | "playtest") => void;
+  /** The canvas's assistant column, so a playtest (which covers the canvas
+   *  and its toolbar) can still bring it back. Null outside the canvas. */
+  stageAssistant: { open: boolean; toggle: () => void } | null;
+  setStageAssistant: (value: { open: boolean; toggle: () => void } | null) => void;
+  setStagePage: (page: "blueprint" | "frontend" | "generation") => void;
   setActivePanel: (panel: string) => void;
   clearChat: () => void;
   undoLastTurn: (worldId: string, conversationId?: string | null) => Promise<void>;
@@ -337,6 +397,11 @@ interface AgentStreamCallbacks {
    *  the run waits in awaiting_approval until the creator answers the card. */
   onImageProposal?: (data: Omit<StudioImageProposal, "status"> & { textContent: string }) => void;
   onImageBatchProposal?: (data: Omit<StudioImageBatchProposal, "status"> & { textContent: string; status?: StudioImageBatchProposal["status"] }) => void;
+  /** A big job proposed; the run waits for the creator's Start. */
+  onJobProposal?: (data: StudioJobProposal) => void;
+  onPlaytestProgress?: (data: { runId: string; sessionId: string; purpose: string; turn: number; total: number; done?: boolean; error?: string }) => void;
+  onDigestProgress?: (data: { runId: string; source: string; phase: "read" | "merge" | "check" | "save"; done: number; total: number; label: string; finished?: boolean; error?: string }) => void;
+  onBriefSaved?: (data: { runId: string; chars: number }) => void;
   onImageProgress?: (data: { runId: string; toolCallId: string; jobId: string; status: string; elapsed: number }) => void;
   onImageResult?: (data: { runId: string; toolCallId: string; jobId: string; status: "done" | "failed" | "pending"; assetIds?: string[]; costMushies?: number; errorCode?: string }) => void;
   /** Server has committed one assistant text turn as a persistent chat bubble.
@@ -365,7 +430,8 @@ interface AgentStreamCallbacks {
    *  retry streams fresh; whatever the dropped attempt showed must not be
    *  prepended to it. */
   onStepRestarted?: (data: { runId: string; iteration: number; reason: string }) => void;
-  onError: (error: string, code?: string) => void;
+  /** `displayable`: `error` is our own request-validation copy (HTTP 4xx), safe to show as-is. */
+  onError: (error: string, code?: string, displayable?: boolean) => void;
 }
 
 /**
@@ -398,8 +464,10 @@ async function tryRecoverAgentRun(
   // healthy long run as a connection failure while it is still editing the card.
   // This was 15 min while the server allowed 30 (raised 2026-07-17 for single
   // 24-min iterations), so every run past 15 min was a guaranteed fake error.
-  // Server budget + 2 min for the terminal write to land.
-  const HARD_CAP_MS = 1_920_000; // 32 min
+  // Server budget + 2 min for the terminal write to land. A started job may
+  // run two hours (and a dead run is still caught by STALE_MS within two
+  // minutes, since a live one heartbeats every five seconds).
+  const HARD_CAP_MS = 7_320_000; // 122 min
   const POLL_INTERVAL_MS = 5_000;
 
   // Resolve the runId: if we don't have one (SSE died before run_started event),
@@ -587,6 +655,7 @@ async function tryRecoverAgentRun(
         // ask_user yields control — the run is done from the agent's perspective
         if (data.status === "awaiting_user") {
           emitTurns(data.committedTurns, recoveredRunId);
+          if (data.jobProposal) callbacks.onJobProposal?.({ ...data.jobProposal, runId: recoveredRunId });
           callbacks.onDone({ runId: recoveredRunId });
           return true;
         }
@@ -594,7 +663,7 @@ async function tryRecoverAgentRun(
           && !data.creditPause.billingUnavailable && data.creditPause.reason !== "STALE_WORLD"
           && !/stopped by user|superseded/i.test(String(data.error ?? ""));
         if (data.status === "error" && !waitingForClaimRecovery) {
-          callbacks.onError(data.error ?? "Agent failed while disconnected");
+          callbacks.onError(data.error ?? "Agent failed while disconnected", typeof data.errorCode === "string" ? data.errorCode : undefined);
           return true;
         }
 
@@ -868,7 +937,8 @@ function connectAgentSSE(
       if (!response.ok) {
         const err = await response.json().catch(() => ({ error: "Request failed" }));
         captureFailure(`http_${response.status}`, String(err.error ?? response.status));
-        callbacks.onError(err.error || `HTTP ${response.status}`, typeof err.code === "string" ? err.code : undefined);
+        callbacks.onError(err.error || `HTTP ${response.status}`, typeof err.code === "string" ? err.code : undefined,
+          response.status < 500 && typeof err.error === "string");
         return;
       }
 
@@ -956,6 +1026,18 @@ function connectAgentSSE(
                 case "image_batch_proposal":
                   receivedTerminalEvent = true;
                   callbacks.onImageBatchProposal?.(parsed);
+                  break;
+                case "job_proposal":
+                  callbacks.onJobProposal?.(parsed);
+                  break;
+                case "playtest_progress":
+                  callbacks.onPlaytestProgress?.(parsed);
+                  break;
+                case "digest_progress":
+                  callbacks.onDigestProgress?.(parsed);
+                  break;
+                case "brief_saved":
+                  callbacks.onBriefSaved?.(parsed);
                   break;
                 case "image_progress":
                   callbacks.onImageProgress?.(parsed);
@@ -1050,6 +1132,34 @@ function connectAgentSSE(
 // (old streamSingleTurn removed — agent loop now runs server-side)
 
 // ── File Upload Helper ──
+
+/** Text files bigger than this go to the card's source texts, not the message. */
+const SOURCE_TEXT_MIN_BYTES = 200 * 1024;
+
+async function uploadSourceText(worldId: string, file: File): Promise<{ id: string; name: string; chars: number; chapters: number }> {
+  const base = `${apiBase}/api/studio/${encodeURIComponent(worldId)}/sources`;
+  // Straight to storage (the API takes 5 MB a request), then the server makes
+  // it a source: decoded, cut into chapters, listed with the card.
+  const urlRes = await fetch(`${base}/upload-url`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ size: file.size }),
+  });
+  const urlBody = await urlRes.json().catch(() => ({}));
+  if (!urlRes.ok) throw new Error(urlBody.error || "Upload failed");
+  const put = await fetch(urlBody.data.uploadUrl, { method: "PUT", headers: { "Content-Type": "text/plain" }, body: file });
+  if (!put.ok) throw new Error("Upload failed");
+  const res = await fetch(base, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ key: urlBody.data.key, name: file.name }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || "Upload failed");
+  return body.data;
+}
 
 async function uploadAttachments(files: File[]): Promise<ChatAttachment[]> {
   const results: ChatAttachment[] = [];
@@ -1153,6 +1263,27 @@ function creditPauseReasonError(pause: StudioCreditPause): string | null {
   return creditPauseFailure(pause.reason);
 }
 
+/** Localized chat copy for an agent failure. The server's `error` text is
+ *  English and can be raw provider or database output, so it is shown only
+ *  when the caller marks it as our own request-validation copy (`displayable`);
+ *  otherwise the stable `code` picks the message, with a generic fallback. */
+export function studioAgentErrorText(error: string, code?: string, displayable = false): string {
+  const names: Record<string, [string, string]> = {
+    AGENT_STALLED: ["stalled", "The assistant stopped responding for 3 minutes, so the task was ended. Please retry."],
+    AGENT_TIMEOUT: ["timedOut", "The task ran for over 30 minutes and was ended. Try asking for a smaller step."],
+    OUTPUT_BUDGET_EXHAUSTED: ["outputBudget", "The model kept running out of room before finishing an edit. Ask for a smaller step, or switch models."],
+    PROVIDER_ERROR: ["provider", "The AI model's provider returned an error. Please retry, or switch models."],
+    SERVER_RESTART: ["serverRestart", "The server restarted during this task. Please retry."],
+    SUPERSEDED: ["superseded", "This task was replaced by a newer request."],
+    STOPPED: ["stopped", "Stopped."],
+    NO_CREDITS: ["noCredits", "There are not enough mushrooms to continue. Top up, then retry."],
+  };
+  const known = code ? names[code] : undefined;
+  if (known) return tr(`editor:studio.aiChat.agentError.${known[0]}`, known[1]);
+  if (displayable && error.trim()) return error;
+  return tr("editor:studio.aiChat.agentError.generic", "The assistant hit an error. Please retry.");
+}
+
 /** One lifecycle for fresh, approved, and resumed streams, including recovery. */
 function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | null = null, rejection = false): AgentStreamCallbacks {
   const epoch = studioAgentEpoch;
@@ -1185,9 +1316,9 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
       _textBuf = ""; _reasoningBuf = ""; _reasoningCharsBuf = 0;
       set({ chatStreamContent: "", reasoningChars: 0, reasoningContent: "", toolGenName: null, toolGenChars: 0 });
     },
-    onToolStart: data => { if (activeRun()) set({ toolGenName: data.name, toolGenChars: 0 }); },
+    onToolStart: data => { if (activeRun()) set({ toolGenName: data.name, toolGenChars: 0, agentToolCall: { name: data.name } }); },
     onToolDelta: data => { if (activeRun()) set(s => ({ toolGenChars: s.toolGenChars + (data.arguments?.length ?? 0) })); },
-    onToolEnd: () => { if (activeRun()) set({ toolGenName: null, toolGenChars: 0 }); },
+    onToolEnd: data => { if (activeRun()) set({ toolGenName: null, toolGenChars: 0, agentToolCall: { name: data.name, arguments: data.arguments } }); },
     onReadToolsExecuted: data => {
       if (!activeRun()) return;
       flushStreamNow();
@@ -1228,6 +1359,8 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
         isChatStreaming: false, chatStreamContent: "", isRecovering: false, isResumingCredits: false,
         creditPause: null, creditPauseError: null,
         _pendingApproval: { runId: data.runId, toolCalls: data.writeToolCalls }, _currentRunId: data.runId }));
+      persistStudioResult(scope);
+      notifyStudioResultWhenAway(scope, "needsAction");
     },
     onImageProposal: data => {
       if (!activeRun()) return;
@@ -1244,7 +1377,9 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
         return { ...ended, chatMessages, creditPause: null, creditPauseError: null,
           _pendingImage: { runId: data.runId, toolCallId: data.toolCallId }, _currentRunId: data.runId };
       });
-      flushRefresh();
+      flushRefresh(scope.worldId);
+      persistStudioResult(scope);
+      notifyStudioResultWhenAway(scope, "needsAction");
     },
     onImageBatchProposal: data => {
       if (!activeRun()) return;
@@ -1263,7 +1398,38 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
           _pendingImageBatch: proposal.status === "pending" ? { runId: data.runId, toolCallId: data.toolCallId } : null,
           _currentRunId: proposal.status === "pending" ? data.runId : null };
       });
-      flushRefresh();
+      flushRefresh(scope.worldId);
+      persistStudioResult(scope);
+      notifyStudioResultWhenAway(scope, proposal.status === "pending" ? "needsAction" : "completed");
+    },
+    onPlaytestProgress: data => {
+      if (!activeRun()) return;
+      set({ aiPlaytest: data, mode: "playtest" });
+    },
+    onBriefSaved: data => {
+      if (!activeRun()) return;
+      set({ briefSavedRunId: data.runId });
+    },
+    onDigestProgress: data => {
+      if (!activeRun()) return;
+      // Starting and ending both change the source chips (a digest under way, then the reference itself).
+      const changed = data.finished || !useStudioStore.getState().aiDigest;
+      set({ aiDigest: data.finished ? null : data });
+      if (changed) window.dispatchEvent(new Event("yumina:studio-sources-changed"));
+    },
+    onJobProposal: data => {
+      if (!activeRun()) return;
+      flushStreamNow();
+      // On the reply that proposed it — the turn commit arrives first.
+      set(s => {
+        const at = [...s.chatMessages].reverse().findIndex(message => message.role === "assistant" && message.agentRunId === data.runId);
+        const index = at >= 0 ? s.chatMessages.length - 1 - at : -1;
+        return {
+          chatMessages: index >= 0
+            ? s.chatMessages.map((message, i) => i === index ? { ...message, jobProposal: data } : message)
+            : [...s.chatMessages, { id: nextMsgId(), role: "assistant" as const, content: "", agentRunId: data.runId, jobProposal: data }],
+        };
+      });
     },
     onImageProgress: data => {
       if (!activeRun()) return;
@@ -1284,15 +1450,22 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
       set(s => {
         const last = s.chatMessages[s.chatMessages.length - 1];
         const chatMessages = rejection && !(last?.role === "assistant" && last.commitId)
-          ? [...s.chatMessages, { id: nextMsgId(), role: "assistant" as const, content: "Understood. Let me know how you'd like to proceed." }]
+          ? [...s.chatMessages, { id: nextMsgId(), role: "assistant" as const, content: tr("editor:studio.aiChat.proposalRejectedReply", "Understood. Let me know how you'd like to proceed.") }]
           : s.chatMessages;
         return { ...ended, chatMessages, creditPause: null, creditPauseError: null };
       });
-      flushRefresh();
+      flushRefresh(scope.worldId);
+      persistStudioResult(scope);
+      notifyStudioResultWhenAway(scope, "completed");
     },
     onCredits: data => {
       if (!activeStream()) return;
       syncStudioCreditBalance(data);
+      const cost = data.cost;
+      const costRunId = streamRunId;
+      if (costRunId && typeof cost === "number" && Number.isFinite(cost) && cost > 0) {
+        set(s => ({ runCosts: { ...s.runCosts, [costRunId]: Math.round(((s.runCosts[costRunId] ?? 0) + cost) * 10) / 10 } }));
+      }
       const pause = useStudioStore.getState().creditPause;
       if (pause && pause.runId === streamRunId) {
         const updated = parseCreditPause({ ...pause, ...data }, scope, pause.runId);
@@ -1308,9 +1481,11 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
       flushStreamNow();
       syncStudioCreditBalance(data);
       set({ ...ended, creditPause: pause, creditPauseError: creditPauseReasonError(pause), _pendingApproval: null });
-      flushRefresh();
+      flushRefresh(scope.worldId);
+      persistStudioResult(scope);
+      notifyStudioResultWhenAway(scope, "needsAction");
     },
-    onError: (error, code) => {
+    onError: (error, code, displayable) => {
       if (!activeStream()) return;
       flushStreamNow();
       const current = useStudioStore.getState().creditPause;
@@ -1333,9 +1508,11 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
                 // before polling, so the tag never blocks the rescue path.
                 ...(streamRunId ? { agentRunId: streamRunId } : {}),
                 disconnected: { ...(streamRunId ? { runId: streamRunId } : {}) } }
-            : { id: nextMsgId(), role: "assistant" as const, content: `Error: ${error}` }] }),
+            : { id: nextMsgId(), role: "assistant" as const, content: studioAgentErrorText(error, code, displayable) }] }),
       }));
-      flushRefresh();
+      flushRefresh(scope.worldId);
+      persistStudioResult(scope);
+      notifyStudioResultWhenAway(scope, "interrupted");
       // Read-only reconciliation can recover a pause that was committed just
       // before the response failed. It never starts another model request.
       if (streamRunId && !pause && code !== "RECOVERY_FAILED") void useStudioStore.getState().refreshCreditPause(scope.worldId, scope.conversationId, streamRunId);
@@ -1345,12 +1522,19 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
 
 // ── Store ──
 
+const ASSISTANT_MODE_KEY = "yumina.studio.assistantMode";
+function readAssistantMode(): "build" | "advise" {
+  try { return localStorage.getItem(ASSISTANT_MODE_KEY) === "advise" ? "advise" : "build"; } catch { return "build"; }
+}
+
 export const useStudioStore = create<StudioState>((set, get) => ({
   chatMessages: [],
+  runCosts: {},
   isChatStreaming: false,
   chatStreamContent: "",
   chatAttachments: [],
   chatWorldId: null,
+  chatWorldName: null,
   chatConversationId: null,
 
   // Agent state (server-side)
@@ -1362,6 +1546,15 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   appliedCount: 0,
   toolGenChars: 0,
   toolGenName: null,
+  agentToolCall: null,
+  aiPlaytest: null,
+  aiDigest: null,
+  assistantMode: readAssistantMode(),
+  setAssistantMode: (mode) => {
+    try { localStorage.setItem(ASSISTANT_MODE_KEY, mode); } catch { /* remembered for this page only */ }
+    set({ assistantMode: mode });
+  },
+  briefSavedRunId: null,
   isRecovering: false,
   _agentAbortController: null,
   _currentRunId: null,
@@ -1379,11 +1572,13 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   selectedElementId: null,
   selectedElementType: null,
   mode: "edit",
+  stageAssistant: null,
+  stagePage: "blueprint",
   activePanel: "canvas",
 
   // ── Server-Side Agent ──
 
-  sendChatMessage: async (worldId, content, model, conversationId) => {
+  sendChatMessage: async (worldId, content, model, conversationId, focus, options) => {
     if (get().isAgentWorking) return;
     const preparationEpoch = ++studioAgentEpoch;
     creditRefreshEpoch++;
@@ -1404,6 +1599,21 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       const textFiles = chatAttachments.filter((f) => !f.type.startsWith("image/"));
 
       for (const file of textFiles) {
+        // A book is not a message. A big text file is stored with the card as
+        // a source text, and the assistant looks things up in it with
+        // search_source / read_source (server lib/studio-sources.ts) instead
+        // of being handed every character on every turn.
+        if (file.size > SOURCE_TEXT_MIN_BYTES) {
+          try {
+            await uploadSourceText(worldId, file);
+            window.dispatchEvent(new Event("yumina:studio-sources-changed"));
+            // No note in the message: the chip shows the book, and the assistant's
+            // context lists the card's sources (describeSources) on every run.
+          } catch (err) {
+            feedback.error(err instanceof Error ? err.message : tr("editor:studio.aiChat.sourceUploadFailed", "The file could not be stored"));
+          }
+          continue;
+        }
         try {
           const text = await file.text();
           const ext = file.name.split(".").pop() ?? "txt";
@@ -1427,9 +1637,22 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     const finalContent = textFileContent ? content + textFileContent : content;
 
     // Save world draft to DB before starting agent (ensures server has current state)
+    // A failed save (a conflict with a newer version, offline) used to be
+    // swallowed, and the agent then worked on — and wrote over — the older
+    // stored copy while the creator's unsaved edits sat in the editor. Stop
+    // instead; the creator saves or resolves first, then resends.
     const editorStore = useEditorStore.getState();
-    if (editorStore.isDirty && editorStore.serverWorldId === worldId) {
-      await editorStore.saveDraft().catch(() => {});
+    if ((editorStore.isDirty || editorStore.layoutDirty || editorStore.saving) && editorStore.serverWorldId === worldId) {
+      const saved = await editorStore.saveDraft().catch(() => false);
+      if (preparationEpoch !== studioAgentEpoch || !isActiveStudioChatScope(requestedScope)) return;
+      if (!saved || useEditorStore.getState().isDirty) {
+        feedback.error(tr("editor:studio.aiChat.saveBeforeSendFailed",
+          "Your latest edits couldn't be saved, so the message wasn't sent. Save or resolve the conflict, then retry."), {
+          label: tr("common:action.retry", "Retry"),
+          onClick: () => { void get().sendChatMessage(worldId, content, model, conversationId); },
+        });
+        return;
+      }
     }
     if (preparationEpoch !== studioAgentEpoch || !isActiveStudioChatScope(requestedScope)) return;
 
@@ -1449,6 +1672,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       role: "user",
       content: finalContent,
       ...(attachments && attachments.length > 0 && { attachments }),
+      ...(focus && focus.length > 0 && { focus: focus.map(({ id, kind, title }) => ({ id, kind, title })) }),
     };
     const updatedMessages = [...scopedMessages, userMessage];
 
@@ -1458,6 +1682,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       chatStreamContent: "",
       chatAttachments: [],
       chatWorldId: worldId,
+      chatWorldName: useEditorStore.getState().serverWorldId === worldId ? useEditorStore.getState().worldDraft.name?.trim() || null : null,
       chatConversationId: conversationId ?? null,
       isAgentWorking: true,
       agentIteration: 0,
@@ -1466,6 +1691,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       appliedCount: 0,
       toolGenChars: 0,
       toolGenName: null,
+      agentToolCall: null,
       creditPause: null,
       creditPauseError: null,
       isResumingCredits: false,
@@ -1498,7 +1724,14 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         message: finalContent,
         model,
         ...(conversationId && { conversationId }),
-        context: { activePanel, selectedElementId, selectedElementType },
+        context: {
+          activePanel,
+          selectedElementId,
+          selectedElementType,
+          ...(focus && focus.length > 0 && { focusIds: focus.map((item) => item.id) }),
+          ...(options?.jobApproved && { jobApproved: true }),
+          ...((options?.mode ?? get().assistantMode) === "advise" && !options?.jobApproved && { mode: "advise" }),
+        },
         attachments: attachments ?? [],
       },
       studioAgentCallbacks(requestedScope),
@@ -1931,6 +2164,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set({ selectedElementId: id, selectedElementType: type }),
 
   setMode: (mode) => set({ mode }),
+  setStageAssistant: (stageAssistant) => set({ stageAssistant }),
+  setStagePage: (stagePage) => set({ stagePage }),
 
   setActivePanel: (panel) => set({ activePanel: panel }),
 
@@ -1939,6 +2174,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set({
       chatMessages: [],
       chatWorldId: null,
+      chatWorldName: null,
       chatConversationId: null,
       isChatStreaming: false,
       chatStreamContent: "",
@@ -2046,7 +2282,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     // Consume the stuck checkpoint so status polling stops offering it.
     await fetch(`${apiBase}/api/studio/${encodeURIComponent(pause.worldId)}/agent/stop`, {
       method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-      body: JSON.stringify({ runId: pause.runId }),
+      body: JSON.stringify({ runId: pause.runId, discardPause: true }),
     }).catch(() => {});
     await get().sendChatMessage(worldId, tr("editor:studio.aiChat.creditPause.restartMessage",
       "Continue from where you stopped, working from the card as it is now."), model, conversationId);
@@ -2079,6 +2315,10 @@ useStudioStore.subscribe((state, previous) => {
 
 useEditorStore.subscribe((state, previous) => {
   if (state.serverWorldId === previous.serverWorldId) return;
+  const task = useStudioStore.getState();
+  // Navigating away changes the editor's card, but does not cancel a paid
+  // assistant task. Its own chat scope and stream keep running in this store.
+  if (task.isAgentWorking || task.isResumingCredits || task._pendingApproval || task._pendingImage || task._pendingImageBatch) return;
   studioAgentEpoch++;
   creditRefreshEpoch++;
   if (_streamFlushTimer) { clearTimeout(_streamFlushTimer); _streamFlushTimer = undefined; }

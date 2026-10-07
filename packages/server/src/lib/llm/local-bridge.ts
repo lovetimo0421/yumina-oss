@@ -129,6 +129,9 @@ export class LocalBridgeProvider implements LLMProvider {
   constructor(private readonly userId: string) {}
 
   async *generateStream(params: GenerateParams): AsyncIterable<StreamChunk> {
+    if (params.responseFormat?.type === "json_schema") {
+      throw new Error("This provider does not support JSON Schema side completions.");
+    }
     const payload: BridgeJobPayload = {
       model: toRuntimeModelId(params.model),
       messages: foldTrailingSystemIntoUser(params.messages).map((m) => ({

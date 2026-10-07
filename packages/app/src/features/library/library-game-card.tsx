@@ -25,6 +25,9 @@ interface LibraryGameCardProps {
   selectable?: boolean;
   selected?: boolean;
   onSelectChange?: (selected: boolean) => void;
+  /** Short language tag shown before the title — set when the card has
+   *  sibling language versions, which otherwise share one title. */
+  languageBadge?: string | null;
 }
 
 export function LibraryGameCard({
@@ -40,6 +43,7 @@ export function LibraryGameCard({
   onDownload,
   onCopyToProject,
   onToggleFavorite,
+  languageBadge,
   isFavorited,
   selectable,
   selected,
@@ -89,7 +93,7 @@ export function LibraryGameCard({
               className="h-full w-full transition-[transform,filter] duration-700 ease-out will-change-transform group-hover:scale-105 group-hover:blur-[2px]"
               decoding="async"
               width={480}
-              height={400}
+              height={720}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#2a2a2e] to-[#181818] text-[#f2e8cf]/70 transition-[transform,filter] duration-700 ease-out group-hover:scale-105 group-hover:blur-[2px]">
@@ -228,6 +232,9 @@ export function LibraryGameCard({
       </div>
 
       <h3 className="w-full truncate text-[13px] font-bold text-foreground transition-colors group-hover:text-primary">
+        {languageBadge && (
+          <span className="mr-1 inline-block rounded bg-primary/15 px-1 py-px align-[1px] text-[10px] font-bold text-primary">{languageBadge}</span>
+        )}
         {item.name}
       </h3>
     </div>

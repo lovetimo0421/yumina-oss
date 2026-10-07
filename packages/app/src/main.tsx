@@ -20,6 +20,7 @@ import "@/styles/globals.css";
 import { rememberArrival } from "@/lib/arrival-attribution";
 import { isAnalyticsEnabled } from "@/lib/analytics-enabled";
 import { getLandingRoute } from "@/edition/routes";
+import { OPEN_STUDIO_EVENT } from "@/lib/studio-navigation";
 
 rememberArrival();
 rememberShareInvite();
@@ -368,6 +369,10 @@ const router = createRouter({
 
 installRouteScrollRestoration(router);
 installDeployRefresh(router);
+window.addEventListener(OPEN_STUDIO_EVENT, (event) => {
+  const worldId = (event as CustomEvent<string>).detail;
+  if (worldId) void router.navigate({ to: "/app/studio/$worldId", params: { worldId } });
+});
 router.subscribe("onResolved", (event) => clearReadingPageBootstrap(document, event.toLocation.pathname));
 
 declare module "@tanstack/react-router" {

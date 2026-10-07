@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./modal-backdrop.css";
 
 /* Self-hosted Inter (latin subset). The UI font stack has always led with
    "Inter" but the face was never shipped — the only webfont we load is Nunito
@@ -13,6 +14,7 @@
 @import "@fontsource/inter/latin-600.css";
 @import "@fontsource/inter/latin-700.css";
 @import "./feedback.css";
+@import "./studio-material.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -1715,6 +1717,19 @@ html:lang(zh) .hub-hero--world .hub-hero-subtitle {
   padding-bottom: var(--play-composer-pad-bottom);
 }
 
+/* A card's composer part (uiDoc `composer`). Its box is the composer's floor,
+   not its ceiling: the composer is ~100 design px against the 88px box the
+   layouts drew, and grows with every line typed, so clipped to its box the
+   toolbar lost its bottom edge — half of it after a newline. Aligned to the
+   box's bottom with overflow visible, the extra height spills UPWARD, over
+   the transcript, and never off the page. Cards compiled since draw the
+   composer from its bottom edge up themselves (engine compile.ts __grow) and
+   also shrink the transcript; this keeps cards compiled before that whole. */
+[data-ui-stage] [data-ui-el]:has(> .play-composer-shell) {
+  justify-content: flex-end;
+  overflow: visible !important;
+}
+
 .play-page-root {
   min-height: 0;
 }
@@ -2013,6 +2028,9 @@ html:lang(zh) .hub-hero--world .hub-hero-subtitle {
   max-width: 100%;
   margin-left: auto;
   text-align: right;
+  /* The label is a flex row (name + speaking bars): text-align does not move
+     it, and 「你」 sat at the far left of a wide box over a right-hand line. */
+  justify-content: flex-end;
 }
 
 .play-user-message-content {
@@ -2430,7 +2448,6 @@ html.dm-mobile-selection-locked body * {
     position: fixed;
     inset: 0;
     z-index: 45;
-    background: rgba(5, 5, 8, 0.62);
     /* This decorative button fills the viewport: inherited tap highlights or
        a native focus outline would paint across the whole menu/status edge. */
     -webkit-tap-highlight-color: transparent;
@@ -2439,10 +2456,6 @@ html.dm-mobile-selection-locked body * {
     border-radius: 0;
     padding: 0;
     outline: none;
-    /* Avoid Safari's ambiguous filtered-overlay color sampling when opening
-       navigation. A simple dimmer also needs less full-screen compositing. */
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
     transition: opacity 180ms ease;
   }
 
@@ -3587,12 +3600,6 @@ html.dm-mobile-selection-locked body * {
     padding-inline: 0.45rem;
   }
 
-  .editor-shell-header-actions--advanced .editor-shell-studio-button {
-    gap: 0.35rem;
-    padding-inline: 0.55rem;
-    font-size: 0.78rem;
-  }
-
   .editor-shell-header-actions--advanced .editor-shell-save-button,
   .editor-shell-header-actions--advanced .editor-shell-play-button {
     gap: 0.35rem;
@@ -4432,13 +4439,15 @@ iframe[title="Yumina Sandbox"] {
 
 /* ═══ Hub card hover ═══ */
 .profile-window-glass {
-  background:
+  --profile-glass-background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
     rgba(12, 13, 16, 0.055);
+  background: var(--profile-glass-background);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow:
+  --profile-glass-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.05),
     0 16px 38px rgba(4, 6, 10, 0.08);
+  box-shadow: var(--profile-glass-shadow);
   backdrop-filter: blur(18px) saturate(128%);
   -webkit-backdrop-filter: blur(18px) saturate(128%);
 }
@@ -4655,8 +4664,13 @@ iframe[title="Yumina Sandbox"] {
 }
 
 @keyframes onboardingCardIn {
+  /* No opacity on the final frame, deliberately. animation-fill-mode: both
+     would otherwise freeze it at 1 and outrank the cascade for the life of
+     the element — which is how the welcome card's disabled "Let's go" button
+     came to look identical to an enabled one. The from-frame still fades the
+     card in; where it settles is the cascade's business. */
   from { opacity: 0; transform: scale(0.95) translateY(12px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
+  to { transform: scale(1) translateY(0); }
 }
 
 @keyframes onboardingFadeOut {
@@ -4850,6 +4864,7 @@ html[data-mobile-page-scroll="dm-page-conversation-list"] .dm-page-list-toolbar 
    the entire height chain is essential: a fixed inner pane still ends above
    iOS's bottom edge even when its wallpaper is painted on the document. */
 html[data-mobile-page-scroll="settings-main"] :is(.settings-page, .settings-layout, .settings-nav-scroll, .settings-content),
+html[data-mobile-page-scroll="profile-ai"] .profile-ai-page,
 html[data-mobile-page-scroll="admin-main"] :is(.admin-workspace, .aw-main-shell, .aw-scroll),
 html[data-mobile-page-scroll="create-picker"] :is(.create-shell, .create-col) {
   height: auto;
@@ -4857,6 +4872,7 @@ html[data-mobile-page-scroll="create-picker"] :is(.create-shell, .create-col) {
   overscroll-behavior-y: auto;
 }
 
+html[data-mobile-page-scroll="profile-ai"] .profile-ai-page,
 html[data-mobile-page-scroll="dm-page-conversation-list"] :is(.dm-page-frame, .dm-page-sidebar) {
   background: transparent;
   box-shadow: none;
@@ -5035,7 +5051,13 @@ html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar
   );
 }
 
-.play-mobile-top-edge,
+.play-mobile-top-edge {
+  position: absolute;
+  pointer-events: none;
+  /* Keep the safe-area tint without sampling the live sandbox through blur. */
+  background: var(--mobile-canvas-edge-gradient);
+}
+
 html[data-mobile-app-canvas="wallpaper"]:not([data-mobile-page-scroll]) .topbar-shell::before,
 html[data-mobile-page-scroll] .topbar-shell::before {
   content: "";
@@ -5046,7 +5068,7 @@ html[data-mobile-page-scroll] .topbar-shell::before {
      extension. Keep both tint and mask solid through that strip so scrolling
      artwork cannot change its color. This surface still moves with controls. */
   /* Ease the tint out of the solid edge, then release it evenly through the
-     controls and tail. Share the fade while letting play use a neutral tint. */
+     controls and tail. */
   background: var(--mobile-canvas-edge-gradient);
   -webkit-backdrop-filter: blur(18px) saturate(115%);
   backdrop-filter: blur(18px) saturate(115%);
@@ -5066,14 +5088,14 @@ html[data-mobile-page-scroll] .topbar-shell::before {
   .app-shell-root[data-play-page="true"] > .play-mobile-top-edge {
     display: block;
     inset: 0 0 auto;
-    /* Reuse Discover's glass/fade, with only a short transparent tail over
+    /* Reuse the edge tint, with only a short transparent tail over
        the iframe. Its controls remain below the notch and stay clickable. */
     --play-edge-inset: max(0px, calc(var(--mobile-safe-top) - var(--mobile-viewport-top, 0px)));
     height: calc(var(--play-edge-inset) + min(16px, var(--play-edge-inset)));
     /* A browser tab or a keyboard pan can leave no notch reservation. In
        that case the whole edge collapses; short insets must also fade within
        their own height rather than inherit Discover's 44px minimum. */
-    --topbar-fade-start: max(0px, calc(var(--play-edge-inset) - 16px));
+    background: linear-gradient(to bottom, rgba(var(--mobile-canvas-edge-rgb, 0, 0, 0), 1) 0px, rgba(var(--mobile-canvas-edge-rgb, 0, 0, 0), 0.92) max(0px, calc(var(--play-edge-inset) - 16px)), transparent 100%);
     z-index: 40;
   }
 }

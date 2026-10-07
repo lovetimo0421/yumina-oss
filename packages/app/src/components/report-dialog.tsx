@@ -208,7 +208,7 @@ export function ReportDialog({ worldId, targetName, open, onClose }: ReportDialo
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 modal-backdrop"
         onClick={onClose}
       />
       <div className="relative mx-4 w-full max-w-md rounded-2xl border border-white/10 bg-card shadow-2xl animate-in fade-in zoom-in-95 duration-200">

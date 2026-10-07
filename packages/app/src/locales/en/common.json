@@ -53,13 +53,17 @@
   },
   "search": {
     "hub": "Search worlds, characters, stories...",
-    "library": "Search library..."
+    "library": "Search library...",
+    "bundles": "Search resource bundles, creators, or features..."
   },
   "aria": {
     "showSidebar": "Show sidebar",
     "hideSidebar": "Hide sidebar",
     "closeNav": "Close navigation menu",
-    "openNav": "Open navigation menu"
+    "openNav": "Open navigation menu",
+    "pagination": "Pagination",
+    "prevPage": "Previous page",
+    "nextPage": "Next page"
   },
   "auth": {
     "signInToContinue": "Sign in to continue",
@@ -83,7 +87,10 @@
       "sendMessages": "send messages",
       "viewSensitiveContent": "view Limitless content",
       "writeReviews": "write reviews"
-    }
+    },
+    "signUpToContinue": "Sign up to continue",
+    "signUpFree": "Sign up free",
+    "haveAccountSignIn": "I have an account — log in"
   },
   "hint": {
     "sidebarCollapse": "Hover the left edge to show the menu"
@@ -306,7 +313,8 @@
     },
     "giftBonusExpires": "{{amount}} Bonus expires {{date}}",
     "promptPackApproved": "Your prompt \"{{packTitle}}\" was approved and is now in the Prompt Plaza",
-    "promptPackRejected": "Your prompt \"{{packTitle}}\" wasn't approved. See why in Library › Prompts"
+    "promptPackRejected": "Your prompt \"{{packTitle}}\" wasn't approved. See why in Library › Prompts",
+    "planGiftReceived": "You received a {{plan}} plan gift for {{days}} days."
   },
   "time": {
     "justNow": "just now",
@@ -491,7 +499,7 @@
   "languageLabel": "Language",
   "creatorHub": "Creator Hub",
   "openingStandalone": "Opening the standalone creator site...",
-  "loadingStudio": "Loading Studio...",
+  "loadingStudio": "Opening the editor…",
   "friends": {
     "title": "Friends",
     "subtitle": "People you follow who follow you back",
@@ -531,5 +539,28 @@
       "popupFailed": "Sign-in didn't complete. Close this window and try again.",
       "backToGame": "Back to Krew.io"
     }
-  }
+  },
+  "planAlert": {
+    "cancelsOn": "Your subscription cancels on {{date}}. You keep your benefits until then.",
+    "downgradesOn": "Your plan downgrades on {{date}}.",
+    "giftExpiresOn": "Your gift plan expires on {{date}}.",
+    "dismiss": "Dismiss"
+  },
+  "studioNotYours": "This world isn't yours to edit — you can only open cards you created.",
+  "studioLoadFailed": "Couldn't load this world. Check your connection and try again.",
+  "backToMyWorlds": "My worlds",
+  "userMute": {
+    "until": "Muted until {{date}}",
+    "permanent": "Permanently muted",
+    "help": "You cannot post, comment, publish updates, or send private messages while muted. You can still browse and play stories."
+  },
+  "communityMutedPermanent": "You can no longer post in the community or comments.",
+  "notFound": {
+    "title": "Page not found",
+    "description": "The link may be mistyped, or the page has moved.",
+    "back": "Go back",
+    "home": "Back to Discover",
+    "library": "Back to Library"
+  },
+  "macroYou": "you"
 }

@@ -1,4 +1,18 @@
 {
+  "importedWorldSummary": "「{{name}}」をインポートしました（{{summary}}）",
+  "worldImportCounts": {
+    "entries": "項目 {{count}} 件",
+    "variables": "変数 {{count}} 個",
+    "modules": "モジュール {{count}} 個",
+    "behaviors": "動作 {{count}} 件",
+    "rules": "旧形式ルール {{count}} 件",
+    "components": "型付きコンポーネント {{count}} 個",
+    "interfacePages": "画面 {{count}} ページ",
+    "interfaceFiles": "画面ファイル {{count}} 個",
+    "legacyInterfaces": "旧形式画面 {{count}} 個",
+    "audio": "音声 {{count}} 件",
+    "empty": "空の作品"
+  },
   "rateLimited": "リクエストが集中しています。約{{minutes}}分後にもう一度お試しください。",
   "inviteCodeLength": "招待コードまたは紹介コードは 5～8 文字である必要があります",
   "failedRedeemCode": "コードの引き換えに失敗しました",

@@ -109,7 +109,8 @@
         "protectedHistory": "此账户存在有效的安全限制，请联系客服协助注销。",
         "email": "无法发送确认邮件，请稍后再试。",
         "invalidLink": "此注销链接无效或已过期，请在账户设置中重新申请。",
-        "generic": "暂时无法发起账户注销，请稍后重试。"
+        "generic": "暂时无法发起账户注销，请稍后重试。",
+        "privileged": "特权账户必须先转移管理职责才能注销，请联系客服。"
       }
     },
     "connectedAccounts": {
@@ -247,12 +248,13 @@
     }
   },
   "display": {
-    "experimental": {
-      "title": "实验性功能",
-      "turnImages": {
-        "title": "剧情插图",
-        "description": "实验性功能：给回复配插图。前 5 张免费，之后每张 12 蘑菇币。"
-      }
+    "turnImages": {
+      "title": "剧情插图",
+      "description": "回复下方会有「画出这一幕」按钮。",
+      "auto": "每条回复自动画插图",
+      "free": "还能免费画 {{count}} 张，之后每张 {{price}} 蘑菇币",
+      "price": "每张 {{price}} 蘑菇币",
+      "unlimited": "包含在你的套餐里"
     },
     "title": "显示",
     "language": {
@@ -355,6 +357,10 @@
     "sendKey": {
       "title": "按 Enter 发送",
       "description": "开启后，Enter 发送消息，Shift+Enter 换行；关闭后，Ctrl/⌘+Enter 发送，Enter 换行。此设置会保存到本设备。"
+    },
+    "sceneVideo": {
+      "title": "影游（实验性）",
+      "description": "把剧情实时拍成有声视频。开着时大约每分钟 5,800 蘑菇币。"
     }
   },
   "wallpaper": {

@@ -13,7 +13,12 @@ export function getPageScrollTop(element: HTMLElement): number {
 /** Position a result below the sticky header, or at the top of a contained panel. */
 export function getPageTargetTop(scroller: HTMLElement, target: HTMLElement): number {
   const inset = isDocumentPageScroller(scroller)
-    ? Math.max(0, scroller.ownerDocument.querySelector(".topbar-shell")?.getBoundingClientRect().bottom ?? 0)
+    ? (() => {
+      const header = scroller.ownerDocument.querySelector<HTMLElement>(".topbar-shell");
+      // A jump towards the results reveals the scroll-away header. Reserve its
+      // full resting height even when its paint is currently above the viewport.
+      return Math.max(0, header?.offsetHeight ?? 0, header?.getBoundingClientRect().bottom ?? 0);
+    })()
     : scroller.getBoundingClientRect().top;
   return Math.max(0, getPageScrollTop(scroller) + target.getBoundingClientRect().top - inset);
 }

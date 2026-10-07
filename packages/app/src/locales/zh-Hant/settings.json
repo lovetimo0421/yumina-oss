@@ -109,7 +109,8 @@
         "protectedHistory": "此帳戶存在有效的安全限制，請聯絡客服協助註銷。",
         "email": "無法傳送確認郵件，請稍後再試。",
         "invalidLink": "此註銷連結無效或已過期，請在賬戶設定中重新申請。",
-        "generic": "暫時無法發起賬戶註銷，請稍後再試。"
+        "generic": "暫時無法發起賬戶註銷，請稍後再試。",
+        "privileged": "特權賬戶必須先轉移管理職責才能註銷，請聯絡客服。"
       }
     },
     "connectedAccounts": {
@@ -247,12 +248,13 @@
     }
   },
   "display": {
-    "experimental": {
-      "title": "實驗性功能",
-      "turnImages": {
-        "title": "劇情插圖",
-        "description": "實驗性功能：給回覆配插圖。前 5 張免費，之後每張 12 蘑菇幣。"
-      }
+    "turnImages": {
+      "title": "劇情插圖",
+      "description": "回覆下方會有「畫出這一幕」按鈕。",
+      "auto": "每則回覆自動畫插圖",
+      "free": "還能免費畫 {{count}} 張，之後每張 {{price}} 蘑菇幣",
+      "price": "每張 {{price}} 蘑菇幣",
+      "unlimited": "包含在你的方案裡"
     },
     "title": "顯示",
     "language": {
@@ -355,6 +357,10 @@
     "sendKey": {
       "title": "按 Enter 傳送",
       "description": "開啟後，Enter 傳送訊息，Shift+Enter 換行；關閉後，Ctrl/⌘+Enter 傳送，Enter 換行。此設定會儲存到本裝置。"
+    },
+    "sceneVideo": {
+      "title": "影遊（實驗性）",
+      "description": "把劇情即時拍成有聲影片。開著時大約每分鐘 5,800 蘑菇幣。"
     }
   },
   "wallpaper": {

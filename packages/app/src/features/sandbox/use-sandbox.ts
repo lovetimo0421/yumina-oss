@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SandboxBridge, type ApiHandler, type StreamHandler } from "./bridge-parent";
-import type { ChannelDataMap, SandboxMode } from "../../../sandbox/protocol";
+import type { ChannelDataMap, SandboxMode, VoiceEvent } from "../../../sandbox/protocol";
 import type { StateChannel } from "@yumina/engine";
 import { SANDBOX_DOC_URL } from "@/lib/sandbox-doc-url";
 import { SandboxBootTiming } from "@/lib/sandbox-boot-timing";
@@ -183,6 +183,22 @@ export function useSandbox(opts: {
     bridgeRef.current?.sendRoomFrame(frame);
   }, []);
 
+  const sendVideoEvent = useCallback((event: Record<string, unknown>) => {
+    bridgeRef.current?.sendVideoEvent(event);
+  }, []);
+
+  const sendStoryEvent = useCallback((event: { id: string; name: string; ai?: { channel: string; id: string; name: string; text: string; fields: Record<string, unknown> }; code?: { reactionId: string; source: string; names: Record<string, string> } }) => {
+    bridgeRef.current?.sendStoryEvent(event);
+  }, []);
+
+  const sendVoiceEvent = useCallback((event: VoiceEvent) => {
+    if (bridgeRef.current) bridgeRef.current.sendVoiceEvent(event);
+    else if (event.type === "video-frame") {
+      event.frame.close();
+      void onApiCallRef.current("realtimeVoice.ackVideoFrame", [event.id]);
+    }
+  }, []);
+
   const openMemoryPanel = useCallback(() => {
     bridgeRef.current?.openMemoryPanel();
   }, []);
@@ -206,6 +222,9 @@ export function useSandbox(opts: {
     restoreComposerDraft,
     restoreTranscriptPosition,
     sendRoomFrame,
+    sendVoiceEvent,
+    sendVideoEvent,
+    sendStoryEvent,
     openMemoryPanel,
   };
 }

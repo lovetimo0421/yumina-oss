@@ -37,6 +37,11 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   // Music generation (Lyria through OpenRouter): one charge per piece,
   // taken from the provider-reported cost in routes/music.ts.
   music: "billed",
+  // Scene video (routes/realtime-video.ts): Comfy GPU seconds per clip, the director's
+  // calls and fal stream seconds, each charged at provider cost × FILM_MARKUP.
+  "film-clip": "billed",
+  "film-director": "billed",
+  "film-stream": "billed",
   regenerate: "billed",
   continue: "billed",
   // Empty replies are never charged (2026-05-31 empty-reply policy) — logged
@@ -49,23 +54,48 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   send_repetitive: "free-by-design",
   regenerate_repetitive: "free-by-design",
   continue_repetitive: "free-by-design",
-  // Official correction charges commit atomically with the saved turn.
+  // Historical resolver attempts remain platform-funded after its removal.
+  // No gameplay route emits this endpoint anymore.
+  "turn-state-resolver": "free-by-design",
+  // Official corrections are charged atomically with the saved turn. Failed,
+  // stale, cancelled, BYOK, free-model and unlimited-plan calls are exempt.
   "state-update-guard": "billed",
+  // State Update Guard on by platform default (player never installed it):
+  // the one correction runs on the default guard model with the platform key
+  // and is never charged. Owner-approved 2026-09-26; kill switch
+  // STATE_UPDATE_GUARD_DEFAULT=off.
+  "state-update-guard-default": "free-by-design",
   "studio-agent": "billed",
   "studio-playtest": "billed",
+  "source-digest": "billed",
   "side-completion": "billed",
+  // Same existing side-call billing; distinguish silent output so it does not
+  // become a successful play interaction in analytics.
+  "side-completion_empty": "billed",
   "pvz-dave": "billed",
   // Failed, cancelled and silent Dave generations are not heard by the player.
   "pvz-dave-unheard": "free-by-design",
   "story-compaction": "billed",
   "session-memory": "billed",
   summaryception: "billed",
+  // Run scopes (副本): the sealed-run memory summary and a worker station's
+  // briefing. Both go through generateStorySummaryText, i.e. story
+  // compaction's metering: official-key calls with usable text are charged
+  // via billBackgroundUsage at the model's normal price, BYOK and unlimited
+  // plans are not, empty output is logged but not charged.
+  "run-summary": "billed",
+  "module-worker": "billed",
   // Runs exclusively on the caller's own API key (see memory-extractor.ts).
   "memory-extract": "byok-only",
   // Continuity judge: one decision-model call per reply, platform key, output
   // tokens free, ~1e-4 USD per turn. Not charged to the player — it is part
   // of the card working as authored. Owner-approved 2026-09-21.
   continuity: "free-by-design",
+  // Missed-update repair (continuity/missed-updates.ts): the platform model writes
+  // only the state the story model forgot, when the decision model flags it.
+  // Platform key, not charged — owner-approved 2026-10-05 ("Jev must also write
+  // what the model left out").
+  "missed-update-repair": "free-by-design",
   // Choice-only card direction, owner-approved 2026-10-04; capped at 20 calls
   // per minute/account and 32k chars. Actual BYOK use is logged as tier byok.
   "side-decision": "free-by-design",
@@ -77,10 +107,9 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   // viewer, so charging the one user who happened to trigger it would bill
   // them for shared infrastructure. Platform cost, owner-reviewed 2026-08-12.
   translation: "free-by-design",
-  // Image/video prompt preparation has no separate token charge: generation.ts
-  // runs it before the existing fixed-price job debit, and failed/blocked
-  // preparation is never charged. Register that existing product policy so
-  // these internal calls stay observable without inventing a second charge.
+  // Preserve the existing generation policy: prompt rewriting runs before
+  // generation billing and adds no user charge, including refused/failed
+  // rewrites. Owner-authorized usage visibility fix, 2026-09-08.
   "generation-enhance": "free-by-design",
   // Voice readout (TTS). Priced per UTF-8 byte of input text; cost is computed
   // locally (byteLength × per-byte price) and deducted via providerCostUsd —
@@ -90,6 +119,12 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   // (2026-09-28), always on the platform key; ~$0.002 per minute of speech,
   // bounded by the per-user clip rate limit in routes/voice-input.ts.
   "voice-input": "free-by-design",
+  // Owner-authorized private Hat candidate test, 2026-10-06: exact creator/world
+  // gate, two durable starts per rolling24h, server300s deadline. No public grant.
+  "voice-pilot": "free-by-design",
+  "voice-pilot-transcription": "free-by-design",
+  // Zero-token durable start/cleanup reservation; never presented as measured AI.
+  "voice-pilot-reservation": "free-by-design",
   // Jev emotion cues for voice readout: platform-funded, never charged. The
   // readout itself bills the player on the text alone (see routes/tts.ts).
   "tts-emotion": "free-by-design",

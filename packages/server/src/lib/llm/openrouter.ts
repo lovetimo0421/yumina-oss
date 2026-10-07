@@ -359,6 +359,25 @@ export function isFreePoolExhaustedError(status: number, body: string): boolean 
   return status === 429 && /free-models-per-day/i.test(body);
 }
 
+/**
+ * A model id we pin that OpenRouter has retired.
+ *
+ *   404 {"error":{"message":"No endpoints found for inclusionai/ling-2.6-flash."}}
+ *
+ * Providers retire ids on their own schedule and the model page often stays up,
+ * so this surfaces nowhere until the code path that names the id runs — and the
+ * ids we hardcode are precisely the ones no user picks (fallback rungs, internal
+ * rewrite workloads), so that path is rare by construction. `ling-2.6-flash` sat
+ * dead at the head of the free chain until 2026-08-26 for exactly this reason.
+ *
+ * Narrower than isModelUnavailableError below: this one only names the wording
+ * we can attribute to OUR pin, so the log line can say so. Fallback routing uses
+ * the broad status check; this is for diagnosis.
+ */
+export function isRetiredModelError(status: number, body: string): boolean {
+  return status === 404 && /no endpoints found/i.test(body);
+}
+
 /** OpenRouter retires model ids without notice: the model page survives but
  *  every provider endpoint disappears, and the id starts 404ing. Seen 2026-08-25
  *  on inclusionai/ling-2.6-flash, then the first rung of the free chain — it
@@ -402,6 +421,10 @@ export function modelFallbackReason(status: number, body: string): StreamChunk["
 function fallbackReasonLabel(status: number, body: string): string {
   if (isFreePoolExhaustedError(status, body)) return "Free pool exhausted";
   if (isProviderTermsError(status, body)) return "Provider ToS rejection";
+  // Loud on purpose: this one is a bug in OUR pinned constants, not upstream
+  // weather. It means `pnpm check:models` should have caught a retired id
+  // before it ever reached a player's turn.
+  if (isRetiredModelError(status, body)) return "RETIRED MODEL ID (fix the pin; run pnpm check:models)";
   if (isModelUnavailableError(status)) return "Model unavailable upstream (404 — retired id?)";
   return `Transient upstream failure (${status})`;
 }
@@ -573,9 +596,13 @@ export class OpenRouterProvider implements LLMProvider {
 
       for await (const chunk of this.streamOnce(params, failedProviders)) {
         if (chunk.type === "error") {
-          // Auth/credit failures and hard rate limits re-fail identically on an
-          // immediate retry — surface them now instead of adding dead latency.
-          const nonRetryable = /\((401|402|429)\)/.test(chunk.content);
+          // Auth/credit failures, hard rate limits, and a model id the upstream
+          // doesn't have re-fail identically on an immediate retry — surface
+          // them now instead of adding dead latency. 404 joins the list because
+          // a retired id cannot come back between two calls a second apart;
+          // when a fallback chain exists, shouldFallbackToAnotherModel has
+          // already moved the turn to the next model before we get here.
+          const nonRetryable = /\((401|402|404|429)\)/.test(chunk.content);
           if (!visibleYielded && attempt < MAX_RETRIES && !nonRetryable) {
             errorChunk = chunk;
             break;
@@ -692,12 +719,15 @@ export class OpenRouterProvider implements LLMProvider {
       ? AbortSignal.any([connAbort.signal, params.signal])
       : connAbort.signal;
 
-    const providerRouting = providerRoutingFor(
+    const existingRouting = providerRoutingFor(
       params.model,
       !!params.cacheBreakpoints?.length,
       excludeProviders,
       this.preserveAccountRouting,
     );
+    const providerRouting = params.responseFormat?.type === "json_schema"
+      ? { ...existingRouting, require_parameters: true }
+      : existingRouting;
 
     const requestBody: Record<string, unknown> = {
         model: params.model,
@@ -718,7 +748,7 @@ export class OpenRouterProvider implements LLMProvider {
         ...(params.topK !== undefined && params.topK > 0 && { top_k: clampTopKForModel(params.model, params.topK) }),
         ...(params.minP !== undefined && params.minP > 0 && { min_p: params.minP }),
         ...(params.responseFormat && {
-          response_format: { type: params.responseFormat.type },
+          response_format: params.responseFormat,
         }),
         // Tool use parameters (with cache_control on last tool for Claude — caches all tool definitions)
         // 1-hour TTL: tool definitions are static within a session, worth the 2x write cost
@@ -1035,12 +1065,15 @@ export class OpenRouterProvider implements LLMProvider {
       applyCacheBreakpoints(serialized, params.model, params.cacheBreakpoints);
     }
 
-    const providerRouting = providerRoutingFor(
+    const existingRouting = providerRoutingFor(
       params.model,
       !!params.cacheBreakpoints?.length,
       excludeProviders,
       this.preserveAccountRouting,
     );
+    const providerRouting = params.responseFormat?.type === "json_schema"
+      ? { ...existingRouting, require_parameters: true }
+      : existingRouting;
 
     // Non-streaming responses only send headers AFTER the upstream finishes
     // generating, so the timer covers the entire generation time (not just
@@ -1069,7 +1102,7 @@ export class OpenRouterProvider implements LLMProvider {
           ...kimiRepetitionSamplingParam(params),
           ...(params.topK !== undefined && params.topK > 0 && { top_k: clampTopKForModel(params.model, params.topK) }),
           ...(params.minP !== undefined && params.minP > 0 && { min_p: params.minP }),
-          ...(params.responseFormat && { response_format: { type: params.responseFormat.type } }),
+          ...(params.responseFormat && { response_format: params.responseFormat }),
           ...(params.tools && params.tools.length > 0 && {
             tools: (isClaudeModel(params.model) && !isLegacyClaude3(params.model))
               ? annotateLast(params.tools, { cache_control: { type: "ephemeral", ttl: "1h" } })

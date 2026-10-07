@@ -29,7 +29,10 @@ After publishing, you can keep editing. Saved updates that need publishing appea
 2. Open **Unpublished changes** in the editor's publishing status
 3. Click **Submit for review**. The status becomes **In review** only after submission; the current version stays live until approval. Creators with review bypass enabled see **Publish update** instead, which publishes without waiting for admin review. Either action saves any additional unsaved edits before submitting them.
 
-Existing players' sessions aren't affected — they continue with the world version they started with. New sessions use the updated version.
+Existing players' sessions keep the story-content version they started with,
+while new sessions use the updated version. Per-card safety and Lore Shift
+permission switches are checked live, so closing session editing can also lock
+Lore Shift in an active session.
 
 ## Version History and Rollback
 

@@ -81,7 +81,7 @@ Every variable has two labels, and the Variables editor shows both:
 
 - **ID** — the key the game state is actually stored under. New variables get a
   random UUID like `a8c5a685-1317-40b2-8f11-baccd39f9042` until you change it.
-  The ID field lowercases what you type, so an ID can never be `zombieKills`.
+  Use the card's actual ID; imported or older cards may retain mixed-case IDs.
 - **Display name** — what you call it (`hunger`, `Love meter`, `zombieKills`).
 
 `api.variables` is keyed by ID, and also resolves a display name:
@@ -94,10 +94,11 @@ api.setVariable("hunger", 50)  // writes to that variable's ID
 
 The ID wins when both exist. If one variable's ID is `hp` and another's display
 name is also `hp`, `api.variables.hp` reads the one whose **ID** is `hp`.
+If multiple variables share a display name, the last definition wins, matching
+the engine's name lookup. Prefer unique names to avoid ambiguity.
 
-`Object.keys(api.variables)` still returns **IDs only** — one entry per variable,
-never a duplicate for the name. If you iterate the bag to build a panel, you get
-exactly the variables you declared.
+`Object.keys(api.variables)` still returns the stored keys, without extra display-name
+aliases. Enumerating the bag does not add duplicate rows for the aliases.
 
 ### Game actions (fire-and-forget)
 
@@ -108,6 +109,7 @@ These methods return nothing; they just post the intent to the parent app.
 | `sendMessage(text)` | Send a message as the player, triggering an AI reply |
 | `setVariable(id, value, options?)` | Set a variable. `id` is the variable's ID, or its display name. `options`: `{ scope?: string; targetUserId?: string }`. `scope` picks the variable scope (for global/personal), `targetUserId` lets you write variables for a specific player in multiplayer |
 | `executeAction(actionId)` | Fire a named action defined by the rules engine (e.g. `"attackBoss"`) |
+| `await executeActionAndWait(actionId)` | In an editable saved session, apply a named action after earlier variable writes. Resolves `{ applied: true, variables, firedIds }` after host state, runtime records, notifications and audio effects are applied. Rejects failures, timeout, unavailable views, empty/non-string IDs and stale sessions. `variables` is the confirmed server snapshot; newer optimistic writes remain in `api.variables`. |
 | `switchGreeting(index)` | Swap to a different greeting variant by index |
 | `clearPendingChoices()` | Dismiss pending choice buttons without picking one |
 | `setComposerDraft(text)` | Drop `text` into the chat composer and focus it. **Does not send.** Use when you want the player to review or edit the message before hitting Send (e.g. an NPC interaction button that primes a conversation starter). Sandbox-local — no parent round-trip — so it only works alongside the bundled `<MessageInput>` / `<Chat>` components |
@@ -168,11 +170,11 @@ Voice readout is **opt-in**: players turn it on in Settings › Display. Until t
 
 | Method / field | What it does |
 |--------|--------------|
-| `tts.speak(opts)` | `opts`: `{ messageId?, text?, key?, voice? }`. Pass `messageId` to read a chat message (honors the player's reading-mode setting), or `text` for arbitrary card lines (`key` gives it a stable playback identity). `voice` optionally overrides the player's voice with a fish.audio marketplace id (32-hex) so cards can voice their own characters. Returns `Promise<{ok, reason?}>` — `reason` is `"disabled"` (the player hasn't turned readout on), `"unavailable"` (preview/replay), `"insufficient"` (not enough mushies), `"rate-limited"`, `"empty"`, or an error |
+| `tts.speak(opts)` | `opts`: `{ messageId?, text?, key?, voice?, waitForEnd? }`. Pass `messageId` to read a chat message (honors the player's reading-mode setting), or `text` for arbitrary card lines (`key` gives it a stable playback identity). `voice` optionally overrides the player's voice with a fish.audio marketplace id (32-hex) so cards can voice their own characters. With `waitForEnd: true`, success means all audio clips actually ended; cancellation, blocked playback, media error and timeout return `ok: false`. Without it, success means playback was queued. Returns `Promise<{ok, reason?}>` — `reason` is `"disabled"` (the player hasn't turned readout on), `"unavailable"` (preview/replay), `"insufficient"` (not enough mushies), `"rate-limited"`, `"empty"`, or an error |
 | `tts.stop()` | Stop the current readout (also cancels a pending synthesis and the auto read-along queue) |
 | `tts.setPrefs(prefs)` | Update the player's readout preferences: `{ enabled?, autoPlay?, mode?, voice?, voicePool?, volume? }` (`volume` 0–100; `voicePool` is the list of voice ids AI casting may give characters, `[]` = all; `voice` sets a pool of one, "" = all). Persists to the account; new values flow back via `ttsState`. Only works once the player has opted in; `enabled: true` is ignored (only Settings turns readout on), `enabled: false` switches it off |
 | `tts.preview(voice)` | Play a short sample of a voice (`""` = the auto voice). Billed like any synth on first listen, cached for everyone after. Returns `Promise<{ok, reason?}>` |
-| `ttsState` | Read-only: `{ available, enabled, voice, voicePool, mode, autoPlay, volume, playback }`. `available` is false outside real sessions (guest preview, replay) — hide ALL voice UI then; `enabled` is the player's opt-in (false until they turn readout on in Settings). `playback` is `{ key, status: "loading" \| "playing", progress? }` or `null` (`progress` 0–1 at ~2Hz), so a custom UI can render per-line speaker states and progress rings |
+| `ttsState` | Read-only: `{ available, enabled, voice, voicePool, mode, autoPlay, volume, playback }`. `available` is false outside real sessions (guest preview, replay) — hide ALL voice UI then; `enabled` is the player's opt-in (false until they turn readout on in Settings). `playback` is `{ key, status: "loading" \| "playing" \| "blocked", progress?, level? }` or `null` (`progress` 0–1 at ~2Hz), `playing` follows actual playback. `waitForEnd` conversations may include a real output `level` (0–1, about 15Hz); it is absent when unsupported. A custom UI can render per-line speaker states and progress rings |
 
 ### Voice input (hold-to-talk)
 
@@ -180,12 +182,68 @@ Let the player speak instead of type. The platform records (the card never touch
 
 | Method / field | What it does |
 |--------|--------------|
-| `voice.record(opts?)` | Start recording — call it when your talk button goes down. `opts.onLevel(level)` gets the live input loudness (0–1, ~15×/s) for a waveform. Resolves after `voice.stop()` with `{ ok: true, text }`, or `{ ok: false, reason }` — `reason` is `"cancelled"`, `"too-short"` (a tap, not a hold), `"denied"` (microphone blocked), `"empty"`, `"rate-limited"`, `"unavailable"` (preview/replay) or `"error"`. Pauses any voice readout so the AI isn't recorded |
+| `voice.prepare(opts?)` | Checks browser microphone permission, then releases the microphone without recording or transcription. Set `{ requireLevels: true }` for automatic silence detection; returns `{ ok: false, reason: "levels-unavailable" }` if the analyser cannot run. Call before paid speech so a blocked microphone does not strand the conversation. Cancel with `voice.cancel()`. |
+| `voice.record(opts?)` | Start recording — call it when your talk button goes down. Automatic silence detection should also set `opts.requireLevels: true`; ordinary hold-to-talk can omit it. `opts.onLevel(level)` gets the live input loudness (0–1, ~15×/s) for a waveform. Resolves after `voice.stop()` with `{ ok: true, text }`, or `{ ok: false, reason }` — `reason` is `"cancelled"`, `"too-short"` (a tap, not a hold), `"denied"` (microphone blocked), `"empty"`, `"rate-limited"`, `"unavailable"` (preview/replay) or `"error"`. Pauses any voice readout so the AI isn't recorded |
 | `voice.stop()` | Finish the clip and transcribe it (talk button released) |
 | `voice.cancel()` | Throw the clip away |
 | `voiceInputState` | Read-only: `{ available, enabled, mode, cardMode, playerMode, key }`. `mode` is what the player wants on release — `"auto"` (send it as spoken) or `"confirm"` (let them review it). It is your card's `settings.voiceInputMode` unless the player overrode it. `key` is the `KeyboardEvent.code` they hold to talk |
 
 Set the default for your card in the editor (Overview → *Voice* → *Player voice input*), or as `settings.voiceInputMode: "auto" | "confirm"` in the world JSON.
+
+### Continuous live voice (OpenAI Realtime)
+
+`api.realtimeVoice` provides a continuous microphone conversation in an editable saved session. The host preflights availability and asks for affirmative microphone consent before capture. Production uses the player's saved OpenAI API key; explicitly enabled testing sponsorship can fund calls without a player key. The consent dialog identifies the funding source. Microphone audio and world context go to OpenAI; transcript events are shared with the world and may be saved in its story. No webcam is requested.
+
+| Method | Contract |
+|--------|----------|
+| `realtimeVoice.start({ instructions, voice?, avatar?, interruptionMode? })` | Resolves `{ status: "connected" }`; instructions contain 1–12,000 characters. `voice` is `"marin"` (default) or `"cedar"`. Uses `gpt-realtime-2.1`, medium semantic VAD and host-managed responses. `interruptionMode` is `"automatic"` (default) or `"manual"`; invalid modes reject before capture. Optional `avatar: true` requires the host's configured testing LiveAvatar service and waits for its media connection; it rejects visibly when unavailable. Surface rejected promises to the player. |
+| `realtimeVoice.interrupt()` | Deliberately takes the speaking turn: clears old capture, cancels current generation or buffered/playing output, then admits fresh speech after the native input-buffer clear acknowledgement. Keeps the call connected. |
+| `realtimeVoice.stop()` | Immediately closes host capture/playback and requests server hangup for sponsored calls. |
+| `realtimeVoice.setMuted({ input, output })` | Independently mutes capture and playback. Assistant speech does not mute the microphone. |
+| `realtimeVoice.updateContext(context)` | Updates witnessed scene context: a string or `{ state: Record<string, string>, events: Array<{ id: string, text: string }> }`. Flattened text must fit 4,000 characters. |
+| `realtimeVoice.updateInstructions(text)` | Replaces the initial character direction (1–12,000 characters). Coalesces changes until input, generation and playback have reached a quiet turn boundary; keeps the current witnessed context. |
+| `realtimeVoice.reactToScene(notice)` | Sends an already committed public scene event as observation, without executing its action. See bounded notices below. Never include private notebook/page text. |
+| `realtimeVoice.cancelSceneReaction(id?)` | Removes a queued or playing notice by ID. Omit the ID to cancel outstanding follow-ups only, preserving physical event announcements. Does not stop the call or clear microphone input. |
+| `realtimeVoice.resolveTool(callId, { accepted, focus?, reason? })` | World validates the bounded inspection request before accepting it; the provider does not execute code or apply state effects. |
+| `realtimeVoice.setSpatial({ x, z, yaw, sourceX, sourceZ })` | Updates spatial playback pose. |
+| `realtimeVoice.onEvent(callback)` | Subscribe; returns an unsubscribe function. |
+
+Avatar mode routes the AI's audio through the server-selected LiveAvatar and plays only the synchronized returned audio. It does not request a webcam or send microphone audio directly to LiveAvatar. The host adds `video-status` events (`connecting`, `live`, `stopped`) and `video-frame` events containing an `ImageBitmap`. Copy each bitmap **synchronously** into your own canvas inside the event listener; the sandbox closes it immediately afterward and acknowledges delivery. Do not retain the bitmap, put frames in React state, or persist them. Restore a still image on `video-status: stopped`. The host owns session tokens, interruption, spatial playback, frame backpressure and cleanup; cards cannot choose arbitrary avatar credentials or endpoints. Avatar playback activity follows the returned stream, so a finished AI generation does not prematurely end an on-screen spoken turn.
+
+Use manual interruption when a character should finish each line unless the player presses an explicit control:
+
+```tsx
+await api.realtimeVoice.start({ instructions: "Your character direction.", interruptionMode: "manual" });
+// In the player's Interrupt button/key handler:
+api.realtimeVoice.interrupt();
+```
+
+Manual mode keeps the microphone open between lines. Input beginning or continuing through pending generation, pending avatar audio, audible output or its echo tail is excluded from user transcript events and native conversation history, even if its final ASR arrives later or differs from the character's words. Expected protected input does not emit the overlapping-words hint. Native deletion acknowledgements still fence subsequent replies. An explicit interrupt admits a fresh capture only after the input-buffer clear acknowledgement; speak again after that boundary. Input that finished before a new output turn retains its existing settlement behavior. Mute, pause and disconnect keep their normal authority over capture/playback. This option changes admission policy, not microphone hardware, VAD, voice or the acoustic model.
+
+Events include `status` (`connecting`, `connected`, `stopped`, `error`), `transcript` (`role`, stable `id`, cumulative `text`, `final`), and bounded inspection `tool` requests. `input` uses transcript IDs with `speaking`, `transcribing`, or `discarded`; clear pending statement state on `discarded` so failed transcription cannot leave a submission waiting forever. `activity` is `listening`, `thinking`, or `speaking`; speaking follows actual output buffer playback, not generation completion. `input-level` is measured microphone loudness (0–1), while `level` is measured output loudness (0–1). Use the appropriate meter for each participant.
+
+Calls stop when the player leaves, hides the tab, loses permission, stops explicitly, or reaches five minutes. Sponsored testing additionally enforces server hangup, one concurrent call per account, and rolling 24-hour start budgets of 12 per player and 60 globally. This API remains separate from `api.voice` hold-to-talk and `api.tts` readout.
+
+Audio output is unlocked in the consent click and checked before microphone capture. Resume failure, continued suspension or a two-second unlock timeout rejects start and closes resources. This confirms browser output readiness; hardware volume remains controlled by the player.
+
+Scene notices have `id` (1–160 letters, digits, underscores, colons or hyphens) and `kind`, with exactly these additional fields:
+
+| Kind | Additional fields |
+|------|-------------------|
+| `return`, `seen`, `overdue`, `writing`, `caught`, `knock`, `power-restored`, `clearance` | None |
+| `bulletin` | `text`: nonempty broadcast text, at most 600 characters |
+| `power-cut` | `seconds`: finite number from 3 through 12; observer temporarily cannot see |
+| `begin-inspection` | `focus`: `desk`, `door` or `bed`; `line`: nonempty public announcement, at most 240 characters |
+| `search` | `focus`: `desk`, `door` or `bed` |
+| `follow-up` | `evidenceId`: a prior public resident statement ID; `line`: one nonempty question, at most 240 characters |
+
+Extra fields are rejected. Notices are deduplicated per connection and bounded to eight accepted events per ten seconds and 128 IDs. Output mute suppresses new notices; active speech and pending responses retain their normal ordering. Broadcast text is performed as a public bulletin; other events receive a brief acknowledgement of that specific committed event. Native `start` still allows at most 12,000 instruction characters and `updateContext` at most 4,000 characters.
+
+`start({ instructions, context })` accepts the same context shape. Use a structured snapshot for a changing physical scene: stable `state` keys describe current public facts; immutable event IDs identify recorded observations. A changed fact supersedes its old value. Omitting an event means it was left out of the history budget, not that it never happened. Do not reuse an ID for corrected or new testimony. Include only information this actor is allowed to know; this API does not filter private pages or unseen actions for you.
+
+The host sends the full snapshot at connection/reconnection. On the host-enabled GPT-Live path, subsequent snapshots send only changed facts and previously undelivered event IDs at a quiet playback boundary. Pending events survive state coalescing, and changing an excerpt does not replay an old event. Legacy strings and the Realtime path retain full context replacement. Bounds: 16 state fields, 64 events per snapshot, 4,000 flattened characters, and 12,000 characters for combined startup instructions plus the context separator and text. Keys and IDs are transport metadata, not spoken content. A producer exceeding the pending-event or connection-history capacity ends the call visibly rather than silently losing events.
+
+The SDK forwards only the notice ID and kind. Existing cards without an `unperson-room` variable may continue sending the fixed, text-free `return`, `seen`, `overdue`, `writing`, and `caught` notices. These are card-reported observations; the host does not establish their fictional truth. For the Unperson room schema, the host hydrates every supported event from confirmed saved state; supplying text to the SDK is not permission to invent evidence. A follow-up must cite earlier received resident speech in the same attempt. It expires after 45 seconds of room time, a phase/attempt change, or newer received speech. New microphone speech also invalidates outstanding follow-ups immediately. Other room schemas need a host adapter for rich notice references such as bulletins, inspections and evidence-linked follow-ups.
 
 ### UI / navigation
 
@@ -339,6 +397,35 @@ protocol, or guarantee that the complete prompt fits every provider's window.
 Returned text does not automatically apply effects or persist messages. Leaving
 `context` omitted preserves the existing raw behavior described below.
 
+#### Optional structured output
+
+Pass `responseFormat` to request JSON output. Omit it for the existing text behavior, or use `{ type: "json_object" }` for the existing provider-specific JSON mode. Strict schema output currently requires an OpenRouter connection (official or BYOK):
+
+```tsx
+const text = await api.ai.complete({
+  messages: [{ role: "user", content: "Choose an action: wait." }],
+  responseFormat: {
+    type: "json_schema",
+    json_schema: {
+      name: "decision_v1",
+      strict: true,
+      schema: {
+        type: "object",
+        properties: { action: { type: "string", enum: ["wait"] } },
+        required: ["action"],
+        additionalProperties: false,
+      },
+    },
+  },
+})
+```
+
+The wrapper accepts exactly the fields shown. Schema names must match `/^[A-Za-z0-9_-]{1,64}$/`, `strict` must be `true`, and the schema root must be an object with `type: "object"`. The full serialized format is limited to 16,384 UTF-8 bytes, traversal depth 16 (format root at depth zero), and 2,048 visited values. Use plain JSON values; cycles, accessors and serialization hooks are rejected. Schema characters count toward the existing 50,000-character content limit and prompt affordability estimate.
+
+Other provider adapters reject `json_schema` with HTTP 400 and code `UNSUPPORTED_RESPONSE_FORMAT`: “This provider does not support JSON Schema side completions.” OpenRouter sends the entire schema and requires an endpoint that supports the requested parameters, preserving official routing preferences and BYOK account routing. Endpoint-specific schema errors reject the promise; they do not become an empty successful response or a weaker format. Catch failures and provide an appropriate fallback.
+
+A schema constrains response structure, not permission to act. Parse and validate returned content, current state, allowed actions and evidence before applying any state change. Provider-specific schema keywords are checked upstream.
+
 #### Limits and costs
 
 | Limit | Value | Source |
@@ -352,6 +439,14 @@ Returned text does not automatically apply effects or persist messages. Leaving
 | Rate limit | **Dedicated side-call pool** — 100 side calls per minute, independent of the main chat's per-minute budget | Returns HTTP 429 + `RATE_LIMITED` code and a `Retry-After` header on overflow |
 | Credits | Same per-token billing as the main chat. **BYOK users skip server credit deduction** but still pay their own provider | Logged with endpoint `"side-completion"` |
 | Auth | The session must belong to the current player; otherwise the call fails with HTTP 404 | |
+
+#### `ai.context` — assemble side-actor direction
+
+`await api.ai.context({ actor: "voice" | "director", model?, recentMessages? })` returns `{ instructions, receipt }` for the current editable saved session. It assembles active world direction and applicable user presets without generating text, billing a model call, or changing state. Pass the actual target model explicitly: a realtime voice model and a text model can match different entry conditions. The SDK does not substitute the selected chat model for this method.
+
+`recentMessages` contains only public actor-witnessed `{ role: "user" | "assistant", content }` records: at most 24 messages, 4,000 characters each and 12,000 total. No ordinary chat history or account persona profile is imported. `{{user}}` uses the card's fictional player name; private variables cannot expand into instructions. Actor tags scope entries; shared active style/system presets apply to both actors. Normal entry activation, lore matching and macros still apply. Ordinary `ai.complete` defaults are unchanged.
+
+The receipt identifies included and omitted entry IDs, omission reasons and applicable user prompt IDs, plus model, persona/history policy and instruction character counts. It contains no entry contents. Instructions are capped at 9,000 characters; excess direction rejects instead of silently truncating. Catch failures and keep the prior confirmed direction visible as stale until a successful refresh. For a live call, pass a successful replacement to `realtimeVoice.updateInstructions`; `updateContext` alone does not replace initial direction.
 
 #### `includeLorebook` — auto-inject world lore
 
@@ -590,6 +685,7 @@ interface SandboxEntry {
   enabled: boolean
   role: string                            // "system" | "character" | "lore" | etc.
   tags?: string[]
+  worldbookId?: string                    // actual editor module membership; matches api.worldbooks IDs
 }
 ```
 
@@ -747,6 +843,7 @@ useYumina()
 │   └── getEntry(name) → SandboxEntry | null
 ├── AI
 │   └── ai.complete({ messages, onDelta?, model?, maxTokens?, temperature?, context?, includeLorebook?, responseFormat? }) → Promise<string>
+│   └── ai.complete({ messages, onDelta?, model?, maxTokens?, temperature?, responseFormat?, includeLorebook? }) → Promise<string>
 │        // includeLorebook: true | "all" | "matched" — auto-inject world lore
 ├── Context injection
 │   └── injectContext(message, { role? })

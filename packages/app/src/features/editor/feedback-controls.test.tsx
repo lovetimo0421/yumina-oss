@@ -10,7 +10,7 @@ import { createServer } from "vite";
 
 const dom = new JSDOM('<div id="root"></div>', { url: "http://localhost", pretendToBeVisual: true });
 const globals = {
-  window: dom.window, document: dom.window.document, navigator: dom.window.navigator,
+  window: dom.window, document: dom.window.document, navigator: dom.window.navigator, location: dom.window.location,
   localStorage: dom.window.localStorage, HTMLElement: dom.window.HTMLElement,
   HTMLInputElement: dom.window.HTMLInputElement, Element: dom.window.Element,
   Node: dom.window.Node, CustomEvent: dom.window.CustomEvent, MutationObserver: dom.window.MutationObserver,

@@ -10,6 +10,7 @@ Entries are discrete content blocks the AI reads when generating each response. 
   "name": "Display Name",
   "content": "The text content the AI reads...",
   "role": "character",
+  "sessionEditPolicy": "locked",
   "apiRole": "system",
   "section": "system-presets",
   "position": 0,
@@ -28,6 +29,12 @@ Entries are discrete content blocks the AI reads when generating each response. 
   "folderId": null
 }
 ```
+
+`sessionEditPolicy` is `locked` by default. Authors may set it to `content`
+only for `lore`, `plot`, or `custom` entries to let Lore Shift users replace
+that entry's text inside one play session. Matching, placement, role, and all
+other structural fields remain author-controlled; the session text is sent at
+the lower-trust user API role and never overwrites this schema.
 
 ## Sections
 

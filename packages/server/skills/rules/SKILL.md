@@ -121,6 +121,10 @@ Emit target event types are listed in the **Emit Targets** table below.
 
 `chance` is how you make an event *sometimes* happen (random ambush, random weather flip). It rolls AFTER the WHEN/IF gates pass, and a skipped roll doesn't consume the cooldown — so a 30%-per-turn event keeps rolling each turn.
 
+## Module membership (worldbookId)
+
+A behavior can belong to a module (worldbook) via `worldbookId` (write_behavior `{ worldbookId }`). A behavior in an INACTIVE module never fires — no WHEN/IF evaluation at all. Membership is re-checked per chain hop, so if an earlier hop's effect activates the module (e.g. sets the variable its activation condition watches), its behaviors join the SAME chain's later hops. Omit = the always-on Core. Group a mechanic's behaviors into the mechanic's module so one activation rule turns the whole system on/off — cheaper and safer than duplicating the same IF conditions onto every behavior.
+
 ## The Game Loop
 
 Firing order: AI response → parse directives → apply variable changes → behaviors evaluate (event pattern + conditions) → behaviors fire effects (set/emit), chained behaviors resolve → next turn.
@@ -178,6 +182,38 @@ Well-known event types for the `emit` effect:
 | `ai:context` | `message`, `role` ("system"/"user") | Inject one-shot AI context |
 
 **When to use `set @audio.bgm` vs `emit audio:play`**: The `set` shorthand is simpler for basic play/stop. The `emit` version gives full control (volume, fade, chain, maxDuration).
+
+## 自定义 — what cards used to hand-write, as data
+
+Most published cards wrote these in their TSX. Build them with these pieces first; reach for TSX only for presentation (a stage, a minigame view). Stick a canvas sticky note on each custom part saying what it is for, its rules that must not break, its tuning numbers, and how to test it — that note is how the next AI (or you, next session) understands it.
+
+**Custom AI calls** (write_worldbook station, usually `{ kind: "worker", trigger: { on: "ui" } }`, host on the card or a scenario):
+- `sees: { variables: [ids], history: N, ownThread: true }` — what it is shown; `ownThread` gives it one memory thread of its own (each phone contact, each character in a multi-character stage).
+- `pieces: [{ conditions, text }]` — prompt text added only while true (e.g. language decay at a value, warmer tone at high affection).
+- `output: [{ name, type: text|number|choice|list, options?, min?, max?, hint?, to? }]` — the answer as JSON, validated (choices must be in `options`, numbers clamped), each field routed: `{kind:"say"}` (its words), `{kind:"variable", variableId, op: set|add|push}`, `{kind:"event", name?}`.
+- `say`: "story" (a chat message), "none", or a channel name — the card hears it with `api.onAiOutput(channel, cb)`.
+- `onError: { timeoutSec, retries, fallback: [lines], randomChoice }`, `cooldownSec`, `maxTokens`.
+- The card calls it: `const r = await api.callAi("名字", input)` → `{ text, fields, fallback }` (null when not in play / cooling down / busy). A button step 「叫一个 AI」 (`run-ai`) calls it without code.
+
+**Behaviours**:
+- A button's 「让一条行为生效」 step can pass values: params `{ 商品: "伞", 价格: "{{price}}" }`. In the behaviour, `{参数.商品}` / `{参数.价格}` read them — in condition values, effect values and notices. A value that is only the token keeps its type (numbers stay numbers).
+- `elseMessage`: shown to the player when the event happens but the conditions fail ("金币不够，要 {参数.价格}").
+- `when: { eventType: "clock:every", match: { seconds: { operator: "eq", value: 30 } } }` — every 30 s while the game is open.
+- `code`: the escape hatch — JS run in the card's sandbox when the behaviour fires: `ctx.vars`, `ctx.get(name)`, `ctx.set(name, v)`, `ctx.add(name, n)`, `ctx.push(name, x)`, `ctx.toast(text)`, `ctx.say(text)`, `await ctx.callAi(ai, input)`, `ctx.random(a, b)`. Only for what conditions/effects cannot say.
+- Effect `emit { type: "ui:moment", title, message, image?, collect: "<list variable id>" }` — unlocks a moment once (skipped when the list already holds the title); mark the list `persist: "player"` for once per player, add `chance` for odds.
+
+**Variables**: `formula` (worked out after every change, AI read-only: `min(40, 40 - len({dead-names}))`), `persist: "player"` (kept across playthroughs: clears, endings, CGs), `aiAccess: "none"` (the AI never sees it: hidden hands, UI state).
+
+**Reply rules** (update_settings `replyRules`): catch `<状态>…</状态>` / `【状态】…【/状态】` / a regex in the AI's reply, `hide` it, and route it: `{kind:"fields"}` (each `名字: 值` into that variable), a variable, an event, or a channel. Tell the AI in an entry to write the block. `speakerBubbles: true` splits a reply into a bubble per speaker (`沈霏：…` lines).
+
+**Turn-taking games with AI players** (cards, werewolf, liar's bar): one custom AI per seat; each seat's private hand in a variable with `aiAccess: "none"`, shown only to that seat via `sees.variables`; its move as a `choice` field whose `options` are the legal moves, `onError.randomChoice: true` so it always moves; route the move to an event or variable. Run the round in a code behaviour on the player's action:
+```
+for (const seat of ["玩家一", "玩家二", "玩家三"]) {
+  const r = await ctx.callAi(seat, `轮到你。桌上：${ctx.get("桌面")}`);
+  if (r) ctx.push("出牌记录", `${seat}:${r.fields.move}`);
+}
+```
+A narrator AI (`say: "story"`) can then be called with what happened to tell it — the code decides, the AI narrates.
 
 ## Best Practices
 

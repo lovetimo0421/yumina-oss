@@ -67,6 +67,15 @@ test("independent update creation keeps author, lifecycle, and notification boun
         await next();
       });
     };
+    // Testing added a mute gate ahead of the rate limiter. Muting is exercised
+    // by its own tests; here it only has to exist, or the extracted route
+    // references a name this harness never defined.
+    let mutedRequests = 0;
+    const requireUnmuted = createMiddleware<AppEnv>(async (c, next) => {
+      mutedRequests += 1;
+      if (c.req.header("X-Test-Muted")) return c.json({ error: "Muted" }, 403);
+      await next();
+    });
     const notifications: Array<{ userIds: string[]; type: string; payload: Record<string, unknown>; options: unknown }> = [];
     let failNotifications = false;
     let loggedFailures = 0;
@@ -83,7 +92,7 @@ test("independent update creation keeps author, lifecycle, and notification boun
     assert.ok(routeStart >= 0 && routeEnd > routeStart);
     const route = transform(source.slice(routeStart, routeEnd), { transforms: ["typescript"] }).code;
     const dependencies = {
-      worldRoutes, authMiddleware, rateLimitMiddleware, parseWorldUpdateNoteBody, db, and, eq, notifyMany,
+      worldRoutes, authMiddleware, requireUnmuted, rateLimitMiddleware, parseWorldUpdateNoteBody, db, and, eq, notifyMany,
       worlds: schema.worlds, worldPendingEdits: schema.worldPendingEdits,
       worldUpdates: schema.worldUpdates, userLibrary: schema.userLibrary,
       console: { error: () => { loggedFailures += 1; } },

@@ -6,12 +6,24 @@ import React, {
   useEffect,
   useRef,
 } from "react";
-import { compileTSX } from "./tsx-compiler";
+import { compileTSX } from "@/lib/tsx/tsx-compiler";
 import { useAssetFont } from "@/lib/asset-font";
 import { resolveAssetRefs, resolveAssetUrl } from "@/lib/asset-url";
 import { CopyErrorButton } from "@/components/copy-error-button";
 
 /** API exposed to custom components via the useYumina() hook */
+/** One of the card's entries as a card's interface sees it. */
+export interface PreviewEntry {
+  id: string;
+  name: string;
+  content: string;
+  role: string;
+  enabled?: boolean;
+  folderId?: string;
+  audience?: "ai" | "player" | "both";
+  portrait?: string | null;
+}
+
 export interface YuminaAPI {
   mode?: "session" | "guest-preview";
   capabilities?: {
@@ -23,6 +35,7 @@ export interface YuminaAPI {
   sendMessage: (text: string, attachments?: import("@yumina/shared").ChatImageInput[]) => void;
   setVariable: (id: string, value: number | string | boolean | Record<string, unknown> | unknown[], options?: { scope?: string; targetUserId?: string }) => void;
   executeAction: (actionId: string) => void;
+  executeActionAndWait?: (actionId: string) => Promise<{ applied: true; variables: Record<string, unknown>; firedIds: string[] }>;
   navigateTo?: (path: string) => void;
   variables: Record<string, number | string | boolean | Record<string, unknown> | unknown[]>;
   globalVariables: Record<string, number | string | boolean | Record<string, unknown> | unknown[]>;
@@ -47,6 +60,9 @@ export interface YuminaAPI {
   streamingContent?: string;
   /** Resolve an @asset:{id} reference to a CDN URL */
   resolveAssetUrl?: (ref: string) => string;
+  /** The card's entries, for a part that lists them (a cast page): the same
+   *  slim shape the play sandbox gets. */
+  entries?: PreviewEntry[];
   /** Play an audio track by ID (must be defined in world audioTracks) */
   playAudio?: (trackId: string, opts?: { volume?: number; fadeDuration?: number; chainTo?: string; maxDuration?: number; duckBgm?: boolean }) => void;
   /** Stop a specific track, or all tracks if no ID given */
@@ -62,11 +78,16 @@ export interface YuminaAPI {
   /** Get current volume for a category (bgm, sfx, or master) */
   getAudioVolume?: (type: "bgm" | "sfx" | "master") => number;
   /** Switch the greeting message to a different pre-written opening (by swipe index, 0-based) */
-  switchGreeting?: (index: number) => void;
+  switchGreeting?: (index: number) => void | Promise<void>;
+  /** 现场 (see sandbox-context). Previews have no AI call to send it with. */
+  setScene?: (scene: Record<string, unknown> | string | null, options?: { events?: Array<{ name: string; when?: string }> }) => void;
+  onStoryEvent?: (cb: (event: { id: string; name: string }) => void) => () => void;
 }
 
 const defaultAPI: YuminaAPI = {
   sendMessage: () => {},
+  setScene: () => {},
+  onStoryEvent: () => () => {},
   setVariable: () => {},
   executeAction: () => {},
   variables: {},
@@ -387,6 +408,8 @@ export function CustomComponentRenderer({
       executeAction: api?.executeAction ?? defaultAPI.executeAction,
       navigateTo: api?.navigateTo,
       switchGreeting: api?.switchGreeting,
+      setScene: api?.setScene ?? defaultAPI.setScene,
+      onStoryEvent: api?.onStoryEvent ?? defaultAPI.onStoryEvent,
       variables: api?.variables ?? variables,
       globalVariables: api?.globalVariables ?? api?.variables ?? variables,
       worldName,

@@ -6,6 +6,7 @@ import { playSessions, messages, worlds, user, userPersonas, userWorldPersonas }
 import { eq, asc, sql } from "drizzle-orm";
 import { revertSession } from "./sessions.js";
 import { pruneSessionSnapshots } from "../lib/snapshot.js";
+after(async () => { const client = (db as unknown as { $client: { closed?: boolean; close(): Promise<void> } }).$client; if (!client.closed) await client.close(); });
 
 // Mirrors sessions-branch.test.ts: call revertSession() directly as a plain
 // async function, bypassing Hono + auth. The fixtures model REAL play data —
@@ -337,4 +338,4 @@ describe("revertSession", () => {
   });
 });
 
-after(async () => { await (db as unknown as { $client: { close(): Promise<void> } }).$client.close(); });
+after(async () => { const client = (db as unknown as { $client: { closed?: boolean; close(): Promise<void> } }).$client; if (!client.closed) await client.close(); });

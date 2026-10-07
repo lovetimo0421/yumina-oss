@@ -106,8 +106,8 @@ export function ContextGateModal({ worldName, gate, onIgnore, onRaise, onUpgrade
 
   return createPortal(
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-md rounded-2xl border border-gold/35 bg-card p-5 shadow-[0_24px_80px_rgba(0,0,0,0.35)] sm:p-6">
+      <div className="absolute inset-0 modal-backdrop" onClick={onClose} />
+      <div className="relative max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-gold/35 bg-card p-5 shadow-[0_24px_80px_rgba(0,0,0,0.35)] sm:p-6">
         <button
           onClick={onClose}
           className="absolute right-3 top-3 inline-flex h-10 w-10 items-center justify-center rounded-full text-sub/50 transition-colors hover:bg-gold/10 hover:text-action-primary focus:outline-none focus:ring-2 focus:ring-gold/50"

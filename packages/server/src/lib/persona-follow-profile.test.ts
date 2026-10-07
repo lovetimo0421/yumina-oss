@@ -29,7 +29,7 @@ beforeEach(async () => {
   }
   await db.execute(sql`INSERT INTO user_world_personas VALUES ('tester','world','B',now(),now())`);
 });
-after(async () => { await (db as unknown as { $client: { close(): Promise<void> } }).$client.close(); });
+after(async () => { const client = (db as unknown as { $client: { closed?: boolean; close(): Promise<void> } }).$client; if (!client.closed) await client.close(); });
 
 test("profile selection controls new and existing chats despite stale pins and snapshots", async () => {
   for (const expected of [A, B, A]) {

@@ -208,7 +208,9 @@
     "noDescription": "Sin descripción",
     "get": "Obtener",
     "deleteBundle": "Eliminar paquete",
-    "deleteConfirm": "¿Seguro que quieres eliminar <strong>{{name}}</strong>? Esta acción no se puede deshacer."
+    "deleteConfirm": "¿Quieres eliminar permanentemente <strong>{{name}}</strong>?",
+    "importBundle": "Importar paquete",
+    "deleteConsequence": "El paquete y su contenido editable se eliminarán permanentemente."
   },
   "favorites": {
     "backToLibrary": "Volver a la biblioteca",
@@ -326,7 +328,8 @@
       "viewInAssets": "Ver en recursos",
       "shareInCommunity": "Compartir en comunidad"
     },
-    "reviews": "Reseñas"
+    "reviews": "Reseñas",
+    "overviewSubtitle": "Información clave, notas y descripción en un solo lugar."
   },
   "bulk": {
     "select": "Seleccionar",
@@ -369,7 +372,11 @@
     "deleteAction": "Eliminar",
     "deletePermanently": "Eliminar permanentemente",
     "deleteIrreversible": "Esta acción no se puede deshacer.",
-    "authorDoesNotAllowEditing": "El autor no permite la edición"
+    "authorDoesNotAllowEditing": "El autor no permite la edición",
+    "deleteProjectConsequenceFiles": "El proyecto editable y sus datos locales se eliminarán permanentemente.",
+    "deletePublishedConsequence": "Los jugadores que guardaron este mundo publicado perderán el acceso.",
+    "removeGameConsequenceHistory": "Se eliminarán las sesiones guardadas y el historial de juego.",
+    "removeGameConsequenceHub": "El juego publicado seguirá disponible en Descubrir."
   },
   "card": {
     "play": "Jugar",
@@ -426,7 +433,7 @@
   },
   "create": {
     "title": "Crear nuevo",
-    "mobileTitle": "Crea una nueva historia",
+    "mobileTitle": "Crea algo nuevo",
     "mobileInstructionTitle": "Elige cómo quieres crear",
     "import": "Importar",
     "back": "Atrás",
@@ -438,7 +445,8 @@
       "signInBody": "Inicia sesión para generar imágenes y música, guardar tus obras y consultar tu historial.",
       "signInAction": "generar imágenes y música",
       "signIn": "Iniciar sesión para crear"
-    }
+    },
+    "mobileSubtitle": "Construye un mundo, diseña un personaje o convierte tus ideas en imágenes."
   },
   "time": {
     "justNow": "Ahora mismo",
@@ -453,9 +461,9 @@
   },
   "templates": {
     "blank": "Proyecto en blanco",
-    "blankDesc": "Un mundo vacío — sin preajustes.",
+    "blankDesc": "Un mundo vacío, solo con la narración por defecto.",
     "importWorld": "Importar mundo",
-    "importWorldDesc": "Importa un mundo desde un archivo JSON.",
+    "importWorldDesc": "Una tarjeta de personaje de SillyTavern (PNG o JSON), o una tarjeta de Yumina exportada.",
     "characterChat": "Chat con personaje",
     "characterChatDesc": "Diseña un personaje y conversa en un diálogo inmersivo uno a uno.",
     "worldSimulation": "Simulación de mundo",
@@ -885,7 +893,7 @@
       "sectionOutput": "Formato",
       "tabVideo": "Vídeo",
       "videoTitle": "Vídeo con IA",
-      "videoLead": "Los vídeos se guardan en tu biblioteca y puedes usarlos en retratos y aperturas."
+      "videoLead": "Los vídeos se guardan en tu biblioteca y puedes usarlos en retratos, aperturas y la pantalla del jugador."
     },
     "music": {
       "workshopTitle": "Generar un BGM",
@@ -1028,13 +1036,17 @@
       },
       "placeFailed": {
         "noGreeting": "Esta tarjeta todavía no tiene apertura.",
-        "linkFailed": "No se pudo vincular el vídeo a la tarjeta. Inténtalo de nuevo."
+        "linkFailed": "No se pudo vincular el vídeo a la tarjeta. Inténtalo de nuevo.",
+        "noUi": "Esta tarjeta aún no tiene pantalla de jugador visual: elige primero una plantilla en Pantalla del jugador."
       },
       "style": "Estilo",
       "styleCost": "Para vídeos solo con texto · primer fotograma +{{count}} mushies",
       "styleNone": "Sin estilo",
       "styleFromFrame": "Has puesto un primer o último fotograma, así que el vídeo conserva el estilo de esa imagen.",
-      "howStyle": "Estilo {{style}}"
+      "howStyle": "Estilo {{style}}",
+      "placeUi": "Pantalla del jugador (nuevo marco de vídeo)",
+      "styleHint": "El primer fotograma se dibuja en este estilo y luego se anima, así todo el clip lo conserva.",
+      "styleNoneHint": "{{model}} genera directamente desde el texto; tiende a lo realista."
     },
     "folderLoadFallback": "No se pudo cargar la carpeta de esta carta; por ahora se genera en Todos los recursos.",
     "quality": {

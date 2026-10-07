@@ -24,6 +24,7 @@ import {
   HardDrive,
   Loader2,
   Check,
+  ImagePlus,
 } from "lucide-react";
 import {
   useUserAssetStore,
@@ -62,11 +63,12 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { AssetPagination } from "./asset-pagination";
 import { assetImportStore, useAssetImportStore } from "@/stores/asset-import";
 import { LibraryEmptyState } from "./library-empty-state";
+// Through the edition seam: the local edition stubs this to null rather
+// than shipping the platform generator.
+import { GenerationPanel } from "@/edition/slots";
 import { BulkActionsBar } from "./bulk-actions-bar";
 import { useAuthGuard } from "@/hooks/use-auth-guard";
-import { ImagePlus } from "lucide-react";
 import { useFeature } from "@/edition/edition";
-import { GenerationPanel } from "@/edition/slots";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -178,11 +180,12 @@ export function LibraryAssetsTab({
   // Platform image generation is hosted-only; the local edition shows uploads only.
   const imageGeneration = useFeature("imageGeneration");
   const [generationOpen, setGenerationOpen] = useState(false);
-  const [generationReferenceId, setGenerationReferenceId] = useState<string | undefined>();
+  const [generationRefAssetId, setGenerationRefAssetId] = useState<string | null>(null);
+  const [generationRefTemplate, setGenerationRefTemplate] = useState<string>("image-smart");
   const [generationOwner, setGenerationOwner] = useState(session?.user.id);
   useEffect(() => {
     setGenerationOpen(false);
-    setGenerationReferenceId(undefined);
+    setGenerationRefAssetId(null);
     setGenerationOwner(session?.user.id);
     setCurrentFolderId(null);
     setBulkMoveOpen(false);
@@ -818,7 +821,7 @@ export function LibraryAssetsTab({
           {imageGeneration && (
             <button
               onClick={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } setGenerationOpen(true); }}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+              className="flex items-center gap-1.5 rounded-lg border border-primary/50 bg-primary/10 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:bg-primary/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               <ImagePlus size={14} />
               {t("generation.openButton")}
@@ -967,20 +970,29 @@ export function LibraryAssetsTab({
         <AssetPagination page={page} totalPages={totalPages} loading={loading} onPageChange={fetchCurrentPage} />
       )}
 
-
+      {/* ─── AI Generation Panel ─── hosted-only */}
       {imageGeneration && (
         <GenerationPanel
           key={session?.user.id ?? "guest"}
           open={generationOpen && generationOwner === session?.user.id}
           onOpenChange={(open) => {
             setGenerationOpen(open);
-            if (!open) { setGenerationReferenceId(undefined); void fetchCurrentPage(); void fetchFolders(); }
+            if (!open) {
+              setGenerationRefAssetId(null);
+              fetchCurrentPage();
+              fetchFolders();
+            }
           }}
           defaultFolderId={currentFolderId}
-          initialReferenceAssetId={generationReferenceId}
-          onGenerated={() => { void fetchCurrentPage(); void fetchFolders(); }}
+          initialTemplateId={generationRefAssetId ? generationRefTemplate : undefined}
+          initialReferenceAssetId={generationRefAssetId ?? undefined}
+          onGenerated={() => {
+            fetchCurrentPage();
+            fetchFolders();
+          }}
         />
       )}
+
       {/* ─── Preview Dialog ─── */}
       <Dialog
         open={!!previewAsset}
@@ -1005,7 +1017,12 @@ export function LibraryAssetsTab({
               </span>
               {imageGeneration && (
                 <button
-                  onClick={() => { setGenerationReferenceId(previewAsset.id); setPreviewAsset(null); setGenerationOpen(true); }}
+                  onClick={() => {
+                    setGenerationRefAssetId(previewAsset.id);
+                    setGenerationRefTemplate("image-anime");
+                    setPreviewAsset(null);
+                    setGenerationOpen(true);
+                  }}
                   className="flex shrink-0 items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1 text-xs text-foreground/70 transition-colors hover:bg-white/20 hover:text-foreground"
                 >
                   <ImagePlus size={12} />
@@ -1568,6 +1585,14 @@ function AssetCard({
                 className="h-full w-full object-cover"
                 loading="lazy"
                 onError={fallbackToOriginalOnError}
+              />
+            ) : asset.type === "video" ? (
+              <video
+                src={asset.url}
+                className="h-full w-full object-cover"
+                muted
+                playsInline
+                preload="metadata"
               />
             ) : (
               <div className="flex flex-col items-center gap-2 text-muted-foreground/30">

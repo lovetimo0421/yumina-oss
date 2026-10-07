@@ -39,6 +39,22 @@ export function harnessTurn(kind: HarnessTurnKind): ChatMessage {
   return { role: "user", content: TURNS[kind] };
 }
 
+// Phrases that announce an action the reply then never took ("现在直接修复——把",
+// "Let me update the entry"). Checked against the reply's ending, where a
+// stalled plan trails off; an answer that merely opens with "Let me explain"
+// is not a stall.
+const ACTION_INTENT = /我来|我会|我将|我现在|现在(?:就|直接|开始|来|去)?(?:修|改|加|写|做|创建|添加|删除|更新|调整|处理|实现)|接下来|下面我|马上|开始(?:修|改|写|做|创建|添加)|\bI'll\b|\bI will\b|\bI'm going to\b|\bLet me\b|\bNow I\b|\bNext,? I\b/i;
+const ACTION_INTENT_TAIL_CHARS = 300;
+
+/** Whether a text-only reply reads as "about to act" rather than a finished
+ *  answer. Only such replies earn the text_only_reply nudge — a pure Q&A
+ *  answer used to be nudged (twice), costing extra calls and bubbles. */
+export function replyAnnouncesAction(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  return ACTION_INTENT.test(trimmed.slice(-ACTION_INTENT_TAIL_CHARS));
+}
+
 export function isHarnessTurn(message: ChatMessage): boolean {
   return message.role === "user" && (Object.values(TURNS) as string[]).includes(message.content as string);
 }

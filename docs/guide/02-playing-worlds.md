@@ -14,13 +14,15 @@ Recommended can offer an optional **Personalize Discover** interest picker. Pick
 
 Starter choices stay in this browser, separately for guests and each account. They do not transfer automatically when you sign in or to another device. While signed in, your reading, favorites and positive ratings carry more weight as Discover learns; the starting hints also fade with time. Skipping or saving the same choices does not restart your feed.
 
-Recommended loads 10 cards at a time on phones. Larger screens load complete rows based on the available space: usually 12–18 cards on tablets and 18–30 on desktop. More cards load as you scroll; resizing the window keeps the cards you already have and your reading position.
+Discover card sizes adapt to the available width and screen height on tablets and computers. Recommended loads 10 cards at a time on phones. Larger screens load batches based on the available space: usually 12–18 cards on tablets and 18–30 on desktop, with at most 30 cards per batch even on very wide screens. More cards load as you scroll; resizing the window keeps the cards you already have and your reading position.
 
-Click any world card to see the full description, gallery, ratings, and reviews. Hit **Start Playing** to jump in.
+Click any world card to see the full description, gallery, ratings, and reviews. On shorter screens, scroll inside the preview to reach **Start Playing**, Library, and Favorite. Hit **Start Playing** to jump in.
 
 ## Sessions
 
 Every time you start a world, you create a **session** -- an independent save. You can have multiple sessions for the same world, each with its own story and state. The session picker shows your existing sessions with message count and last played time.
+
+Choose **Select** to enter selection mode. To clean up several saves, use **Select all** or the checkbox beside each session. **Deselect all** clears the selection; individual checkboxes let you keep specific saves. Choose **Delete selected** and confirm to permanently delete the selected sessions and their messages. If some deletions fail, those sessions stay selected so you can retry. After successful deletion, the picker automatically returns to the normal session menu so you can play a remaining save. **Done** also exits selection mode.
 
 If a world supports multiple languages, language tabs appear at the top of the session picker.
 

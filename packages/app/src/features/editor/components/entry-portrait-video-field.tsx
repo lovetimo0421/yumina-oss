@@ -42,7 +42,6 @@ export function EntryPortraitVideoField({ value, onChange }: {
   return (
     <div className="space-y-2" data-portrait-video>
       <label className="text-sm font-bold text-foreground">{t("entries.portraitVideo")}</label>
-      <p className="text-[11px] text-muted-foreground/80">{t("entries.portraitVideoHint")}</p>
       <div className="flex gap-3">
         {(["idle", "speaking"] as const).map((clip) => {
           const ref = value?.[clip];

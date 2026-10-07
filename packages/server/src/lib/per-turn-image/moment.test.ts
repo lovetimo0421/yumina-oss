@@ -48,15 +48,14 @@ test("dedupeTags keeps each tag once and weighted groups whole", () => {
   assert.equal(dedupeTags("black hair, smile, Black_Hair, (footjob, cum:1.25), smile"), "black hair, smile, (footjob, cum:1.25)");
 });
 
-test("an adult never keeps teen tags; a minor does", () => {
-  assert.doesNotMatch(normalizeTags("1girl, teenage, black hair", false), /teen/);
-  assert.match(normalizeTags("1girl, teenage, black hair", true), /teenage/);
+test("nobody keeps teen tags", () => {
+  assert.doesNotMatch(normalizeTags("1girl, teenage, black hair"), /teen/);
 });
 
-test("an ordinary adult moment pushes nudity away; an explicit one doesn't", () => {
-  assert.match(negativeFor(false, true), /\bnude\b/);
-  assert.doesNotMatch(negativeFor(false, false), /\bnude\b/);
-  assert.match(negativeFor(false), /\bcollage\b/);
+test("an ordinary moment pushes nudity away; an explicit one doesn't", () => {
+  assert.match(negativeFor(true), /\bnude\b/);
+  assert.doesNotMatch(negativeFor(false), /\bnude\b/);
+  assert.match(negativeFor(), /\bcollage\b/);
 });
 
 test("a full-step recipe keeps the negative prompt in play (cfg above 1)", () => {

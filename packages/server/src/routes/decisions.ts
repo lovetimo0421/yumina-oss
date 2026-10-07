@@ -76,7 +76,7 @@ decisionRoutes.post("/sessions/:sessionId/decisions", authMiddleware, bodyLimit(
       timeoutMs: Math.min(env.CONTINUITY_TIMEOUT_MS, 3000), playerKey });
     // Even malformed answers consumed tokens. Log before validating without
     // exposing upstream text or performing any mushie deduction/retry.
-    await recordUsageLog({ userId: currentUser.id, sessionId, model: result.model, endpoint: "side-decision",
+    await recordUsageLog({ userId: currentUser.id, sessionId, analyticsWorldId: session.worldId, model: result.model, endpoint: "side-decision",
       promptTokens: result.usage.inputTokens, completionTokens: result.usage.outputTokens, totalTokens: result.usage.inputTokens + result.usage.outputTokens,
       apiKeyTier: sideCallTier(result.keySource), generationTimeMs: result.ms, tokenMeasurement: "provider" });
     if (controller.signal.aborted) return c.json({ error: "Decision cancelled", code: "DECISION_CANCELLED" }, 408);

@@ -12,9 +12,15 @@ import {
   shouldAutoRequestEarlierHistory,
 } from "./message-history-pagination";
 import type { SandboxMessage } from "./types";
-import { anchorInitialTranscript, markTranscriptScroll } from "./initial-message-scroll";
+import { anchorInitialTranscript, isInitialTranscriptScroll, markTranscriptScroll } from "./initial-message-scroll";
+import { followReplyStep } from "./reply-follow";
+import { ReplyWaitingIndicator } from "./reply-waiting";
 import { trackTranscriptPosition } from "./transcript-position";
 import { restoreTranscriptHistory } from "./restore-transcript-history";
+import { isShortTranscript, lastSentLineId, revealSentLineStep } from "./sent-line-reveal";
+import { isScrollIntent } from "./scroll-intent";
+import { DESIGNED_MESSAGE_CSS, useDesignRenderer, type MessageDesign } from "./designed-message";
+import { canStartEdit, editTargetFor, reconcileEditTarget, type EditTarget } from "./edit-target";
 
 const warmedPortraits = new Map<string, HTMLImageElement>();
 
@@ -76,13 +82,29 @@ function isHistoryViewportUnderfilled(
 
 interface MessageListProps {
   rendererComponent: React.ComponentType<Record<string, unknown>> | null;
+  /**
+   * A message style and 特殊写法 rules from the card's interface document,
+   * drawn by the platform (designed-message.tsx). Ignored when the card brings
+   * its own `rendererComponent`, which has always owned the whole message.
+   */
+  design?: MessageDesign | null;
+  /** Card-loaded font families → the names they loaded under. */
+  fontMap?: Record<string, string>;
 }
 
 const INITIAL_MESSAGE_WINDOW = 50;
 const AT_BOTTOM_THRESHOLD_PX = 80;
 
-export function MessageList({ rendererComponent }: MessageListProps) {
+export function MessageList({ rendererComponent: ownRenderer, design, fontMap }: MessageListProps) {
   const api = useYumina();
+  const designRenderer = useDesignRenderer(ownRenderer ? null : design, fontMap, {
+    sendMessage: (text) => api.sendMessage(text),
+    resolveAssetUrl: (ref) => api.resolveAssetUrl(ref),
+    storage: api.storage,
+    canSend: () => !api.isStreaming && !api.readOnly && api.capabilities?.canSendMessage !== false && api.mode !== "guest-preview",
+  });
+  const rendererComponent = ownRenderer ?? designRenderer;
+  const designStyle = designRenderer ? <style>{DESIGNED_MESSAGE_CSS}</style> : null;
   // Tells RefusalHost the transcript shows refusal bars itself.
   useRegisterTranscript();
   const retryTrailingTurn = useRetryTrailingTurn();
@@ -116,6 +138,19 @@ export function MessageList({ rendererComponent }: MessageListProps) {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const historySentinelRef = useRef<HTMLDivElement>(null);
   const userScrolledUp = useRef(false);
+  /** This turn's reply is being kept in view (reply-follow.ts). Armed when a
+   *  generation starts with the reader at the bottom; any reader scroll ends
+   *  it, returning to the bottom re-arms it. */
+  const followReplyRef = useRef(false);
+  /** A finished reply still being settled into view (markdown/images reflow). */
+  const settleReplyRef = useRef<{ until: number } | null>(null);
+  /** When the current generation started, for the pre-first-token status. */
+  const [waitStartedAt, setWaitStartedAt] = useState<number | null>(null);
+  /** A card's short messages box is walking the newest sent line up. */
+  const revealingSentLineRef = useRef(false);
+  const revealSawStreamRef = useRef(false);
+  /** User lines seen so far; a walk starts only when the player sends a new one. */
+  const sentLineCountRef = useRef(0);
   const hasMountedRef = useRef(false);
   const releaseInitialAnchorRef = useRef<(() => void) | null>(null);
   const resumePositionRef = useRef<ReturnType<typeof trackTranscriptPosition> | null>(null);
@@ -133,6 +168,12 @@ export function MessageList({ rendererComponent }: MessageListProps) {
   const earlierAnchorRef = useRef<{ element: HTMLElement; firstId: string; offsetTop: number } | null>(null);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState("");
+  /** The variant the open edit was seeded from (edit-target.ts). */
+  const editTargetRef = useRef<EditTarget | null>(null);
+  /** Messages whose swipe switch has not landed on screen yet: null while the
+   *  request is in flight, then the index the host reported until the
+   *  updated message arrives. Editing is disabled for these rows. */
+  const [switchingSwipes, setSwitchingSwipes] = useState<ReadonlyMap<string, number | null>>(() => new Map());
   const [savingEditId, setSavingEditId] = useState<string | null>(null);
   const savingEditRef = useRef<string | null>(null);
   const [showAllMessages, setShowAllMessages] = useState(false);
@@ -159,6 +200,8 @@ export function MessageList({ rendererComponent }: MessageListProps) {
     historyLoadRequestTokenRef.current += 1;
     hasMountedRef.current = false;
     userScrolledUp.current = false;
+    revealingSentLineRef.current = false;
+    sentLineCountRef.current = 0;
     historyAutoLoadArmedRef.current = false;
     historyIntersectionSeenAwayRef.current = false;
     historyAutoFillRequestKeyRef.current = null;
@@ -177,11 +220,121 @@ export function MessageList({ rendererComponent }: MessageListProps) {
     };
   }, [api.sessionId]);
 
+  // Short box only: keep walking the sent line up as the reply grows under it.
+  // Looked up by "newest user line", not by id: the pending row is swapped for
+  // the saved one mid-stream. The walk runs until the reply has finished, not
+  // until the line first touches the top: the transcript reflows while the
+  // reply lands (the box briefly holds more, then less), and a walk that had
+  // already stopped left the line parked low again. Each step only ever
+  // scrolls down toward the line, so once it is at the top the rest is no-op.
+  const revealSentLine = () => {
+    if (!revealingSentLineRef.current) return;
+    const el = scrollContainerRef.current;
+    const id = lastSentLineId(messages);
+    const row = el && id ? el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(id)}"]`) : null;
+    if (!el || !row) { revealingSentLineRef.current = false; return; }
+    revealSentLineStep(el, row, setScrollTopRaw);
+    if (isStreaming) revealSawStreamRef.current = true;
+    else if (revealSawStreamRef.current) revealingSentLineRef.current = false;
+  };
+  const revealSentLineLatest = useRef(revealSentLine);
+  revealSentLineLatest.current = revealSentLine;
+  useLayoutEffect(revealSentLine, [messages, streamingContent, streamingReasoning, isStreaming]);
+
+  // The reply also grows between commits (markdown, images, the typewriter),
+  // and a reader's own scroll ends the walk. Programmatic scrolls do not count:
+  // the walk's own steps fire scroll events too.
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    const stack = el?.firstElementChild;
+    // Read-only previews never send, so there is no sent line to walk.
+    if (!el || !stack || isGuestPreview) return;
+    const observer = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => revealSentLineLatest.current());
+    observer?.observe(stack);
+    const readerScroll = (event: Event) => {
+      if (!isScrollIntent(event)) return;
+      revealingSentLineRef.current = false;
+      // The reader took over: stop keeping the reply in view.
+      followReplyRef.current = false;
+      settleReplyRef.current = null;
+    };
+    const kinds = ["wheel", "touchmove", "keydown", "pointerdown"] as const;
+    kinds.forEach((kind) => el.addEventListener(kind, readerScroll, { passive: true }));
+    return () => {
+      observer?.disconnect();
+      kinds.forEach((kind) => el.removeEventListener(kind, readerScroll));
+    };
+  }, [api.sessionId, hasMessageHistory, isGuestPreview]);
+
+  // ── Keep the new reply in view ──
+  const followTarget = (): HTMLElement | null => {
+    const el = scrollContainerRef.current;
+    if (!el) return null;
+    const anchor = el.querySelector<HTMLElement>("[data-reply-anchor]");
+    if (anchor || !settleReplyRef.current) return anchor;
+    // Settling: the saved reply row. The "done" and the saved row can reach
+    // this frame in either order, so look it up each time.
+    const last = messages[messages.length - 1];
+    return last?.role === "assistant"
+      ? el.querySelector<HTMLElement>(`[data-mid="${CSS.escape(last.id)}"]`)
+      : null;
+  };
+  const followReply = () => {
+    const el = scrollContainerRef.current;
+    if (!el || revealingSentLineRef.current || isShortTranscript(el)) return;
+    const settling = settleReplyRef.current;
+    if (settling && Date.now() > settling.until) settleReplyRef.current = null;
+    if (!followReplyRef.current && !settleReplyRef.current) return;
+    const target = followTarget();
+    if (target) followReplyStep(el, target, setScrollTopRaw, !followReplyRef.current && !!settleReplyRef.current);
+  };
+  const followReplyLatest = useRef(followReply);
+  followReplyLatest.current = followReply;
+
+  const wasStreamingRef = useRef(false);
+  useLayoutEffect(() => {
+    const was = wasStreamingRef.current;
+    wasStreamingRef.current = isStreaming;
+    if (isStreaming && !was) {
+      // A generation started (send, regenerate, continue): follow it only if
+      // the reader is where new text appears.
+      followReplyRef.current = !userScrolledUp.current;
+      settleReplyRef.current = null;
+      setWaitStartedAt(Date.now());
+      return;
+    }
+    if (!isStreaming && was) {
+      setWaitStartedAt(null);
+      if (followReplyRef.current) {
+        // The streaming bubble is replaced by the saved row, which renders
+        // (and grows: markdown, images) over the next frames. Keep its start
+        // in view while it settles.
+        settleReplyRef.current = { until: Date.now() + 2000 };
+      }
+      followReplyRef.current = false;
+    }
+  }, [isStreaming, messages]);
+  useLayoutEffect(() => { followReplyLatest.current(); }, [messages, streamingContent, streamingReasoning, isStreaming]);
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    const stack = el?.firstElementChild;
+    // Read-only previews never generate, so there is no reply to follow.
+    if (!el || !stack || isGuestPreview || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => followReplyLatest.current());
+    observer.observe(stack);
+    return () => observer.disconnect();
+  }, [api.sessionId, hasMessageHistory, isGuestPreview]);
+
   // Auto-scroll: only on initial mount. Once the user has scrolled, we leave
   // the viewport alone — even when they send a new message — until the session
   // resets. The sandbox guard enforces the same rule for creator custom UI.
   useEffect(() => {
     if (messages.length === 0) return;
+    const sentLineCount = messages.reduce((n, m) => n + (m.role === "user" ? 1 : 0), 0);
+    const sentNewLine = sentLineCount > sentLineCountRef.current;
+    sentLineCountRef.current = sentLineCount;
     if (!hasMountedRef.current) {
       hasMountedRef.current = true;
       if (messages.length > 1 && !isGuestPreview && scrollContainerRef.current) {
@@ -199,6 +352,21 @@ export function MessageList({ rendererComponent }: MessageListProps) {
     releaseInitialAnchorRef.current = null;
     if (resumePositionRef.current?.updating()) return;
     const lastMsg = messages[messages.length - 1];
+    const el = scrollContainerRef.current;
+    if (lastMsg?.role === "user" && el && isShortTranscript(el)) {
+      // A card's short box never jumps to the bottom (that parks the sent line
+      // on the bottom edge). Sending is the player asking for the reply, on
+      // every turn, so the walk starts even if the last reply left the box
+      // scrolled off the bottom. The pending row being swapped for the saved
+      // one is not a new send. The full chat below keeps production's rule.
+      if (sentNewLine) {
+        userScrolledUp.current = false;
+        revealingSentLineRef.current = true;
+        revealSawStreamRef.current = false;
+        revealSentLine();
+      }
+      return;
+    }
     if (!userScrolledUp.current && lastMsg?.role === "user") {
       scrollToBottom("smooth");
     }
@@ -395,9 +563,15 @@ export function MessageList({ rendererComponent }: MessageListProps) {
   const handleScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     const el = event.currentTarget;
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < AT_BOTTOM_THRESHOLD_PX;
-    userScrolledUp.current = !atBottom;
+    // Our own scrolls (the reply follow parks a long reply's start at the
+    // top, short of the bottom) say nothing about where the reader wants to be.
+    if (!isInitialTranscriptScroll(el)) {
+      userScrolledUp.current = !atBottom;
+      // Back at the bottom mid-reply: pick the reply up again.
+      if (atBottom && isStreaming) followReplyRef.current = true;
+    }
     maybeRequestEarlierHistory(el, el.scrollTop);
-  }, [maybeRequestEarlierHistory]);
+  }, [maybeRequestEarlierHistory, isStreaming]);
 
   // If the current page is too short to create a scrollbar, there is no user
   // scroll event and the marker never leaves the viewport. Re-check after each
@@ -448,27 +622,85 @@ export function MessageList({ rendererComponent }: MessageListProps) {
     return () => observer.disconnect();
   }, [hasMessageHistory]);
 
-  // ── Edit handlers ──
-  const handleStartEdit = useCallback((messageId: string, content: string) => {
-    setEditingMessageId(messageId);
-    setEditContent(content);
+  // ── Swipe switches in flight ──
+  const handleSwitchPending = useCallback((messageId: string, pending: boolean, landedIndex?: number | null) => {
+    setSwitchingSwipes((prev) => {
+      const next = new Map(prev);
+      if (pending) next.set(messageId, null);
+      // Settled with a known target: keep blocking until that variant is the
+      // one on screen (the answer can beat the message update here).
+      else if (typeof landedIndex === "number") next.set(messageId, landedIndex);
+      else next.delete(messageId);
+      return next;
+    });
   }, []);
+  useEffect(() => {
+    if (switchingSwipes.size === 0) return;
+    let changed = false;
+    const next = new Map(switchingSwipes);
+    for (const [id, expected] of switchingSwipes) {
+      if (expected === null) continue;
+      const message = messages.find((m) => m.id === id);
+      if (!message || (message.activeSwipeIndex ?? 0) === expected) { next.delete(id); changed = true; }
+    }
+    if (changed) { setSwitchingSwipes(next); return; }
+    // Never leave editing locked if the update somehow never arrives.
+    const timer = window.setTimeout(() => {
+      setSwitchingSwipes((prev) => {
+        const pruned = new Map(prev);
+        for (const [id, expected] of prev) if (expected !== null) pruned.delete(id);
+        return pruned;
+      });
+    }, 4000);
+    return () => window.clearTimeout(timer);
+  }, [messages, switchingSwipes]);
+
+  // ── Edit handlers ──
+  const handleStartEdit = useCallback((message: SandboxMessage) => {
+    if (!canStartEdit(message.id, new Set(switchingSwipes.keys()))) return;
+    editTargetRef.current = editTargetFor(message);
+    setEditingMessageId(message.id);
+    setEditContent(message.content);
+  }, [switchingSwipes]);
 
   const handleCancelEdit = useCallback(() => {
+    editTargetRef.current = null;
     setEditingMessageId(null);
     setEditContent("");
   }, []);
 
+  // The row under an open edit changed (a swipe landed late, another tab
+  // edited it): follow it if nothing was typed, otherwise close the editor
+  // rather than save the text into a variant it was not written for.
+  useEffect(() => {
+    const target = editTargetRef.current;
+    if (!target || !editingMessageId || savingEditRef.current) return;
+    const result = reconcileEditTarget(target, messages.find((m) => m.id === target.messageId), editContent);
+    if (result.action === "keep") return;
+    if (result.action === "reseed") {
+      editTargetRef.current = result.target;
+      if (result.draft !== editContent) setEditContent(result.draft);
+      return;
+    }
+    editTargetRef.current = null;
+    setEditingMessageId(null);
+    setEditContent("");
+    api.showToast(t("editClosedVersionChanged"), "info");
+  }, [messages, editingMessageId, editContent, api, t]);
+
   const handleSaveEdit = useCallback(async (messageId: string) => {
     if (savingEditRef.current) return;
+    const target = editTargetRef.current;
+    if (!target || target.messageId !== messageId) return;
     savingEditRef.current = messageId;
     setSavingEditId(messageId);
     try {
-      const success = await api.editMessage(messageId, editContent);
+      const success = await api.editMessage(messageId, editContent, { swipeIndex: target.swipeIndex });
       if (!success) {
         api.showToast(t("failedEdit"), "error");
         return;
       }
+      editTargetRef.current = null;
       setEditingMessageId(null);
       setEditContent("");
     } catch {
@@ -499,13 +731,17 @@ export function MessageList({ rendererComponent }: MessageListProps) {
     ? allActiveMessages.slice(-INITIAL_MESSAGE_WINDOW)
     : allActiveMessages;
   const earlierHistoryAction = getEarlierHistoryAction(hiddenCount, api.hasEarlierMessages);
+  // The opening is the session's first row when that row is loaded and is the
+  // AI's. Only the designed renderer reads it (a card can style the opening).
+  const greetingId = !api.hasEarlierMessages && allActiveMessages[0]?.role === "assistant" ? allActiveMessages[0].id : null;
   const isEarlierHistoryLoading = historyLoadRequested || api.isLoadingEarlier;
 
   // ── Greeting (empty state) ──
   if (messages.length === 0 && !isStreaming) {
     if (greetingContent) {
       return (
-        <div className="play-message-scroll flex-1 min-h-0 overflow-y-auto">
+        <div className="play-message-scroll flex-1 min-h-0 max-h-full overflow-y-auto">
+          {designStyle}
           <div className="play-message-stack">
             <MessageBubble
               message={{
@@ -518,6 +754,8 @@ export function MessageList({ rendererComponent }: MessageListProps) {
               rendererComponent={rendererComponent}
               variables={gameState as Record<string, unknown>}
               messageIndex={0}
+              isGreeting
+              isLastMessage
             />
             <div ref={bottomRef} className="h-4" />
           </div>
@@ -537,12 +775,18 @@ export function MessageList({ rendererComponent }: MessageListProps) {
   }
 
   // ── Main message list ──
+  // `max-h-full` as well as `flex-1`: a card's own layout can drop the list
+  // into a fixed-height box that is not a flex column (the example template's
+  // messages box is one). There `flex-1` does nothing, the list grew to its
+  // full height inside a clipping box, had nothing to scroll, and every new
+  // reply landed below the fold — the playtest looked like it never answered.
   return (
     <div
       ref={scrollContainerRef}
       onScroll={handleScroll}
-      className="play-message-scroll flex-1 min-h-0 overflow-y-auto"
+      className="play-message-scroll flex-1 min-h-0 max-h-full overflow-y-auto"
     >
+      {designStyle}
       <div className="play-message-stack">
         <div
           ref={historySentinelRef}
@@ -585,6 +829,7 @@ export function MessageList({ rendererComponent }: MessageListProps) {
           const isEditingThis = editingMessageId === message.id;
           const isLastMessage = idx === activeMessages.length - 1;
           const isLastAssistant = isLastMessage && message.role === "assistant";
+          const swipeSwitching = switchingSwipes.has(message.id);
 
           return (
             <div key={message.id} data-mid={message.id} className="play-message-row">
@@ -594,8 +839,9 @@ export function MessageList({ rendererComponent }: MessageListProps) {
                 variables={messageVars as Record<string, unknown>}
                 messageIndex={idx}
                 showRoleLabel={showRoleLabel}
+                isGreeting={message.id === greetingId}
                 isLastMessage={isLastMessage}
-                actionsKey={`${isLastAssistant ? 1 : 0}${isLastMessage ? 1 : 0}:${message.swipes?.length ?? 0}:${message.status ?? ""}`}
+                actionsKey={`${isLastAssistant ? 1 : 0}${isLastMessage ? 1 : 0}:${message.swipes?.length ?? 0}:${message.status ?? ""}:${swipeSwitching ? 1 : 0}${isEditingThis ? 1 : 0}`}
                 isEditing={isEditingThis}
                 isSavingEdit={savingEditId === message.id}
                 editContent={isEditingThis ? editContent : undefined}
@@ -604,7 +850,11 @@ export function MessageList({ rendererComponent }: MessageListProps) {
                 onCancelEdit={handleCancelEdit}
                 swipeControls={
                   message.role === "assistant" ? (
-                    <SwipeControls message={message} />
+                    <SwipeControls
+                      message={message}
+                      locked={isEditingThis}
+                      onSwitchPendingChange={handleSwitchPending}
+                    />
                   ) : undefined
                 }
               >
@@ -612,7 +862,8 @@ export function MessageList({ rendererComponent }: MessageListProps) {
                   message={message}
                   isLastAssistant={isLastAssistant}
                   isLastMessage={isLastMessage}
-                  onEditStart={() => handleStartEdit(message.id, message.content)}
+                  onEditStart={() => handleStartEdit(message)}
+                  editDisabled={swipeSwitching}
                 />
               </MessageBubble>
             </div>
@@ -622,8 +873,16 @@ export function MessageList({ rendererComponent }: MessageListProps) {
         {/* Platform-owned consent renders here, including creator-skinned chats. */}
         <div data-yumina-model-fallback-slot="true" />
 
+        {/* Before the first token: a status that says more the longer it waits. */}
+        {isStreaming && !streamingContent && !streamingReasoning && waitStartedAt !== null && (
+          <div data-reply-anchor="waiting" style={{ display: "flow-root" }}>
+            <ReplyWaitingIndicator startedAt={waitStartedAt} t={t} />
+          </div>
+        )}
+
         {/* Streaming message */}
         {isStreaming && (streamingContent || streamingReasoning) && (
+          <div data-reply-anchor="streaming" style={{ display: "flow-root" }}>
           <MessageBubble
             message={{
               id: "__streaming__",
@@ -639,6 +898,7 @@ export function MessageList({ rendererComponent }: MessageListProps) {
             variables={gameState as Record<string, unknown>}
             messageIndex={activeMessages.length}
           />
+          </div>
         )}
 
         {/* Error banner */}
@@ -660,7 +920,7 @@ export function MessageList({ rendererComponent }: MessageListProps) {
               onClick={() => setErrorDismissed(true)}
               className="play-message-error__dismiss shrink-0 text-xs text-destructive/60 hover:text-destructive"
             >
-              Dismiss
+              {t("dismiss")}
             </button>
           </div>
         )}

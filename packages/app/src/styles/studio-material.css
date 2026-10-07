@@ -1,0 +1,205 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   Studio material — 夜灯下的玻璃桌 (a glass desk under a night lamp)
+
+   The visual editor is a dark desk lit by one warm lamp from above. Every
+   raised thing (a block, the toolbar, a control in the column) is a sheet
+   of frosted glass: a little translucent, a hairline of light along its
+   top edge, a hairline of shade along its bottom, a soft shadow underneath.
+   Gold never appears as paint — no gold fills, no gold borders. It appears
+   only as light: the glow behind the selected block, the glowing dot of a
+   switch that is on, the halo of a focused field. Kind colours (a
+   variable's sky, a behaviour's orange) live only on a block's head.
+
+   Four levels of ink and four levels of surface, so nobody picks greys:
+     ink 100 / 66 / 46 / 30      surface 0 / 4% / hover 7% / focus 10%
+   ═══════════════════════════════════════════════════════════════════════ */
+
+:root {
+  --studio-night: #0e0f16;
+  --studio-night-deep: #0a0b10;
+  --studio-night-lift: #1a1c2a;
+  /* The glass. The solid twin is for surfaces that must not let the board
+     bleed through (the column, popovers over text). */
+  --studio-glass: rgba(24, 26, 36, 0.72);
+  --studio-glass-solid: #181a24;
+  --studio-column: #14151e;
+  --studio-raised: #222533;
+  --studio-ink: #ebe7de;
+  --studio-ink-2: rgba(235, 231, 222, 0.66);
+  --studio-ink-3: rgba(235, 231, 222, 0.46);
+  --studio-ink-4: rgba(235, 231, 222, 0.3);
+  --studio-line: rgba(255, 255, 255, 0.07);
+  --studio-line-2: rgba(255, 255, 255, 0.05);
+  --studio-surface-1: rgba(255, 255, 255, 0.04);
+  --studio-surface-2: rgba(255, 255, 255, 0.07);
+  --studio-lamp: #f0c674;
+  --studio-lamp-rgb: 240, 198, 116;
+  --studio-top-light: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+  --studio-bottom-shade: inset 0 -1px 0 rgba(0, 0, 0, 0.35);
+  --studio-drop: 0 18px 40px -22px rgba(0, 0, 0, 1);
+  --studio-drop-soft: 0 10px 24px -16px rgba(0, 0, 0, 0.9);
+  --studio-lamp-glow: 0 0 36px 4px rgba(240, 198, 116, 0.24);
+  --studio-lamp-ring: 0 0 0 2px rgba(240, 198, 116, 0.6);
+  --studio-focus: 0 0 0 3px rgba(240, 198, 116, 0.14);
+}
+
+/* Inside the studio, Tailwind's amber IS the lamp. Every amber-* class on
+   the desk (a new row's pulse, a selected block's ring, a focused field)
+   resolves to the lamp's gold, so attention is one colour of light and not
+   two yellows side by side. Set on the studio's root, so the rest of the
+   app keeps its own amber. */
+.studio-desk {
+  --color-amber-50: #fdf6e3;
+  --color-amber-100: #f9ead0;
+  --color-amber-200: #f8e6bd;
+  --color-amber-300: #f5d48a;
+  --color-amber-400: #f0c674;
+  --color-amber-500: #d9ad5c;
+  --color-amber-600: #b8903f;
+}
+
+/* The desk itself: deep, with a lift of blue-black towards the top where
+   the lamp is. */
+@utility studio-canvas {
+  background: radial-gradient(ellipse at 60% -20%, var(--studio-night-lift) 0%, var(--studio-night) 60%, var(--studio-night-deep) 100%);
+}
+/* The lamp: one pool of warm light near the top of the desk. Fixed to the
+   container, not the board, so it stays put while the board pans. */
+@utility studio-lamp-pool {
+  background: radial-gradient(closest-side, rgba(240, 198, 116, 0.09), transparent);
+}
+
+/* A sheet of glass standing on its own: a block outside a tile, a popover,
+   the tutorial card. */
+@utility studio-glass {
+  background: var(--studio-glass);
+  backdrop-filter: blur(10px);
+  border-color: var(--studio-line);
+  box-shadow: var(--studio-top-light), var(--studio-bottom-shade), var(--studio-drop);
+}
+/* A block inside a tile: the tile is the sheet, the block is a region of
+   it. No lift of its own — the hairlines between regions do the dividing. */
+@utility studio-glass-flush {
+  background: rgba(24, 26, 36, 0.35);
+  border-color: var(--studio-line);
+  box-shadow: var(--studio-top-light);
+}
+/* An open tile: the sheet the blocks stand on. */
+@utility studio-glass-frame {
+  background: rgba(24, 26, 36, 0.55);
+  backdrop-filter: blur(10px);
+  box-shadow: var(--studio-top-light), var(--studio-bottom-shade), var(--studio-drop);
+}
+/* Floating chrome over the desk: the toolbar, the zoom buttons, menus. */
+@utility studio-pill {
+  background: rgba(24, 26, 36, 0.7);
+  backdrop-filter: blur(14px);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 16px 40px -18px rgba(0, 0, 0, 1);
+}
+/* The column beside the desk. Solid: text is edited in it. */
+@utility studio-column {
+  background: var(--studio-column);
+}
+/* The one place gold shows as light on the board: the selected block. */
+@utility studio-lamp-ring {
+  border-color: rgba(240, 198, 116, 0.8);
+  box-shadow: var(--studio-top-light), var(--studio-lamp-ring), var(--studio-lamp-glow), var(--studio-drop);
+}
+/* A control on the column: surface 4%, hairline, top light. */
+@utility studio-control {
+  background: var(--studio-surface-1);
+  border-color: var(--studio-line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+@utility studio-control-focus {
+  border-color: rgba(240, 198, 116, 0.6);
+  background: rgba(240, 198, 116, 0.1);
+  box-shadow: var(--studio-focus);
+}
+/* A primary button on the desk: lit glass, not a slab of paint. */
+@utility studio-button-lit {
+  background: rgba(240, 198, 116, 0.16);
+  border-color: rgba(240, 198, 116, 0.4);
+  color: #f5d48a;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 0 14px rgba(240, 198, 116, 0.18);
+}
+/* The tutorial's highlight around a control: light around the thing, no
+   painted frame. */
+@utility studio-lamp-highlight {
+  border-color: rgba(240, 198, 116, 0.5);
+  box-shadow: 0 0 0 3px rgba(240, 198, 116, 0.1), 0 0 28px 4px rgba(240, 198, 116, 0.16);
+}
+/* The classic editors that still stand in the column (a legacy trigger, the
+   random-value editor): their inputs, selects and pickers are re-dressed as
+   glass from outside, so the one old form does not sit in a new column
+   wearing the old clothes. */
+@utility studio-classic {
+  & input:not([type="checkbox"]),
+  & textarea,
+  & select,
+  & button[aria-haspopup="menu"] {
+    background: var(--studio-surface-1);
+    border-color: var(--studio-line);
+    border-radius: 0.5rem;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    font-size: 12px;
+    padding-block: 5px;
+  }
+  & input:focus,
+  & textarea:focus,
+  & select:focus,
+  & button[aria-haspopup="menu"]:focus-visible {
+    border-color: rgba(240, 198, 116, 0.6);
+    background: rgba(240, 198, 116, 0.1);
+    box-shadow: var(--studio-focus);
+    outline: none;
+  }
+  & label,
+  & span,
+  & p {
+    font-size: 12px;
+  }
+  & .rounded-lg.border,
+  & .rounded-xl.border {
+    background: transparent;
+    border-color: var(--studio-line-2);
+  }
+}
+
+/* A tutorial lesson brings its block onto the board: it rises in. The node
+   element carries React Flow's own position transform, so the rise is on
+   what it draws. */
+@keyframes studio-learn-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+/* After the camera has arrived (its lesson move is ~350ms): one motion at a
+   time, never the board and a block moving together. */
+.react-flow__node.studio-learn-enter > * {
+  animation: studio-learn-enter 380ms cubic-bezier(0.2, 0.8, 0.2, 1) 380ms both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__node.studio-learn-enter > * { animation: none; }
+}
+
+/* A row being dragged stays where it was, emptied out; the row it would
+   land above wears a line of light along its top edge (block-node.tsx). */
+[data-row-lifted] {
+  opacity: 0.35;
+  outline: 1px dashed rgba(240, 198, 116, 0.6);
+  outline-offset: -2px;
+}
+[data-row-landing]::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  top: -2px;
+  height: 3px;
+  border-radius: 9999px;
+  background: #f0c674;
+  box-shadow: 0 0 10px rgba(240, 198, 116, 0.9);
+  pointer-events: none;
+  z-index: 10;
+}

@@ -106,8 +106,11 @@ test("edit/delete/swipe invalidation is scoped and never wipes session memory", 
   assert.match(helper, /compacted === true/, "story invalidation must be scoped to compacted messages");
   assert.match(helper, /summaryceptionCompacted === true/, "summaryception invalidation must be scoped to covered messages");
   assert.ok(!helper.includes("sessionMemory:"), "the scoped helper must never touch structured session memory");
-  const edits = messagesSrc.match(/reason: "message-(edited|deleted|swiped)"/g) ?? [];
-  assert.ok(edits.length >= 5, `expected the 5 edit/delete/swipe sites to dispatch invalidation, found ${edits.length}`);
+  for (const reason of ["edited", "deleted", "swiped"]) {
+    assert.ok(messagesSrc.includes(`reason: "message-${reason}"`), `${reason} must dispatch invalidation`);
+  }
+  assert.equal((messagesSrc.match(/await writeSwipe\(/g) ?? []).length, 3,
+    "index, left and right swipe routes must use the shared atomic invalidation path");
 });
 
 test("message edits and deletes invalidate with post-write compacted flags", () => {
@@ -117,11 +120,14 @@ test("message edits and deletes invalidate with post-write compacted flags", () 
   const editBlock = messagesSrc.slice(editStart, deleteStart);
   const deleteBlock = messagesSrc.slice(deleteStart, regenerateStart);
 
-  assert.match(editBlock, /messageFlags: result\[0\] \?\? msg/);
-  assert.match(deleteBlock, /db\.delete\(messages\)[\s\S]*\.returning\(\)/);
-  assert.match(deleteBlock, /messageFlags: deleted\[0\] \?\? msg/);
-  const postWriteSwipeFlags = messagesSrc.match(/messageFlags: updatedMessage \?\? msg/g) ?? [];
-  assert.equal(postWriteSwipeFlags.length, 3);
+  assert.match(editBlock, /tx\.update\(messages\)[\s\S]*\.returning\(\)/);
+  assert.match(editBlock, /return \{ messageFlags: updatedMessage \?\? msg/);
+  assert.match(deleteBlock, /tx\.delete\(messages\)[\s\S]*\.returning\(\)/);
+  assert.match(deleteBlock, /return \{ messageFlags: deleted \?\? msg/);
+  const swipeStart = messagesSrc.indexOf("const writeSwipe = async");
+  const swipeBlock = messagesSrc.slice(swipeStart, messagesSrc.indexOf("// Index-based swipe", swipeStart));
+  assert.match(swipeBlock, /tx\.update\(messages\)[\s\S]*\.returning\(\)/);
+  assert.match(swipeBlock, /return \{ messageFlags: updatedMessage \?\? msg/);
 });
 
 test("raw rows included by small manual regeneration still invalidate the summary", () => {

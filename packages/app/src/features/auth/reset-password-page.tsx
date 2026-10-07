@@ -72,6 +72,28 @@ export function ResetPasswordPage() {
     );
   }
 
+  // No token (bare /reset-password) or the server already rejected it: a
+  // password form here can never succeed, so offer a new link instead.
+  if (!token || errorParam === "INVALID_TOKEN") {
+    return (
+      <AuthLayout wide>
+          <div className="rounded-2xl border border-white/[0.08] bg-[#212124]/80 p-10 text-center shadow-2xl shadow-black/40 backdrop-blur-xl" data-testid="reset-link-invalid">
+            <h1 className="mb-3 text-2xl font-bold text-[#E6E4DD]">{t("resetPassword.linkInvalid.title")}</h1>
+            <p className="mb-8 text-sm leading-relaxed text-[#B9B6AE]/80">{t("resetPassword.linkInvalid.body")}</p>
+            <Link
+              to="/forgot-password"
+              className="block w-full rounded-xl bg-gold px-4 py-3 text-sm font-bold text-[#181818] shadow-[0_0_20px_rgba(201,162,94,0.15)] transition-all hover:bg-[#F0C24A] hover:shadow-[0_0_30px_rgba(201,162,94,0.25)] active:scale-[0.98]"
+            >
+              {t("resetPassword.linkInvalid.requestNew")}
+            </Link>
+            <Link to="/login" className="mt-4 inline-block text-sm font-semibold text-[#B9B6AE]/70 transition-colors hover:text-gold">
+              {t("resetPassword.success.signIn")}
+            </Link>
+          </div>
+      </AuthLayout>
+    );
+  }
+
   return (
     <AuthLayout wide>
         <div className="mb-8 text-center">

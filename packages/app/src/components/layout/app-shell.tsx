@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useLayoutEffect, useRef, useState, type CSSP
 import { useImmersiveMode } from "@/hooks/use-fullscreen";
 import { useBrowseEngagement } from "@/hooks/use-browse-engagement";
 import { useLocation } from "@tanstack/react-router";
+import { UserMuteMonitor } from "@/components/user-mute-monitor";
 import { Sidebar } from "./sidebar";
 import { TopBar } from "./top-bar";
 import { Toaster } from "@/components/ui/sonner";
@@ -15,18 +16,20 @@ import { getAssetCdnUrl } from "@/lib/asset-url";
 import { PlaySessionPickerHost } from "@/hooks/use-play-with-language";
 import { PersistentChat } from "./persistent-chat";
 import { useExtensionsStore } from "@/stores/extensions";
+import { isLocalModelArmed } from "@/features/local-model/enabled-flag";
 import {
   HostedShellModals,
   HostedShellOverlays,
   hostedShellModalImporters,
   useHostedShellEffects,
 } from "@/edition/slots";
+// The edition seam owns this now; its hosted build calls through to the old
+// features/dm implementation, so the behaviour is unchanged.
 import { rememberDmReturnPath } from "@/edition/slots.state";
 import { installMobileViewport } from "@/lib/mobile-viewport";
 import { installOverlayRecovery } from "@/lib/overlay-recovery";
 import { installReadingPageCanvas } from "@/lib/reading-page-canvas";
 import { getMobileReadingPageId } from "@/lib/mobile-reading-route";
-import { isLocalModelArmed } from "@/features/local-model/enabled-flag";
 
 // Globally-mounted modals are render-on-demand (zustand stores drive their
 // visibility), so their feature trees don't belong in the entry chunk. Lazy
@@ -216,6 +219,7 @@ export function AppShell({ children }: AppShellProps) {
   const isCommunity = location.pathname.startsWith("/app/community");
   const isMessages = location.pathname.startsWith("/app/messages");
   const isImmersiveBg = isHubOrProfile || isLibrary || isCommunity || isMessages;
+  const isQuestsPage = location.pathname.replace(/\/$/, "") === "/app/quests";
   const isEditorBg = (location.pathname.match(/\/app\/worlds\/[^/]+\/edit/) || location.pathname.startsWith("/app/studio") || isAdminWorldInspect || (location.pathname === "/app/worlds/create" && !isPickerActive));
   const wallpaperPage: WallpaperPage = isMessages
     ? "messages"
@@ -410,7 +414,11 @@ export function AppShell({ children }: AppShellProps) {
     }
   }, [sessionPending, sessionUserId, profileId, fetchProfile, clearUserProfile]);
 
-  const hideSidebar = isAdminPage || (theaterMode && isPlayPage);
+  // The Studio's player view is a takeover too: it is `fixed` inside this
+  // shell's z-10 content layer, so the z-30 rail would sit on top of it — on
+  // top of its exit button, which then could not be clicked at all.
+  const studioTakeover = useUiStore((s) => s.studioTakeover);
+  const hideSidebar = isAdminPage || (theaterMode && isPlayPage) || studioTakeover;
   const desktopSidebarOffset = getDesktopSidebarOffset(
     location.pathname,
     hideSidebar,
@@ -504,7 +512,14 @@ export function AppShell({ children }: AppShellProps) {
       {/* ── Atmosphere layer (purple ambient glow) ──
            Only rendered when visible — the 140-180px blur blobs with will-change-transform
            were keeping 3 large GPU compositing layers resident even at opacity:0 on play pages. */}
-      {!isAdminPage && !isImmersiveBg && !isEditorBg && atmosphereClass !== "atmosphere-none" && (
+      {/* Large blur filters can stall first-frame presentation on iPhone Safari.
+          Select the filter-free background before the quest page mounts. */}
+      {isQuestsPage && (
+        <div aria-hidden="true" data-quest-background
+          className="pointer-events-none absolute inset-0 z-0"
+          style={{ background: "radial-gradient(ellipse at 0% 0%, rgba(139,112,224,0.07), transparent 65%), radial-gradient(ellipse at 100% 100%, rgba(139,112,224,0.05), transparent 65%)" }} />
+      )}
+      {!isQuestsPage && !isAdminPage && !isImmersiveBg && !isEditorBg && atmosphereClass !== "atmosphere-none" && (
         <div
           className="pointer-events-none absolute inset-0 z-0 overflow-hidden transition-opacity duration-500 ease-in-out"
           style={{
@@ -524,6 +539,7 @@ export function AppShell({ children }: AppShellProps) {
         style={appShellContentStyle}
       >
         {!isAdminPage && <TopBar />}
+        <UserMuteMonitor />
         <main
           data-scroll-restoration-id="app-shell-main"
           className={`app-shell-main min-h-0 w-full min-w-0 flex-1 overflow-hidden ${enableMobilePageScroll ? "app-shell-main-mobile-scrollable" : ""}`}

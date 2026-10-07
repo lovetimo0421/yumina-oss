@@ -2,6 +2,7 @@ import type { Variable, Effect, GameState, WorldDefinition, Directive, RuleRunti
 import { createEmptyRuleState } from "../rules/rule-state.js";
 import { getByPath } from "./path-utils.js";
 import { POISON_SYSTEM, poisonPeriodAdvance, settlePoisonState } from "../systems/poison-survival.js";
+import { evaluateFormula } from "./formula.js";
 
 type VariableValue = number | string | boolean | Record<string, unknown> | unknown[];
 
@@ -199,12 +200,47 @@ export class GameStateManager {
       };
     }
 
+    if (changes.length > 0) changes.push(...this.recomputeFormulas());
+
     for (const change of changes) {
       for (const listener of this.listeners) {
         listener(change.variableId, change.oldValue, change.newValue);
       }
     }
 
+    return changes;
+  }
+
+  /** Formula variables, worked out again from the values they read. Two
+   *  passes, so one formula may read another. */
+  recomputeFormulas(): Array<{ variableId: string; oldValue: VariableValue; newValue: VariableValue }> {
+    const formulas = [...this.variables.values()].filter((v) => typeof v.formula === "string" && v.formula.trim());
+    if (formulas.length === 0) return [];
+    const changes: Array<{ variableId: string; oldValue: VariableValue; newValue: VariableValue }> = [];
+    const lookup = (name: string): unknown => {
+      const id = this.variables.has(name) ? name : this.nameToId.get(name);
+      if (id) return this.state.variables[id];
+      const dot = name.indexOf(".");
+      if (dot > 0) {
+        const head = name.slice(0, dot);
+        const rootId = this.variables.has(head) ? head : this.nameToId.get(head);
+        if (rootId) return getByPath(this.state.variables, `${rootId}${name.slice(dot)}`);
+      }
+      return undefined;
+    };
+    for (let pass = 0; pass < 2; pass++) {
+      for (const v of formulas) {
+        const value = evaluateFormula(v.formula!, lookup);
+        if (value === null) continue;
+        const oldValue = this.state.variables[v.id];
+        const next = v.type === "boolean" ? value !== 0 : v.type === "string" ? String(value) : this.validateValue(v, value);
+        if (oldValue === next) continue;
+        this.state = { ...this.state, variables: { ...this.state.variables, [v.id]: next } };
+        const prior = changes.find((c) => c.variableId === v.id);
+        if (prior) prior.newValue = next;
+        else changes.push({ variableId: v.id, oldValue: oldValue as VariableValue, newValue: next });
+      }
+    }
     return changes;
   }
 
@@ -332,6 +368,20 @@ export class GameStateManager {
       ruleState: {
         ...ruleState,
         toggledEntries: { ...ruleState.toggledEntries, [entryId]: enabled },
+      },
+    };
+  }
+
+  /** Switch a module on or off at runtime. Read by the `manual` and
+   *  `keywords` activation modes; the automatic modes ignore it, so a
+   *  condition-gated module can never disagree with its own conditions. */
+  toggleWorldbook(worldbookId: string, on: boolean): void {
+    const ruleState = this.getRuleState();
+    this.state = {
+      ...this.state,
+      ruleState: {
+        ...ruleState,
+        toggledWorldbooks: { ...(ruleState.toggledWorldbooks ?? {}), [worldbookId]: on },
       },
     };
   }
@@ -707,6 +757,7 @@ export class GameStateManager {
       prevVars: { ...(safeRuleState.prevVars ?? {}) },
       toggledEntries: { ...(safeRuleState.toggledEntries ?? {}) },
       toggledVariables: { ...(safeRuleState.toggledVariables ?? {}) },
+      toggledWorldbooks: { ...(safeRuleState.toggledWorldbooks ?? {}) },
     };
   }
 }

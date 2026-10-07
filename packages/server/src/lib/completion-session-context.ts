@@ -1,5 +1,5 @@
-import { expandMacros, PromptBuilder, type GameState, type WorldDefinition } from "@yumina/engine";
-import { aiGenerationConfigSchema, resolveLorebookBudget } from "@yumina/shared";
+import { expandMacros, isAiReadable, PromptBuilder, type GameState, type WorldDefinition } from "@yumina/engine";
+import { aiGenerationConfigSchema, resolveLorebookBudget, sideCompletionWorldbookIdsSchema } from "@yumina/shared";
 import { z } from "zod";
 import type { playSessions } from "../db/schema.js";
 import type { ChatMessage, GenerateParams } from "./llm/types.js";
@@ -13,6 +13,7 @@ export const sessionCompletionSettingsSchema = z.object({
   maxTokens: z.number().finite().int().positive().optional(),
   temperature: z.number().finite().optional(),
   includeLorebook: z.union([z.boolean(), z.literal("all"), z.literal("matched")]).optional(),
+  worldbookIds: sideCompletionWorldbookIdsSchema.optional(),
   // Supplied by the parent renderer from the player's current config, never by
   // the sandbox SDK. Validate at the HTTP boundary as with ordinary chat.
   overrides: aiGenerationConfigSchema.pick({
@@ -87,7 +88,11 @@ export async function buildSessionCompletionMessages(options: {
     lastUserMessageAt: undefined,
   });
   const toggles = state.ruleState?.toggledEntries ?? {};
+  const allowedBooks = settings.worldbookIds === undefined ? undefined : new Set(settings.worldbookIds);
   const entries = settings.includeLorebook === false ? [] : world.entries
+    // Scope narrows the candidate pool before native activation/conditions and
+    // recursive keyword matching. Core has no book ID and remains available.
+    .filter(e => allowedBooks === undefined || !e.worldbookId || allowedBooks.has(e.worldbookId))
     .filter(e => toggles[e.id] !== false)
     .map(e => ({ ...e, enabled: toggles[e.id] ?? e.enabled }));
   const all = settings.includeLorebook === true || settings.includeLorebook === "all";
@@ -117,22 +122,32 @@ export async function buildSessionCompletionMessages(options: {
   // entries admitted by native retrieval are active even if manually disabled.
   const collected = builder.collectEntries({ ...world, entries: [] },
     [...matched.alwaysSend, ...matched.triggered].map(e => ({ ...e, enabled: true })), prompts, undefined, state);
-  const result: ChatMessage[] = builder.buildSystemMessages(world, state, undefined, undefined,
+  // Conditions need the real values above. Prompt macros must obey the same
+  // visibility gate as automatic variable summaries, including whole arrays.
+  // Empty strings also prevent a hidden macro from surviving as a placeholder.
+  const promptState = { ...state, variables: { ...state.variables } };
+  for (const variable of world.variables) {
+    if (!isAiReadable(variable, state, world.worldbooks)) promptState.variables[variable.id] = "";
+  }
+  // {{char}} and example parsing must not resolve to a different role's book.
+  // Preserve existing unscoped character selection for older callers.
+  const promptWorld = allowedBooks === undefined ? world : { ...world, entries: [...matched.alwaysSend, ...matched.triggered] };
+  const result: ChatMessage[] = builder.buildSystemMessages(promptWorld, promptState, undefined, undefined,
     state.ruleState?.activeDirectives ?? [], undefined, collected);
   const personaMessage = buildPersonaSystemMessage(persona);
   if (personaMessage) result.push({ role: "system", content: personaMessage });
   // Example parsing must recognize the same names that {{user}}/{{char}}
   // expand to, including active personas and cards without a character entry.
-  const exampleWorld = { ...world, name: expandMacros("{{char}}", world, state),
-    settings: { ...world.settings, playerName: expandMacros("{{user}}", world, state) } };
-  result.push(...builder.buildExampleMessages(exampleWorld, state, undefined, undefined, undefined, collected));
+  const exampleWorld = { ...promptWorld, name: expandMacros("{{char}}", promptWorld, promptState),
+    settings: { ...world.settings, playerName: expandMacros("{{user}}", promptWorld, promptState) } };
+  result.push(...builder.buildExampleMessages(exampleWorld, promptState, undefined, undefined, undefined, collected));
   if (history.length) result.push({ role: "system", content: "[Start a new Chat]" });
   const contextualHistory = [...history];
-  for (const entry of builder.buildDepthEntries(world, state, undefined, undefined, undefined, collected)) {
+  for (const entry of builder.buildDepthEntries(promptWorld, promptState, undefined, undefined, undefined, collected)) {
     contextualHistory.splice(Math.max(0, contextualHistory.length - entry.depth), 0, { role: entry.apiRole, content: entry.content });
   }
   result.push(...contextualHistory);
-  for (const entry of builder.buildPostHistoryEntries(world, state, undefined, undefined, collected)) {
+  for (const entry of builder.buildPostHistoryEntries(promptWorld, promptState, undefined, undefined, collected)) {
     result.push({ role: entry.apiRole, content: entry.content });
   }
   // Narrative preferences may shape content, but the caller owns the machine

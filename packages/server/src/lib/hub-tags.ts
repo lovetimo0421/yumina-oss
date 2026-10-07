@@ -1,6 +1,7 @@
 import { and, or, sql, type SQL } from "drizzle-orm";
 import { canonicalizeTag, TAG_VOCABULARY } from "@yumina/shared";
 import { resolveHubLanguageScope } from "./world-language.js";
+import { worldAudienceCondition } from "./world-publication-access.js";
 
 export interface HubTagQueryOptions {
   currentUserId?: string;
@@ -30,6 +31,8 @@ export function buildHubTagQuery(options: HubTagQueryOptions): SQL {
   const safeOnly = !viewer || parseContentLevelParam(options.contentLevel) !== "r18";
   const query = options.query?.trim();
   const conditions: SQL[] = [sql`worlds.is_published = true`, sql`worlds.status = 'published'`];
+  const audience = worldAudienceCondition(sql`worlds.creator_id`, viewer);
+  if (audience) conditions.push(audience);
   if (safeOnly) conditions.push(sql`worlds.age_rating = 'all'`);
   else if (options.nsfwOnly) conditions.push(sql`worlds.age_rating <> 'all'`);
   if (lang) conditions.push(sql`(worlds.language = ${lang} OR worlds.language LIKE ${`${lang}-%`})`);

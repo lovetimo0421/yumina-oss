@@ -123,6 +123,8 @@ async function loadUserFresh(userId: string): Promise<SessionUser | null> {
       updatedAt: userTable.updatedAt,
       role: userTable.role,
       isSuspended: userTable.isSuspended,
+      isMuted: userTable.isMuted,
+      mutedUntil: userTable.mutedUntil,
       isBanned: userTable.isBanned,
       tier: userTable.tier,
       skipReview: userTable.skipReview,

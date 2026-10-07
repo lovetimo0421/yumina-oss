@@ -4,9 +4,12 @@ import type {
   Rule,
   CustomUIComponent,
 } from "@yumina/engine";
+import { resolveStation } from "@yumina/engine";
 import type { Reaction } from "@yumina/engine";
 import { isContinuityEnabled, isContinuityOwned, isSceneImageJudgeOn } from "@yumina/engine";
 import { loadAssetCatalog, formatAssetCatalog } from "./asset-catalog.js";
+import { uiDocOwnedFiles } from "./ui-doc-tools.js";
+import { stickyNotes } from "./sticky-notes.js";
 
 // ── Types ──
 
@@ -23,6 +26,9 @@ export interface ResolvedContext {
   truncationDetail?: string;
   /** Lorebook bloat check — drives the slim-skill auto-load in the system prompt */
   lorebookHealth: LorebookHealth;
+  /** What the creator pointed the assistant at on the canvas, when anything.
+   *  Only these were preloaded in full; everything else is inventory only. */
+  focus?: { labels: string[] };
 }
 
 // ── Lorebook Health (bloat detection → slim-skill auto-load) ──
@@ -242,7 +248,9 @@ function scoreRule(rule: Rule, keywords: string[]): number {
 
 // ── Layer 1: Rich Inventory ──
 
-function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string {
+// Exported for tests: the snapshot's shape IS the agent's world model, so the
+// blackboard lines (module notes, canvas notes) are asserted, not assumed.
+export function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string {
   const parts: string[] = [];
 
   // World metadata
@@ -290,7 +298,7 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
   // activation runs BEFORE each member entry's own alwaysSend/keyword/condition.
   const worldbooks = world.worldbooks ?? [];
   if (worldbooks.length > 0) {
-    parts.push(`\nWORLDBOOKS (${worldbooks.length}) — entries with no book = always-on Core:`);
+    parts.push(`\nMODULES / WORLDBOOKS (${worldbooks.length}) — members with no book = always-on Core; an inactive module gates its entries AND variables AND behaviors:`);
     for (const wb of [...worldbooks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
       const act = wb.activation;
       let actStr: string;
@@ -301,9 +309,70 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
       } else {
         actStr = act.mode; // always | manual
       }
-      const memberCount = world.entries.filter((e) => e.worldbookId === wb.id).length;
+      const entryCount = world.entries.filter((e) => e.worldbookId === wb.id).length;
+      const varCount = world.variables.filter((v) => v.worldbookId === wb.id).length;
+      const behCount = (world.reactions ?? []).filter((r) => r.worldbookId === wb.id).length;
+      const members = [`${entryCount} entr${entryCount === 1 ? "y" : "ies"}`];
+      if (varCount > 0) members.push(`${varCount} var${varCount === 1 ? "" : "s"}`);
+      if (behCount > 0) members.push(`${behCount} behavior${behCount === 1 ? "" : "s"}`);
       const off = wb.enabled === false ? " DISABLED" : "";
-      parts.push(`  ${wb.id}: "${wb.name}" — activation=${actStr}; ${memberCount} entr${memberCount === 1 ? "y" : "ies"}${off}`);
+      const st = resolveStation(wb);
+      const run = !st
+        ? ""
+        : st.kind === "worker"
+          ? " [WORKER station: background AI, never speaks to the player; its output is context for others]"
+          : ` [NARRATOR station: its own AI answers the player while active${st.onClose === "archive" ? "; on deactivation its span folds into a summary (副本)" : ""}${st.memoryPool ? `; memory pool "${st.memoryPool}" — remembers only the runs of modules in that pool` : ""}]`;
+      parts.push(`  ${wb.id}: "${wb.name}" — activation=${actStr}; ${members.join(", ")}${off}${run}`);
+      // The sticky note is the creator's own statement of what this module IS
+      // and what they intend for it — read it before touching the module, and
+      // keep it current via write_worldbook { note } when intent changes.
+      if (wb.note) {
+        const noteText = wb.note.length > 300 ? wb.note.slice(0, 300) + "… (full via read_entities)" : wb.note;
+        parts.push(`    📌 note: ${noteText.replace(/\n/g, " / ")}`);
+      }
+      if (wb.description) {
+        const desc = wb.description.length > 160 ? wb.description.slice(0, 160) + "..." : wb.description;
+        parts.push(`    description: ${desc.replace(/\n/g, " ")}`);
+      }
+      if (wb.frontendFile) parts.push(`    frontend scene: ${wb.frontendFile}`);
+      if (st) {
+        if (st.model) parts.push(`    model: ${st.model}`);
+        if (st.inputs.length > 0) {
+          const wires = st.inputs
+            .map((i) => `${i.kind}<-${i.from}(${i.as ?? "history"}${"limit" in i && i.limit ? `, ${i.limit}` : ""})`)
+            .join(", ");
+          parts.push(`    context in: ${wires}`);
+        }
+        if (st.kind === "worker") {
+          const trig = st.trigger
+            ? st.trigger.on === "module-closed"
+              ? `when ${st.trigger.from} closes`
+              : st.trigger.on === "turns"
+                ? `every ${st.trigger.every} turns`
+                : st.trigger.on === "after"
+                  ? `right after ${st.trigger.from}'s AI answers the player`
+                : st.trigger.on === "quiet"
+                  ? `after ${st.trigger.seconds}s with nothing happening — speaks into the story itself`
+                  : "on conditions"
+            : "NEVER (no trigger set — this worker will not run)";
+          parts.push(`    runs: ${trig}`);
+          parts.push(`    task: ${st.task ? st.task.slice(0, 200) : "NONE SET — this worker will not run"}`);
+        }
+        if (st.archivePrompt) parts.push(`    archive instruction: ${st.archivePrompt.slice(0, 160)}`);
+      }
+    }
+  }
+
+  // Sticky notes — the creator's notes on the canvas, loose or stuck to one
+  // part of the card. They are about the card's DESIGN (never play content):
+  // what a part is for, what hand-written code expects, what to do next. Read
+  // them as the creator's own instructions about the part they are on.
+  const canvasNotes = stickyNotes(world);
+  if (canvasNotes.length > 0) {
+    parts.push(`\nCANVAS NOTES (${canvasNotes.length}) — the creator's sticky notes on the canvas; one stuck to a part is about that part (treat it as the creator's instruction or explanation for it):`);
+    for (const n of canvasNotes) {
+      const text = n.text.length > 600 ? n.text.slice(0, 600) + "..." : n.text;
+      parts.push(`  - ${n.on ? `[on ${n.on}] ` : ""}${text.replace(/\n/g, " / ")}`);
     }
   }
 
@@ -342,7 +411,8 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
         ? ` precise${v.type === "number" ? `(−${v.deltaDown ?? 0}/+${v.deltaUp ?? 0} per turn)` : ""}`
         : "";
       const options = v.type === "string" && v.options?.length ? ` options=[${v.options.join(", ")}]` : "";
-      parts.push(`  ${v.id}: "${v.name}" (${v.type}${scope}, default: ${JSON.stringify(v.defaultValue)})${range}${precise}${options}${desc}${rules}`);
+      const book = v.worldbookId ? ` book=${v.worldbookId}` : "";
+      parts.push(`  ${v.id}: "${v.name}" (${v.type}${scope}, default: ${JSON.stringify(v.defaultValue)})${book}${range}${precise}${options}${desc}${rules}`);
     }
   }
 
@@ -352,7 +422,8 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
     parts.push(`\nBEHAVIORS (${reactions.length}):`);
     for (const r of reactions) {
       const flags = !r.enabled ? " DISABLED" : "";
-      parts.push(`  ${r.id}: "${r.name}" [${r.when.eventType}] priority=${r.priority}${flags}`);
+      const book = r.worldbookId ? ` book=${r.worldbookId}` : "";
+      parts.push(`  ${r.id}: "${r.name}" [${r.when.eventType}] priority=${r.priority}${book}${flags}`);
     }
   }
 
@@ -370,6 +441,7 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
     // Worlds with rootComponent: show it as the rendered app component
     const rc = world.rootComponent;
     const fileNames = Object.keys(rc.files);
+    const owned = uiDocOwnedFiles(world);
     parts.push(`\nROOT COMPONENT:`);
     parts.push(`  ${rc.id}: "${rc.name}" entry=${rc.entryFile}`);
     // List each file with its size — agent uses filenames as IDs for read_entities and
@@ -377,15 +449,45 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
     for (const fn of fileNames) {
       const code = rc.files[fn] ?? "";
       const kb = Math.max(1, Math.round(code.length / 1024));
-      const entryMark = fn === rc.entryFile ? " (entry)" : "";
+      const entryMark = (fn === rc.entryFile ? " (entry)" : "") + (owned.has(fn) ? " (compiled from the interface document — never edit; use edit_ui_doc)" : "");
       const bigMark = code.length > UI_PRELOAD_MAX_FILE_CHARS
         ? " — large; read on demand with grep_world / read_entities(offset_lines)"
         : "";
       parts.push(`    file: "${fn}" [${kb}KB]${entryMark}${bigMark}`);
     }
   }
+  // The no-code interface document. One line per page keeps the inventory
+  // cheap; read_ui_doc gives the parts.
+  if (world.uiDoc) {
+    const doc = world.uiDoc;
+    const pages = doc.pages.map((p) => `${p.id} "${p.name}" (${p.elements.length} parts)`).join(", ");
+    parts.push(`\n界面文档 uiDoc (visual editor — change it with edit_ui_doc after load_skill "ui-doc"; read_ui_doc for parts): entry=${doc.entryPageId}; pages: ${pages}${doc.base ? `; base layer ${doc.base.file}` : ""}${doc.surface ? "; over platform chat" : ""}`);
+  }
   // Every migrated world has rootComponent — the customUI[]-only branch that
   // used to live here was removed in the v1→v2 unification.
+
+  // Style knobs of a decomposed base frontend. Listing id + kind + CURRENT
+  // value is what makes set_ui_knobs usable in one shot — the agent restyles
+  // without reading a line of the base code (and must not edit that code for
+  // anything a knob already covers).
+  const knobGroups = world.uiDoc?.base?.groups ?? [];
+  if (knobGroups.length > 0) {
+    const total = knobGroups.reduce((n, g) => n + g.knobs.length, 0);
+    parts.push(`\n界面旋钮 (decomposed base styles — edit via set_ui_knobs, ${total} knobs):`);
+    for (const g of knobGroups) {
+      parts.push(`  [${g.label}]`);
+      for (const k of g.knobs) {
+        const unit = k.unit ? ` ${k.unit}` : "";
+        parts.push(`    ${k.id} (${k.kind}) = ${JSON.stringify(k.value)}${unit} — ${k.label}`);
+      }
+    }
+  } else if (world.uiDoc?.base || (world.rootComponent && world.rootComponent.generatedFrom !== "uiDoc")) {
+    // A hand-written frontend with no knobs yet. Naming the path here is what
+    // lets "把前端拆成积木" work in one turn instead of a tool-name guessing game.
+    parts.push(
+      `\n界面旋钮: none yet — this card's hand-written frontend has NOT been decomposed. To make it visually editable (拆积木): rewrite its visual constants to K["…"] via edit_custom_ui and install groups with write_ui_knob_groups, all in ONE reply (see the front-ui skill).`,
+    );
+  }
 
   // Audio tracks
   if (world.audioTracks.length > 0) {
@@ -406,6 +508,15 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
       parts.push(`  ${img.id}: "${img.name}" — ${img.scene || "(no scene text yet)"}${img.url ? "" : " [no picture yet]"}${img.allowAiControl === false ? " [manual only]" : ""}`);
     }
   }
+
+  // Scene images — what the gameplay AI can show mid-story
+  if ((world.sceneImages ?? []).length > 0) {
+    parts.push(`\nSCENE IMAGES (${world.sceneImages!.length}) — the AI shows one with [image: id] when the story matches its scene:`);
+    for (const img of world.sceneImages!) {
+      parts.push(`  ${img.id}: "${img.name}" — ${img.scene || "(no scene text yet)"}${img.url ? "" : " [no picture yet]"}${img.allowAiControl === false ? " [manual only]" : ""}`);
+    }
+  }
+
 
   // Assets (user uploads)
   if (assets.length > 0) {
@@ -448,6 +559,28 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
 // on-demand reads (grep_world / read_entities with offset_lines) so one huge component
 // can't bloat every agent iteration to ~200K tokens. Tunable.
 const UI_PRELOAD_MAX_FILE_CHARS = 32 * 1024;
+
+/** The card's interface files worth carrying in a prompt: not too large, and
+ *  not ones compiled from the interface document (output, not source). */
+function preloadableUIFiles(world: WorldDefinition): CustomUIComponent[] {
+  const rc = world.rootComponent;
+  if (!rc) return [];
+  const owned = uiDocOwnedFiles(world);
+  return Object.entries(rc.files)
+    .filter(([filename, code]) => code.length <= UI_PRELOAD_MAX_FILE_CHARS && !owned.has(filename))
+    .map(([filename, code], i) => ({
+      id: filename,
+      name: `${rc.name} / ${filename}`,
+      // Required by the legacy type; meaningless in v2.
+      surface: "app" as const,
+      language: "tsx" as const,
+      tsxCode: code,
+      description: filename === rc.entryFile ? "entry file" : "sub-file",
+      order: i,
+      visible: true,
+      updatedAt: rc.updatedAt,
+    }));
+}
 
 // ── Layer 2: Pre-loaded Full Content ──
 
@@ -556,6 +689,63 @@ interface AssetSummary {
   type: string;
 }
 
+// ── Creator focus ──
+
+/** The canvas ids the creator pointed at, resolved to what they contain.
+ *  `entry:` / `greeting:` → that entry; `reaction:` / `rule:` → that rule;
+ *  whole blocks → everything of their kind. Variables are already in full in
+ *  the inventory, so pointing at one only names it. */
+export function resolveFocusSelection(world: WorldDefinition, ids: readonly string[]) {
+  const entries: WorldEntry[] = [];
+  const behaviors: Reaction[] = [];
+  const rules: Rule[] = [];
+  let wantUI = false;
+  const labels: string[] = [];
+  const addEntry = (e: WorldEntry | undefined) => { if (e && !entries.includes(e)) entries.push(e); };
+  const reactions = world.reactions ?? [];
+  for (const id of ids) {
+    const sep = id.indexOf(":");
+    const prefix = sep < 0 ? id : id.slice(0, sep);
+    const raw = sep < 0 ? "" : id.slice(sep + 1);
+    if (prefix === "entry" || prefix === "greeting") {
+      const e = world.entries.find((x) => x.id === raw);
+      addEntry(e);
+      if (e) labels.push(`${e.role === "greeting" ? "opening" : "entry"} "${e.name || e.id}" (${e.id})`);
+    } else if (prefix === "var" || prefix === "variable") {
+      const v = world.variables.find((x) => x.id === raw);
+      if (v) labels.push(`variable "${v.name || v.id}" (${v.id})`);
+    } else if (prefix === "reaction") {
+      const b = reactions.find((x) => x.id === raw);
+      if (b) { behaviors.push(b); labels.push(`behavior "${b.name || b.id}" (${b.id})`); }
+    } else if (prefix === "rule") {
+      const r = world.rules.find((x) => x.id === raw);
+      if (r) { rules.push(r); labels.push(`rule "${r.name || r.id}" (${r.id})`); }
+    } else if (prefix === "block") {
+      if (/opening/.test(raw)) {
+        world.entries.filter((e) => e.role === "greeting").forEach(addEntry);
+        labels.push("the openings block (every opening)");
+      } else if (/setting|lore/.test(raw)) {
+        world.entries.filter((e) => e.role !== "greeting" && e.section !== "system-presets").forEach(addEntry);
+        labels.push("the settings block (every lore entry)");
+      } else if (/^state/.test(raw)) {
+        labels.push("the variables block (every variable, listed in the inventory)");
+      } else if (/^behavior/.test(raw)) {
+        behaviors.push(...reactions);
+        rules.push(...world.rules);
+        labels.push("the behaviors block (every behavior)");
+      } else if (/^frontend/.test(raw)) {
+        wantUI = true;
+        labels.push("the player interface (its code)");
+      } else {
+        labels.push(`block ${raw}`);
+      }
+    } else if (prefix === "world") {
+      labels.push("the card itself (cover, description, settings)");
+    }
+  }
+  return { entries, behaviors, rules, wantUI, labels };
+}
+
 // ── Main Resolver ──
 
 /**
@@ -582,6 +772,9 @@ export async function resolveContext(
     selectedEntityId?: string;
     /** Active editor panel — triggers panel-aware preloading */
     activePanel?: string;
+    /** Canvas ids the creator pointed at. When set, only these are preloaded
+     *  in full: no keyword guessing, no always-on presets, no unrelated code. */
+    focusIds?: readonly string[];
   },
 ): Promise<ResolvedContext> {
   const contextWindow = options.contextWindow ?? 120_000;
@@ -600,6 +793,35 @@ export async function resolveContext(
   // Build Layer 1: rich inventory (always loaded)
   const inventory = buildInventory(world, []) + assetInventory;
   let tokenEstimate = estimateTokens(inventory);
+
+  if (options.focusIds && options.focusIds.length > 0) {
+    const focus = resolveFocusSelection(world, options.focusIds);
+    if (focus.labels.length > 0) {
+      const ui = focus.wantUI ? preloadableUIFiles(world) : [];
+      let preloaded = buildPreloadedContent(world, focus.entries, focus.behaviors, focus.rules, ui);
+      let truncated = false;
+      let truncationDetail: string | undefined;
+      // Whatever does not fit is still one read_entities away.
+      if (tokenEstimate + estimateTokens(preloaded) > contextBudget) {
+        truncated = true;
+        truncationDetail = "The selection is larger than fits; part of it was not preloaded";
+        const kept = [...focus.entries];
+        while (kept.length > 0 && tokenEstimate + estimateTokens(preloaded) > contextBudget) {
+          kept.pop();
+          preloaded = buildPreloadedContent(world, kept, focus.behaviors, focus.rules, []);
+        }
+      }
+      return {
+        inventory,
+        preloadedEntities: preloaded,
+        tokenEstimate: tokenEstimate + estimateTokens(preloaded),
+        truncated,
+        truncationDetail,
+        lorebookHealth: computeLorebookHealth(world),
+        focus: { labels: focus.labels },
+      };
+    }
+  }
 
   // Extract keywords from user request
   const keywords = extractKeywords(request);
@@ -682,25 +904,7 @@ export async function resolveContext(
   // the inventory lists them with size + a read hint, and the agent pulls the exact slice it
   // needs on demand via grep_world / read_entities(offset_lines). Keeps each step small
   // instead of re-sending ~200K tokens every iteration.
-  let matchedUI: CustomUIComponent[] = [];
-  if (isUIRequest && world.rootComponent) {
-    const rc = world.rootComponent;
-    // The `surface` field is required by the legacy type but has no meaning in v2 —
-    // stamp "app" purely so this compiles against the legacy type shape.
-    matchedUI = Object.entries(rc.files)
-      .filter(([, code]) => code.length <= UI_PRELOAD_MAX_FILE_CHARS)
-      .map(([filename, code], i) => ({
-        id: filename,
-        name: `${rc.name} / ${filename}`,
-        surface: "app" as const,
-        language: "tsx" as const,
-        tsxCode: code,
-        description: filename === rc.entryFile ? "entry file" : "sub-file",
-        order: i,
-        visible: true,
-        updatedAt: rc.updatedAt,
-      }));
-  }
+  const matchedUI: CustomUIComponent[] = isUIRequest ? preloadableUIFiles(world) : [];
 
   // Build Layer 2: pre-loaded content
   let preloadedContent = buildPreloadedContent(

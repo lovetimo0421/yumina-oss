@@ -1,6 +1,7 @@
 import { discoverAccess } from "../lib/discover-access.js";
+import { assetIsVersioned } from "../lib/world-version-store.js";
 import { Hono } from "hono";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { assets, worlds, userAssets } from "../db/schema.js";
 import { authMiddleware } from "../middleware/auth.js";
@@ -273,14 +274,15 @@ assetRoutes.delete("/worlds/:worldId/assets/:id", async (c) => {
     return c.json({ error: "Asset not found" }, 404);
   }
 
-  // Delete from S3
-  if (isS3Configured()) {
-    try {
-      await deleteObject(rows[0]!.url);
-    } catch { /* S3 delete failed — still remove DB record */ }
-  }
-
-  await db.delete(assets).where(eq(assets.id, assetId));
+  const retained = await db.transaction(async tx => {
+    // Serialize against checkpoint insertion until deletion completes.
+    await tx.execute(sql`LOCK TABLE world_versions IN SHARE ROW EXCLUSIVE MODE`);
+    if (await assetIsVersioned(tx, assetId, rows[0]!.url)) return true;
+    if (isS3Configured()) await deleteObject(rows[0]!.url);
+    await tx.delete(assets).where(eq(assets.id, assetId));
+    return false;
+  });
+  if (retained) return c.json({ error: "This asset is retained by a saved version and cannot be deleted.", code: "ASSET_VERSIONED" }, 409);
 
   return c.json({ data: { deleted: true } });
 });
@@ -341,7 +343,7 @@ assetRoutes.post("/worlds/:worldId/thumbnail/confirm", async (c) => {
     return c.json({ error: applied.error, ...(applied.code ? { code: applied.code } : {}) }, applied.status);
   }
 
-  return c.json({ data: { thumbnailUrl: applied.thumbnailUrl, heldForReview: applied.held } });
+  return c.json({ data: { thumbnailUrl: applied.thumbnailUrl, heldForReview: applied.held, previousUpdatedAt: applied.previousUpdatedAt, updatedAt: applied.updatedAt } });
 });
 
 // POST /api/worlds/:worldId/thumbnail/from-asset — set thumbnail from an existing asset
@@ -401,7 +403,7 @@ assetRoutes.post("/worlds/:worldId/thumbnail/from-asset", async (c) => {
     return c.json({ error: applied.error, ...(applied.code ? { code: applied.code } : {}) }, applied.status);
   }
 
-  return c.json({ data: { thumbnailUrl: applied.thumbnailUrl, heldForReview: applied.held } });
+  return c.json({ data: { thumbnailUrl: applied.thumbnailUrl, heldForReview: applied.held, previousUpdatedAt: applied.previousUpdatedAt, updatedAt: applied.updatedAt } });
 });
 
 // POST /api/worlds/:worldId/gallery/from-asset — add gallery image from an existing asset

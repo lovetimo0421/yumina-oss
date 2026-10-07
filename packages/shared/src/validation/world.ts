@@ -35,6 +35,9 @@ export const updateWorldSchema = z.object({
   allowReviews: z.boolean().optional(),
   allowSessionSharing: z.boolean().optional(),
   allowCommunityCitations: z.boolean().optional(),
+  // Per-card hard gate for the globally installed Lore Shift extension.
+  allowLiveCanon: z.boolean().optional(),
+  allowLiveCanonAdditions: z.boolean().optional(),
   blurCover: z.boolean().nullable().optional(),
   ageRating: z
     .enum(["all", "sensitive", "r18", "r18g"])
@@ -75,6 +78,8 @@ export const adminUpdateWorldSchema = z.object({
   allowReviews: z.boolean().optional(),
   allowSessionSharing: z.boolean().optional(),
   allowCommunityCitations: z.boolean().optional(),
+  allowLiveCanon: z.boolean().optional(),
+  allowLiveCanonAdditions: z.boolean().optional(),
   blurCover: z.boolean().nullable().optional(),
 });
 

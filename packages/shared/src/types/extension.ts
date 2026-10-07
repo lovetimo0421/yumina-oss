@@ -46,6 +46,7 @@ export interface ContributionDecl {
  */
 export type ServerHookSeam =
   | "resolveCapabilities"
+  | "transformWorldDefinition"
   | "contributePromptBlocks"
   | "filterHistory"
   | "onPromptOverflow"
@@ -115,8 +116,46 @@ export interface ExtensionDefinition {
 
 /** The session-memory + story-summary subsystem, the first/test extension. */
 export const SESSION_MEMORY_EXTENSION_KEY = "session-memory-summary";
+export const LIVE_CANON_EXTENSION_KEY = "live-canon";
 
 export const EXTENSION_REGISTRY: readonly ExtensionDefinition[] = [
+  {
+    key: LIVE_CANON_EXTENSION_KEY,
+    name: "Lore Shift (Beta)",
+    shortDescription:
+      "Update author-approved story state and lore while you play. Changes stay in this session and never edit the original card.",
+    longDescription:
+      "Lore Shift gives a running story a small, author-controlled editing layer. Use Story State for facts such as age, location, counters, or flags so the card's existing rules can react. Use Session Lore for prose facts and author-approved lore corrections.\n\nEvery change belongs only to the current play session. The author's original card and other players' stories are never changed. Authors decide whether Lore Shift can run on each card, which variables and lore entries may be edited, and whether players may add new session lore.\n\nIf an author turns editing off, Lore Shift does not activate for that card. Opening it shows an explanation instead of exposing the editor or its data.",
+    icon: "book-open-check",
+    category: "narrative",
+    tags: ["lore", "state", "session", "author-controlled"],
+    version: "0.1.0",
+    author: "Yumina",
+    screenshots: [],
+    explanations: [
+      {
+        title: "Story State",
+        body: "Change author-approved typed facts such as age or location. Existing conditions and rules use the new value on the next turn.",
+      },
+      {
+        title: "Session Lore",
+        body: "Correct an approved lore entry or add a new fact for this playthrough without touching the original card.",
+      },
+      {
+        title: "The author stays in control",
+        body: "Each card has a hard author switch. A locked card shows a warning and exposes no Lore Shift editor or data.",
+      },
+    ],
+    capabilityHookIds: ["session-lore"],
+    firstParty: true,
+    apiVersion: 1,
+    clientEntry: "live-canon",
+    contributions: [{ point: "chat.composer.toolbar", priority: 20 }],
+    serverHooks: [
+      { capability: "session-lore", seam: "resolveCapabilities" },
+      { capability: "session-lore", seam: "transformWorldDefinition", priority: 20 },
+    ],
+  },
   {
     key: "state-update-guard",
     name: "State Update Guard (Beta)",
@@ -308,4 +347,63 @@ export interface ExtensionRatingPayload {
   distribution?: Record<string, number>;
   /** The viewer's own rating; null when signed out or not yet rated. */
   myRating?: number | null;
+}
+
+export type LiveCanonErrorCode =
+  | "AUTHOR_DISABLED_LIVE_CANON"
+  | "EXTENSION_NOT_INSTALLED"
+  | "LIVE_CANON_NOT_FOUND"
+  | "LIVE_CANON_FORBIDDEN"
+  | "LIVE_CANON_LIMIT"
+  | "LIVE_CANON_CONFLICT";
+
+export interface LiveCanonVariableDTO {
+  id: string;
+  name: string;
+  type: "number" | "string" | "boolean";
+  value: number | string | boolean;
+  min?: number;
+  max?: number;
+}
+
+export interface LiveCanonEditableEntryDTO {
+  id: string;
+  name: string;
+  content: string;
+  overrideId: string | null;
+  overrideContent: string | null;
+}
+
+export interface LiveCanonSessionEntryDTO {
+  id: string;
+  name: string;
+  content: string;
+  enabled: boolean;
+  alwaysSend: boolean;
+  keywords: string[];
+  matchWholeWords: boolean;
+}
+
+export interface LiveCanonPayload {
+  additionsAllowed: boolean;
+  variables: LiveCanonVariableDTO[];
+  editableEntries: LiveCanonEditableEntryDTO[];
+  sessionEntries: LiveCanonSessionEntryDTO[];
+}
+
+export interface LiveCanonEntryInput {
+  name: string;
+  content: string;
+  enabled?: boolean;
+  alwaysSend?: boolean;
+  keywords?: string[];
+  matchWholeWords?: boolean;
+}
+
+export interface LiveCanonApiResult<T = LiveCanonPayload> {
+  ok: boolean;
+  status: number;
+  data?: T;
+  error?: string;
+  code?: LiveCanonErrorCode;
 }

@@ -44,7 +44,8 @@
     "manageSessions": "セッションを管理",
     "playedAgo": "{{time}}にプレイ",
     "updatedAgo": "{{time}}に更新",
-    "noFavorites": "公開されているお気に入りはまだありません。"
+    "noFavorites": "公開されているお気に入りはまだありません。",
+    "playedRelative": "{{time}}にプレイ"
   },
   "sidebar": {
     "about": "自己紹介",
@@ -254,8 +255,8 @@
     "avgCostPerChatByPeriod": "ピーク ~{{peak}} · オフピーク ~{{offPeak}} mushies / チャット",
     "privateApiMode": "プライベートAPIモード",
     "privateApiDesc": "レート制限なし、使用量トラッキングなし — プロバイダーから直接請求されます",
-    "confirmSwitchPrivate": "プライベートキーに切り替えますか？ご自身のAPIキーが必要となり、プロバイダーから請求されます。",
-    "confirmSwitchOfficial": "Yumina APIに切り替えますか？使用量はmushieクレジットから差し引かれます。",
+    "confirmSwitchPrivate": "ご自身の API キーが必要となり、使用料はプロバイダーから請求されます。",
+    "confirmSwitchOfficial": "使用量は Mushie クレジットから差し引かれます。",
     "tiers": {
       "budget": "バジェット",
       "standard": "スタンダード",
@@ -396,7 +397,10 @@
     "ledgerReconciliation": "台帳の修正：残高を確認。以前の変動が記録されていませんでした",
     "voiceReadoutDescription": "音声読み上げ · {{bytes}} バイト",
     "ledgerOpeningBalance": "期首残高（ここから台帳を開始）",
-    "pilePerMonth": "月 {{amount}}"
+    "pilePerMonth": "月 {{amount}}",
+    "switchPrivateTitle": "プライベート API キーに切り替えますか？",
+    "switchOfficialTitle": "Yumina API に切り替えますか？",
+    "initialPlanGrant": "{{plan}}プランの初回付与"
   },
   "summary": {
     "chooseModel": "モデルを選択",
@@ -582,7 +586,15 @@
     "alreadyInvitedDesc": "このアカウントは既に招待者向けプランへのアクセス権を持っています。"
   },
   "settings": {
-    "title": "アカウント設定"
+    "title": "アカウント設定",
+    "contentLevel": "コンテンツモード",
+    "safeOnly": "制限あり",
+    "safeOnlyDesc": "「制限あり」のコンテンツのみ表示",
+    "allowSensitive": "無制限",
+    "allowSensitiveDesc": "「無制限」のコンテンツを含める",
+    "minorRestriction": "このアカウントでは「無制限」モードを利用できません。",
+    "blurSensitive": "無制限メディアをぼかす",
+    "blurSensitiveDesc": "見つける画面で無制限コンテンツのサムネイルをぼかします。"
   },
   "editModal": {
     "avatarUpdateFailed": "アバターの更新に失敗しました",
@@ -678,7 +690,15 @@
     "noWorksSearch": "検索に一致する作品はありません。",
     "previousWorks": "作品の前のページ",
     "nextWorks": "作品の次のページ",
-    "worksPage": "{{current}} / {{total}}"
+    "worksPage": "{{current}} / {{total}}",
+    "moreActions": "その他のプロフィール操作",
+    "sectionsLabel": "プロフィールのセクション",
+    "worksTab": "作品 {{count}}",
+    "activityTab": "アクティビティ",
+    "aboutTab": "紹介",
+    "sortWorks": "作品を並べ替え",
+    "sortNewest": "新着順",
+    "sortPopular": "人気順"
   },
   "customPrompts": {
     "createFailed": "プロンプトを作成できませんでした",
@@ -779,7 +799,8 @@
       "followingHint": "このセーブは全体設定のペルソナに従います。下でペルソナを選ぶと、このセーブに自動で固定されます。",
       "locked": "ペルソナ固定中",
       "lockedHint": "全体設定のペルソナを変更しても、このセーブは選択したペルソナを維持します。",
-      "saveError": "ペルソナを保存できませんでした。もう一度お試しください。"
+      "saveError": "ペルソナを保存できませんでした。もう一度お試しください。",
+      "lockLabel": "このセーブのペルソナを固定"
     },
     "binding": {
       "saveError": "既定のペルソナを保存できませんでした。もう一度お試しください。",
@@ -922,7 +943,24 @@
     "sent": "送信しました",
     "paymentProcessing": "{{amount}} のお支払いを処理しています。",
     "failedCreateTip": "投げ銭を作成できませんでした",
-    "somethingWentWrong": "問題が発生しました。もう一度お試しください。"
+    "somethingWentWrong": "問題が発生しました。もう一度お試しください。",
+    "savedGiftInfo": "Saved Mushies は誰にでも贈れます。月間・ボーナス Mushies は受取条件を満たすクリエイターにのみ贈れます。",
+    "useSavedOnly": "Saved Mushies のみを使う",
+    "checkingGiftBalance": "ギフトの利用可否を確認中…",
+    "sendPlanGift": "プランを贈る",
+    "planGiftRecipient": "{{name}} へのギフト",
+    "planGiftPlan": "プランを選択",
+    "planGiftDays": "{{count}} 日間",
+    "planGiftRules": "買い切りで自動更新はありません。同等以上の会員プランがある場合は待機します。上位ギフトは下位ギフトを一時停止し、残り日数を保存します。既存の有料契約の請求は継続します。",
+    "planGiftCredits": "ギフト開始時に {{count}} Saved Mushies を受け取れます。",
+    "planGiftCheckout": "ギフトの支払いへ",
+    "planGiftUnavailable": "現在ギフトを購入できません。再試行してください。",
+    "planGiftRefunded": "受取人がギフトを受け取れないため、返金しました。",
+    "planGiftQueued": "ギフトを送りました。30 日分は利用可能になるまで保存されます。",
+    "planGiftDelivered": "ギフトを送りました。",
+    "planGiftWaiting": "支払い確認に時間がかかっています。再確認し、重複して支払わないでください。",
+    "planGiftProcessing": "ギフトの支払いを確認中…",
+    "planGiftCheckAgain": "再確認"
   },
   "promptConfig": {
     "positionHelp": "位置（公式プリセットは 0〜3 を使用。1.5 などの小数で間に挿入できます）",
@@ -1065,7 +1103,8 @@
       "plus": "プラチナで解放",
       "pro": "ダイヤモンドで解放",
       "ultra": "アセンダントで解放"
-    }
+    },
+    "claimUncertain": "報酬の受け取りを確認できませんでした。更新して結果を確認してください。"
   },
   "wallet": {
     "title": "Mushies 残高",
@@ -1533,5 +1572,22 @@
       "question": "ご質問や気になることがあれば",
       "message": "{{username}}にDM"
     }
+  },
+  "planModelPage": {
+    "back": "プロフィールに戻る",
+    "title": "プランとモデル",
+    "subtitle": "現在のプラン、クレジット、AI プロバイダー、使用中のモデルを確認できます。"
+  },
+  "achievements": {
+    "title": "実績と称号",
+    "backToProfile": "プロフィールに戻る",
+    "empty": "まだ実績はありません",
+    "earned": "獲得済み",
+    "locked": "未解除",
+    "showcase": "ショーケース",
+    "showcased": "ショーケース中",
+    "showcaseSet": "「{{title}}」をショーケースに設定しました",
+    "showcaseRemoved": "ショーケースを解除しました",
+    "showcaseFailed": "ショーケースを更新できませんでした"
   }
 }

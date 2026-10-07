@@ -8,8 +8,8 @@ export function AuthLayout({
   wide?: boolean;
 }) {
   return (
-    <div className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-[#121316] px-3 py-6 sm:px-4 sm:py-8">
-      <div data-immersive-bg className="pointer-events-none absolute inset-0">
+    <div className="relative flex h-dvh flex-col overflow-x-hidden overflow-y-auto overscroll-contain bg-[#121316] px-3 py-6 sm:px-4 sm:py-8">
+      <div data-immersive-bg className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute inset-0 bg-[#0B0A10]" />
         <img
           src="/starry-night-bg.jpg"
@@ -32,8 +32,8 @@ export function AuthLayout({
       <div
         className={
           wide
-            ? "relative z-10 w-full max-w-[420px]"
-            : "relative z-10 w-full max-w-[360px] shrink-0 sm:max-w-[390px]"
+            ? "relative z-10 mx-auto my-auto w-full max-w-[420px] shrink-0"
+            : "relative z-10 mx-auto my-auto w-full max-w-[360px] shrink-0 sm:max-w-[390px]"
         }
       >
         {children}

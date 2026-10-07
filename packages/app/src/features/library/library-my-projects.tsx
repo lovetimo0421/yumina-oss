@@ -1,3 +1,4 @@
+import { LANGUAGE_SHORT } from "@/lib/languages";
 import { useState, useCallback } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -55,8 +56,9 @@ export function LibraryMyProjects({
   const sortBy = useLibrarySearchStore((s) => s.projectSort);
   const setSortBy = useLibrarySearchStore((s) => s.setProjectSort);
   const [confirmDeleteItem, setConfirmDeleteItem] = useState<WorldItem | null>(null);
-  const [deleting, setDeleting] = useState(false);
+  // Published projects require typing the name back before deleting.
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const [bulkMode, setBulkMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
@@ -82,12 +84,10 @@ export function LibraryMyProjects({
 
   async function handleDelete() {
     if (!confirmDeleteItem) return;
-    if (confirmDeleteItem.isPublished && deleteConfirmText !== confirmDeleteItem.name) return;
     setDeleting(true);
     await deleteWorld(confirmDeleteItem.id);
     setDeleting(false);
     setConfirmDeleteItem(null);
-    setDeleteConfirmText("");
   }
 
   function toggleSelect(id: string, next: boolean) {
@@ -171,6 +171,17 @@ export function LibraryMyProjects({
       sourceWorldNames.set(w.id, source.name);
     }
   }
+
+  // Language versions of one card share a title; tag each with its language
+  // so two identical 「QA0926 猫咪咖啡馆」 tiles can be told apart.
+  const siblingCount = new Map<string, number>();
+  for (const w of myProjects) {
+    if (w.languageGroupId) siblingCount.set(w.languageGroupId, (siblingCount.get(w.languageGroupId) ?? 0) + 1);
+  }
+  const languageBadgeOf = (w: WorldItem) =>
+    w.language && w.languageGroupId && (siblingCount.get(w.languageGroupId) ?? 0) > 1
+      ? LANGUAGE_SHORT[w.language] ?? w.language.toUpperCase()
+      : null;
 
   const filtered = myProjects.filter((item) =>
     item.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -301,6 +312,7 @@ export function LibraryMyProjects({
                 <div key={item.id} className="flex flex-col">
                   <LibraryGameCard
                     item={item}
+                    languageBadge={languageBadgeOf(item)}
                     onClick={() => onSelectItem(item)}
                     status="draft"
                     onEdit={() => navigate({ to: "/app/worlds/$worldId/edit", params: { worldId: item.id } })}
@@ -336,6 +348,7 @@ export function LibraryMyProjects({
               <div key={item.id} className="flex flex-col">
                 <LibraryGameCard
                   item={item}
+                  languageBadge={languageBadgeOf(item)}
                   onClick={() => onSelectItem(item)}
                   status="pending_review"
                   onEdit={() => navigate({ to: "/app/worlds/$worldId/edit", params: { worldId: item.id } })}
@@ -364,6 +377,7 @@ export function LibraryMyProjects({
               <div key={item.id} className="flex flex-col">
                 <LibraryGameCard
                   item={item}
+                  languageBadge={languageBadgeOf(item)}
                   onClick={() => onSelectItem(item)}
                   status="rejected"
                   onEdit={() => navigate({ to: "/app/worlds/$worldId/edit", params: { worldId: item.id } })}
@@ -413,6 +427,7 @@ export function LibraryMyProjects({
                 <div key={item.id} className="flex flex-col">
                   <LibraryGameCard
                     item={item}
+                    languageBadge={languageBadgeOf(item)}
                     onClick={() => onSelectItem(item)}
                     status="published"
                     onEdit={() => navigate({ to: "/app/worlds/$worldId/edit", params: { worldId: item.id } })}
@@ -440,7 +455,7 @@ export function LibraryMyProjects({
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <Search size={48} className="mb-4 opacity-20" />
             <p className="text-sm">
-              No results for &ldquo;{searchQuery}&rdquo; - try clearing your search.
+              {t("projects.noResults", { query: searchQuery })}
             </p>
           </div>
         ) : (

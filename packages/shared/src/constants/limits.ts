@@ -120,8 +120,10 @@ export interface RateLimitConfig {
 }
 
 export const RATE_LIMITS: Record<RateLimitTier, RateLimitConfig> = {
-  "media-generation": { max: 30, windowSeconds: 3600 },
   "ai-generation":    { max: 6,   windowSeconds: 60 },
+  // ComfyUI image/video jobs. Real capacity control is the per-user active-job
+  // cap + mushie cost; this only stops scripted submit storms.
+  "media-generation": { max: 30,  windowSeconds: 3600 },
   "content-creation": { max: 60,  windowSeconds: 3600 },
   "community-replies":{ max: 30,  windowSeconds: 3600 },
   "social-actions":   { max: 60,  windowSeconds: 60 },

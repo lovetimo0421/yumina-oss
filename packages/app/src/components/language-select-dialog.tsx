@@ -26,7 +26,10 @@ export function LanguageSelectDialog({
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      // Spent here: the Studio page this opened over closes on the same key.
+      e.preventDefault();
+      onClose();
     };
     document.addEventListener("keydown", handler);
     contentRef.current?.focus();
@@ -39,7 +42,7 @@ export function LanguageSelectDialog({
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm"
+        className="fixed inset-0 z-50 modal-backdrop"
         onClick={onClose}
       />
       {/* Container */}
@@ -51,7 +54,7 @@ export function LanguageSelectDialog({
           aria-modal="true"
           aria-label={title ?? t("extra.selectLanguage")}
           tabIndex={-1}
-          className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl outline-none"
+          className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto overscroll-contain rounded-2xl border border-border bg-card p-6 shadow-2xl outline-none"
         >
           <h2 className="mb-4 text-lg font-semibold text-foreground">
             {title ?? t("extra.selectLanguage")}
@@ -67,12 +70,12 @@ export function LanguageSelectDialog({
                   onSelect(lang.code);
                   onClose();
                 }}
-                className="flex items-center gap-3 rounded-xl border border-border p-3 hover:bg-accent transition-colors cursor-pointer"
+                className="flex min-w-0 items-center gap-2 rounded-xl border border-border p-2.5 hover:bg-accent transition-colors cursor-pointer"
               >
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white/10 text-xs font-bold">
                   {lang.short}
                 </span>
-                <span className="text-sm font-medium text-foreground">
+                <span className="min-w-0 text-left text-sm font-medium text-foreground [overflow-wrap:anywhere]">
                   {lang.label}
                 </span>
               </button>

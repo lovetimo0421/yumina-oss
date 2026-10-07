@@ -57,7 +57,8 @@
     "manageSessions": "Manage Sessions",
     "playedAgo": "Played {{time}}",
     "updatedAgo": "Updated {{time}}",
-    "noFavorites": "No public favorites yet."
+    "noFavorites": "No public favorites yet.",
+    "playedRelative": "Played {{time}}"
   },
   "sidebar": {
     "about": "About",
@@ -331,8 +332,8 @@
     "avgCostPerChatByPeriod": "Peak ~{{peak}} · Off-peak ~{{offPeak}} mushies / chat",
     "privateApiMode": "Private API Mode",
     "privateApiDesc": "Billed directly by your provider",
-    "confirmSwitchPrivate": "Switch to Private Key? You'll need your own API key and be billed by your provider.",
-    "confirmSwitchOfficial": "Switch to Yumina API? Your usage will be deducted from your mushie credits.",
+    "confirmSwitchPrivate": "You'll need your own API key and usage will be billed by your provider.",
+    "confirmSwitchOfficial": "Your usage will be deducted from your Mushie credits.",
     "tiers": {
       "budget": "Budget",
       "standard": "Standard",
@@ -413,7 +414,10 @@
       "anthropic_claude_opus_4_5": "Earlier Opus release"
     },
     "avgCostPerChatRange": "typically {{typical}} · up to {{heavy}} mushies / reply",
-    "pilePerMonth": "{{amount}} a month"
+    "pilePerMonth": "{{amount}} a month",
+    "switchPrivateTitle": "Switch to a private API key?",
+    "switchOfficialTitle": "Switch to Yumina API?",
+    "initialPlanGrant": "Initial {{plan}} plan grant"
   },
   "summary": {
     "chooseModel": "Choose Model",
@@ -601,7 +605,15 @@
     "alreadyInvitedDesc": "This account already has invited tier access."
   },
   "settings": {
-    "title": "Account Settings"
+    "title": "Account Settings",
+    "contentLevel": "Content Mode",
+    "safeOnly": "Limited",
+    "safeOnlyDesc": "Show Limited content only",
+    "allowSensitive": "Limitless",
+    "allowSensitiveDesc": "Include Limitless content",
+    "minorRestriction": "Limitless mode isn't available for this account.",
+    "blurSensitive": "Blur Limitless Media",
+    "blurSensitiveDesc": "Blur thumbnails for Limitless content on Discover."
   },
   "editModal": {
     "avatarUpdateFailed": "Failed to update avatar",
@@ -697,7 +709,15 @@
     "noWorksSearch": "No works match this search.",
     "previousWorks": "Previous works page",
     "nextWorks": "Next works page",
-    "worksPage": "{{current}} / {{total}}"
+    "worksPage": "{{current}} / {{total}}",
+    "moreActions": "More profile actions",
+    "sectionsLabel": "Profile sections",
+    "worksTab": "Works {{count}}",
+    "activityTab": "Activity",
+    "aboutTab": "About",
+    "sortWorks": "Sort works",
+    "sortNewest": "Newest",
+    "sortPopular": "Most popular"
   },
   "customPrompts": {
     "createFailed": "Could not create the prompt",
@@ -798,7 +818,8 @@
       "followingHint": "This save follows your global persona. Choosing a persona below automatically locks it to this save.",
       "locked": "Persona locked",
       "lockedHint": "This save keeps the selected persona when your global persona changes.",
-      "saveError": "Could not save the session persona. Please try again."
+      "saveError": "Could not save the session persona. Please try again.",
+      "lockLabel": "Lock the persona for this save"
     },
     "binding": {
       "saveError": "Could not save the default persona. Please try again.",
@@ -947,7 +968,24 @@
     "sent": "Sent",
     "paymentProcessing": "Payment of {{amount}} is being processed.",
     "failedCreateTip": "Couldn't start the tip",
-    "somethingWentWrong": "Something went wrong. Try again."
+    "somethingWentWrong": "Something went wrong. Try again.",
+    "savedGiftInfo": "Saved Mushies can be gifted to anyone. Monthly and Bonus Mushies still require the creator to qualify.",
+    "useSavedOnly": "Use Saved Mushies only",
+    "checkingGiftBalance": "Checking gift availability…",
+    "sendPlanGift": "Send plan as gift",
+    "planGiftRecipient": "Gift for {{name}}",
+    "planGiftPlan": "Choose a plan",
+    "planGiftDays": "{{count}} days",
+    "planGiftRules": "One-time payment, no auto-renewal. Same or higher memberships queue the gift. Higher gifts pause lower gifts and preserve their remaining days. Existing paid subscriptions keep billing normally.",
+    "planGiftCredits": "Includes {{count}} Saved Mushies when the gift starts.",
+    "planGiftCheckout": "Continue to gift checkout",
+    "planGiftUnavailable": "Gift checkout is unavailable. Please try again.",
+    "planGiftRefunded": "The recipient could not receive the gift. Your payment has been refunded.",
+    "planGiftQueued": "Gift delivered. Its 30 days are saved until the recipient can use them.",
+    "planGiftDelivered": "Gift delivered successfully.",
+    "planGiftWaiting": "Payment confirmation is taking longer. Check again; do not pay a second time.",
+    "planGiftProcessing": "Confirming your gift payment…",
+    "planGiftCheckAgain": "Check again"
   },
   "promptConfig": {
     "positionHelp": "Position (official presets use 0–3; use decimals like 1.5 to insert between them)",
@@ -1090,7 +1128,8 @@
       "plus": "Unlocks on Platinum",
       "pro": "Unlocks on Diamond",
       "ultra": "Unlocks on Ascendant"
-    }
+    },
+    "claimUncertain": "We couldn't confirm your reward. Refresh to check whether it was added."
   },
   "wallet": {
     "title": "Mushie balance",
@@ -1397,7 +1436,9 @@
     "blockedWatching": "Waiting for Ollama to let Yumina in; this connects by itself…",
     "blockedNoReboot": "Only the Ollama app restarts, not your computer. Nothing is downloaded or installed.",
     "blockedLinux": "Set OLLAMA_ORIGINS as in step 3 of the setup guide, then restart the Ollama service.",
-    "connectedToast": "Connected to {{runtime}} on your computer. Pick a model."
+    "connectedToast": "Connected to {{runtime}} on your computer. Pick a model.",
+    "blockedBody": "It needs to be told that {{origin}} is allowed. Run this, then restart it:",
+    "blockedRestart": "Restart the runtime after running the command, then check again."
   },
   "inviteRace": {
     "title": "Invite Race",
@@ -1601,7 +1642,7 @@
     "hero": {
       "eyebrow": "Invite Race",
       "title": "Invite friends,\nwin together",
-      "subtitle": "A $1,000 pool — the more your friends play, the bigger your share · {{days}} days left",
+      "subtitle": "A $1,000 pool — the more your friends play, the bigger your share · Ends in {{days}}d",
       "cta": "See my tickets"
     },
     "giftCardHow": "Confirm the recipient name and email when claiming a gift card. We send the reward through Tango; delivery is not instant.",
@@ -1658,5 +1699,10 @@
       "question": "Questions or concerns?",
       "message": "DM {{username}}"
     }
+  },
+  "planModelPage": {
+    "back": "Back to Profile",
+    "title": "Plan & model",
+    "subtitle": "Review your current plan, credits, AI provider, and active model."
   }
 }

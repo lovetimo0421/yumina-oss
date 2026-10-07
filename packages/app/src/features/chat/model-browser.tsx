@@ -316,7 +316,7 @@ export function ModelBrowser({
   return createPortal(
     <>
       <div className="fixed inset-0 z-[1200] flex items-center justify-center" onClick={onClose}>
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+        <div className="absolute inset-0 modal-backdrop" />
 
       <div
         onClick={(e) => e.stopPropagation()}

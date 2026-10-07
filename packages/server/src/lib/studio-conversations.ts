@@ -477,6 +477,14 @@ export async function loadStudioConversationForDisplay(
       ...(isRecord(message.imageBatchProposal) && isRecord(message.imageBatchProposal.batch) ? { batch: message.imageBatchProposal.batch } : {}),
     };
   }
+  // A big job waiting for Start: its time-and-cost line and Start button come
+  // back after a reload, on the bubble of the run that proposed it.
+  for (const run of runs) {
+    const job = isRecord(run.context) && isRecord(run.context.jobProposal) ? run.context.jobProposal : null;
+    if (run.status !== "awaiting_user" || !job || job.runId !== run.id) continue;
+    const message = [...displayMessages].reverse().find(item => item.role === "assistant" && item.agentRunId === run.id);
+    if (message && !isRecord(message.jobProposal)) message.jobProposal = job;
+  }
 
   return {
     ...conversation,

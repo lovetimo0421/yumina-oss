@@ -37,6 +37,8 @@ const apiBase = import.meta.env.VITE_API_URL || "";
 
 let _speakSerial = 0;
 let _speakController: AbortController | null = null;
+let _cancelCompletion: ((reason: "cancelled" | "timeout") => void) | null = null;
+const COMPLETION_TIMEOUT_MS = 150_000;
 
 // The chat store is imported lazily everywhere in this module (it imports
 // this one); once loaded, the read-along path needs it synchronously.
@@ -132,6 +134,9 @@ export interface SpeakOptions {
   key?: string;
   /** Per-call voice override (cards may voice their own characters). */
   voice?: string;
+  /** Return success only after every clip actually ended; blocked autoplay,
+   *  cancellation, media failure and the 150s host deadline return failure. */
+  waitForEnd?: boolean;
 }
 
 /** What to tell the player when a readout can't be paid for (HTTP 402):
@@ -167,15 +172,59 @@ export async function speakMessage(
   sessionId: string,
   opts: SpeakOptions,
 ): Promise<{ ok: boolean; reason?: string }> {
+  if (opts.waitForEnd) {
+    // A card's voice conversation: it needs to know when the clip has
+    // actually finished playing, not just that the synth was accepted.
+    if (!getTtsPrefs().enabled) return { ok: false, reason: "disabled" };
+    stopSpeaking();
+  }
   const serial = ++_speakSerial;
   _speakController?.abort();
   const controller = new AbortController();
   _speakController = controller;
-  try {
-    return await speakMessageOwned(sessionId, opts, serial, controller);
-  } finally {
-    if (_speakController === controller) _speakController = null;
+  if (!opts.waitForEnd) {
+    try {
+      return await speakMessageOwned(sessionId, opts, serial, controller);
+    } finally {
+      if (_speakController === controller) _speakController = null;
+    }
   }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: { ok: boolean; reason?: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (_cancelCompletion === cancel) _cancelCompletion = null;
+      if (_speakController === controller) _speakController = null;
+      resolve(result);
+    };
+    const cancel = (reason: "cancelled" | "timeout") => {
+      if (settled) return;
+      controller.abort();
+      if (serial === _speakSerial) {
+        _speakSerial++;
+        cancelStreamRead();
+        useAudioStore.getState().stopVoice();
+      }
+      finish({ ok: false, reason });
+    };
+    const timer = setTimeout(() => cancel("timeout"), COMPLETION_TIMEOUT_MS);
+    _cancelCompletion = cancel;
+    void speakMessageOwned(sessionId, opts, serial, controller).then(finish, () => {
+      if (serial === _speakSerial) useAudioStore.getState().stopVoice();
+      finish({ ok: false, reason: "error" });
+    });
+  });
+}
+
+async function playToCompletion(urls: string[], key: string, serial: number): Promise<{ ok: boolean; reason?: string }> {
+  for (const url of urls) {
+    if (serial !== _speakSerial) return { ok: false, reason: "cancelled" };
+    const result = await useAudioStore.getState().playVoice(key, `${apiBase}${url}`, { failIfBlocked: true, measureLevel: true });
+    if (!result.ok) return result;
+  }
+  return { ok: true };
 }
 
 async function speakMessageOwned(
@@ -212,6 +261,7 @@ async function speakMessageOwned(
       entry.text === messageTextFor(opts.messageId) &&
       entry.urls.length > 0
     ) {
+      if (opts.waitForEnd) return playToCompletion(entry.urls, key, serial);
       playSequence(sessionId, entry.urls, key, entry.voice, entry.mode, opts.messageId, entry.text);
       return { ok: true };
     }
@@ -306,7 +356,8 @@ async function speakMessageOwned(
       .catch(() => {});
   }
 
-  if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
+  if (serial !== _speakSerial) return { ok: false, reason: opts.waitForEnd ? "cancelled" : "superseded" };
+  if (opts.waitForEnd) return playToCompletion(urls, key, serial);
   if (urls.length > 1) {
     // Several speakers → several clips, played back to back.
     playSequence(sessionId, urls, key, voice, prefs.mode, opts.messageId ?? null, "");
@@ -361,6 +412,7 @@ function playSequence(
 }
 
 export function stopSpeaking(): void {
+  _cancelCompletion?.("cancelled");
   _speakSerial++;
   _speakController?.abort();
   _speakController = null;

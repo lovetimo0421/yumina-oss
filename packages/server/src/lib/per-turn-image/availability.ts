@@ -3,9 +3,10 @@
 //   1. The server flag (PER_TURN_IMAGES=1 plus a generation provider and our
 //      OpenRouter key for tagging). Off: nobody is offered the feature, and
 //      the Settings switch is hidden (GET /users/me → turnImagesOffered).
-//   2. The player's own opt-in, preferences.experimentalTurnImages, set from
-//      Settings › Display › Experimental. It is an experimental, paid feature,
-//      so everyone starts with it off and a missing key means off.
+//   2. The player's own switch, preferences.experimentalTurnImages (the key
+//      keeps its old name), set from Settings › Display › Story illustrations.
+//      On by default: a missing key means on, only an explicit false is off.
+//      Drawing still only happens when the player asks (or turns auto on).
 //
 // Only with both on does the player get the "draw this scene" button, the
 // composer's auto switch, or any drawing at all; the illustrate endpoint
@@ -25,16 +26,18 @@ export function perTurnImagesEnabled(): boolean {
 }
 
 export interface TurnImagePrefs {
-  /** Settings › Display › Experimental switch. */
+  /** Settings › Display › Story illustrations switch. */
   optedIn: boolean;
-  /** The composer's "illustrate every reply" switch. Only means anything while opted in. */
+  /** The composer's "illustrate every reply" switch. Counts only when it was turned on
+   *  alongside an explicit experimentalTurnImages:true (the composer writes both), so a
+   *  stray autoTurnImages from before the default flip doesn't start paid drawing. */
   auto: boolean;
 }
 
 export function readTurnImagePrefs(preferences: unknown): TurnImagePrefs {
   const prefs = (preferences ?? {}) as Record<string, unknown>;
-  const optedIn = prefs.experimentalTurnImages === true;
-  return { optedIn, auto: optedIn && prefs.autoTurnImages === true };
+  const optedIn = prefs.experimentalTurnImages !== false;
+  return { optedIn, auto: prefs.experimentalTurnImages === true && prefs.autoTurnImages === true };
 }
 
 /** The player's own switches, read from the primary (they just flipped them). */

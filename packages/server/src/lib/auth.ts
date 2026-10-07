@@ -3,6 +3,8 @@ import { APIError } from "better-auth/api";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { usernameAuthPlugin } from "./auth-username.js";
 import { jwt } from "better-auth/plugins/jwt";
+import { oauthProvider } from "@better-auth/oauth-provider";
+import { MCP_PATHS, MCP_SCOPE, mcpResourceUrl } from "./mcp-oauth.js";
 import { and, eq, like } from "drizzle-orm";
 import { env, IS_LOCAL_EDITION, PUBLIC_ORIGIN } from "./env.js";
 import * as schema from "../db/schema.js";
@@ -183,8 +185,15 @@ export const auth = betterAuth({
       account: schema.account,
       verification: schema.verification,
       jwks: schema.jwks,
+      oauthClient: schema.oauthClient,
+      oauthRefreshToken: schema.oauthRefreshToken,
+      oauthAccessToken: schema.oauthAccessToken,
+      oauthConsent: schema.oauthConsent,
     },
   }),
+  // The jwt plugin's own GET /token would mint session JWTs beside OAuth;
+  // every OAuth token comes from /oauth2/token instead.
+  disabledPaths: ["/token"],
   secret: env.BETTER_AUTH_SECRET,
   baseURL: env.BETTER_AUTH_URL,
   trustedOrigins: process.env.NODE_ENV !== "production"
@@ -372,6 +381,19 @@ export const auth = betterAuth({
       jwt: { issuer: new URL(env.BETTER_AUTH_URL).origin, expirationTime: "15m" },
       disableSettingJwtHeader: true,
     }),
+    // Yumina as an OAuth 2.1 authorization server for the card MCP
+    // (routes/agent-api.ts): an outside AI registers itself, the creator signs
+    // in and allows it on /oauth/consent, and the AI gets an access token for
+    // the MCP endpoint — no card token to paste.
+    oauthProvider({
+      loginPage: "/login",
+      consentPage: "/oauth/consent",
+      scopes: ["openid", "profile", "offline_access", MCP_SCOPE],
+      clientRegistrationDefaultScopes: ["openid", "profile", "offline_access", MCP_SCOPE],
+      allowDynamicClientRegistration: true,
+      allowUnauthenticatedClientRegistration: true,
+      validAudiences: MCP_PATHS.map((p) => mcpResourceUrl(p)),
+    }),
   ],
   emailAndPassword: {
     enabled: true,
@@ -498,6 +520,15 @@ export const auth = betterAuth({
           // Create credit wallet immediately so new users have credits on first load.
           try {
             await ensureWallet(user.id, "free");
+            const deletedIdentity = user.email
+              ? await getDeletedIdentity(user.email)
+              : null;
+            if (deletedIdentity?.blockWelcomeRewards) {
+              await db
+                .update(schema.creditWallets)
+                .set({ grokTrialRemaining: 0, updatedAt: new Date() })
+                .where(eq(schema.creditWallets.userId, user.id));
+            }
           } catch (err) {
             console.error(`[AUTH] Failed to create wallet for user ${user.id}:`, err);
           }

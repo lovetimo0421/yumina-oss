@@ -3,6 +3,7 @@ import type { Variable } from "@yumina/engine";
 import { useEditorStore } from "@/stores/editor";
 import { cn } from "@/lib/utils";
 import { jsonDefaultText, jsonDefaultUpdate, parseJsonDefault } from "../lib/json-default";
+import { DebouncedTextarea } from "./debounced-field";
 
 export function JsonDefaultValueEditor({ variable, onChange, expanded, onExpandedChange }: {
   variable: Variable;
@@ -24,12 +25,13 @@ export function JsonDefaultValueEditor({ variable, onChange, expanded, onExpande
         <button type="button" disabled={!canRedo} className={controlClass} onClick={() => useEditorStore.getState().redo()}>{t("variables.jsonRedo")}</button>
         <button type="button" aria-expanded={expanded} className={controlClass} onClick={() => onExpandedChange(!expanded)}>{t(expanded ? "variables.jsonCollapse" : "variables.jsonExpand")}</button>
       </div>
-      <textarea
+      <DebouncedTextarea
         aria-label={t("variables.defaultValue")}
         aria-invalid={invalid}
         aria-describedby="json-default-status"
         value={text}
-        onChange={(event) => onChange(jsonDefaultUpdate(event.target.value))}
+        onCommit={(raw) => onChange(jsonDefaultUpdate(raw))}
+        syncKey={variable.id}
         rows={expanded ? 22 : 9}
         spellCheck={false}
         className={cn("w-full resize-y rounded-xl border border-border bg-card px-4 py-3 font-mono text-sm leading-relaxed text-foreground shadow-inner transition-colors focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50", expanded ? "h-[530px] min-h-[320px]" : "h-[220px] min-h-[180px]")}

@@ -8,11 +8,13 @@ import i18n from "@/lib/i18n";
 import { pickModelFromPool, pickModelExcluding } from "@/lib/model-mix";
 import { floorMushies } from "@/lib/format-mushies";
 import { appendRegenSwipe } from "@/features/chat/turn-swipes";
+import { drawTurnImage } from "@/features/chat/turn-image-drawing";
 import { refreshMessageWindow } from "@/features/chat/refresh-message-window";
 import { kimiRepetitionOverride } from "@/lib/kimi-repetition";
 import { signalTtsUserStop } from "@/lib/tts-stop-signal";
 import { useAudioStore } from "./audio";
 import {
+  queueSessionStateOperation,
   queueSessionStatePatch,
   whenSessionStateSettled,
 } from "../lib/session-state-queue";
@@ -21,8 +23,11 @@ import { useCreditStore, syncCreditsFromMessageResponse, handleStreamCreditError
 import { useUserProfileStore } from "./user-profile";
 import { fallbackDecision, fallbackRecord, parseFallbackError, type ModelFallbackRetry } from "../lib/model-fallback";
 import { DEFAULT_MODEL_FALLBACK_POLICY, type ModelFallbackNotice, type ModelFallbackRecord } from "@yumina/shared";
-import type { WorldDefinition, Effect } from "@yumina/engine";
-import { drawTurnImage } from "@/features/chat/turn-image-drawing";
+import type { WorldDefinition, Effect, GameState, Worldbook } from "@yumina/engine";
+import { safeParseWorldDef } from "@/lib/utils";
+import { hasGroupVoices, nextGroupVoice } from "@/features/chat/group-voices";
+import { withRuntimeState } from "@/features/studio/lib/runtime-state";
+import { appendRuntimeRecord, type RuntimeRecord, type RuntimeRecordKind } from "@/features/studio/lib/runtime-records";
 
 // ── Streaming Update Batcher ──
 //
@@ -134,6 +139,9 @@ export interface Message {
     /** The server's refusal-detector judged this reply to be a model policy
      *  refusal (set on the `done` SSE payload and persisted on the swipe). */
     refusal?: boolean;
+    /** The AI of a group chat that said this, when it was not the turn's
+     *  first voice (server lib/group-reply.ts). */
+    voice?: string;
   }>;
   activeSwipeIndex?: number;
   model?: string | null;
@@ -229,6 +237,12 @@ function retryAction(onClick: () => void): { label: string; onClick: () => void 
  */
 const RETRYABLE_STREAM_CODES = new Set(["RATE_LIMITED", "CONCURRENT_LIMIT", "REPETITIVE_REPLY"]);
 
+/** While the browser reports no network, that is the error worth naming —
+ *  whatever the failed request itself said ("Failed to fetch", a stall). */
+function offlineAware(code: string | undefined): string | undefined {
+  return typeof navigator !== "undefined" && navigator.onLine === false ? "OFFLINE" : code;
+}
+
 /** The app's legitimate pill: a stream that failed out of view. */
 function showStreamError(code: string, text: string, retry?: () => void): void {
   feedback.error(
@@ -243,10 +257,15 @@ function showStreamError(code: string, text: string, retry?: () => void): void {
  * DEV-only copy guard is never allowed to break a turn.
  */
 function showGameNotifications(
-  notifications: Array<{ message: string; style: string }> | undefined,
+  notifications: Array<{ message: string; style: string; title?: string; image?: string }> | undefined,
 ): void {
   if (!notifications?.length) return;
   for (const n of notifications) {
+    // 时刻: a card with its picture, not a pill.
+    if (n.style === "moment") {
+      void import("@/features/chat/moment-toast").then(({ showMoment }) => showMoment({ title: String(n.title ?? ""), text: String(n.message ?? ""), image: n.image })).catch(() => {});
+      continue;
+    }
     const text = toPillText(String(n.message ?? ""));
     if (!text) continue;
     try {
@@ -323,6 +342,20 @@ interface ChatState {
   /** Scene image ids this session has shown: the server's record on load,
    *  plus whatever this tab's own turns revealed. Read by the gallery. */
   revealedSceneImages: string[];
+  runtimeRecords: RuntimeRecord[];
+  /** 现场: the card interface's latest api.setScene — sent with every AI
+   *  call (send / regenerate / continue / quiet tick), never stored. */
+  liveScene: { scene: unknown; events: unknown } | null;
+  setLiveScene: (scene: unknown, events?: unknown) => void;
+  /** Quiet-station turns that chose silence — the playtest timeline's
+   *  hollow dots. Nothing else records them. */
+  quietSilences: Array<{ at: string; sessionId: string; speakerId: string; speakerName: string }>;
+  /** Events the AI set off ([event: name]) waiting to reach the card. */
+  storyEvents: Array<{ id: string; name: string; ai?: { channel: string; id: string; name: string; text: string; fields: Record<string, unknown> }; code?: { reactionId: string; source: string; names: Record<string, string> } }>;
+  runtimeRecordingSessionId: string | null;
+  startRuntimeRecording: (sessionId: string) => void;
+  stopRuntimeRecording: (sessionId: string) => void;
+  applyRuntimeResult: (sessionId: string, payload: Record<string, unknown>, kind?: RuntimeRecordKind, actionId?: string) => void;
   messages: Message[];
   // Full history size server-side. The server returns only a recent window
   // (mega sessions froze it serializing full histories — 2026-08-11 outage);
@@ -363,6 +396,9 @@ interface ChatState {
    *  watches this to restore the swallowed text — a toast-class rejection
    *  (NO_CREDITS, MODEL_NOT_ALLOWED, …) must never eat a typed message. */
   sendFailureNonce: number;
+  /** Structured terminal send outcome for persistent recovery UI. Never stores
+   * provider text or the submitted message; transient toasts can still expire. */
+  lastSendFailure: { sessionId: string; code: string; balance?: number } | null;
   modelFallback: ModelFallbackNotice | null;
   resolveModelFallback: (noticeId: string, model: string, remember?: boolean) => void;
   cancelModelFallback: (noticeId: string) => void;
@@ -401,13 +437,27 @@ interface ChatState {
   setVariableDirectly: (id: string, value: number | string | boolean | Record<string, unknown> | unknown[]) => void;
 
   // Action rule execution (from custom component buttons)
+  /** The open game's clock: asks the card's quiet stations whether this
+   *  silence is worth a line. No-op while streaming or read-only. */
+  /** The open game's clock; with `call`, the card's screen calling one
+   *  UI-based AI (by id or name) to answer now. */
+  quietTick: (call?: string) => Promise<void>;
+  /** The card's screen calling one of its AIs: runs it, applies what it
+   *  changed, and resolves with its answer (null when it could not run). */
+  callAi: (ai: string, input?: unknown) => Promise<{ text: string; fields: Record<string, unknown>; fallback: boolean } | null>;
+  /** A group chat's later voices: after an answer lands, asks for the next
+   *  AI in the room until every one has spoken. No-op on a card without. */
+  groupReply: (model?: string) => Promise<void>;
   executeActionRule: (actionId: string) => void;
+  executeActionAndWait: (actionId: string, params?: Record<string, unknown>, clock?: number) => Promise<{ applied: true; variables: Record<string, unknown>; firedIds: string[] }>;
 
   // Switch greeting to a different pre-written opening (by swipe index)
-  switchGreeting: (index: number) => void;
+  /** Resolves once the switch has been applied (or immediately when there is
+   *  nothing to switch). Never rejects. */
+  switchGreeting: (index: number) => Promise<void>;
 
   // Load session data from API
-  loadSession: (sessionId: string) => Promise<void>;
+  loadSession: (sessionId: string, shouldApply?: () => boolean) => Promise<void>;
 
   // Reconcile messages with server (lightweight — messages only, no audio/asset reload).
   // Used after abort/error to replace any __pending_* placeholder with the real DB row.
@@ -586,6 +636,9 @@ async function recoverFromConnectionLoss(opts: {
     const vars = (last?.stateSnapshot as { variables?: ChatState["gameState"] } | null | undefined)
       ?.variables;
     _isSending = false;
+    if (last) getState().applyRuntimeResult(sessionId, {
+      state: last.stateSnapshot, stateChanges: last.stateChanges, messageId: last.id,
+    }, sentContent === null ? "continue" : "turn");
     setState({
       messages: list,
       isStreaming: false,
@@ -599,6 +652,28 @@ async function recoverFromConnectionLoss(opts: {
       ...(vars ? { gameState: vars } : {}),
     });
   };
+
+  // Offline: nothing can be probed or polled, and a spinner that waits on
+  // the network is the "stuck generating forever" bug. Give the turn back
+  // now (error + the typed text restored), then look again the moment the
+  // network returns — the server may have finished the reply meanwhile.
+  if (typeof navigator !== "undefined" && navigator.onLine === false && typeof window !== "undefined") {
+    giveUp();
+    const onOnline = () => {
+      window.removeEventListener("online", onOnline);
+      if (_recoveryToken !== token || getState().session?.id !== sessionId) return;
+      void getState().refreshMessages().then(() => {
+        const state = getState();
+        if (state.session?.id !== sessionId) return;
+        // The turn did land: the error no longer describes the transcript.
+        if (sentContent !== null && findAnchor(state.messages) !== -1) {
+          setState({ error: null, lastSendFailure: null });
+        }
+      });
+    };
+    window.addEventListener("online", onOnline);
+    return;
+  }
 
   // Probe: did the request land at all? The user-row insert runs a few
   // seconds into the request (auth + session load first), so wait before
@@ -766,6 +841,49 @@ function resumeModelFallback(id: string, model: string, remember: boolean, autom
 export const useChatStore = create<ChatState>((set, get) => ({
   session: null,
   revealedSceneImages: [],
+  runtimeRecords: [],
+  runtimeRecordingSessionId: null,
+  startRuntimeRecording: (sessionId) => set((s) => ({
+    runtimeRecordingSessionId: sessionId,
+    runtimeRecords: s.runtimeRecordingSessionId === sessionId ? s.runtimeRecords : [],
+  })),
+  stopRuntimeRecording: (sessionId) => set((s) =>
+    s.runtimeRecordingSessionId === sessionId ? { runtimeRecordingSessionId: null } : {}),
+  applyRuntimeResult: (sessionId, payload, kind, actionId) => set((s) => {
+    if (s.session?.id !== sessionId) return {};
+    const session = withRuntimeState(s.session, sessionId, payload.state);
+    const variables = session?.state.variables as ChatState["gameState"] | undefined;
+    const fired: ChatState["storyEvents"] = Array.isArray(payload.storyEvents)
+      ? payload.storyEvents.filter((name): name is string => typeof name === "string").map((name) => ({ id: crypto.randomUUID(), name }))
+      : [];
+    // 回复处理: blocks a reply rule sends to an interface channel reach the
+    // card's api.onAiOutput listeners, like a custom AI's words do.
+    if (Array.isArray(payload.replyChannels)) {
+      for (const out of payload.replyChannels as Array<{ channel: string; text: string; rule: string }>) {
+        if (out && typeof out.channel === "string") fired.push({ id: crypto.randomUUID(), name: `ai:${out.channel}`, ai: { channel: out.channel, id: "reply", name: String(out.rule ?? ""), text: String(out.text ?? ""), fields: {} } });
+      }
+    }
+    // 代码行为: a behaviour with code of its own that fired here runs in the
+    // card's sandbox (world-renderer hands it over with the story events).
+    if (Array.isArray(payload.firedIds) && payload.firedIds.length > 0) {
+      const schema = s.session?.world?.schema as { reactions?: Array<{ id: string; code?: string }>; variables?: Array<{ id: string; name: string }> } | undefined;
+      const reactions = schema?.reactions ?? [];
+      for (const id of payload.firedIds) {
+        const r = reactions.find((x) => x.id === id && typeof x.code === "string" && x.code.trim());
+        if (r) fired.push({ id: crypto.randomUUID(), name: `code:${r.id}`, code: { reactionId: r.id, source: r.code!, names: Object.fromEntries((schema?.variables ?? []).map((v) => [v.name, v.id])) } });
+      }
+    }
+    return {
+      session,
+      ...(fired.length > 0 ? { storyEvents: [...s.storyEvents, ...fired].slice(-20) } : {}),
+      ...(variables ? { gameState: variables } : {}),
+      ...(kind ? { runtimeRecords: appendRuntimeRecord(s.runtimeRecords, s.runtimeRecordingSessionId, sessionId, kind, payload, actionId) } : {}),
+    };
+  }),
+  liveScene: null,
+  setLiveScene: (scene, events) => set({ liveScene: scene == null && events == null ? null : { scene, events: events ?? [] } }),
+  storyEvents: [],
+  quietSilences: [],
   messages: [],
   messageTotal: 0,
   hasEarlierMessages: false,
@@ -786,6 +904,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   error: null,
   errorCode: null,
   sendFailureNonce: 0,
+  lastSendFailure: null,
   modelFallback: null,
   resolveModelFallback: (id, model, remember = false) => resumeModelFallback(id, model, remember),
   cancelModelFallback: (id) => {
@@ -795,12 +914,20 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setSession: (session) => {
-    if (session?.id !== get().session?.id) fallbackReplay = null;
-    set({ session, ...(session?.id !== get().session?.id && { modelFallback: null }), ...(session === null && { readOnly: false }) });
+    const changed = session?.id !== get().session?.id;
+    if (changed) fallbackReplay = null;
+    set({
+      session,
+      ...(changed && { error: null, lastSendFailure: null, modelFallback: null, liveScene: null, storyEvents: [] }),
+      ...(session === null && { readOnly: false }),
+    });
   },
-  clearError: () => set({ error: null, errorCode: null }),
+  clearError: () => set({ error: null, lastSendFailure: null, errorCode: null }),
   setMessages: (messages) => set({ messages }),
-  setGameState: (gameState) => set({ gameState }),
+  setGameState: (gameState) => set((s) => ({
+    gameState,
+    session: s.session ? { ...s.session, state: { ...s.session.state, variables: gameState } } : null,
+  })),
 
   addMessage: (message) =>
     set((s) => ({ messages: [...s.messages, message] })),
@@ -817,7 +944,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messages: s.messages.filter((m) => m.id !== id),
     })),
 
-  loadSession: async (sessionId: string) => {
+  loadSession: async (sessionId: string, shouldApply?: () => boolean) => {
     if (get().session?.id !== sessionId) { fallbackReplay = null; set({ modelFallback: null }); }
     // Abort any in-flight session load to prevent stale data (#31)
     _loadSessionAbort?.abort();
@@ -838,7 +965,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       });
 
       // Guard: if this load was superseded by a newer one, discard results
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || shouldApply?.() === false) return;
+
+      if (res.status === 401) {
+        set({ error: null });
+        handleAuthLoss();
+        return;
+      }
 
       if (res.status === 401) {
         set({ error: null });
@@ -856,7 +989,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const { data } = await res.json();
 
       // Guard again after async JSON parsing
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || shouldApply?.() === false) return;
 
       const gameState = (data.state?.variables ?? {}) as Record<
         string,
@@ -874,6 +1007,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         gameState,
         readOnly: Boolean(data.readOnly),
         error: null,
+        lastSendFailure: null,
       });
 
       // Prime asset preload links in the parent <head> so the browser starts
@@ -1064,6 +1198,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       pendingChoices: [],
       pendingSilentChanges: [],
       error: null,
+      lastSendFailure: null,
       errorCode: null,
       messages: retry?.userMessageId ? s.messages : [
         ...s.messages,
@@ -1107,6 +1242,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             ...kimiRepetitionOverride(modelId, config.repetitionPenalty),
           },
           ...(attachments && attachments.length > 0 && { attachments }),
+          ...(get().liveScene && { scene: get().liveScene }),
           // Attempt #1 may have already persisted the user message server-side
           // (insert runs before the stream). The flag lets the server reuse
           // that row instead of inserting a duplicate.
@@ -1138,6 +1274,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             set({ modelFallback: null });
             flushStreamingAppends();
             const state = get();
+            if (state.session?.id !== session.id) return;
+            state.applyRuntimeResult(session.id, data, "turn");
             const credits = parseCreditsPayload(data);
 
             // Update temp user message with server-assigned ID
@@ -1226,6 +1364,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             recordRevealedSceneImages(data.sceneImages);
             // Draw this reply's picture now that the turn is over (see turn-image-drawing).
             if (data.refusal !== true) void drawTurnImage(assistantMsg.id, true);
+            // In a room of several AIs, the next one answers now.
+            if (data.refusal !== true) void get().groupReply((data.model as string) || modelId);
 
             // Process audio effects (after message is safely saved)
             try {
@@ -1248,6 +1388,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
             // Update credit balance from server (real-time, no API call)
             syncCreditBalance(credits);
+
+            // (Auto voice readout runs as a streaming read-along — see
+            // ensureStreamReadAlong in lib/tts-playback — no per-done hook.)
 
             // Evaluate conditional BGM after state update
             try {
@@ -1298,6 +1441,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
             // whole turn — probe + poll for the orphaned reply instead. Only a
             // server-sent error (clean origin state) may fall through to the
             // mix-retry below.
+            // The browser was offline before the request left: nothing reached
+            // the server, so there is nothing to recover — stop "generating",
+            // hand the text back to the composer and say what happened.
+            if (meta?.origin === "offline") {
+              cancelStreamingBatch();
+              _isSending = false;
+              set((s) => ({
+                isStreaming: false,
+                streamingContent: "",
+                streamingReasoning: "",
+                streamingSegments: [],
+                streamingBg: null,
+                streamStartTime: null,
+                abortController: null,
+                error: localizeChatError(errorMsg, "OFFLINE"),
+                lastSendFailure: { sessionId: session.id, code: "OFFLINE" },
+                sendFailureNonce: s.sendFailureNonce + 1,
+                messages: s.messages.filter((m) => !m.id.startsWith("__pending_")),
+              }));
+              return;
+            }
+
             if (meta?.origin === "connection") {
               void recoverFromConnectionLoss({
                 sessionId: session.id,
@@ -1322,7 +1487,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                       streamingBg: null,
                       streamStartTime: null,
                       abortController: null,
-                      error: localizeChatError(errorMsg),
+                      error: localizeChatError(errorMsg, offlineAware(errorCode)),
+                      lastSendFailure: { sessionId: session.id, code: "CONNECTION_FAILED" },
                       sendFailureNonce: s.sendFailureNonce + 1,
                       messages: s.messages.filter((m) => !m.id.startsWith("__pending_")),
                     }));
@@ -1345,7 +1511,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     streamingBg: null,
                     streamStartTime: null,
                     abortController: null,
-                    error: localizeChatError(errorMsg),
+                    error: localizeChatError(errorMsg, offlineAware(errorCode)),
+                    lastSendFailure: { sessionId: session.id, code: "CONNECTION_UNCERTAIN" },
                     sendFailureNonce: s.sendFailureNonce + 1,
                     messages: s.messages.filter((m) => !m.id.startsWith("__pending_")),
                   }));
@@ -1402,6 +1569,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                 // Toast-only failures skip `error` on purpose, so the composer
                 // restore must ride this nonce instead.
                 sendFailureNonce: s.sendFailureNonce + 1,
+                lastSendFailure: { sessionId: session.id, code: errorCode, ...(errorBalance !== undefined ? { balance: errorBalance } : {}) },
                 messages: s.messages.filter((m) => !m.id.startsWith("__pending_")),
               }));
               reconcileMessagesWithRetry(get().refreshMessages);
@@ -1416,7 +1584,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
               streamingBg: null,
               streamStartTime: null,
               abortController: null,
-              error: localizeChatError(errorMsg),
+              error: localizeChatError(errorMsg, offlineAware(errorCode)),
+              lastSendFailure: { sessionId: session.id, code: errorCode ?? "GENERATION_FAILED" },
               errorCode: errorCode ?? null,
               sendFailureNonce: s.sendFailureNonce + 1,
               // Drop the local-only placeholder; refreshMessages() below will
@@ -1451,13 +1620,34 @@ export const useChatStore = create<ChatState>((set, get) => ({
   regenerateMessage: (messageId: string, model?: string, retry?: ModelFallbackRetry) => {
     const { session, isStreaming } = get();
     if (!session || isStreaming || _isSending || get().readOnly || (get().modelFallback && !retry)) return;
-    _isSending = true;
 
     const config = useConfigStore.getState();
     const useModel = model ??
       (config.mixMode && config.modelPool.length > 1
         ? pickModelFromPool(config.modelPool)
         : config.selectedModel);
+
+    // A group chat's later voice is asked again, not rewritten by the turn's
+    // narrator: its line goes and the same AI, next in the room, answers anew.
+    const target = get().messages.find((m) => m.id === messageId);
+    const voice = target?.swipes?.[target.activeSwipeIndex ?? 0]?.voice;
+    if (voice) {
+      // One at a time: a second click while the line is going would delete
+      // it twice and ask the room twice.
+      _isSending = true;
+      void (async () => {
+        try {
+          const res = await fetch(`${apiBase}/api/messages/${messageId}`, { method: "DELETE", credentials: "include" }).catch(() => null);
+          if (!res?.ok || get().session?.id !== session.id) return;
+          get().removeMessage(messageId);
+        } finally {
+          _isSending = false;
+        }
+        await get().groupReply(useModel);
+      })();
+      return;
+    }
+    _isSending = true;
 
     set({
       isStreaming: true,
@@ -1466,8 +1656,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
       streamingSegments: [],
       streamingBg: null,
       streamStartTime: Date.now(),
-      error: null,
       errorCode: null,
+      error: null,
+      lastSendFailure: null,
     });
 
     const controller = connectSSE(
@@ -1478,6 +1669,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         body: {
           model: useModel,
           modelFallback: fallbackRecord(retry, useModel),
+          ...(get().liveScene && { scene: get().liveScene }),
           overrides: {
             maxTokens: config.maxTokens,
             maxContext: config.maxContext,
@@ -1520,6 +1712,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             flushStreamingAppends();
             const state = get();
             const credits = parseCreditsPayload(data);
+            if (state.session?.id !== session.id) return;
+            state.applyRuntimeResult(session.id, data, "regenerate");
             _isSending = false;
 
             set((s) => ({
@@ -1613,6 +1807,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             } catch (notifErr) {
               console.warn("Notification processing failed:", notifErr);
             }
+
           },
           onError: (err, meta) => {
             if (pauseForModelFallback(err, meta?.origin, session.id, retry,
@@ -1665,7 +1860,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               streamingBg: null,
               streamStartTime: null,
               abortController: null,
-              error: localizeChatError(errorMsg),
+              error: localizeChatError(errorMsg, offlineAware(errorCode)),
               errorCode: errorCode ?? null,
             });
             reconcileMessagesWithRetry(get().refreshMessages);
@@ -1700,9 +1895,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       streamingReasoning: "",
       streamingSegments: [],
       streamingBg: null,
+      errorCode: null,
       streamStartTime: Date.now(),
       error: null,
-      errorCode: null,
+      lastSendFailure: null,
     });
 
     const controller = connectSSE(
@@ -1714,6 +1910,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
           continue: true,
           model: useModel,
           modelFallback: fallbackRecord(retry, useModel),
+          ...(get().liveScene && { scene: get().liveScene }),
           overrides: {
             maxTokens: config.maxTokens,
             maxContext: config.maxContext,
@@ -1756,6 +1953,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
             flushStreamingAppends();
             _isSending = false;
             const state = get();
+            if (state.session?.id !== session.id) return;
+            state.applyRuntimeResult(session.id, data, "continue");
             const credits = parseCreditsPayload(data);
             const content = (data.content as string) ?? state.streamingContent;
             const messageId = data.messageId as string;
@@ -1826,6 +2025,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
             } catch (notifErr) {
               console.warn("Notification processing failed:", notifErr);
             }
+
           },
           onError: (err, meta) => {
             if (pauseForModelFallback(err, meta?.origin, session.id, retry,
@@ -1868,7 +2068,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
                     streamingBg: null,
                     streamStartTime: null,
                     abortController: null,
-                    error: localizeChatError(errorMsg),
+                    error: localizeChatError(errorMsg, offlineAware(errorCode)),
                   });
                   reconcileMessagesWithRetry(get().refreshMessages);
                 },
@@ -1909,7 +2109,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
               streamingBg: null,
               streamStartTime: null,
               abortController: null,
-              error: localizeChatError(errorMsg),
+              error: localizeChatError(errorMsg, offlineAware(errorCode)),
               errorCode: errorCode ?? null,
             });
             reconcileMessagesWithRetry(get().refreshMessages);
@@ -1998,6 +2198,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return;
       }
       const { data } = await res.json();
+      if (get().session?.id !== session.id) return;
+      get().applyRuntimeResult(session.id, data, "restore");
       const newGameState = ((data.state as Record<string, unknown>)
         ?.variables as Record<string, number | string | boolean | Record<string, unknown> | unknown[]>) ?? {};
       set({
@@ -2037,6 +2239,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return;
       }
       const { data } = await res.json();
+      if (get().session?.id !== session.id) return;
+      get().applyRuntimeResult(session.id, data, "restore");
       const newGameState = ((data.state as Record<string, unknown>)
         ?.variables as Record<string, number | string | boolean | Record<string, unknown> | unknown[]>) ?? {};
       set({
@@ -2106,6 +2310,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return;
       }
       const { data } = await res.json();
+      if (get().session?.id !== session.id) return;
+      get().applyRuntimeResult(session.id, data, "restore");
       const newGameState = ((data.state as Record<string, unknown>)
         ?.variables as Record<string, number | string | boolean | Record<string, unknown> | unknown[]>) ?? {};
 
@@ -2203,6 +2409,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
         return;
       }
       const { data } = await res.json();
+      if (get().session?.id !== session.id) return;
+      get().applyRuntimeResult(session.id, data, "restore");
       const newGameState = ((data.state as Record<string, unknown>)
         ?.variables as Record<string, number | string | boolean | Record<string, unknown> | unknown[]>) ?? {};
       set({
@@ -2245,6 +2453,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   setVariableDirectly: (id, value) => {
+    const writingSessionId = get().session?.id;
+    for (const tracker of sessionConfirmationWrites) {
+      if (tracker.sessionId === writingSessionId) tracker.writes.set(id, value);
+    }
     set((s) => {
       const nextVariables = { ...s.gameState, [id]: value };
       const nextSession = s.session
@@ -2311,38 +2523,50 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   executeActionRule: (actionId: string) => {
-    const { session } = get();
-    if (!session) return;
-    const sessionId = session.id;
+    // Legacy callers intentionally do not await; handle failures here.
+    void get().executeActionAndWait(actionId).catch(() => {});
+  },
 
-    // Server-authoritative: the action:fired event is evaluated on the server with
-    // the real ruleState (cooldowns / max-fire), effects applied + chained and
-    // persisted. We just reflect the returned state locally. Silent by design —
-    // an action button mutates game state, it never starts an AI turn.
-    fetch(`${apiBase}/api/sessions/${sessionId}/execute-action`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ actionId }),
-    })
-      .then(async (r) => {
-        if (!r.ok) return;
-        const json = await r.json();
-        const data = (json.data ?? json) as {
-          variables?: Record<string, number | string | boolean | Record<string, unknown> | unknown[]>;
-          notifications?: Array<{ message: string; style: string }>;
-          audio?: unknown;
+  executeActionAndWait: async (actionId: string, params?: Record<string, unknown>, clock?: number) => {
+    const { session, readOnly } = get();
+    if (!session || readOnly) throw new Error("Actions are unavailable in this read-only or missing session.");
+    if (clock === undefined && (typeof actionId !== "string" || !actionId)) throw new Error("Invalid action ID.");
+    const sessionId = session.id;
+    const tracker = { sessionId, writes: new Map<string, unknown>() };
+    let stale = false;
+    const unsubscribe = useChatStore.subscribe((state) => {
+      if (state.session?.id !== sessionId || state.readOnly) stale = true;
+    });
+    sessionConfirmationWrites.add(tracker);
+    try {
+      return await queueSessionStateOperation(async (signal) => {
+        const check = () => {
+          if (signal.aborted) throw signal.reason;
+          if (stale || get().session?.id !== sessionId) throw new Error("Action session changed.");
+          if (get().readOnly) throw new Error("Actions are unavailable in this read-only session.");
+        };
+        check();
+        const response = await fetch(`${apiBase}/api/sessions/${sessionId}/execute-action`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify(clock !== undefined ? { clock } : { actionId, ...(params && typeof params === "object" ? { params } : {}) }), signal,
+        });
+        if (!response.ok) throw new Error("Action failed. Please try again.");
+        const json = await response.json();
+        check();
+        const data = (json.data ?? json) as Record<string, unknown> & {
+          variables?: ChatState["gameState"]; state?: Record<string, unknown>; firedIds?: string[];
+          notifications?: Array<{ message: string; style: string }>; audio?: unknown;
         };
         const newGameState = data.variables;
-        if (!newGameState) return;
+        if (!newGameState || typeof newGameState !== "object" || Array.isArray(newGameState)) throw new Error("Action returned invalid state.");
+        // Keep runtime gates as well as variables; actions can toggle modules
+        // and entries without changing any declared variable.
+        get().applyRuntimeResult(sessionId, {
+          ...data,
+          state: data.state ?? { ...get().session?.state, variables: newGameState },
+        }, "action", actionId);
 
-        // Reflect persisted state locally.
-        set((s) => ({
-          gameState: newGameState,
-          session: s.session
-            ? { ...s.session, state: { ...(s.session.state ?? {}), variables: newGameState } }
-            : s.session,
-        }));
+        restoreOptimisticWrites(tracker);
 
         // Audio emitted by fired reactions.
         try {
@@ -2362,62 +2586,204 @@ export const useChatStore = create<ChatState>((set, get) => ({
         if (worldDef) {
           useAudioStore.getState().evaluateConditionalBGM({
             worldId: worldDef.id,
-            variables: newGameState,
+            variables: get().gameState,
             turnCount: get().messages.length,
             metadata: {},
           });
         }
-      })
-      .catch(() => {});
+        return { applied: true as const, variables: newGameState, firedIds: data.firedIds ?? [] };
+      }, 30_000);
+    } finally { unsubscribe(); sessionConfirmationWrites.delete(tracker); }
+  },
+
+  quietTick: async (call?: string) => {
+    const { session, isStreaming, readOnly } = get();
+    if (!session || isStreaming || readOnly) return;
+    const sessionId = session.id;
+    try {
+      const response = await fetch(`${apiBase}/api/sessions/${sessionId}/quiet-tick`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ ...(get().liveScene ? { scene: get().liveScene } : {}), ...(call ? { call } : {}) }),
+      });
+      if (!response.ok) return;
+      const json = await response.json() as { data?: Record<string, unknown> };
+      const data = json.data;
+      // The player may have sent something while this was out.
+      const now = get();
+      // A result carries `state` when it spoke OR quietly moved values.
+      if (data?.ran === true && !data.state && now.session?.id === sessionId) {
+        const sp = data.speaker as { id?: string; name?: string } | undefined;
+        set((s) => ({ quietSilences: [...s.quietSilences, { at: new Date().toISOString(), sessionId, speakerId: String(sp?.id ?? ""), speakerName: String(sp?.name ?? "") }].slice(-60) }));
+        return;
+      }
+      if (!data || !data.state || now.session?.id !== sessionId || now.isStreaming) return;
+      const message = data.message as { id: string; role: "assistant"; content: string; createdAt: string } | null;
+      if (message) {
+        if (now.messages.some((m) => m.id === message.id)) return;
+        get().addMessage({ ...message, sessionId, status: "complete" } as Message);
+      }
+      get().applyRuntimeResult(sessionId, { ...data, stateChanges: data.changes }, "quiet");
+      showGameNotifications(data.notifications as Parameters<typeof showGameNotifications>[0]);
+    } catch {
+      // A missed tick is just a quieter moment.
+    }
+  },
+
+  callAi: async (ai, input) => {
+    const { session, readOnly } = get();
+    if (!session || readOnly || typeof ai !== "string" || !ai.trim()) return null;
+    const sessionId = session.id;
+    try {
+      const response = await fetch(`${apiBase}/api/sessions/${sessionId}/ai-call`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ ai, ...(input !== undefined ? { input } : {}), ...(get().liveScene ? { scene: get().liveScene } : {}) }),
+      });
+      if (!response.ok) return null;
+      const data = ((await response.json()) as { data?: Record<string, unknown> }).data;
+      if (!data || data.ok !== true || get().session?.id !== sessionId) return null;
+      const answer = data.answer as { text: string; fields: Record<string, unknown>; fallback: boolean };
+      const message = data.message as { id: string; role: "assistant"; content: string; createdAt: string } | null;
+      if (message && !get().messages.some((m) => m.id === message.id)) get().addMessage({ ...message, sessionId, status: "complete" } as Message);
+      get().applyRuntimeResult(sessionId, { ...data, stateChanges: data.changes }, "quiet");
+      // Words for an interface channel reach the card's listeners
+      // (api.onAiOutput), the way story events do.
+      const say = String(data.say ?? "story");
+      if (say !== "story" && say !== "none") {
+        const ai = data.ai as { id: string; name: string };
+        set((s) => ({ storyEvents: [...s.storyEvents, { id: crypto.randomUUID(), name: `ai:${say}`, ai: { channel: say, id: ai.id, name: ai.name, text: answer.text, fields: answer.fields } }].slice(-20) }));
+      }
+      showGameNotifications(data.notifications as Parameters<typeof showGameNotifications>[0]);
+      return answer;
+    } catch {
+      return null;
+    }
+  },
+
+  groupReply: async (model?: string) => {
+    const start = get();
+    if (!start.session || start.readOnly) return;
+    const sessionId = start.session.id;
+    const books = (safeParseWorldDef(start.session.world?.schema)?.worldbooks ?? []) as Worldbook[];
+    if (!hasGroupVoices(books)) return;
+    // A room holds a handful of voices; the cap only stops a loop that a
+    // server answering the same voice twice would otherwise never leave.
+    for (let asked = 0; asked < 8; asked++) {
+      const now = get();
+      if (now.session?.id !== sessionId || now.isStreaming || _isSending) return;
+      // Who is next, read the way the server reads it: from the state the
+      // latest answer left behind.
+      const latest = [...now.messages].reverse().find((m) => m.role === "assistant");
+      const snapshot = latest?.stateSnapshot as GameState | null | undefined;
+      const upNext = snapshot ? nextGroupVoice(books, snapshot, now.messages) : null;
+      if (!upNext) return;
+      // The waiting bubble already wears the name of whoever is typing.
+      set({ isStreaming: true, streamingContent: `[speaker: ${upNext.name}]\n`, streamStartTime: Date.now() });
+      let data: Record<string, unknown> | undefined;
+      try {
+        const response = await fetch(`${apiBase}/api/sessions/${sessionId}/group-reply`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify({ ...(model ? { model } : {}), ...(get().liveScene ? { scene: get().liveScene } : {}) }),
+        });
+        data = response.ok ? ((await response.json()) as { data?: Record<string, unknown> }).data : undefined;
+      } catch {
+        data = undefined;
+      } finally {
+        if (get().session?.id === sessionId) set({ isStreaming: false, streamingContent: "", streamStartTime: null });
+      }
+      if (!data || data.ran !== true || get().session?.id !== sessionId) return;
+      const message = data.message as (Omit<Message, "sessionId" | "status"> & { id: string }) | null;
+      if (message && !get().messages.some((m) => m.id === message.id)) {
+        get().addMessage({
+          ...message,
+          sessionId,
+          status: "complete",
+          stateSnapshot: (data.state as Record<string, unknown>) ?? null,
+          stateChanges: (data.changes as unknown as Record<string, unknown>) ?? null,
+        } as Message);
+      }
+      // The playtest's "this turn" names the voice the way it names a quiet one.
+      get().applyRuntimeResult(sessionId, { ...data, stateChanges: data.changes, speaker: data.voice, group: true, messageId: message?.id }, "quiet");
+      showGameNotifications(data.notifications as Parameters<typeof showGameNotifications>[0]);
+    }
   },
 
   switchGreeting: (index: number) => {
     const { messages, session, isStreaming } = get();
-    if (!session || isStreaming) return;
+    if (!session || isStreaming) return Promise.resolve();
 
     // Find the first assistant message (the greeting)
     const greetingMsg = messages.find((m) => m.role === "assistant");
-    if (!greetingMsg) return;
+    if (!greetingMsg) return Promise.resolve();
 
     const swipes = greetingMsg.swipes ?? [];
-    if (index < 0 || index >= swipes.length) return;
+    if (index < 0 || index >= swipes.length) return Promise.resolve();
 
     const currentIndex = greetingMsg.activeSwipeIndex ?? 0;
-    if (index === currentIndex) return;
+    if (index === currentIndex) return Promise.resolve();
 
-    // Call the swipe endpoint with index
-    fetch(`${apiBase}/api/messages/${greetingMsg.id}/swipe`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({ index }),
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Swipe failed");
-        return res.json();
-      })
-      .then(({ data }) => {
-        // Update the greeting message locally
-        get().updateMessage(greetingMsg.id, {
-          content: data.content,
-          activeSwipeIndex: data.activeSwipeIndex,
-          stateChanges: data.stateChanges,
-          stateSnapshot: data.state ?? null,
-          model: data.model ?? null,
-          tokenCount: data.tokenCount ?? null,
-        });
+    // Cast-picker cards call `setVariable(setupVar)` and `switchGreeting()` in
+    // the same tick. The PATCH carrying that write is flushed a microtask later,
+    // so a bare fetch here reached the server FIRST: the switch kept the setup
+    // variable's stale value, the late PATCH then re-sent the old opening's
+    // variables over the new one, and the "restore" below wiped the pick from
+    // the local state (and from every later full-variables PATCH). 29% of
+    // SEVENTEEN 模拟器 sessions ended with an empty member list.
+    // So the switch rides the same serialized queue as variable writes: every
+    // earlier write is acknowledged before it starts, and later writes flush
+    // only after its result is applied (so the result is applied INSIDE the
+    // queued operation — a later PATCH reads the post-switch variables).
+    const tracker = { sessionId: session.id, writes: new Map<string, unknown>() };
+    sessionConfirmationWrites.add(tracker);
+    return queueSessionStateOperation(async (signal) => {
+      const res = await fetch(`${apiBase}/api/messages/${greetingMsg.id}/swipe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ index }),
+        signal,
+      });
+      if (!res.ok) throw new Error("Swipe failed");
+      const { data } = await res.json();
+      if (signal.aborted || get().session?.id !== session.id) return;
+      // Update the greeting message locally
+      get().updateMessage(greetingMsg.id, {
+        content: data.content,
+        activeSwipeIndex: data.activeSwipeIndex,
+        stateChanges: data.stateChanges,
+        stateSnapshot: data.state ?? null,
+        model: data.model ?? null,
+        tokenCount: data.tokenCount ?? null,
+      });
 
-        // Restore game state from the swipe's snapshot
-        const nextGameState = (data.state?.variables ?? null) as
-          | Record<string, number | string | boolean | Record<string, unknown> | unknown[]>
-          | null;
-        if (nextGameState && data.stateRestored !== false) {
-          set({ gameState: nextGameState });
-        }
-      })
-      .catch(() => {});
+      // Restore game state from the swipe's snapshot
+      const nextGameState = (data.state?.variables ?? null) as
+        | Record<string, number | string | boolean | Record<string, unknown> | unknown[]>
+        | null;
+      if (nextGameState && data.stateRestored !== false) {
+        get().applyRuntimeResult(session.id, data, "restore");
+        // Writes the card made after calling switchGreeting are newer than the
+        // opening's snapshot. Their PATCH is queued behind this operation and
+        // reads the store at flush time, so re-applying them here both keeps
+        // them on screen and sends them to the server.
+        restoreOptimisticWrites(tracker);
+      }
+    }, 30_000)
+      .catch(() => {})
+      .finally(() => sessionConfirmationWrites.delete(tracker));
   },
 }));
+
+/** Later optimistic writes survive authoritative opening/action snapshots. */
+const sessionConfirmationWrites = new Set<{ sessionId: string; writes: Map<string, unknown> }>();
+
+function restoreOptimisticWrites(tracker: { sessionId: string; writes: Map<string, unknown> }): void {
+  if (!tracker.writes.size) return;
+  useChatStore.setState((s) => {
+    if (s.session?.id !== tracker.sessionId) return {};
+    const variables = { ...s.gameState, ...Object.fromEntries(tracker.writes) } as ChatState["gameState"];
+    return { gameState: variables, session: { ...s.session, state: { ...(s.session.state ?? {}), variables } } };
+  });
+}
 
 /** A turn's `sceneImages` (ids the reply revealed) into the session's gallery set. */
 function recordRevealedSceneImages(raw: unknown): void {
@@ -2429,3 +2795,4 @@ function recordRevealedSceneImages(raw: unknown): void {
     return next.size === s.revealedSceneImages.length ? {} : { revealedSceneImages: [...next] };
   });
 }
+

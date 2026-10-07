@@ -1,10 +1,10 @@
 /**
  * `plan_entitlements` started as an event-only table. Admin and referral
  * time-limited grants now share the overlay, so both fresh databases and
- * already-deployed databases must accept all three sources.
+ * already-deployed databases must also accept paid membership gifts.
  */
 export const PLAN_ENTITLEMENT_SOURCE_CHECK =
-  "source IN ('event', 'admin', 'referral')";
+  "source IN ('event', 'admin', 'referral', 'gift')";
 
 /**
  * Startup self-heal for databases created before admin/referral entitlements.
@@ -23,6 +23,7 @@ BEGIN
       AND (
         pg_get_constraintdef(oid) NOT LIKE '%admin%'
         OR pg_get_constraintdef(oid) NOT LIKE '%referral%'
+        OR pg_get_constraintdef(oid) NOT LIKE '%gift%'
       )
   ) THEN
     ALTER TABLE plan_entitlements
@@ -38,5 +39,11 @@ BEGIN
     ALTER TABLE plan_entitlements
       ADD CONSTRAINT plan_entitlements_source_check
       CHECK (${PLAN_ENTITLEMENT_SOURCE_CHECK});
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'plan_entitlements' AND column_name = 'gift_credits'
+  ) THEN
+    ALTER TABLE plan_entitlements ADD COLUMN gift_credits INTEGER;
   END IF;
 END $$`;

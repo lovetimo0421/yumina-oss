@@ -72,6 +72,9 @@ export class CustomProvider implements LLMProvider {
    * output, so they can never duplicate streamed text.
    */
   async *generateStream(params: GenerateParams): AsyncIterable<StreamChunk> {
+    if (params.responseFormat?.type === "json_schema") {
+      throw new Error("This provider does not support JSON Schema side completions.");
+    }
     // Allocate once before retrying; chat callers supply a persistent identity.
     params = { ...params, conversationId: params.conversationId || randomUUID() };
     const MAX_RETRIES = params.singleAttempt ? 0 : 2;
@@ -240,6 +243,8 @@ export class CustomProvider implements LLMProvider {
             const choice = parsed.choices?.[0];
             const delta = choice?.delta;
             if (choice?.finish_reason) completionFinished = true;
+
+            if (choice?.finish_reason) lastFinishReason = choice.finish_reason;
 
             if (choice?.finish_reason) lastFinishReason = choice.finish_reason;
 

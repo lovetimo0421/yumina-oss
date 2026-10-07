@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { OpenRouterProvider } from "./openrouter.js";
-import { getOfficialProviderFallbackModels, FREE_ROUTER_MODEL } from "./fallback-models.js";
+import {
+  getOfficialProviderFallbackModels,
+  FREE_ROUTER_MODEL,
+  FREE_ROUTER_FALLBACK_MODEL,
+} from "./fallback-models.js";
 import type { StreamChunk } from "./types.js";
 
 /**
@@ -170,8 +174,9 @@ test("once the chain is spent the real error surfaces", async () => {
     const chunks = await collect(new OpenRouterProvider("fixture:" + crypto.randomUUID()).generateStream(freeParams()));
     const err = chunks.find((c) => c.type === "error");
     assert.ok(err, "the player must get a real error rather than silence");
-    // Three calls: free router, primary, second rung — then nothing left.
-    assert.equal(mock.models().length, 3);
+    // Free router, then every rung the chain actually has — then nothing left.
+    const chain = getOfficialProviderFallbackModels(FREE_ROUTER_MODEL, false) ?? [];
+    assert.equal(mock.models().length, 1 + chain.length);
   } finally {
     mock.restore();
   }
@@ -190,6 +195,61 @@ test("a paid model is NOT swapped out when it is merely throttled", async () => 
       }),
     );
     assert.deepEqual(mock.models(), ["deepseek/deepseek-v3.2"], "no second call");
+    assert.ok(chunks.find((c) => c.type === "error"));
+  } finally {
+    mock.restore();
+  }
+});
+
+/** What OpenRouter returns for a model id it has retired. */
+const RETIRED_404 = JSON.stringify({
+  error: { message: `No endpoints found for ${FREE_ROUTER_FALLBACK_MODEL}.`, code: 404 },
+});
+
+test("a retired fallback id descends instead of dead-ending the turn", async () => {
+  // The 2026-08-26 outage shape. inclusionai/ling-2.6-flash had been retired
+  // upstream while still pinned as the first rung, and a 404 satisfied none of
+  // the descend conditions -- so an exhausted free pool killed the turn even
+  // though a healthy second rung was sitting right there in the chain.
+  const mock = withMockedFetch([
+    () => errorResponse(429, FREE_POOL_429),
+    () => errorResponse(404, RETIRED_404),
+    () => reply("still playing"),
+  ]);
+  try {
+    const chunks = await collect(
+      new OpenRouterProvider("k").generateStream(
+        freeParams({ fallbackModels: ["vendor/retired-rung", "vendor/healthy-rung"] }),
+      ),
+    );
+    assert.deepEqual(mock.models(), [
+      FREE_ROUTER_MODEL,
+      "vendor/retired-rung",
+      "vendor/healthy-rung",
+    ]);
+    const text = chunks.filter((c) => c.type === "text").map((c) => c.content).join("");
+    assert.equal(text, "still playing");
+    assert.equal(chunks.every((c) => c.type !== "error"), true, "player must not see an error");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("a retired id on a BYOK turn surfaces rather than being swapped", async () => {
+  // BYOK never gets a chain (getOfficialProviderFallbackModels returns undefined),
+  // so a user who typo'd a model id still gets told, instead of quietly being
+  // served by some other model on their own key.
+  const mock = withMockedFetch([() => errorResponse(404, RETIRED_404), () => reply("should never run")]);
+  try {
+    const chunks = await collect(
+      new OpenRouterProvider("k").generateStream({
+        model: "vendor/model-that-does-not-exist",
+        messages: [{ role: "user" as const, content: "hi" }],
+        fallbackModels: getOfficialProviderFallbackModels("vendor/model-that-does-not-exist", true),
+        fallbackOnTransientErrors: false,
+      }),
+    );
+    assert.deepEqual(mock.models(), ["vendor/model-that-does-not-exist"], "no second call");
     assert.ok(chunks.find((c) => c.type === "error"));
   } finally {
     mock.restore();

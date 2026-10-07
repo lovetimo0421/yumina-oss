@@ -1,5 +1,6 @@
 import type { WorldDefinition, WorldEntry } from "@yumina/engine";
-import { deriveSectionDefaults, OFFICIAL_PRESETS } from "@yumina/engine";
+import { deriveSectionDefaults, officialPresetsFor } from "@yumina/engine";
+import { clampLanguage } from "@/lib/language-clamp";
 import i18n from "@/lib/i18n";
 
 export interface WorldTemplate {
@@ -9,10 +10,9 @@ export interface WorldTemplate {
   archetype: "chat" | "world";
   /** What's included — shown on the picker card */
   summary: { entries: number; variables: number; components: number; rules: number };
-  build: () => WorldDefinition;
+  build: (language?: string) => WorldDefinition;
 }
 
-/** Shorthand for reading from the templates-content namespace at build time */
 function t(key: string): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (i18n as any).t(key, { ns: "templates-content" });
@@ -55,7 +55,7 @@ const PRESET_NAME_KEYS: Record<string, string> = {
 
 function makePresetEntries(): WorldEntry[] {
   for (const key of Object.keys(posCounter)) delete posCounter[key];
-  return OFFICIAL_PRESETS.map((preset) => {
+  return officialPresetsFor(clampLanguage(i18n.language)).map((preset) => {
     const defaults = deriveSectionDefaults(preset.section);
     return {
       id: crypto.randomUUID(),
@@ -113,15 +113,17 @@ function buildCharacterChat(): WorldDefinition {
         keywords: [],
         tags: ["chat:dialogue-style", "template-content:chat-dialogueAndStyle"],
       }),
-      // Greeting keeps its real content — first message is the one piece of
-      // template text that should be a real default (creators tweak it, not
-      // replace it from scratch).
+      // The opening starts empty like the rest: its guidance is the grey
+      // placeholder (template-content tag). As real text it was what the
+      // player read first whenever the author left it — the bracketed note
+      // to the author, narrated. The board's screen says it is empty.
       entry({
         name: t("chat.entries.greeting.name"),
-        content: t("chat.entries.greeting.content"),
+        content: "",
         role: "greeting",
         alwaysSend: true,
         keywords: [],
+        tags: ["template-content:chat-greeting"],
       }),
     ],
     variables: [],
@@ -194,13 +196,14 @@ function buildWorldSimulation(): WorldDefinition {
         keywords: [],
         tags: ["template-content:world-narrativeStyle"],
       }),
-      // Greeting keeps real content.
+      // The opening starts empty, its guidance a placeholder (see above).
       entry({
         name: t("world.entries.greeting.name"),
-        content: t("world.entries.greeting.content"),
+        content: "",
         role: "greeting",
         alwaysSend: true,
         keywords: [],
+        tags: ["template-content:world-greeting"],
       }),
     ],
     variables: [],
@@ -224,6 +227,33 @@ function buildWorldSimulation(): WorldDefinition {
 
 // ─── Exports ─────────────────────────────────────────────────────────────────
 
+/** A new card's opening: empty, with a world's first-moment guidance as its
+ *  placeholder. 空白项目 starts with it, like the templates do. */
+export function defaultOpening(): { name: string; content: string; tags: string[] } {
+  return { name: t("world.entries.greeting.name"), content: "", tags: ["template-content:world-greeting"] };
+}
+
+/** Whether an opening still says only what a new card started with, so the
+ *  tutorial may put its own line there without overwriting anyone's words. */
+export function isStarterOpening(content: string): boolean {
+  const text = content.trim();
+  return !text || text === t("world.entries.greeting.content").trim() || text === t("chat.entries.greeting.content").trim();
+}
+
+/** The line the first lesson writes into an empty opening to show where
+ *  the story starts (「你好！Yumina」, in any language). It is the lesson's,
+ *  not the author's: the board marks it unwritten and the publish list does
+ *  not count it, so it never goes out as a card's opening by accident. */
+export function isLessonHello(content: string | null | undefined): boolean {
+  const text = (content ?? "").trim();
+  if (!text) return false;
+  const store = i18n.services.resourceStore?.data ?? {};
+  return Object.keys(store).some((lng) => {
+    const value = i18n.getResource(lng, "learning", "hello") as unknown;
+    return typeof value === "string" && value.trim() === text;
+  });
+}
+
 export const WORLD_TEMPLATES: WorldTemplate[] = [
   {
     id: "character-chat",
@@ -242,3 +272,28 @@ export const WORLD_TEMPLATES: WorldTemplate[] = [
     build: buildWorldSimulation,
   },
 ];
+
+/** Whether a card still carries a name it was given rather than one its
+ *  author chose: a template's own (「角色聊天」, 「世界模拟」) or the untitled
+ *  default. Shown as an empty name field with its placeholder, so a library
+ *  does not fill with cards all called 「角色聊天」. */
+/** Whether a card's blurb is still the one its template wrote (in any
+ *  language), which reads as the card's own on Discover. */
+export function isTemplateDescription(description: string | null | undefined): boolean {
+  const blurb = (description ?? "").trim();
+  if (!blurb) return false;
+  const store = i18n.services.resourceStore?.data ?? {};
+  return Object.keys(store).some((lng) =>
+    ["chat", "world"].some((template) => {
+      const value = i18n.getResource(lng, "templates-content", `${template}.description`) as unknown;
+      return typeof value === "string" && value.trim() === blurb;
+    }),
+  );
+}
+
+export function isPlaceholderCardName(name: string | undefined): boolean {
+  const text = (name ?? "").trim();
+  if (!text) return true;
+  return text === t("chat.name") || text === t("world.name")
+    || text === String(i18n.t("editor:shell.untitledWorld", { defaultValue: "Untitled World" }));
+}

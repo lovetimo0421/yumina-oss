@@ -12,6 +12,8 @@ import type { Condition, LoreUiBinding, Worldbook, StateChannel } from "@yumina/
 import type { TranscriptPosition } from "./chat/transcript-position-types";
 import type { VoicePlaybackFrame } from "../src/lib/voice-playback-performance";
 export type { VoicePlaybackFrame } from "../src/lib/voice-playback-performance";
+import type { VoiceEvent } from "./voice-types";
+export type { VoiceAPI, VoiceEvent } from "./voice-types";
 
 export type SandboxMode = "session" | "guest-preview";
 
@@ -25,6 +27,7 @@ export interface SandboxCapabilities {
 /** Read-only lorebook entry exposed to sandboxed cards. Slim subset of
  *  WorldEntry: only the fields a card author needs for prompt assembly. */
 export interface SandboxEntry {
+  worldbookId?: string;
   id: string;
   name: string;
   content: string;
@@ -37,6 +40,8 @@ export interface SandboxEntry {
   conditions?: Condition[];
   conditionLogic?: "all" | "any";
   audience?: "ai" | "player" | "both";
+  /** The creator's folder for it, when they filed it in one. */
+  folderId?: string;
   /** Character portrait as an absolute URL (host resolves `@asset:` refs before
    *  pushing), or null when the entry has none. */
   portrait?: string | null;
@@ -79,6 +84,31 @@ export interface PlayerPromptsChannelData {
  * a second flag. `status` is the courier's live state, not a snapshot: a card
  * mid-session needs to see the connection drop, because every turn after that
  * point fails until it comes back. */
+/** The player's own prompt state, for the platform chat UI only (the in-chat
+ * 「提示词」 quick panel and the refusal bar). Null until the host has loaded it,
+ * and for guests. `eligible` mirrors the server's adult-content eligibility:
+ * when it is false the sandbox must not nudge the player toward 解除限制 presets. */
+export interface PlayerPromptsChannelData {
+  eligible: boolean;
+  /** familyOf(current model) — the family the auto-binding is read for. */
+  family: string;
+  /** Display label for `family` (host-computed brand / localized 其他). */
+  familyLabel: string;
+  /** Name of the installed prompt bound to the current model's family and
+   *  auto-applied this turn, or null when nothing is bound to it. */
+  boundPromptName: string | null;
+  prompts: Array<{
+    id: string;
+    name: string;
+    enabled: boolean;
+    section: "system-presets" | "chat-history" | "post-history";
+    /** The folder it sits in (an installed prompt pack is one folder). */
+    group?: string | null;
+    /** Model families this prompt auto-applies on (its auto_models). */
+    autoModels: string[];
+  }>;
+}
+
 export interface LocalBridgeChannelData {
   status: "idle" | "connecting" | "connected" | "running" | "error";
   /** "Ollama", "LM Studio", … — null before the first successful detection. */
@@ -103,6 +133,8 @@ export interface SandboxState {
    *  when unset. Tracks cover edits — no need to re-upload the cover as an
    *  @asset just to render it (avatars, headers, splash art). */
   worldCover: string | null;
+  /** Resolved background for this turn, or null. See UIChannelData.background. */
+  background: import("@yumina/engine").ResolvedBackground | null;
   worldId: string;
   sessionId: string;
   /** The raw Yumina account that's logged in. Rarely used by creators — prefer
@@ -126,6 +158,8 @@ export interface SandboxState {
   /** LoreSlot → entry bindings from world schema. */
   loreUiBindings: SandboxLoreUiBinding[];
   worldbooks: SandboxWorldbook[];
+  /** The card's setting: split one reply into a bubble per speaker. */
+  speakerBubbles?: boolean;
 
   /** Legacy field kept for API shape parity — unused by the single-rootComponent runtime. */
   canvasMode: "chat" | "custom" | "fullscreen";
@@ -236,10 +270,18 @@ export interface SessionChannelData {
   entries: SandboxEntry[];
   loreUiBindings: SandboxLoreUiBinding[];
   worldbooks: SandboxWorldbook[];
+  /** The card's setting: split one reply into a bubble per speaker. */
+  speakerBubbles?: boolean;
 }
 
 /** UI state — changes on user interaction */
 export interface UIChannelData {
+  /** The picture painted behind the chat this turn, already resolved by the
+   *  host: `url` is final (the `@cover` sentinel is gone), `dim` is 0–1.
+   *  Null when the card has no background, or its only one is cover-backed on
+   *  a card with no cover. The host resolves rather than shipping the list
+   *  because only it knows the cover and the active opening. */
+  background?: import("@yumina/engine").ResolvedBackground | null;
   modelFallback?: import("@yumina/shared").ModelFallbackNotice | null;
   pendingChoices: string[];
   error: string | null;
@@ -326,9 +368,13 @@ export interface TtsChannelData {
   autoPlay: boolean;
   /** Voice volume preference, 0–100. */
   volume: number;
-  /** `progress` is 0–1 playback position, pushed at ~2Hz while speaking
-   *  (absent until the audio's duration is known). */
-  playback: { key: string; status: "loading" | "playing"; progress?: number } | null;
+  /** Playing means the browser accepted playback. `progress` is 0–1 playback
+   *  position, pushed at ~2Hz while speaking (absent until the audio's
+   *  duration is known); `level` is measured output RMS at ~15Hz for
+   *  waitForEnd conversations, absent for ordinary readouts or when analysis
+   *  is unsupported. Blocked ordinary readouts retry on a user gesture;
+   *  waitForEnd calls fail. */
+  playback: { key: string; status: "loading" | "playing" | "blocked"; progress?: number; level?: number } | null;
 }
 
 /** Map channel names to their data types */
@@ -446,6 +492,10 @@ export interface OpenMemoryPanelMessage {
 }
 
 export type ParentMessage =
+  | { type: "voice-event"; event: VoiceEvent; sessionId?: string }
+  | { type: "video-event"; event: Record<string, unknown> }
+  /** An event the AI set off with `[event: name]` — the card plays it out. */
+  | { type: "story-event"; event: { id: string; name: string; ai?: { channel: string; id: string; name: string; text: string; fields: Record<string, unknown> }; code?: { reactionId: string; source: string; names: Record<string, string> } } }
   | { type: "restore-transcript-position"; position: TranscriptPosition }
   | InstallRootMessage
   | ChannelUpdateMessage

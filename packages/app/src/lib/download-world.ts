@@ -141,6 +141,8 @@ async function fetchCoverAsPng(thumbnailUrl: string | null | undefined, fallback
 }
 
 function sanitizeFilename(name: string): string {
+  // File-system control characters are invalid in download names.
+  // eslint-disable-next-line no-control-regex
   return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_") || "world";
 }
 

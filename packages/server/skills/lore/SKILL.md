@@ -24,11 +24,11 @@ Plan lore as a layered world system, not a pile of unrelated entries.
 
 **Token strategy**: system-presets entries are always sent but cached — a 2000-token character description costs little after the first turn. chat-history entries only appear when triggered — ideal for large lore libraries where most entries aren't relevant every turn.
 
-## Worldbooks (Knowledge Bases) — one card, many routes
+## Modules (Worldbooks / Knowledge Bases) — one card, many worlds
 
-A card can hold MULTIPLE worldbooks (the editor calls them "knowledge bases"). Each worldbook is a named, independently-activatable group of entries. **Only ACTIVE worldbooks' entries reach the AI**, so a single card can carry several routes / scenarios / chapters and still stay within budget.
+A card can hold MULTIPLE worldbooks — full MODULES, not just entry groups. A module is a named, independently-activatable container for **entries + variables + behaviors + openings**: while a module is inactive, its entries leave the prompt, its variables leave `<game-state>` (values kept), and its behaviors never fire. One activation rule gates a whole mechanic/country/route/chapter. On the Studio Blueprint canvas each module is a container node and everything you write appears live as nodes and wires.
 
-- An entry belongs to a worldbook via `worldbookId`. An entry with no `worldbookId` lives in the always-on **Core** book.
+- Membership is by `worldbookId` on the member: write_entry / write_variable / write_behavior all take `{ worldbookId }`; a greeting entry's `worldbookId` files that opening under the module. Members with no `worldbookId` live in the always-on **Core**.
 - A worldbook's `activation` mode decides when it's online:
   - **always** — always online (like Core).
   - **conditions** — online only while variable conditions pass (e.g. `route == "mayu"`). Same condition shape as entry `conditions`.
@@ -41,7 +41,7 @@ Worldbook activation is the **OUTER** gate, evaluated FIRST. Then each surviving
 - `alwaysSend` on an entry means "always send **while its worldbook is active**" — NOT globally. An alwaysSend entry in an *inactive* worldbook is dropped.
 - A keyword/condition entry in an active worldbook still needs its keyword/condition to fire.
 
-Mental model: **pick the active books first → then run the usual matching inside them.** This is why putting two contradictory route books on `always` injects both — gate them by opening or condition instead.
+Mental model: **pick the active modules first → then run the usual matching inside them.** This is why putting two contradictory route books on `always` injects both — gate them by opening or condition instead. The same outer gate applies to member variables and behaviors (their own activation/conditions run WITHIN an active module).
 
 ### Building routes (the headline use)
 
@@ -53,6 +53,57 @@ Mental model: **pick the active books first → then run the usual matching insi
 The chosen opening is a first-class session fact (engine `activeGreetingId`), so greeting-mode activation is revert/branch safe — never store "current route" in a throwaway field; use a declared variable (via `initialVariables`) or the greeting binding.
 
 Per-opening starting values are edited in the editor under **Variables → Per-opening values** (a matrix; the First Message panel mirrors it read-only).
+
+### 模块总控 (station) — a module that is its own AI
+
+A module is a folder by default: its entries and variables join whichever AI is narrating, and that is what almost every module should stay. Give it a `station` and it becomes one of the AIs on the card.
+
+```
+write_worldbook { id: "wb-dungeon-1", station: {
+  kind: "narrator",            // its AI answers the player while this module is active
+  model: "…",                  // optional; falls back to the player's own model
+  onClose: "archive",          // DEFAULT — see below
+  archivePrompt: "务必记录死因、拿到的道具、欠下的人情",
+  inputs: [ … ]                // what context flows in
+}}
+```
+
+**A module IS a run.** A narrator station's activation span is one attempt. The moment it deactivates (its conditions stop matching — `active-dungeon-id` changes), that span leaves the AI's context forever and is replaced by ONE auto-generated summary (【副本记忆 · 模块名 · 第N次】…), while the player's visible transcript keeps every word. Re-activation starts attempt #2 clean. This is the infinite-flow wipe (无限流), and it is the DEFAULT for a narrator — `onClose: "keep"` opts out. There is no separate 副本模式 switch any more.
+
+**Several AIs, one game.** Two dungeons with a narrator station each means dungeon 1's AI never sees dungeon 2's context, because activation already gates that and now the model and the context recipe are per-module too. At most one narrator is active at a time (ties break by `order`), so a player never receives two replies to one message.
+
+**Memory pools.** By default every narrator remembers the whole conversation (the card's own pool). `memoryPool: "<name>"` narrows a narrator to the runs of every module naming the same pool: `{ memoryPool: "pool-ab" }` on A and on B means inside A the AI has A's and B's runs and nothing from C or D; `"pool-cd"` on C and D is the other group. A name used by one module alone is the tower — an AI that has never heard of the town. A pool is a VIEW: messages never leave the transcript, the player's scrollback keeps every word, and a narrator with no pool (the town) still sees everything. Cross-pool one-way reading is what `inputs` is for.
+
+**Workers are the background AIs.** `kind: "worker"` never speaks to the player. It runs when triggered, and what it writes becomes context other modules can drink:
+
+```
+write_worldbook { id: "wb-chronicler", station: {
+  kind: "worker",
+  trigger: { on: "module-closed", from: "wb-dungeon-1" },
+  task: "把刚打完的这一轮压成三行，只留因果和人情，写给下一个副本的叙述者看。",
+  inputs: [{ kind: "memory", from: "wb-dungeon-1" }]
+}}
+```
+
+The worker's own ENTRIES are who it is (史官 / 情报员 / 心理医生); `task` is the job. **A worker with no task or no trigger never runs** — the snapshot says so in those words, so check it before assuming a briefing is late. Other triggers: `{ on: "turns", every: N }` and `{ on: "conditions", conditions: […] }` (rising edge only, so a condition that stays true does not bill every turn).
+
+**`inputs` is the wiring** — the lines a creator sees between gates on the blueprint board. Each is `{ kind, from, as?, limit? }`:
+
+| kind | what flows | cost |
+|---|---|---|
+| `memory` | the source module's archived past runs | cheap — start here |
+| `worker` | a worker module's written outputs | cheap |
+| `variables` | a snapshot of the source's variables by name (`from: "core"` for the card's own) | free |
+| `transcript` | the source module's raw messages, last N (max 40) | expensive — a long dungeon will not fit |
+
+`as: "history"` (default) reads as the protagonist's lived past — carrying your own memories out of dungeon 1 into dungeon 2. `as: "lore"` reads as an archive or hearsay ABOUT it — a rumour board, an investigator's case files, a chronicler briefing a stranger. Pick by whether the receiving AI was THERE.
+
+Design rules that still hold:
+
+- One dungeon = one `conditions`-mode module keyed on a router variable (`active-dungeon-id == "happy-home"`). The frontend or a behavior writes the router variable to enter and leave.
+- Variables are NOT auto-reset when a span closes. Keep the run/account double ledger: run counters (`run-points`) settled into persistent ones (`account-points`) by behaviors on the gate flip.
+- The wipe is prompt-side and conservative: switching `onClose` to `keep` stops folding instantly, and reverting back INTO a closed span un-folds it automatically.
+- A "总结模块" is not a new object type. It is a worker with entries that give it a voice.
 
 ### Audience
 

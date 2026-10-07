@@ -5,7 +5,7 @@ import { filterAiAudioEffects } from "@yumina/engine";
 // ── Browser globals the audio store touches at runtime ──
 // Minimal HTMLAudioElement stand-in: enough surface for playTrack/stopTrack.
 const created: FakeAudio[] = [];
-const playOutcomes: Array<"resolve" | "reject"> = [];
+const playOutcomes: Array<"resolve" | "reject" | "pending" | "error"> = [];
 const documentListeners: Record<string, Array<() => void>> = {};
 const preloadHints: unknown[] = [];
 class FakeAudio {
@@ -14,6 +14,8 @@ class FakeAudio {
   loop = false;
   preload = "";
   paused = true;
+  resolvePlay?: () => void;
+  captureStream?: () => MediaStream;
   private listeners: Record<string, Array<() => void>> = {};
   constructor(src = "") {
     this.src = src;
@@ -23,8 +25,12 @@ class FakeAudio {
     const outcome = playOutcomes.shift() ?? "resolve";
     if (outcome === "reject") {
       this.paused = true;
-      return Promise.reject(new Error("NotAllowedError"));
+      return Promise.reject(new DOMException("Playback requires a gesture", "NotAllowedError"));
     }
+    if (outcome === "error") return Promise.reject(new DOMException("Unsupported media", "NotSupportedError"));
+    if (outcome === "pending") return new Promise<void>((resolve) => {
+      this.resolvePlay = () => { this.paused = false; resolve(); };
+    });
     this.paused = false;
     return Promise.resolve();
   }
@@ -40,8 +46,9 @@ class FakeAudio {
   /** Test helper: simulate the media element reaching its end. */
   fireEnded() {
     this.paused = true;
-    (this.listeners["ended"] || []).forEach((f) => f());
+    this.fire("ended");
   }
+  fire(event: string) { (this.listeners[event] || []).forEach((f) => f()); }
 }
 (globalThis as unknown as { Audio: typeof FakeAudio }).Audio = FakeAudio;
 (globalThis as unknown as { document: unknown }).document = {
@@ -499,4 +506,169 @@ test("large tracks opt out of startup preloading but still play on demand", asyn
   await flush();
   assert.equal(created[0]?.preload,"metadata");
   assert.equal(created[0]?.paused,false);
+});
+
+test("voice stays loading until play resolves and its receipt waits for ended", async () => {
+  resetStore();
+  playOutcomes.push("pending");
+  let completed = false;
+  const receipt = useAudioStore.getState().playVoice("line", "/voice.mp3", { failIfBlocked: true });
+  Promise.resolve(receipt).then(() => { completed = true; });
+  try {
+    await flush();
+    assert.equal(useAudioStore.getState().voicePlayback?.status, "loading");
+    assert.equal(completed, false);
+    created.at(-1)!.resolvePlay!();
+    await flush();
+    assert.equal(useAudioStore.getState().voicePlayback?.status, "playing");
+    assert.equal(completed, false, "play acceptance is not completion");
+    created.at(-1)!.fireEnded();
+    assert.deepEqual(await receipt, { ok: true });
+    assert.equal(useAudioStore.getState().voicePlayback, null);
+  } finally { resetStore(); }
+});
+
+test("completion mode rejects blocked playback and never retries it on a later gesture", async () => {
+  resetStore();
+  playOutcomes.push("reject");
+  try {
+    const receipt = useAudioStore.getState().playVoice("blocked", "/voice.mp3", { failIfBlocked: true });
+    assert.deepEqual(await receipt, { ok: false, reason: "playback-blocked" });
+    const audio = created.at(-1)!;
+    fireDocumentEvent("click");
+    await flush();
+    assert.equal(audio.paused, true);
+    assert.equal(audio.src, "");
+    assert.equal(useAudioStore.getState().voicePlayback, null);
+  } finally { resetStore(); }
+});
+
+test("ordinary voice readout stays blocked until a successful gesture retry", async () => {
+  resetStore();
+  playOutcomes.push("reject", "resolve");
+  try {
+    const receipt = useAudioStore.getState().playVoice("readout", "/voice.mp3");
+    await flush();
+    assert.equal(useAudioStore.getState().voicePlayback?.status, "blocked");
+    fireDocumentEvent("click");
+    await flush();
+    assert.equal(useAudioStore.getState().voicePlayback?.status, "playing");
+    created.at(-1)!.fireEnded();
+    assert.deepEqual(await receipt, { ok: true });
+  } finally { resetStore(); }
+});
+
+test("voice media errors and stop resolve distinct unsuccessful receipts", async () => {
+  resetStore();
+  try {
+    let receipt = useAudioStore.getState().playVoice("error", "/voice.mp3");
+    await flush();
+    created.at(-1)!.fire("error");
+    assert.deepEqual(await receipt, { ok: false, reason: "playback-error" });
+    receipt = useAudioStore.getState().playVoice("cancel", "/voice.mp3");
+    useAudioStore.getState().stopVoice();
+    assert.deepEqual(await receipt, { ok: false, reason: "cancelled" });
+    playOutcomes.push("error");
+    receipt = useAudioStore.getState().playVoice("unsupported", "/voice.mp3");
+    assert.deepEqual(await receipt, { ok: false, reason: "playback-error" });
+  } finally { resetStore(); }
+});
+
+test("superseding pending playback cancels its receipt and ignores late play acceptance", async () => {
+  resetStore();
+  playOutcomes.push("pending");
+  try {
+    const first = useAudioStore.getState().playVoice("old", "/old.mp3");
+    const old = created.at(-1)!;
+    const second = useAudioStore.getState().playVoice("new", "/new.mp3");
+    assert.deepEqual(await first, { ok: false, reason: "cancelled" });
+    old.resolvePlay!();
+    await flush();
+    assert.equal(useAudioStore.getState().voicePlayback?.key, "new");
+    created.at(-1)!.fireEnded();
+    assert.deepEqual(await second, { ok: true });
+  } finally { resetStore(); }
+});
+
+test("bounded playback times out and releases the media element", async () => {
+  resetStore();
+  mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  try {
+    playOutcomes.push("pending");
+    const receipt = useAudioStore.getState().playVoice("stuck", "/voice.mp3", { timeoutMs: 1000 });
+    mock.timers.tick(1001);
+    assert.deepEqual(await receipt, { ok: false, reason: "timeout" });
+    assert.equal(created.at(-1)!.src, "");
+    assert.equal(useAudioStore.getState().voicePlayback, null);
+  } finally { resetStore(); mock.timers.reset(); }
+});
+
+test("voice exposes measured output without rerouting the element and closes capture on stop", async () => {
+  resetStore();
+  mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  let resumes = 0, closed = 0, stopped = 0, disconnected = 0;
+  const analyser = { fftSize: 512, getByteTimeDomainData(buf: Uint8Array) { buf.fill(144); }, disconnect() { disconnected++; } };
+  class Context {
+    state = "suspended";
+    async resume() { resumes++; this.state = "running"; }
+    async close() { closed++; this.state = "closed"; }
+    createAnalyser() { return analyser; }
+    createMediaStreamSource() { return { connect(node: unknown) { assert.equal(node, analyser); }, disconnect() { disconnected++; } }; }
+  }
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { AudioContext: Context } });
+  try {
+    playOutcomes.push("pending");
+    const receipt = useAudioStore.getState().playVoice("measured", "/voice.mp3", { measureLevel: true });
+    const audio = created.at(-1)!;
+    audio.captureStream = () => ({ getTracks: () => [{ stop() { stopped++; } }] }) as unknown as MediaStream;
+    audio.resolvePlay!();
+    await flush();
+    mock.timers.tick(100);
+    assert.equal(resumes, 1);
+    assert.equal(useAudioStore.getState().voicePlayback?.level, 0.5);
+    useAudioStore.getState().stopVoice();
+    assert.deepEqual(await receipt, { ok: false, reason: "cancelled" });
+    assert.equal(closed, 1);
+    assert.equal(stopped, 1);
+    assert.equal(disconnected, 2);
+  } finally {
+    resetStore(); mock.timers.reset();
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+});
+
+test("ordinary voice readouts do not allocate output analysis or publish at conversation frequency", async () => {
+  resetStore();
+  mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  let contexts = 0, captures = 0;
+  class Context {
+    constructor() { contexts++; }
+    state = "running";
+    async resume() {}
+    async close() {}
+  }
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { AudioContext: Context } });
+  try {
+    playOutcomes.push("pending");
+    const receipt = useAudioStore.getState().playVoice("ordinary", "/voice.mp3");
+    const audio = created.at(-1)!;
+    audio.captureStream = () => { captures++; return { getTracks: () => [] } as unknown as MediaStream; };
+    Object.assign(audio, { duration: 10, currentTime: 1 });
+    audio.resolvePlay!();
+    await flush(); mock.timers.tick(100);
+    assert.equal(contexts, 0);
+    assert.equal(captures, 0);
+    assert.equal(useAudioStore.getState().voicePlayback?.progress, undefined);
+    mock.timers.tick(400);
+    assert.equal(useAudioStore.getState().voicePlayback?.progress, 0.1);
+    useAudioStore.getState().stopVoice();
+    assert.deepEqual(await receipt, { ok: false, reason: "cancelled" });
+  } finally {
+    resetStore(); mock.timers.reset();
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
 });

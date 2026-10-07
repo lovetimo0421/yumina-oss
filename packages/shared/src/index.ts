@@ -96,6 +96,13 @@ export type {
   ExtensionReviewPayload,
   ExtensionReviewWithUser,
   ExtensionRatingPayload,
+  LiveCanonErrorCode,
+  LiveCanonVariableDTO,
+  LiveCanonEditableEntryDTO,
+  LiveCanonSessionEntryDTO,
+  LiveCanonPayload,
+  LiveCanonEntryInput,
+  LiveCanonApiResult,
 } from "./types/extension.js";
 export {
   EVENT_SUBMISSION_TYPES,
@@ -135,6 +142,7 @@ export type {
 } from "./types/community-event.js";
 export {
   SESSION_MEMORY_EXTENSION_KEY,
+  LIVE_CANON_EXTENSION_KEY,
   EXTENSION_REGISTRY,
   EXTENSION_KEYS,
   CURRENT_EXTENSION_API_VERSION,
@@ -296,52 +304,6 @@ export {
 } from "./constants/limits.js";
 export type { RateLimitTier, RateLimitConfig } from "./constants/limits.js";
 export {
-  TAG_VOCABULARY,
-  findTagEntry,
-  canonicalizeTag,
-  tagLabel,
-} from "./constants/tags.js";
-export type { TagEntry, TagLocale } from "./constants/tags.js";
-export {
-  YUMINA_MODELS,
-  RETIRED_PLAY_MODEL_IDS,
-  PLAY_MODELS,
-  STUDIO_MODELS,
-  PLAY_MODEL_IDS,
-  STUDIO_MODEL_IDS,
-  DEFAULT_MODEL,
-  DEFAULT_PINNED_MODELS,
-  MAX_PINNED_MODELS,
-  DEFAULT_POOL,
-  DEFAULT_MIX_MODE,
-  STUDIO_RECOMMENDED_MODEL,
-  PLAN_HIERARCHY,
-  formatModelId,
-  formatAvgCost,
-} from "./constants/models.js";
-export type {
-  YuminaModel,
-  PlayModel,
-  StudioModel,
-  CostTier,
-  ModelScope,
-  TimeBasedAvgCostMushies,
-} from "./constants/models.js";
-export * from "./game-npc.js";
-export {classicTinDecisions} from "./game-classic-story.js";
-export * from "./admin-analytics.js";
-export { layoutAtlas } from './admin-atlas.js';
-export * from "./types/model-fallback.js";
-export * from "./constants/model-fallback-copy.js";
-export * from "./free-credit-policy.js";
-export * from "./acquisition.js";
-export * from "./qualified-referrals.js";
-
-export * from './game-source-story.js';
-export * from './game-source-plant.js';
-export * from "./model-cost-stats.js";
-
-export {
   GENERATION_TEMPLATES,
   ENABLED_GENERATION_TEMPLATES,
   SMART_IMAGE_MODEL,
@@ -387,6 +349,7 @@ export {
 export type {
   GenerationKind,
   SmartImageParams,
+  SmartImageModelId,
   SmartImageAspect,
   SmartImageResolution,
   GenerationTemplateInfo,
@@ -417,6 +380,53 @@ export {
   videoUsesFast,
 } from "./constants/video-models.js";
 export type { VideoAspect, VideoProvider, VideoModelSpec, VideoRequest } from "./constants/video-models.js";
+export {
+  TAG_VOCABULARY,
+  findTagEntry,
+  canonicalizeTag,
+  tagLabel,
+} from "./constants/tags.js";
+export type { TagEntry, TagLocale } from "./constants/tags.js";
+export {
+  YUMINA_MODELS,
+  RETIRED_PLAY_MODEL_IDS,
+  PLAY_MODELS,
+  STUDIO_MODELS,
+  PLAY_MODEL_IDS,
+  STUDIO_MODEL_IDS,
+  DEFAULT_MODEL,
+  DEFAULT_PINNED_MODELS,
+  MAX_PINNED_MODELS,
+  DEFAULT_POOL,
+  DEFAULT_MIX_MODE,
+  STUDIO_RECOMMENDED_MODEL,
+  PLAN_HIERARCHY,
+  formatModelId,
+  formatAvgCost,
+} from "./constants/models.js";
+export type {
+  YuminaModel,
+  PlayModel,
+  StudioModel,
+  CostTier,
+  ModelScope,
+  TimeBasedAvgCostMushies,
+} from "./constants/models.js";
+export * from "./game-npc.js";
+export {classicTinDecisions} from "./game-classic-story.js";
+export * from "./admin-analytics.js";
+export { layoutAtlas } from './admin-atlas.js';
+export * from "./types/model-fallback.js";
+export * from "./constants/model-fallback-copy.js";
+export * from "./free-credit-policy.js";
+export * from "./acquisition.js";
+export * from "./qualified-referrals.js";
+
+export * from './game-source-story.js';
+export * from './game-source-plant.js';
+export * from "./model-cost-stats.js";
+
+export { isUserMuted, muteExpiresAt, muteDurationSchema, type MuteDuration, type UserMuteState } from "./utils/user-mute.js";
 
 export { blendModelPopularity, type ModelPopularitySnapshot } from "./types/model-popularity.js";
 export { DISCOVERY_INTEREST_IDS, DISCOVERY_INTEREST_GROUPS, DISCOVERY_INTEREST_TAGS,
@@ -466,6 +476,7 @@ export type {
 export { MAX_IMAGE_BATCH_ITEMS } from "./types/image-batch.js";
 export { CHAT_IMAGE_MIME_TYPES, MAX_CHAT_IMAGES, MAX_CHAT_IMAGE_BYTES, MAX_CHAT_IMAGE_TOTAL_BYTES } from "./types/chat-images.js";
 export type { ChatImageInput, ImageMessageContent, ImageCompletionMessage } from "./types/chat-images.js";
+export { sideCompletionWorldbookIdsSchema, type SideCompletionWorldbookIds } from "./types/side-completion.js";
 export type { ImageBatchTarget, ImageBatchProposalItem, ImageBatchProposal,
   ImageBatchItemStatus, ImageBatchItem, ImageBatchSnapshot } from "./types/image-batch.js";
 
@@ -474,7 +485,7 @@ export { personaEntriesSchema, formatPersonaEntries, MAX_PERSONA_ENTRIES, MAX_PE
 export type { PersonaEntry } from "./types/persona-entries.js";
 export * from "./invite-race.js";
 export type { DeliveredPurchase, PurchaseReceipt } from "./types/purchase-receipt.js";
-export { KREW_ABOUT_HTML, KREW_LOADING_HTML, KREW_PAGE_CSS, KREW_PREVIEW_IMAGE } from "./krew-public-page.js";
+export { getKrewPublicPath, KREW_ABOUT_HTML, KREW_LOADING_HTML, KREW_PAGE_CSS, KREW_PREVIEW_IMAGE } from "./krew-public-page.js";
 
 export { KREW_CONFIG_ELEMENT_ID, getKrewPublicConfig, krewGameOrigin, normalizeKrewClientOrigin } from "./krew-config.js";
 export type { KrewPublicConfig } from "./krew-config.js";
@@ -497,3 +508,6 @@ export type { WorldAddressParts, ParsedWorldAddress } from "./world-address.js";
 
 export * from "./types/asset-import.js";
 export * from "./creative-upload-policy.js";
+export { UNPERSON_ROOM_TIMING } from "./unperson-room-timing.js";
+
+export { parseCompletionResponseFormat, type CompletionResponseFormat } from "./completion-response-format.js";

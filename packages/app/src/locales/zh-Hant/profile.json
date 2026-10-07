@@ -54,9 +54,10 @@
     "items": "{{count}} 個專案",
     "draft": "草稿",
     "manageSessions": "管理會話",
-    "playedAgo": "{{time}} 前遊玩",
+    "playedAgo": "{{time}}遊玩",
     "updatedAgo": "{{time}} 前更新",
-    "noFavorites": "暫無公開收藏。"
+    "noFavorites": "暫無公開收藏。",
+    "playedRelative": "{{time}}遊玩"
   },
   "sidebar": {
     "about": "關於",
@@ -266,8 +267,8 @@
     "avgCostPerChatByPeriod": "峰時約 {{peak}} · 非峰時約 {{offPeak}} mushies / 對話",
     "privateApiMode": "私有 API 模式",
     "privateApiDesc": "無速率限制，無使用追蹤 — 直接向你的供應商計費",
-    "confirmSwitchPrivate": "切換到私有金鑰？你需要自己的 API 金鑰，費用由你的供應商收取。",
-    "confirmSwitchOfficial": "切換到 Yumina API？使用量將從你的蘑菇幣餘額中扣除。",
+    "confirmSwitchPrivate": "你需要自己的 API 金鑰，使用費用將由你的供應商收取。",
+    "confirmSwitchOfficial": "使用量將從你的蘑菇幣餘額中扣除。",
     "tiers": {
       "budget": "經濟",
       "standard": "標準",
@@ -408,7 +409,10 @@
     "ledgerReconciliation": "賬本校正：餘額已確認，此前有一筆變動未被記錄",
     "voiceReadoutDescription": "語音朗讀 · {{bytes}} 位元組",
     "ledgerOpeningBalance": "期初餘額（賬本從這裡開始）",
-    "pilePerMonth": "每月 {{amount}}"
+    "pilePerMonth": "每月 {{amount}}",
+    "switchPrivateTitle": "切換到私有 API 金鑰？",
+    "switchOfficialTitle": "切換到 Yumina API？",
+    "initialPlanGrant": "{{plan}}方案初始額度"
   },
   "summary": {
     "chooseModel": "選擇模型",
@@ -594,7 +598,15 @@
     "alreadyInvitedDesc": "這個賬號已經擁有受邀等級訪問許可權。"
   },
   "settings": {
-    "title": "賬戶設定"
+    "title": "賬戶設定",
+    "contentLevel": "內容模式",
+    "safeOnly": "有限制",
+    "safeOnlyDesc": "部分內容會受到限制",
+    "allowSensitive": "無限制",
+    "allowSensitiveDesc": "沒有內容限制",
+    "minorRestriction": "此帳號無法使用「無限制」模式。",
+    "blurSensitive": "模糊不受內容限制的媒體",
+    "blurSensitiveDesc": "在發現頁中，將「無限制」模式下內容的縮圖顯示為模糊狀態。"
   },
   "editModal": {
     "avatarUpdateFailed": "更新頭像失敗",
@@ -690,7 +702,15 @@
     "noWorksSearch": "沒有符合搜尋條件的作品。",
     "previousWorks": "上一頁作品",
     "nextWorks": "下一頁作品",
-    "worksPage": "{{current}} / {{total}}"
+    "worksPage": "{{current}} / {{total}}",
+    "moreActions": "更多個人主頁操作",
+    "sectionsLabel": "個人主頁分區",
+    "worksTab": "作品 {{count}}",
+    "activityTab": "動態",
+    "aboutTab": "關於",
+    "sortWorks": "作品排序",
+    "sortNewest": "最新發布",
+    "sortPopular": "最受歡迎"
   },
   "customPrompts": {
     "createFailed": "無法建立提示詞",
@@ -791,7 +811,8 @@
       "followingHint": "目前存檔隨全域人設變更。在下方選擇人設，會自動鎖定目前存檔。",
       "locked": "已鎖定人設",
       "lockedHint": "目前存檔使用這裡選擇的人設，不隨全域人設變更。",
-      "saveError": "人設儲存失敗，請重試。"
+      "saveError": "人設儲存失敗，請重試。",
+      "lockLabel": "鎖定這個存檔的人設"
     },
     "binding": {
       "saveError": "預設人設儲存失敗，請重試。",
@@ -851,7 +872,7 @@
     "clearYes": "清空",
     "clearNo": "取消",
     "clearFailed": "清空失敗",
-    "clickedAgo": "{{time}} 點選",
+    "clickedAgo": "{{time}}點選",
     "discoveryCard": "發現頁點選",
     "libraryPlay": "庫中游玩"
   },
@@ -934,7 +955,24 @@
     "sent": "已送出",
     "paymentProcessing": "{{amount}} 的支付正在處理中。",
     "failedCreateTip": "無法建立打賞",
-    "somethingWentWrong": "出了點問題，請重試。"
+    "somethingWentWrong": "出了點問題，請重試。",
+    "savedGiftInfo": "Saved Mushies 可贈送給任何用戶。月度和獎勵蘑菇幣仍需對方達到收禮要求。",
+    "useSavedOnly": "僅使用 Saved Mushies",
+    "checkingGiftBalance": "正在確認贈送資格…",
+    "sendPlanGift": "贈送訂閱方案",
+    "planGiftRecipient": "贈送給 {{name}}",
+    "planGiftPlan": "選擇方案",
+    "planGiftDays": "{{count}} 天",
+    "planGiftRules": "一次性付款，不自動續費。對方已有同級或更高會員時，禮物會排隊；高級禮物會暫停低級禮物並保留剩餘天數。已有付費訂閱仍照常扣費。",
+    "planGiftCredits": "禮物生效時獲得 {{count}} Saved Mushies。",
+    "planGiftCheckout": "前往禮物付款",
+    "planGiftUnavailable": "暫時無法購買禮物，請重試。",
+    "planGiftRefunded": "對方無法接收禮物，款項已退還。",
+    "planGiftQueued": "禮物已送達，30 天權益已保留，將在可用時生效。",
+    "planGiftDelivered": "禮物已成功送達。",
+    "planGiftWaiting": "付款確認需要更多時間。請稍後查詢，不要重複付款。",
+    "planGiftProcessing": "正在確認禮物付款…",
+    "planGiftCheckAgain": "重新查詢"
   },
   "promptConfig": {
     "positionHelp": "位置（官方預設使用 0–3；用 1.5 等小數插入其間）",
@@ -1077,7 +1115,8 @@
       "plus": "白金解鎖",
       "pro": "鑽石解鎖",
       "ultra": "超凡解鎖"
-    }
+    },
+    "claimUncertain": "暫時無法確認獎勵是否到帳，請重新整理查看領取結果。"
   },
   "wallet": {
     "title": "蘑菇餘額",
@@ -1545,5 +1584,10 @@
       "question": "有疑問或顧慮？",
       "message": "私訊 {{username}}"
     }
+  },
+  "planModelPage": {
+    "back": "返回個人主頁",
+    "title": "方案與模型",
+    "subtitle": "查看目前方案、蘑菇幣、AI 來源和正在使用的模型。"
   }
 }

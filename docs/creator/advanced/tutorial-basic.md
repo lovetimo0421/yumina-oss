@@ -1,5 +1,10 @@
 # Step-by-Step Tutorial: Build a Survival Horror World from Scratch
 
+::: tip
+This tutorial uses the classic editor layout. For your first story in Studio, start with the [blueprint quick start](/creator/blueprint-start).
+:::
+
+
 We're going to build a horror survival game inspired by **"No, I'm not a Human"**. The premise is simple: the apocalypse has arrived, and outside there are "Visitors" disguised as humans. You're alone at home, and every night someone comes knocking. Peer through the peephole to judge whether they're human or monster, make your choice, and survive 14 nights.
 
 Finish this tutorial and you'll have a solid grasp of Yumina's core creation skills — entries, variables, directives, components, and the lorebook. Whatever kind of world you want to build in the future, this is where it starts (•̀ᴗ•́)و

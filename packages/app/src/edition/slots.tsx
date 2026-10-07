@@ -50,6 +50,8 @@ export function BundlesSection() { return null; }
 export function BundleCreator(_props: BundleCreatorProps) { return null; }
 export function BundleImporter(_props: BundleImporterProps) { return null; }
 export function GenerationEditorSection() { return null; }
+export function GenerationAtelier(_props: { worldId: string | null }) { return null; }
+export function ShareModuleButton(_props: { book: import("@yumina/engine").Worldbook; className?: string }) { return null; }
 export function ImportBundleModal(_props: ImportBundleModalProps) { return null; }
 export function WorldPublishModal(_props: WorldPublishModalProps) { return null; }
 

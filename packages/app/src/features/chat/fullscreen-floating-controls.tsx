@@ -1,4 +1,13 @@
-import { ArrowLeft, Brain, Cpu, Images, Maximize, MoreHorizontal, ShieldCheck } from "lucide-react";
+import {
+  ArrowLeft,
+  Brain,
+  Cpu,
+  Film,
+  Images,
+  Maximize,
+  MoreHorizontal,
+  ShieldCheck,
+} from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -6,17 +15,25 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
+interface GalleryAction {
+  label: string;
+  revealed: number;
+  total: number;
+  onSelect: () => void;
+}
+
 interface FullscreenFloatingControlsProps {
-  backLabel: string;
+  backLabel?: string;
   moreLabel: string;
   modelLabel: string;
+  gallery?: GalleryAction;
   memoryLabel?: string;
   stateGuardLabel?: string;
   onStateGuard?: () => void;
-  /** Scene-image gallery entry ("Gallery · 2/5"); omitted when the card has none. */
-  galleryLabel?: string;
-  onGallery?: () => void;
+  sceneVideoLabel?: string;
+  onSceneVideo?: () => void;
   fullscreenLabel: string;
+  /** Moderation restricts general actions; Scene video retains its own explicit access. */
   showActions: boolean;
   onBack: () => void;
   onModel: () => void;
@@ -34,11 +51,12 @@ export function FullscreenFloatingControls({
   backLabel,
   moreLabel,
   modelLabel,
+  gallery,
   memoryLabel,
   stateGuardLabel,
   onStateGuard,
-  galleryLabel,
-  onGallery,
+  sceneVideoLabel,
+  onSceneVideo,
   fullscreenLabel,
   showActions,
   onBack,
@@ -50,16 +68,18 @@ export function FullscreenFloatingControls({
 }: FullscreenFloatingControlsProps) {
   return (
     <>
-      <button
-        onPointerDown={onInteractionStart}
-        onClick={onBack}
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.035] text-muted-foreground transition-all hover:-translate-y-px hover:bg-gold/[0.10] hover:text-action-primary-hover"
-        title={backLabel}
-        aria-label={backLabel}
-      >
-        <ArrowLeft className="h-[18px] w-[18px]" />
-      </button>
-      {showActions && (
+      {backLabel && (
+        <button
+          onPointerDown={onInteractionStart}
+          onClick={onBack}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white/[0.035] text-muted-foreground transition-all hover:-translate-y-px hover:bg-gold/[0.10] hover:text-action-primary-hover"
+          title={backLabel}
+          aria-label={backLabel}
+        >
+          <ArrowLeft className="h-[18px] w-[18px]" />
+        </button>
+      )}
+      {(showActions || (sceneVideoLabel && onSceneVideo)) && (
         <>
           <DropdownMenu onOpenChange={onMenuOpenChange}>
             <DropdownMenuTrigger asChild>
@@ -77,23 +97,28 @@ export function FullscreenFloatingControls({
               sideOffset={8}
               className="min-w-52 rounded-xl border-gold/25 bg-popover/95 p-1.5 text-foreground shadow-[0_18px_45px_rgba(0,0,0,0.5)] backdrop-blur-xl"
             >
-              <DropdownMenuItem
-                onSelect={onModel}
-                className="min-h-11 gap-2.5 rounded-lg px-3 focus:bg-gold/[0.10] focus:text-foreground"
-              >
-                <Cpu className="h-4 w-4 text-gold" />
-                {modelLabel}
-              </DropdownMenuItem>
-              {galleryLabel && onGallery && (
+              {showActions && (
                 <DropdownMenuItem
-                  onSelect={onGallery}
+                  onSelect={onModel}
+                  className="min-h-11 gap-2.5 rounded-lg px-3 focus:bg-gold/[0.10] focus:text-foreground"
+                >
+                  <Cpu className="h-4 w-4 text-gold" />
+                  {modelLabel}
+                </DropdownMenuItem>
+              )}
+              {showActions && gallery && (
+                <DropdownMenuItem
+                  onSelect={gallery.onSelect}
                   className="min-h-11 gap-2.5 rounded-lg px-3 focus:bg-gold/[0.10] focus:text-foreground"
                 >
                   <Images className="h-4 w-4 text-gold" />
-                  {galleryLabel}
+                  <span className="flex-1">{gallery.label}</span>
+                  <span className="rounded-full bg-gold/15 px-1.5 text-[11px] tabular-nums text-foreground/60">
+                    {gallery.revealed}/{gallery.total}
+                  </span>
                 </DropdownMenuItem>
               )}
-              {memoryLabel && (
+              {showActions && memoryLabel && (
                 <DropdownMenuItem
                   onSelect={onMemory}
                   className="min-h-11 gap-2.5 rounded-lg px-3 focus:bg-gold/[0.10] focus:text-foreground"
@@ -102,24 +127,32 @@ export function FullscreenFloatingControls({
                   {memoryLabel}
                 </DropdownMenuItem>
               )}
-              {stateGuardLabel && onStateGuard && (
+              {showActions && stateGuardLabel && onStateGuard && (
                 <DropdownMenuItem onSelect={onStateGuard} className="min-h-11 gap-2.5 rounded-lg px-3 focus:bg-gold/[0.10] focus:text-foreground">
                   <ShieldCheck className="h-4 w-4 text-gold" />
                   {stateGuardLabel}
                 </DropdownMenuItem>
               )}
+              {sceneVideoLabel && onSceneVideo && (
+                <DropdownMenuItem onSelect={onSceneVideo} className="min-h-11 gap-2.5 rounded-lg px-3 focus:bg-gold/[0.10] focus:text-foreground">
+                  <Film className="h-4 w-4 text-gold" />
+                  {sceneVideoLabel}
+                </DropdownMenuItem>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
-          <button
-            onPointerDown={onInteractionStart}
-            onClick={onFullscreen}
-            className="flex h-11 w-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-0 text-[0.9rem] font-semibold text-primary-foreground shadow-[0_10px_26px_rgba(0,0,0,0.32),0_0_18px_rgba(201,162,94,0.16)] transition-all hover:-translate-y-px hover:bg-primary-hover hover:text-primary-foreground sm:w-auto sm:px-3.5"
-            title={fullscreenLabel}
-            aria-label={fullscreenLabel}
-          >
-            <Maximize className="h-[18px] w-[18px]" />
-            <span className="hidden whitespace-nowrap sm:inline">{fullscreenLabel}</span>
-          </button>
+          {showActions && (
+            <button
+              onPointerDown={onInteractionStart}
+              onClick={onFullscreen}
+              className="flex h-11 w-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-primary px-0 text-[0.9rem] font-semibold text-primary-foreground shadow-[0_10px_26px_rgba(0,0,0,0.32),0_0_18px_rgba(201,162,94,0.16)] transition-all hover:-translate-y-px hover:bg-primary-hover hover:text-primary-foreground sm:w-auto sm:px-3.5"
+              title={fullscreenLabel}
+              aria-label={fullscreenLabel}
+            >
+              <Maximize className="h-[18px] w-[18px]" />
+              <span className="hidden whitespace-nowrap sm:inline">{fullscreenLabel}</span>
+            </button>
+          )}
         </>
       )}
     </>

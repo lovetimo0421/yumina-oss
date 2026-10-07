@@ -12,6 +12,7 @@ import type profile from "../locales/en/profile.json";
 import type toasts from "../locales/en/toasts.json";
 import type templatesContent from "../locales/en/templates-content.json";
 import type extensions from "../locales/en/extensions.json";
+import type learning from "../locales/en/learning.json";
 import type unrestrict from "../locales/en/unrestrict.json";
 
 declare global {
@@ -34,6 +35,7 @@ declare global {
     toasts: typeof toasts;
     "templates-content": typeof templatesContent;
     extensions: typeof extensions;
+    learning: typeof learning;
     unrestrict: typeof unrestrict;
   }
 }

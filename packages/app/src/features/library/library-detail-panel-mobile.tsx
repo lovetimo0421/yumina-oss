@@ -1,6 +1,7 @@
 import { useDiscoverAccess } from "@/hooks/use-discover-access";
 import { selectWorldArtwork } from "@/lib/discover-world-artwork";
 import { useOpenWorldPreview } from "@/edition/slots";
+import { useCardTextMacros } from "@/hooks/use-card-text-macros";
 import { useEdition } from "@/edition/edition";
 import { getUserProfileHref } from "@/edition/routes";
 import { useWorldShareUrl } from "@/edition/slots.state";
@@ -95,6 +96,7 @@ export function LibraryDetailPanelMobile({
   const { enabled: discoverPreview } = useDiscoverAccess();
   const previewArtwork = selectWorldArtwork(selectedItem, "landscape");
   const artworkSrc = discoverPreview ? previewArtwork.src : selectedItem.thumbnailUrl;
+  const cardMacros = useCardTextMacros();
   const { t: tCommon } = useTranslation("common");
   const navigate = useNavigate();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -124,7 +126,8 @@ export function LibraryDetailPanelMobile({
   const [shareSession, setShareSession] = useState<{ id: string; title: string; worldId: string } | null>(null);
   const [downloadPreparing, setDownloadPreparing] = useState(false);
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
-  const [heroImageFailed, setHeroImageFailed] = useState(false);
+  const [failedHero, setFailedHero] = useState<string | null>(null);
+  const heroImageFailed = failedHero === artworkSrc;
   const navigateToStory = useStoryNavigation();
   const { openWorldPreview } = useOpenWorldPreview();
   const { features } = useEdition();
@@ -373,7 +376,7 @@ export function LibraryDetailPanelMobile({
 
   const tags = selectedItem.tags ?? (selectedItem.schema as Record<string, unknown>)?.tags as string[] | undefined;
   const lastActivityAt = !isProject ? libraryLastPlayedAt ?? selectedItem.updatedAt : selectedItem.updatedAt;
-  const description = selectedItem.description || (isDraft ? t("detail.noDescriptionYet") : t("detail.noDescriptionAvailable"));
+  const description = (selectedItem.description && cardMacros(selectedItem.description, selectedItem.name)) || (isDraft ? t("detail.noDescriptionYet") : t("detail.noDescriptionAvailable"));
   const descriptionIsLong = description.length > 420 || description.split(/\r?\n/).length > 6;
   const canDownload = canEditDirectly || selectedItem.allowEdit !== false;
   // File-system control characters are invalid in download names.
@@ -383,7 +386,7 @@ export function LibraryDetailPanelMobile({
 
   useEffect(() => {
     setDescriptionExpanded(false);
-    setHeroImageFailed(false);
+    setFailedHero(null);
   }, [selectedItem.id]);
 
   const secondaryActionLabel = canEditDirectly
@@ -456,7 +459,7 @@ export function LibraryDetailPanelMobile({
               placeholder
               loading="eager"
               fetchPriority="high"
-              onError={() => setHeroImageFailed(true)}
+              onError={() => setFailedHero(artworkSrc)}
               className="absolute inset-0 h-full w-full opacity-35 grayscale"
               imgClassName="object-cover"
             />
@@ -544,7 +547,7 @@ export function LibraryDetailPanelMobile({
             placeholder
             loading="eager"
             fetchPriority="high"
-            onError={() => setHeroImageFailed(true)}
+            onError={() => setFailedHero(artworkSrc)}
             className="absolute inset-0 h-full w-full"
             imgClassName="object-cover"
           />
@@ -770,7 +773,7 @@ export function LibraryDetailPanelMobile({
             </h2>
             {selectedItem.description ? (
               <WorldDescription
-                content={selectedItem.description}
+                content={cardMacros(selectedItem.description, selectedItem.name)}
                 className="mt-4 text-base leading-[1.6] text-foreground/80"
               />
             ) : (
@@ -810,7 +813,7 @@ export function LibraryDetailPanelMobile({
                   // Clip by height instead and let "load more" reveal the rest.
                   <div className={descriptionIsLong && !descriptionExpanded ? "max-h-60 overflow-hidden" : undefined}>
                     <WorldDescription
-                      content={selectedItem.description}
+                      content={cardMacros(selectedItem.description, selectedItem.name)}
                       className="mt-3 text-base leading-[1.6] text-foreground/80"
                     />
                   </div>

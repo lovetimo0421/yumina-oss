@@ -41,6 +41,8 @@ const fullSchemaTests = new Set([
   "src/lib/invite-race-payouts.integration.test.ts",
   "src/lib/stripe-single-subscription.integration.test.ts",
   "src/routes/agent-image-batch.test.ts",
+  "src/routes/agent-job-proposal.test.ts",
+  "src/routes/agent-playtest.test.ts",
   "src/lib/generation/image-batch-bindings.test.ts",
   "src/lib/generation/image-batches.test.ts",
   "src/lib/achievements/achievements-engine.test.ts",

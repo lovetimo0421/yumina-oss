@@ -152,26 +152,26 @@ function significantTokens(content: string) {
   return tokenizeReviewText(normalizeChunkKey(content)).filter((token) => token.trim().length > 0);
 }
 
-function chunkSimilarity(left: string, right: string) {
-  const leftTokens = significantTokens(left);
-  const rightTokens = significantTokens(right);
-  if (leftTokens.length === 0 || rightTokens.length === 0) return 0;
+type ChunkProfile = { size: number; counts: Map<string, number> };
 
-  const rightCounts = new Map<string, number>();
-  for (const token of rightTokens) {
-    rightCounts.set(token, (rightCounts.get(token) ?? 0) + 1);
-  }
+/** Tokenized once per chunk — the similarity matrix used to re-tokenize both
+ *  chunks in every cell, which dominated large diffs. */
+function chunkProfile(content: string): ChunkProfile {
+  const counts = new Map<string, number>();
+  const tokens = significantTokens(content);
+  for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
+  return { size: tokens.length, counts };
+}
 
+function chunkSimilarity(left: ChunkProfile, right: ChunkProfile) {
+  if (left.size === 0 || right.size === 0) return 0;
+  const [small, large] = left.counts.size <= right.counts.size ? [left, right] : [right, left];
   let shared = 0;
-  for (const token of leftTokens) {
-    const count = rightCounts.get(token) ?? 0;
-    if (count <= 0) continue;
-    shared++;
-    if (count === 1) rightCounts.delete(token);
-    else rightCounts.set(token, count - 1);
+  for (const [token, count] of small.counts) {
+    const other = large.counts.get(token);
+    if (other) shared += Math.min(count, other);
   }
-
-  return (2 * shared) / (leftTokens.length + rightTokens.length);
+  return (2 * shared) / (left.size + right.size);
 }
 
 function pushRawChunks(tokens: ReviewDiffToken[], type: ReviewDiffToken["type"], chunks: string[]) {
@@ -193,6 +193,12 @@ function flushChangedChunks(
     pushRawChunks(tokens, "removed", removedChunks);
     return;
   }
+  // Too many pairs to align in the frame budget: show the run as replaced.
+  if (removedChunks.length * addedChunks.length > MAX_CHUNK_MATRIX_CELLS) {
+    pushRawChunks(tokens, "removed", removedChunks);
+    pushRawChunks(tokens, "added", addedChunks);
+    return;
+  }
 
   for (const token of buildSimilarityAlignedChunkDiff(removedChunks, addedChunks)) {
     pushToken(tokens, token.type, token.text);
@@ -202,10 +208,12 @@ function flushChangedChunks(
 function buildSimilarityAlignedChunkDiff(removedChunks: string[], addedChunks: string[]) {
   const dp: number[][] = Array.from({ length: removedChunks.length + 1 }, () => Array(addedChunks.length + 1).fill(0));
   const similarities: number[][] = Array.from({ length: removedChunks.length }, () => Array(addedChunks.length).fill(0));
+  const removedProfiles = removedChunks.map(chunkProfile);
+  const addedProfiles = addedChunks.map(chunkProfile);
 
   for (let i = removedChunks.length - 1; i >= 0; i--) {
     for (let j = addedChunks.length - 1; j >= 0; j--) {
-      const similarity = chunkSimilarity(removedChunks[i]!, addedChunks[j]!);
+      const similarity = chunkSimilarity(removedProfiles[i]!, addedProfiles[j]!);
       similarities[i]![j] = similarity;
       const matchScore = similarity >= CHUNK_SIMILARITY_THRESHOLD
         ? similarity + dp[i + 1]![j + 1]!
@@ -250,10 +258,11 @@ function buildChunkAnchoredDiff(original: string, changed: string): ReviewDiffTo
   const oldKeys = oldChunks.map(normalizeChunkKey);
   const newKeys = newChunks.map(normalizeChunkKey);
 
+  // Even the sentence-level matrix is too big (e.g. 1500 changed lines):
+  // aligning it pairwise took ~12s on the main thread. A prefix/suffix diff
+  // is linear and still shows exactly which span changed.
   if (oldChunks.length * newChunks.length > MAX_CHUNK_MATRIX_CELLS) {
-    const tokens: ReviewDiffToken[] = [];
-    flushChangedChunks(tokens, oldChunks, newChunks);
-    return tokens.length > 0 ? tokens : buildPrefixSuffixDiff(original, changed);
+    return buildPrefixSuffixDiff(original, changed);
   }
 
   const dp: number[][] = Array.from({ length: oldChunks.length + 1 }, () => Array(newChunks.length + 1).fill(0));

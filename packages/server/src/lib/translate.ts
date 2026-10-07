@@ -14,53 +14,26 @@ import {
 } from "../db/schema.js";
 import { recordUsageLog } from "./usage-log.js";
 import { requestFormattedTranslation } from "./translate-format.js";
-
+import {
+  INTERNAL_PERMISSIVE_FALLBACK_MODEL as TRANSLATION_FALLBACK_MODEL,
+  INTERNAL_PRIMARY_MODEL as TRANSLATION_PRIMARY_MODEL,
+} from "./llm/internal-models.js";
 import { env } from "./env.js";
 import { hasTranslatableProse } from "@yumina/shared";
 
 const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
 
 /**
- * Quality primary for community translation.
- *
- * Picked by bakeoff over 37 real community posts x 5 models on 2026-08-27
- * (scripts/translation-bakeoff/ — re-run it before the next swap). It beat the
- * incumbent qwen3-235b on every measured axis: echo 1 vs 4, zero corrupted
- * URLs, zero refusals.
- *
- * The finding that decided it: the prompt below says `Never use em dashes`, and
- * qwen3-235b broke that rule in 8 of 37 outputs (17 occurrences) while all four
- * challengers broke it zero times. That is a model ignoring an explicit
- * instruction, and it tracks what the prose reads like — qwen3-235b rendered the
- * casual Chinese "往正能量上拉" as the stiff "steer storylines toward a more
- * positive tone", where this model gives "drags the plot toward wholesome
- * territory".
- *
- * Hidden reasoning is billed against the same max_tokens as the answer and
- * varies substantially by request/provider. Use recorded provider cost and
- * token usage for budgeting, not a fixed reasoning allowance or monthly guess.
+ * The two ids live in lib/llm/internal-models.ts, together with the bakeoff
+ * that picked the primary and the retirement that cost the fallback three
+ * months of silent 404s. Naming them again here is the duplication that let
+ * the two copies drift in the first place, and scripts/check-model-ids-live.ts
+ * only guards the shared list.
  */
-export const TRANSLATION_PRIMARY_MODEL = "z-ai/glm-5.3";
-
-/**
- * Retried when the primary refuses. MUST be an unmoderated model — the whole
- * point of this rung is to be more permissive than the primary, and a moderated
- * one refuses exactly what the primary already refused.
- *
- * Was `google/gemini-2.0-flash-lite-001`, which OpenRouter retired. It returned
- * 404 "No endpoints found" for every refusal from 2026-05-21 until 2026-08-27
- * — three months during which refused posts had no fallback at all, just an
- * `api_error` in the ledger. Both ids are now covered by
- * scripts/check-model-ids-live.ts so the next retirement fails a build.
- *
- * Smoke-tested 2026-08-27 on zh/en adult roleplay, dark framings and engine
- * directives: 6/6, zero refusals. Worth stating because its larger sibling
- * deepseek-v4-pro DID refuse a community thread in the same day's bakeoff
- * ("contains explicit sexual material") despite both being `is_moderated: false`
- * in the catalog. The flag is not evidence, and permissiveness does not travel
- * across a model family.
- */
-export const TRANSLATION_FALLBACK_MODEL = "deepseek/deepseek-v4-flash-0731";
+export {
+  INTERNAL_PRIMARY_MODEL as TRANSLATION_PRIMARY_MODEL,
+  INTERNAL_PERMISSIVE_FALLBACK_MODEL as TRANSLATION_FALLBACK_MODEL,
+} from "./llm/internal-models.js";
 /** Prefer the provider that passed repeated semantic checks; retain failover. */
 export function buildTranslationProviderOptions(model: string): {
   sort: "latency" | "price";

@@ -15,6 +15,7 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { confirmAction } from "@/components/ui/global-confirm-dialog";
 import { useEditorStore } from "@/stores/editor";
 import { useWorldsStore } from "@/stores/worlds";
 import { useUserProfileStore } from "@/stores/user-profile";
@@ -94,11 +95,15 @@ export function ReviewStateControl({
   size = "md",
   disabled = false,
   className,
+  draftExtra,
 }: {
   onPublish: () => void;
   size?: Size;
   disabled?: boolean;
   className?: string;
+  /** Shown under a card that is not live yet (the Studio's publish
+   *  checklist); given a way to shut the menu. */
+  draftExtra?: (close: () => void) => React.ReactNode;
 }) {
   const { t } = useTranslation("editor");
 
@@ -175,27 +180,34 @@ export function ReviewStateControl({
 
   async function withdrawFirstPublishReview() {
     if (!serverWorldId) return;
-    if (!window.confirm(t("review.withdrawConfirm"))) return;
+    if (!await confirmAction(t("review.withdrawConfirm"))) return;
     setBusy(true);
     setActionError(null);
-    const res = await fetch(`${apiBase}/api/worlds/${serverWorldId}/withdraw-review`, {
-      method: "POST",
-      credentials: "include",
-    });
-    setBusy(false);
-    if (!res.ok) {
-      // Keep the panel open so the failure lands where the button is.
+    // try/finally: a network error used to skip setBusy(false) and leave every
+    // button in the panel disabled until reload.
+    try {
+      const res = await fetch(`${apiBase}/api/worlds/${serverWorldId}/withdraw-review`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        // Keep the panel open so the failure lands where the button is.
+        setActionError(t("review.withdrawFailed"));
+        return;
+      }
+      setOpen(false);
+      // The card is back to draft — reflect it immediately in the editor store
+      // (the worlds-list refetch below may not contain this row at all, e.g.
+      // non-representative language variants). The chip itself flips to "Not
+      // live", so there is nothing left to confirm.
+      useEditorStore.setState({ worldStatus: "draft", submittedForReviewAt: null });
+      invalidate();
+      fetchWorlds();
+    } catch {
       setActionError(t("review.withdrawFailed"));
-      return;
+    } finally {
+      setBusy(false);
     }
-    setOpen(false);
-    // The card is back to draft — reflect it immediately in the editor store
-    // (the worlds-list refetch below may not contain this row at all, e.g.
-    // non-representative language variants). The chip itself flips to "Not
-    // live", so there is nothing left to confirm.
-    useEditorStore.setState({ worldStatus: "draft", submittedForReviewAt: null });
-    invalidate();
-    fetchWorlds();
   }
 
   // "Update review to latest version" — saving during first-publish review is
@@ -245,11 +257,19 @@ export function ReviewStateControl({
     }
   }
 
-  async function runStoreAction(fn: () => Promise<boolean>) {
+  async function runStoreAction(fn: () => Promise<boolean>, failKey: "review.withdrawFailed" | "review.submitFailed") {
     setBusy(true);
-    await fn();
-    setBusy(false);
-    setOpen(false);
+    setActionError(null);
+    try {
+      // The store actions toast their own handled failures; this only covers
+      // a throw, which used to leave busy=true forever.
+      await fn();
+      setOpen(false);
+    } catch {
+      setActionError(t(failKey));
+    } finally {
+      setBusy(false);
+    }
   }
 
   function rejectionBlock(reason: string | null | undefined, detail: string | null | undefined) {
@@ -382,7 +402,7 @@ export function ReviewStateControl({
         hint: t("review.pendingEdit.lockedHint"),
         actionLabel: t("review.pendingEdit.withdrawBtn", { defaultValue: "Withdraw request" }),
         actionIcon: Undo2,
-        onAction: () => runStoreAction(withdrawPendingEdit),
+        onAction: () => runStoreAction(withdrawPendingEdit, "review.withdrawFailed"),
       };
     } else if (pendingEdit.status === "rejected") {
       view = {
@@ -394,7 +414,7 @@ export function ReviewStateControl({
         hint: t("review.pendingEdit.rejectedHint"),
         actionLabel: canAutoPublish ? t("review.pendingEdit.publishBtn") : t("review.pendingEdit.resubmitBtn", { defaultValue: "Resubmit for review" }),
         actionIcon: Send,
-        onAction: () => runStoreAction(submitPendingEdit),
+        onAction: () => runStoreAction(submitPendingEdit, "review.submitFailed"),
         ...settingsEntry,
       };
     } else {
@@ -408,7 +428,7 @@ export function ReviewStateControl({
         hint: t("review.pendingEdit.settingsHint"),
         actionLabel: canAutoPublish ? t("review.pendingEdit.publishBtn") : t("review.pendingEdit.submitBtn", { defaultValue: "Submit for review" }),
         actionIcon: Send,
-        onAction: () => runStoreAction(submitPendingEdit),
+        onAction: () => runStoreAction(submitPendingEdit, "review.submitFailed"),
         ...settingsEntry,
       };
     }
@@ -485,6 +505,7 @@ export function ReviewStateControl({
             {view.hint && (
               <p className="mt-2 text-[11px] text-muted-foreground/60">{view.hint}</p>
             )}
+            {draftExtra && !isLive && status !== "pending_review" && draftExtra(() => setOpen(false))}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"

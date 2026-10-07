@@ -1,3 +1,4 @@
+import { filterWorldAudienceDelivery } from "./world-audience-delivery.js";
 import { redis, redisSub } from "./redis.js";
 
 // ── SSE Pub/Sub (Redis-backed for multi-replica, in-memory fallback for dev) ──
@@ -46,7 +47,10 @@ export function subscribeToRoom(
   userId: string,
   send: Subscriber["send"]
 ): () => void {
-  const sub: Subscriber = { userId, send };
+  const sub: Subscriber = { userId, send: async (event, payload) => {
+    const filtered = await filterWorldAudienceDelivery(userId, payload);
+    if (filtered !== undefined) await send(event, filtered);
+  } };
   if (!subscribers.has(key)) {
     subscribers.set(key, new Set());
   }

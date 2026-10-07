@@ -61,10 +61,13 @@ export function reportIfRogue(): boolean {
  * - Lock is NOT released after fn: the TTL is the schedule. Use a TTL just
  *   under the job interval (e.g. 25 min for a 30-min interval) so exactly one
  *   election happens per tick even when replicas' timers drift.
- * - Redis unreachable → fail-open (run on every replica, the pre-lock
- *   behavior). Every gated job is idempotent by design, so duplicates cost
- *   load, not correctness — and a Redis blip must never silently stop the
- *   payout/recovery/rollup machinery.
+ * - Redis unreachable → fail-open by default (run on every replica, the
+ *   pre-lock behavior). Every gated job is idempotent by design, so
+ *   duplicates cost load, not correctness — and a Redis blip must never
+ *   silently stop the payout/recovery/rollup machinery.
+ * - `failClosed` inverts that for jobs where a duplicate run spends real
+ *   money (e.g. model-sync rents a GPU pod per run): skipping a cycle is
+ *   cheaper than N replicas each renting hardware.
  * - Rogue instances never run regardless of lock state.
  *
  * Returns true when this instance ran the job.
@@ -86,6 +89,8 @@ export async function runExclusive(
       // fall through — see fail-open note above
     }
   } else if (opts?.failClosed) {
+    // No Redis configured at all: money-spending jobs stay parked rather than
+    // running on every replica.
     return false;
   }
   // Scheduled maintenance can legitimately outlast a web query, but it must

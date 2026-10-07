@@ -1,5 +1,6 @@
 import { createAuthClient } from "better-auth/react";
 import { usernameClient } from "better-auth/client/plugins";
+import { oauthProviderClient } from "@better-auth/oauth-provider/client";
 import { useUserProfileStore } from "@/stores/user-profile";
 import { resetHostedStoresOnSignOut } from "@/edition/slots.state";
 import { useLibraryStore } from "@/stores/library";
@@ -13,7 +14,9 @@ import { useUserAssetStore } from "@/stores/user-assets";
 
 export const authClient = createAuthClient({
   baseURL: import.meta.env?.VITE_API_URL || "",
-  plugins: [usernameClient()],
+  // oauthProviderClient: on /login and /oauth/consent it sends the signed
+  // authorization query along, so an outside AI's sign-in can continue.
+  plugins: [usernameClient(), oauthProviderClient()],
 });
 
 const {

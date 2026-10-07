@@ -30,7 +30,7 @@ export interface TranscribeResult {
 
 export async function transcribeAudio(
   apiKey: string,
-  params: { audio: Uint8Array; mimeType: string; filename: string; language?: string },
+  params: { audio: Uint8Array; mimeType: string; filename: string; language?: string; prompt?: string },
 ): Promise<TranscribeResult> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), TRANSCRIBE_TIMEOUT_MS);
@@ -39,6 +39,8 @@ export async function transcribeAudio(
     form.append("file", new Blob([params.audio], { type: params.mimeType }), params.filename);
     form.append("model", STT_MODEL);
     if (params.language) form.append("language", params.language);
+    // 词表提示:卡片可以传本场景的专有词(人名、黑话),识别准很多
+    if (params.prompt) form.append("prompt", params.prompt);
     const res = await fetch(OPENROUTER_TRANSCRIBE_URL, {
       method: "POST",
       headers: {

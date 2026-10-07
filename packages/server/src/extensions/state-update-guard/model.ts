@@ -34,3 +34,15 @@ export async function resolveGuardModel(userId: string, modelId: string, forceOf
   }
   return { provider: resolved.provider, apiKeyTier: resolved.apiKeyTier, model, maxContext: Math.min(28_608, getModelContextWindow(model)) };
 }
+
+/**
+ * The platform default: the default guard model on Yumina's official key.
+ * Platform-paid, so no plan gate and no mushie charge; the player's saved
+ * correction model (an installed-extension setting) is not consulted.
+ */
+export async function resolveDefaultGuardModel(userId: string) {
+  const model = applyModelRedirect(parseStateGuardModel(DEFAULT_STATE_GUARD_MODEL).model!);
+  const resolved = await resolveProviderForModel(userId, model, { forceOfficial: true, allowOfficialFallback: false });
+  if (!resolved || resolved.isByok) throw new Error("The platform correction model is unavailable.");
+  return { provider: resolved.provider, apiKeyTier: resolved.apiKeyTier, model, maxContext: Math.min(28_608, getModelContextWindow(model)) };
+}

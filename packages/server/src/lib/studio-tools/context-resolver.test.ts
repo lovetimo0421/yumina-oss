@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { extractKeywords, toStringArray } from "./context-resolver.js";
+import type { WorldDefinition } from "@yumina/engine";
+import { buildInventory, extractKeywords, toStringArray } from "./context-resolver.js";
 
 // ── toStringArray ──
 // Regression: a lorebook entry whose `keywords`/`tags` were persisted as a
@@ -77,4 +78,104 @@ test("extractKeywords normalizes to lowercase", () => {
   const keywords = extractKeywords("Make the BARTENDER more MYSTERIOUS");
   assert.ok(keywords.includes("bartender"));
   assert.ok(keywords.includes("mysterious"));
+});
+
+// ── buildInventory: the blackboard reaches the agent ──
+// A module's sticky note and the canvas's free-floating notes are the
+// creator's design intent — if they fall out of the snapshot, the AI is
+// editing a card whose blueprint it never saw.
+
+function blackboardWorld(): WorldDefinition {
+  return {
+    id: "w",
+    version: "1.0.0",
+    name: "Blackboard",
+    description: "",
+    author: "t",
+    entries: [],
+    variables: [],
+    rules: [],
+    reactions: [],
+    components: [],
+    audioTracks: [],
+    customUI: [],
+    settings: { maxTokens: 4000, temperature: 1, playerName: "User" },
+    worldbooks: [
+      {
+        id: "wb-dungeon",
+        name: "副本：幸福之家",
+        note: "D级副本。通关或失败后context要wipe，只留结算。",
+        activation: { mode: "always" },
+        order: 0,
+      },
+    ],
+    graphLayout: {
+      version: 3,
+      nodes: {},
+      notes: [
+        { id: "n1", x: 0, y: 0, w: 240, h: 150, text: "整张卡=无限流大世界，每个副本一个模块" },
+        { id: "n2", x: 0, y: 0, w: 240, h: 150, text: "   " },
+      ],
+    },
+  } as unknown as WorldDefinition;
+}
+
+test("buildInventory carries a module's sticky note", () => {
+  const inv = buildInventory(blackboardWorld(), []);
+  assert.match(inv, /wb-dungeon/);
+  assert.match(inv, /note: D级副本。通关或失败后context要wipe，只留结算。/);
+});
+
+test("buildInventory lists non-empty canvas notes and skips blank ones", () => {
+  const inv = buildInventory(blackboardWorld(), []);
+  assert.match(inv, /CANVAS NOTES \(1\)/);
+  assert.match(inv, /无限流大世界/);
+});
+
+test("buildInventory names a narrator station and says its span archives", () => {
+  const world = blackboardWorld();
+  (world.worldbooks![0]! as { station?: unknown }).station = { kind: "narrator" };
+  const inv = buildInventory(world, []);
+  assert.match(inv, /NARRATOR station/);
+  // The default is archive, and the agent has to know that without being told
+  // twice — a module IS a run.
+  assert.match(inv, /folds into a summary/);
+});
+
+test("buildInventory describes a worker's wiring, and says plainly when it cannot run", () => {
+  const world = blackboardWorld();
+  (world.worldbooks![0]! as { station?: unknown }).station = {
+    kind: "worker",
+    model: "cheap/model",
+    inputs: [{ kind: "memory", from: "wb-other", as: "lore", limit: 3 }],
+  };
+  const inv = buildInventory(world, []);
+  assert.match(inv, /WORKER station/);
+  assert.match(inv, /model: cheap\/model/);
+  assert.match(inv, /context in: memory<-wb-other\(lore, 3\)/);
+  // A worker with no trigger and no task is a module that will never do
+  // anything. The snapshot must not let the agent believe otherwise.
+  assert.match(inv, /runs: NEVER/);
+  assert.match(inv, /task: NONE SET/);
+});
+
+test("buildInventory still reads a legacy card written before stations existed", () => {
+  const world = blackboardWorld();
+  (world.worldbooks![0]! as { runScoped?: boolean }).runScoped = true;
+  const inv = buildInventory(world, []);
+  assert.match(inv, /NARRATOR station/);
+});
+
+test("buildInventory says nothing about a plain content module", () => {
+  const inv = buildInventory(blackboardWorld(), []);
+  assert.ok(!inv.includes("station"));
+});
+
+test("buildInventory says nothing about notes when there are none", () => {
+  const world = blackboardWorld();
+  world.worldbooks![0]!.note = undefined;
+  world.graphLayout!.notes = [];
+  const inv = buildInventory(world, []);
+  assert.ok(!inv.includes("CANVAS NOTES"));
+  assert.ok(!inv.includes("📌"));
 });

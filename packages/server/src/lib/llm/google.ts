@@ -69,6 +69,9 @@ export class GoogleProvider implements LLMProvider {
   constructor(private apiKey: string) {}
 
   async *generateStream(params: GenerateParams): AsyncIterable<StreamChunk> {
+    if (params.responseFormat?.type === "json_schema") {
+      throw new Error("This provider does not support JSON Schema side completions.");
+    }
     if (params.signal?.aborted) return;
     const streaming = params.stream !== false;
     const abort = new AbortController();

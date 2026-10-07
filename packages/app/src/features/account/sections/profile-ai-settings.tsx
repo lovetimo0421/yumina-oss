@@ -152,7 +152,9 @@ export function ProfileAiSettings() {
     }
   }, [pendingProvider, switching, syncSelectedModelForProvider, tChat]);
 
-  // Keep subscriptions stable while the wallet moves into/out of loading.
+  // Read before the loading guard below: a hook that only runs on the
+  // loaded render changes the hook count between renders and React throws
+  // "Rendered more hooks than during the previous render".
   const currentModelStats = useModelsStore((st) => st.models.find((m) => m.id === selectedModel)?.costStats);
 
   if (plan === null && creditLoading) {

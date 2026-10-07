@@ -9,6 +9,8 @@ import { eq, sql, and, isNull, or } from "drizzle-orm";
 import { getModelPrice } from "./model-price-cache.js";
 import type { PlanId } from "./plan-config.js";
 import { PLANS, planMeetsMinimum, normalizePlan, STRIPE_PRICE_TO_PLAN } from "./plan-config.js";
+// LedgerDatabase: generation's refund path passes its own transaction so the
+// at-most-once `refunded` guard and the payout commit together.
 import { insertHashedTransaction, type LedgerDatabase } from "./transaction-hash.js";
 import { env } from "./env.js";
 import { withTimeout } from "./with-timeout.js";
@@ -730,6 +732,11 @@ export async function deductCredits(
   });
 }
 
+/**
+ * Return previously deducted credits to the wallet (e.g. a failed generation
+ * job). Callers are responsible for at-most-once semantics — guard with a
+ * `refunded` flag on the referenced row before calling.
+ */
 export async function refundCredits(
   userId: string,
   credits: number,
@@ -771,6 +778,7 @@ export async function refundCredits(
     }, tx);
   };
   // Already inside a caller's transaction — reuse it rather than nesting.
+  // Same reason as deductCredits: ask what the handle is, not which one it is.
   if (isTransaction(database)) return run(database);
   await database.transaction(run);
 }

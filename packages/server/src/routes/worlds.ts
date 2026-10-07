@@ -1,10 +1,15 @@
+import { worldAudienceCondition } from "../lib/world-publication-access.js";
 import { discoverAccess } from "../lib/discover-access.js";
 import { libraryWorldScope } from "../lib/library-world-scope.js";
 import { loadFeaturedSlots } from "../lib/editorial.js";
 import { discoverPreviewMiddleware } from "../middleware/discover-preview.js";
+import { checkpointWorld } from "../lib/world-version-store.js";
+import { VERSION_METADATA_FIELDS, versionMetadata } from "../lib/world-version-content.js";
 import { worldVersionRoutes } from "./world-versions.js";
+import { lockWorldForSave } from "../lib/world-save-transaction.js";
 import { captureAutomaticVersion, capturePublishVersion, lockVersionDraft } from "../lib/world-version-history.js";
 import { communityMuteMiddleware } from "../middleware/community-mute.js";
+import { requireUnmuted } from "../middleware/user-mute.js";
 import { Hono } from "hono";
 import { withWorldPlaytime } from "../lib/world-playtime.js";
 import { reviewPlaytimeQuery } from "../lib/review-playtime.js";
@@ -70,7 +75,7 @@ import { logFeedServe } from "../lib/feed-log.js";
 import { loadFeaturedHeroSlots } from "../lib/editorial.js";
 import { activeFeaturedSlots, readFeaturedCollection } from "../lib/featured-collection-store.js";
 import { featuredScopeSchema, getAgeFromBirthYear } from "@yumina/shared";
-import { DEFAULT_EDITORIAL_CATEGORIES, resolveEditorialCollection, resolveActiveEditorialHero, type EditorialSlot } from "@yumina/shared";
+import { DEFAULT_EDITORIAL_CATEGORIES, resolveEditorialCollection, resolveActiveEditorialHero, editorialHeroCopy, type EditorialSlot } from "@yumina/shared";
 import { publishedEditorial, activeEditorialSlots } from "../lib/discover-editorial.js";
 import { resolveProfileContentLevel } from "../lib/profile-content-level.js";
 import { resolveHeroWorlds, type HeroSlot } from "../lib/hero-worlds.js";
@@ -89,7 +94,7 @@ import {
   withdrawPendingEdit,
   setPendingEditUpdateNote,
 } from "../lib/pending-edit.js";
-import { isStaleDraftSave } from "../lib/world-save-guard.js";
+import { isStaleDraftSave, nextWorldSaveTime } from "../lib/world-save-guard.js";
 import { computeWorldContextRequirement } from "../lib/context-requirement.js";
 import { hasWorldDmShareGrant } from "../lib/dm-world-grant.js";
 import { WORLD_STATUS_TAKEN_DOWN } from "../lib/fork-orphan.js";
@@ -252,6 +257,8 @@ const hubWorldListSelect = {
   allowReviews: worlds.allowReviews,
   allowSessionSharing: worlds.allowSessionSharing,
   allowCommunityCitations: worlds.allowCommunityCitations,
+  allowLiveCanon: worlds.allowLiveCanon,
+  allowLiveCanonAdditions: worlds.allowLiveCanonAdditions,
   blurCover: worlds.blurCover,
   ageRating: worlds.ageRating,
   targetAudience: worlds.targetAudience,
@@ -370,6 +377,8 @@ worldRoutes.get("/", authMiddleware, async (c) => {
       allowReviews: worlds.allowReviews,
       allowSessionSharing: worlds.allowSessionSharing,
       allowCommunityCitations: worlds.allowCommunityCitations,
+      allowLiveCanon: worlds.allowLiveCanon,
+      allowLiveCanonAdditions: worlds.allowLiveCanonAdditions,
       blurCover: worlds.blurCover,
       ageRating: worlds.ageRating,
       targetAudience: worlds.targetAudience,
@@ -402,7 +411,9 @@ worldRoutes.get("/", authMiddleware, async (c) => {
     .leftJoin(user, eq(worlds.creatorId, user.id))
     .where(
       and(
+        worldAudienceCondition(worlds.creatorId),
         or(eq(worlds.creatorId, currentUser.id), eq(worlds.isPublished, true)),
+        worldAudienceCondition(worlds.creatorId),
         libraryScope,
         // Collapse each language group to ONE representative: the 主 of the
         // viewer's language (then oldest), chosen among own-or-published rows so
@@ -696,7 +707,7 @@ worldRoutes.get("/hub/hero-worlds", optionalAuthMiddleware, async (c) => {
     if (!pinned) return [];
     const matching = pinned.languageGroupId ? mediaResolved.filter(w => w.languageGroupId === pinned.languageGroupId && normalizeWorldLanguage(w.language) === preferredLang)
       .sort((a, b) => Number(b.isPrimaryVariant) - Number(a.isPrimaryVariant) || Number(a.language !== preferredLang) - Number(b.language !== preferredLang) || a.id.localeCompare(b.id))[0] : undefined;
-    return [matching ?? pinned];
+    return [{ ...(matching ?? pinned), ...editorialHeroCopy(slot, c.req.query("lang") ?? "en") }];
   });
   const ordered = configuredWorlds ? configuredWorlds.filter((w, i, all) => all.findIndex(other => (other.languageGroupId ?? other.id) === (w.languageGroupId ?? w.id)) === i) : resolveHeroWorlds(slots, mediaResolved, preferredLang);
 
@@ -722,6 +733,7 @@ worldRoutes.get("/batch", optionalAuthMiddleware, async (c) => {
     .leftJoin(user, eq(worlds.creatorId, user.id))
     .where(and(
       inArray(worlds.id, ids),
+      worldAudienceCondition(worlds.creatorId),
       eq(worlds.isPublished, true),
       ...(hiddenCreatorIds.length > 0 ? [notInArray(worlds.creatorId, hiddenCreatorIds)] : []),
       // Guests never receive Limitless rows, even by direct ID.
@@ -1244,6 +1256,12 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c, next) => {
   const blocks = currentUser ? await listBlockedUsersForHiding(currentUser.id) : null;
   const hiddenCreatorIds = blocks ? [...new Set([...blocks.hideWorldCreatorIds, ...blocks.hiddenByCreatorIds])] : [];
   const rd = await readDb(currentUser?.id);
+  const [profile] = currentUser ? await rd.select({ preferences: user.preferences, birthYear: user.birthYear })
+    .from(user).where(eq(user.id, currentUser.id)).limit(1) : [];
+  const minor = profile?.birthYear != null && getAgeFromBirthYear(profile.birthYear) < 18;
+  const effectiveMode = minor ? "safe" : resolveProfileContentLevel(!!currentUser,
+    c.req.query("contentLevel") === "safe" ? "safe" : undefined, profile?.preferences);
+  const safe = effectiveMode === "safe";
 
   const slots = await loadFeaturedSlots(rd);
   if (slots.length === 0) return c.json({ data: [] });
@@ -1254,12 +1272,13 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c, next) => {
     .from(worlds)
     .leftJoin(user, eq(worlds.creatorId, user.id))
     .where(and(
+      worldAudienceCondition(worlds.creatorId),
       eq(worlds.isPublished, true),
       eq(worlds.status, "published"),
       inArray(worlds.id, ids),
       ...(hiddenCreatorIds.length > 0 ? [notInArray(worlds.creatorId, hiddenCreatorIds)] : []),
       // Guests never receive Limitless rows in the featured rail.
-      ...(currentUser ? [] : [eq(worlds.ageRating, "all")]),
+      ...(safe ? [eq(worlds.ageRating, "all"), eq(worlds.isNsfw, false)] : []),
     ));
 
   // Editorial slots historically pin one concrete world ID. When that world
@@ -1279,12 +1298,13 @@ worldRoutes.get("/featured", optionalAuthMiddleware, async (c, next) => {
       .where(and(
         inArray(worlds.languageGroupId, groupIds),
         ...(hiddenCreatorIds.length > 0 ? [notInArray(worlds.creatorId, hiddenCreatorIds)] : []),
-        eq(worlds.isPublished, true),
+        worldAudienceCondition(worlds.creatorId),
+      eq(worlds.isPublished, true),
         eq(worlds.status, "published"),
         // Featured slots are public surface — never swap in a followers-only
         // sibling a non-follower can't open.
         eq(worlds.visibility, "public"),
-        ...(currentUser ? [] : [eq(worlds.ageRating, "all")]),
+        ...(safe ? [eq(worlds.ageRating, "all"), eq(worlds.isNsfw, false)] : []),
         or(
           eq(worlds.language, preferredLang),
           sql`${worlds.language} LIKE ${langPrefix}`,
@@ -1569,6 +1589,8 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
         allowReviews: worlds.allowReviews,
         allowSessionSharing: worlds.allowSessionSharing,
         allowCommunityCitations: worlds.allowCommunityCitations,
+        allowLiveCanon: worlds.allowLiveCanon,
+        allowLiveCanonAdditions: worlds.allowLiveCanonAdditions,
         blurCover: worlds.blurCover,
         ageRating: worlds.ageRating,
         targetAudience: worlds.targetAudience,
@@ -1706,6 +1728,7 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
     if (pend) {
       (world as any).pendingEdit = summarizePendingEdit(pend);
       if (c.req.query("forEdit") === "1") {
+        Object.assign(world, pend.metadata ?? {});
         (world as any).schema = pend.schema;
         if (pend.thumbnailUrl != null) (world as any).thumbnailUrl = pend.thumbnailUrl;
         if (pend.ageRating != null) {
@@ -1832,7 +1855,6 @@ worldRoutes.post("/", authMiddleware, rateLimitMiddleware("content-creation"), a
       400
     );
   }
-
   let totalTokens = 0;
   try {
     const entries = ((parsed.data.schema as any)?.entries as Array<{ content?: string }>) ?? [];
@@ -1861,7 +1883,8 @@ worldRoutes.post("/", authMiddleware, rateLimitMiddleware("content-creation"), a
     (parsed.data.schema as Record<string, unknown>).name = parsed.data.name;
   }
 
-  const result = await db
+  const result = await db.transaction(async tx => {
+    const result = await tx
     .insert(worlds)
     .values({
       ...parsed.data,
@@ -1871,6 +1894,9 @@ worldRoutes.post("/", authMiddleware, rateLimitMiddleware("content-creation"), a
       totalTokens,
     })
     .returning();
+    if (result[0]) await checkpointWorld(tx, result[0].id, "save");
+    return result;
+  });
 
   // Phase 2.5: populate search_doc_normalized after the row is committed.
   // Non-blocking — search still works via search_doc if this fails.
@@ -1904,20 +1930,14 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
       400
     );
   }
+  if (parsed.data.allowLiveCanon === false) {
+    parsed.data.allowLiveCanonAdditions = false;
+  }
 
   // Consolidated read of the live row — drives the in-review lock, the inline-
   // asset check, and the published-world material-edit routing below.
   const [liveRow] = await db
-    .select({
-      status: worlds.status,
-      schema: worlds.schema,
-      thumbnailUrl: worlds.thumbnailUrl,
-      ageRating: worlds.ageRating,
-      languageGroupId: worlds.languageGroupId,
-      language: worlds.language,
-      isPrimaryVariant: worlds.isPrimaryVariant,
-      updatedAt: worlds.updatedAt,
-    })
+    .select()
     .from(worlds)
     .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)))
     .limit(1);
@@ -1973,10 +1993,8 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
   // reject with 409 STALE_WORLD so the editor reloads + merges instead of
   // clobbering.
   //
-  // Scoped to NON-published worlds: a published world's editor save flows
-  // through the held-edit working copy, which has its own baseUpdatedAt conflict
-  // handling (pending-edit.ts) and is actively being reworked alongside the
-  // working-copy feature — we deliberately do not double-guard it here.
+  // Published working copies use the same save token: a restore must not be
+  // silently overwritten by an autosave from a page opened before it.
   // Decision extracted to isStaleDraftSave() for unit testing.
   if (
     isStaleDraftSave({
@@ -2007,6 +2025,7 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
   // the same transaction as the hold write below.
   const isPublishedWorld = liveRow?.status === "published";
   let existingPending = isPublishedWorld ? await getPendingEdit(worldId) : null;
+  const observedPendingUpdatedAt = existingPending?.updatedAt ?? null;
   const supersededReview = existingPending?.status === "pending";
 
   // Reject saves that INTRODUCE new inline base64 data URIs. Legacy worlds with
@@ -2040,6 +2059,11 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
       }
     }
   }
+
+  let normalizedTags = parsed.data.tags
+    ? normalizeTagsForStorage(parsed.data.tags)
+    : undefined;
+
 
   // ─── Published-world material-edit gate ──────────────────────────
   // A change to one of the four material surfaces (lorebook entries, frontend
@@ -2076,6 +2100,10 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
         updatedAt: liveRow.updatedAt,
       },
       proposedSchema,
+      liveMetadata: versionMetadata(liveRow),
+      proposedMetadata: versionMetadata({ ...liveRow, ...existingPending?.metadata, ...parsed.data,
+        ...(normalizedTags ? { tags: normalizedTags } : {}),
+        thumbnailUrl: proposedThumbnailUrl, ageRating: proposedAgeRating }),
       proposedThumbnailUrl,
       proposedAgeRating,
       // Coerce a submitted hold to 'draft' so a revert-to-live correctly CLEARS
@@ -2096,6 +2124,8 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
     if (holdPlan.upsert) {
       // Strip the material carriers from the live patch — they now live in the
       // held edit. Everything else in the patch still applies to the live row.
+      for (const key of VERSION_METADATA_FIELDS) delete (parsed.data as Record<string, unknown>)[key];
+      normalizedTags = undefined;
       delete (parsed.data as Record<string, unknown>).schema;
       delete (parsed.data as Record<string, unknown>).thumbnailUrl;
       delete (parsed.data as Record<string, unknown>).ageRating;
@@ -2116,32 +2146,33 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
     }
   }
 
-  const normalizedTags = parsed.data.tags
-    ? normalizeTagsForStorage(parsed.data.tags)
-    : undefined;
-
   // Apply the held-edit mutation (if any) and the live worlds UPDATE atomically.
   const result = await db.transaction(async (tx) => {
     // Serialize held-edit creation with standalone update-note publication.
     // Both paths lock the live world first, so their pending-edit check/write
     // order is linearizable even when the author triggers them concurrently.
-    const [lockedWorld] = await tx
-      .select()
-      .from(worlds)
-      .where(eq(worlds.id, worldId))
-      .for("update");
-
     // A save planned before a version switch must not apply its old hold plan
     // afterwards. The editor handles STALE_WORLD by merging its unsaved edits.
-    if (lockedWorld && (lockedWorld.updatedAt?.getTime() !== liveRow?.updatedAt?.getTime()
-      || (body.schema && clientBaseUpdatedAt && lockedWorld.updatedAt?.toISOString() !== clientBaseUpdatedAt))) {
-      return { conflict: true as const, currentUpdatedAt: lockedWorld.updatedAt?.toISOString() };
-    }
+    // The shared helper re-checks live status, live updatedAt, the held-edit
+    // updatedAt and the client's base token under the row lock.
+    const locked = await lockWorldForSave(tx, {
+      worldId,
+      creatorId: currentUser.id,
+      clientBaseUpdatedAt,
+      observedStatus: liveRow?.status,
+      observedUpdatedAt: liveRow?.updatedAt,
+      observedPendingUpdatedAt,
+    });
+    if (locked.kind === "notFound") return [];
+    if (locked.kind === "stale") return { conflict: true as const, currentUpdatedAt: locked.currentUpdatedAt };
     const savePublishVersion = body.saveVersionOnPublish === true;
 
     // Read existing tags under the same lock used by publishing so a stale
     // form cannot overwrite a concurrent tag save. Newly added dual tags win;
     // an existing dual card can deliberately switch to one audience.
+    const [lockedWorld] = parsed.data.targetAudience
+      ? await tx.select({ tags: worlds.tags }).from(worlds).where(eq(worlds.id, worldId)).limit(1)
+      : [];
     const audienceUpdate = parsed.data.targetAudience
       ? resolveWorldAudienceEdit(
           lockedWorld?.tags ?? [],
@@ -2192,7 +2223,7 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
         // Demote the moved row to 副 when its language changes (reconciled below).
         ...(languageActuallyChanged ? { isPrimaryVariant: false } : {}),
         ...computedTokens,
-        updatedAt: new Date(),
+        updatedAt: nextWorldSaveTime(liveRow?.updatedAt),
       })
       .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)))
       .returning();
@@ -2357,7 +2388,7 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
   const currentUser = c.get("user");
   const worldId = c.req.param("id");
 
-  let body: { status: string; isNsfw?: boolean; allowEdit?: boolean; allowCustomApi?: boolean; allowReviews?: boolean; allowSessionSharing?: boolean; allowCommunityCitations?: boolean; blurCover?: boolean | null; ageRating?: string; visibility?: string; targetAudience?: string };
+  let body: { status: string; isNsfw?: boolean; allowEdit?: boolean; allowCustomApi?: boolean; allowReviews?: boolean; allowSessionSharing?: boolean; allowCommunityCitations?: boolean; allowLiveCanon?: boolean; allowLiveCanonAdditions?: boolean; blurCover?: boolean | null; ageRating?: string; visibility?: string; targetAudience?: string };
   try {
     body = await c.req.json();
   } catch {
@@ -2462,6 +2493,8 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
     const allowReviews = body.allowReviews ?? true;
     const allowSessionSharing = body.allowSessionSharing ?? true;
     const allowCommunityCitations = body.allowCommunityCitations ?? true;
+    const allowLiveCanon = body.allowLiveCanon ?? false;
+    const allowLiveCanonAdditions = allowLiveCanon && (body.allowLiveCanonAdditions ?? false);
     // Cover blur is creator-controlled and decoupled from age rating. Clients
     // that omit it (older bundles) fall back to the legacy rating-derived
     // default so nothing changes for them; the publish modal sends explicit
@@ -2512,6 +2545,7 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
     const submittableIds = submittable.map((s) => s.id);
 
     await db.transaction(async (tx) => {
+      for (const id of [...submittableIds].sort()) await tx.execute(sql`SELECT id FROM worlds WHERE id = ${id} FOR UPDATE`);
       const tagRows = await tx
         .select({ id: worlds.id, tags: worlds.tags })
         .from(worlds)
@@ -2544,6 +2578,8 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
             allowReviews,
             allowSessionSharing,
             allowCommunityCitations,
+            allowLiveCanon,
+            allowLiveCanonAdditions,
             blurCover,
             updatedAt: now,
           })
@@ -2815,7 +2851,7 @@ worldRoutes.post("/:id/pending/withdraw", authMiddleware, async (c) => {
 // POST /api/worlds/:id/pending/update-note — attach a "what's new" note to a held
 // edit. It is posted to players (world_updates) only when the edit is approved
 // and goes live, so we never announce an update that hasn't shipped.
-worldRoutes.post("/:id/pending/update-note", authMiddleware, rateLimitMiddleware("content-creation"), async (c) => {
+worldRoutes.post("/:id/pending/update-note", authMiddleware, requireUnmuted, rateLimitMiddleware("content-creation"), async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("id");
   let body: unknown;
@@ -3153,7 +3189,7 @@ worldRoutes.get("/:id/friends-playing", authMiddleware, async (c) => {
 });
 
 // POST /api/worlds/:id/updates — create a record, optionally notify library users
-worldRoutes.post("/:id/updates", authMiddleware, rateLimitMiddleware("content-creation"), async (c) => {
+worldRoutes.post("/:id/updates", authMiddleware, requireUnmuted, rateLimitMiddleware("content-creation"), async (c) => {
   const currentUser = c.get("user");
   const worldId = c.req.param("id");
 
@@ -3916,7 +3952,7 @@ worldRoutes.get("/:id/reviews", optionalAuthMiddleware, async (c) => {
     : [];
 
   const [worldRow] = await rd
-    .select({ creatorId: worlds.creatorId, ageRating: worlds.ageRating })
+    .select({ creatorId: worlds.creatorId, ageRating: worlds.ageRating, gamePath: worlds.gamePath })
     .from(worlds)
     .where(eq(worlds.id, worldId))
     .limit(1);
@@ -3968,7 +4004,7 @@ worldRoutes.get("/:id/reviews", optionalAuthMiddleware, async (c) => {
 
   const authorIds = [...new Set(result.map((r) => r.userId))];
   const playtimeRows = authorIds.length
-    ? await rd.execute(reviewPlaytimeQuery(worldId, authorIds))
+    ? await rd.execute(reviewPlaytimeQuery(worldId, authorIds, worldRow?.gamePath))
     : { rows: [] };
   const playtimeByAuthor = new Map(playtimeRows.rows.map((row) => [
     String(row.user_id), Number(row.seconds),

@@ -116,6 +116,21 @@ export interface Reaction {
 
   /** Max depth for chained reactions (prevents infinite loops, default 5) */
   maxChainDepth?: number;
+
+  /** Said to the player (a notice) when this behaviour's event happens but
+   *  its conditions do not hold — 「金币不够，还差 {参数.价格}」. */
+  elseMessage?: string;
+
+  /** 代码行为: a short piece of the creator's own code, run in the card's
+   *  sandbox (never the server, never written by the AI at play time) when
+   *  the behaviour fires. Runs only while the game is open. */
+  code?: string;
+
+  /** Which worldbook (module) this reaction belongs to. Undefined = Core
+   *  (always on). Reactions of an inactive module are skipped by the runner,
+   *  re-checked per hop so a module activated mid-chain joins later hops.
+   *  Unknown ids fail open (mirrors WorldEntry.worldbookId). */
+  worldbookId?: string;
 }
 
 // ── Event handler types ──

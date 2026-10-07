@@ -271,7 +271,10 @@ function withEffectiveModel(job: PreparedStorySummaryJob, tracker: RefusalFallba
   return tracker.refusalFallbackUsed ? { ...job, model: STORY_SUMMARY_REFUSAL_FALLBACK_MODEL } : job;
 }
 
-async function generateStorySummaryText(args: {
+// Exported for the run-scope summarizer (lib/run-summary.ts): one background
+// LLM call with the same billing, usage logging and refusal fallback as story
+// compaction — a second copy of this plumbing is how billing bugs are born.
+export async function generateStorySummaryText(args: {
   signal?: AbortSignal;
   userId: string;
   sessionId: string;

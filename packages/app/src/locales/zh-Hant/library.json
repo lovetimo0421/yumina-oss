@@ -204,7 +204,9 @@
     "export": "匯出",
     "exported": "資源包已匯出",
     "deleteBundle": "刪除資源包",
-    "deleteConfirm": "確定要刪除 <strong>{{name}}</strong> 嗎？此操作無法撤銷。"
+    "deleteConfirm": "確定要永久刪除 <strong>{{name}}</strong> 嗎？",
+    "importBundle": "匯入資源包",
+    "deleteConsequence": "資源包及其中可編輯的內容會被永久刪除。"
   },
   "favorites": {
     "backToLibrary": "返回庫",
@@ -322,7 +324,8 @@
       "viewInAssets": "前往資源檢視",
       "shareInCommunity": "分享到社羣"
     },
-    "reviews": "評價"
+    "reviews": "評價",
+    "overviewSubtitle": "關鍵資訊、筆記和描述集於一處。"
   },
   "bulk": {
     "select": "選擇",
@@ -357,7 +360,11 @@
     "deleteAction": "刪除",
     "deletePermanently": "永久刪除",
     "deleteIrreversible": "此操作無法撤銷。",
-    "authorDoesNotAllowEditing": "作者不允許編輯"
+    "authorDoesNotAllowEditing": "作者不允許編輯",
+    "deleteProjectConsequenceFiles": "可編輯專案及其本機資料會被永久刪除。",
+    "deletePublishedConsequence": "已收藏這個世界的玩家將失去訪問許可權。",
+    "removeGameConsequenceHistory": "這個遊戲的存檔和遊玩記錄會被刪除。",
+    "removeGameConsequenceHub": "已釋出的遊戲仍可在發現頁中找到。"
   },
   "card": {
     "play": "開始遊戲",
@@ -414,7 +421,7 @@
   },
   "create": {
     "title": "新建",
-    "mobileTitle": "建立新故事",
+    "mobileTitle": "開啟新的創作",
     "mobileInstructionTitle": "選擇你的創作方式",
     "import": "匯入",
     "back": "返回",
@@ -426,7 +433,8 @@
       "signInBody": "登入後即可生成圖片和音樂、儲存作品，並隨時查看生成紀錄。",
       "signInAction": "生成圖片和音樂",
       "signIn": "登入開始創作"
-    }
+    },
+    "mobileSubtitle": "建構世界、設計角色，或把靈感變成一幅畫。"
   },
   "time": {
     "justNow": "剛剛",
@@ -438,9 +446,9 @@
   },
   "templates": {
     "blank": "空白專案",
-    "blankDesc": "一個空白世界——沒有任何預設。",
+    "blankDesc": "空白世界，只帶預設敘事設定。",
     "importWorld": "匯入世界",
-    "importWorldDesc": "從 JSON 檔案匯入世界。",
+    "importWorldDesc": "SillyTavern 角色卡（PNG / JSON），或匯出的 Yumina 卡。",
     "characterChat": "角色聊天",
     "characterChatDesc": "設計角色，沉浸於一對一的對話之中。",
     "worldSimulation": "世界模擬",
@@ -867,7 +875,7 @@
       "sectionOutput": "畫面規格",
       "tabVideo": "影片",
       "videoTitle": "AI 生成影片",
-      "videoLead": "影片會儲存到素材庫，可以放進角色立繪和開場白。"
+      "videoLead": "影片會儲存到素材庫，可以放進立繪、開場白和玩家介面。"
     },
     "music": {
       "workshopTitle": "AI 生成 BGM",
@@ -1004,13 +1012,17 @@
       },
       "placeFailed": {
         "noGreeting": "這張卡還沒有開場白。",
-        "linkFailed": "沒能把這段影片關聯到卡上，再試一次。"
+        "linkFailed": "沒能把這段影片關聯到卡上，再試一次。",
+        "noUi": "這張卡還沒有視覺化的玩家介面，先在「玩家介面」裡選個範本。"
       },
       "style": "畫風",
       "styleCost": "文字生成時可選 · 畫首幀 +{{count}} 蘑菇幣",
       "styleNone": "不指定",
       "styleFromFrame": "已經放了首幀或尾幀，影片會沿用那張圖的畫風。",
-      "howStyle": "{{style}}畫風"
+      "howStyle": "{{style}}畫風",
+      "placeUi": "玩家介面（新影片框）",
+      "styleHint": "先按這個畫風畫出第一幀，再讓它動起來，整段影片保持這個畫風。",
+      "styleNoneHint": "{{model}} 直接從文字生成，畫面偏寫實。"
     },
     "folderLoadFallback": "讀不到這張卡綁定的資料夾，先按「全部素材」生成。",
     "quality": {

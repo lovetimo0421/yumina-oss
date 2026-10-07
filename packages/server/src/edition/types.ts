@@ -68,6 +68,8 @@ export interface Edition {
   readonly name: EditionName;
   /** Static capability description served at GET /api/edition. */
   info(): EditionInfo;
+  /** Hosting-wide access policies, installed before every core/API router. */
+  mountAccessPolicies?(app: Hono): void;
   /**
    * Routers that must sit BEFORE messageRoutes' broad `/api/*` auth middleware:
    * public reads (hub gallery, community, bundles), webhooks (Stripe), guest

@@ -3,6 +3,7 @@ import {
   X,
   Upload,
   Image as ImageIcon,
+  ImageOff,
   Film,
   Music,
   Type,
@@ -15,7 +16,8 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "react-i18next";
 import { useAssetStore, type Asset } from "@/stores/assets";
 import { useUserAssetStore, type UserAsset } from "@/stores/user-assets";
-import { getUploadMetadata } from "@/lib/asset-upload";
+import { getUploadMetadata, inferAssetTypeFromFile } from "@/lib/asset-upload";
+import { feedback } from "@/lib/feedback";
 import { cardImageUrl, fallbackToOriginalOnError, getAssetCdnUrl } from "@/lib/asset-url";
 
 interface AssetPickerProps {
@@ -46,6 +48,7 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
     fetchAssets: fetchGlobalAssets,
   } = useUserAssetStore();
   const [search, setSearch] = useState("");
+  const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
   const [isDraggingFiles, setIsDraggingFiles] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -94,10 +97,18 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
     setIsDraggingFiles(false);
 
     const [file] = Array.from(e.dataTransfer.files ?? []);
-    if (file) {
-      await uploadSingleFile(file);
+    if (!file) return;
+    // A drop bypasses the file input's `accept`, and getUploadMetadata would
+    // then stamp filterType onto whatever arrived (a PNG dropped on the audio
+    // picker registered as "audio"). Refuse a file of the wrong kind.
+    const inferred = inferAssetTypeFromFile(file);
+    if (filterType === "media" ? inferred !== "image" && inferred !== "video"
+      : filterType && filterType !== "other" && inferred !== filterType) {
+      feedback.error(t("assetPicker.wrongFileType", "This file type can't be used here."));
+      return;
     }
-  }, [uploadSingleFile]);
+    await uploadSingleFile(file);
+  }, [uploadSingleFile, filterType, t]);
 
   // Deduplicate by id, world assets take priority
   const allAssets = (() => {
@@ -125,20 +136,28 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
       // If it's a global asset, auto-create reference for this world
       const isGlobal = !assets.some((a) => a.id === asset.id);
       if (isGlobal) {
+        // Without the reference the card can't resolve the asset for anyone
+        // else, so a failed link must not select it.
+        let linked = false;
         try {
-          await fetch(`${apiBase}/api/worlds/${worldId}/asset-refs`, {
+          const res = await fetch(`${apiBase}/api/worlds/${worldId}/asset-refs`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
             body: JSON.stringify({ assetId: asset.id }),
           });
+          linked = res.ok;
         } catch {
-          // Best-effort
+          linked = false;
+        }
+        if (!linked) {
+          feedback.error(t("assetPicker.linkFailed", "Couldn't add this asset to the card. Try again."));
+          return;
         }
       }
       onSelect(`@asset:${asset.id}`, asset.type);
     },
-    [worldId, assets, onSelect]
+    [worldId, assets, onSelect, t]
   );
 
   const isLoading = loading || globalLoading;
@@ -146,7 +165,7 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 modal-backdrop" onClick={onClose} />
 
       {/* Panel */}
       <div
@@ -188,7 +207,7 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
               ) : (
                 <Upload className="h-3.5 w-3.5" />
               )}
-              {uploadingCount > 1 ? `Uploading ${uploadingCount}` : uploading ? `${Math.round((progress?.fraction ?? 0) * 100)}%` : "Upload"}
+              {uploadingCount > 1 ? t("assetPicker.uploadingCount", { count: uploadingCount }) : uploading ? `${Math.round((progress?.fraction ?? 0) * 100)}%` : t("assetPicker.uploadButton")}
             </button>
         </div>
 
@@ -206,7 +225,7 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
                 {formatSpeed(progress.bytesPerSecond)}
                 {progress.total > 0 && progress.bytesPerSecond > 0 && (
                   <span className="ml-2">
-                    {formatEta((progress.total - progress.loaded) / progress.bytesPerSecond)}
+                    {formatEta((progress.total - progress.loaded) / progress.bytesPerSecond, t)}
                   </span>
                 )}
               </div>
@@ -258,13 +277,24 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
                     )}
                   >
                     <div className="flex h-20 items-center justify-center bg-accent/30">
-                      {asset.type === "image" ? (
+                      {asset.type === "image" && broken.has(asset.id) ? (
+                        // The file is gone from storage: a cracked image and
+                        // its alt text read as the picker being broken.
+                        <span className="flex flex-col items-center gap-1 text-[10px] text-muted-foreground/60">
+                          <ImageOff className="h-5 w-5" />{t("assetPicker.missingFile")}
+                        </span>
+                      ) : asset.type === "image" ? (
                         <img
                           src={cardImageUrl(asset.url, 400)}
-                          alt={asset.filename}
+                          alt=""
                           className="h-full w-full object-cover"
                           loading="lazy"
-                          onError={fallbackToOriginalOnError}
+                          onError={(e) => {
+                            const img = e.currentTarget;
+                            const before = img.src;
+                            fallbackToOriginalOnError(e);
+                            if (img.src === before) setBroken((prev) => new Set(prev).add(asset.id));
+                          }}
                         />
                       ) : asset.type === "video" ? (
                         <video src={getAssetCdnUrl(asset.id)} muted playsInline preload="metadata"
@@ -276,9 +306,6 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
                     <div className="px-2 py-1.5">
                       <p className="truncate text-[10px] font-medium text-foreground">
                         {asset.filename}
-                      </p>
-                      <p className="truncate text-[9px] font-mono text-muted-foreground/40">
-                        @asset:{asset.id.slice(0, 8)}...
                       </p>
                     </div>
                   </button>
@@ -296,7 +323,7 @@ export function AssetPicker({ worldId, filterType, onSelect, onClose }: AssetPic
               </div>
               <p className="text-sm font-semibold text-foreground">{t("assetPicker.dropToUpload")}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                The uploaded asset will be selected automatically.
+                {t("assetPicker.dropHint")}
               </p>
             </div>
           </div>
@@ -312,8 +339,11 @@ function formatSpeed(bytesPerSecond: number): string {
   return `${bytesPerSecond.toFixed(0)} B/s`;
 }
 
-function formatEta(seconds: number): string {
+function formatEta(
+  seconds: number,
+  t: (key: string, opts: { n: number; defaultValue: string }) => string,
+): string {
   if (!isFinite(seconds) || seconds < 0) return "";
-  if (seconds < 60) return `~${Math.ceil(seconds)}s left`;
-  return `~${Math.ceil(seconds / 60)}m left`;
+  if (seconds < 60) return t("assetPicker.etaSeconds", { n: Math.ceil(seconds), defaultValue: "~{{n}}s left" });
+  return t("assetPicker.etaMinutes", { n: Math.ceil(seconds / 60), defaultValue: "~{{n}}m left" });
 }

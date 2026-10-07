@@ -27,6 +27,28 @@ import { arrivalProperties } from "./arrival-attribution";
 import { queueFeedEvent, type FeedBeaconEvent } from "./feed-beacon";
 import { linkObservedGameGuest } from "./game-identity";
 
+export type CreatorLearningEvent = {
+  release: string;
+  flow_id: string;
+  /** A lesson id from the learning catalog, or the welcome / finish screens. */
+  step: string;
+  action: "view" | "start" | "resume" | "restart" | "complete" | "skip" | "pause" | "dismiss" | "error";
+  reason?: "save" | "start" | "model" | "provider" | "credits" | "promptCost" | "modelAccess" | "busy" | "tooLong" | "access" | "connection" | "request";
+  outcome?: "all_verified" | "walkthrough";
+};
+
+export function captureCreatorLearningEvent(props: CreatorLearningEvent): void {
+  try {
+    if (typeof window === "undefined") return;
+    // Explicit allowlist: never forward card names, text, prompts or raw errors.
+    posthog.capture("creator_learning", {
+      release: props.release, flow_id: props.flow_id, step: props.step, action: props.action,
+      ...(props.reason && { reason: props.reason }), ...(props.outcome && { outcome: props.outcome }),
+      environment: ENVIRONMENT, app_release: APP_RELEASE,
+    });
+  } catch { /* Analytics cannot interrupt creation. */ }
+}
+
 /**
  * Narrow environment label. Read from Vite's MODE first (set by Vite CLI).
  * `?.` because `tsx --test` has no import.meta.env, and this module is now
@@ -49,6 +71,10 @@ const APP_RELEASE = import.meta.env?.VITE_APP_RELEASE ?? "unknown";
  */
 export type HubEventMap = {
   persona_selection: import("./refresh-chat-persona").PersonaSelectionEvent;
+  quest_entry: { cached: boolean };
+  /** Render readiness is a double-frame proxy, not proof of pixels presented by Safari. */
+  quest_board_render: { phase: "mount" | "ready_proxy"; duration_ms: number; cached: boolean };
+  quest_request: { operation: "board" | "claim"; request_id: number; duration_ms: number; outcome: "success" | "error" | "timeout" | "cancelled" };
   /** Client elapsed time through fetch, body decoding and accepting a Discover page; excludes paint. */
   hub_feed_load: {
     mode: "initial" | "append" | "refresh";
@@ -183,6 +209,57 @@ export type HubEventMap = {
   /** The tab reloaded itself (or the user clicked Refresh) to pick up a deploy. */
   deploy_reload: {
     trigger: "navigate" | "resume" | "manual";
+  };
+
+  /** The blueprint (Studio) opened for a card: the funnel's first step. */
+  studio_blueprint_opened: {
+    world_id: string;
+    /** How many modules the card has when it opens — a 0 is a new author. */
+    modules: number;
+  };
+  /** A save from inside Studio landed. */
+  studio_blueprint_saved: {
+    world_id: string;
+    trigger: "manual" | "autosave" | "unsaved_chip" | "merged_retry";
+  };
+  /** A playtest session started from Studio (docked or full-screen). */
+  studio_playtest_started: {
+    world_id: string;
+    /** "start" = a fresh session, "checkpoint" = from a saved test start. */
+    from: "start" | "checkpoint";
+  };
+  /** Something was added to the board through the add menu or a block's "+". */
+  studio_object_added: {
+    world_id: string;
+    kind: "module" | "worker" | "opening" | "setting" | "variable" | "behavior" | "interface";
+    /** "menu" = the toolbar's add menu, "block" = a block's own "+". */
+    via: "menu" | "block";
+  };
+  /** A slot was taken out of the board's "Add" tray (or the packs page opened from it). */
+  studio_tray_pick: {
+    world_id: string;
+    item: "state" | "behavior" | "audio" | "image" | "background" | "packs";
+  };
+  /** A switch in the board's View menu was used. `on` is the state it was switched to. */
+  studio_view_toggle: {
+    world_id: string;
+    item: "wires" | "lock" | "tidy" | "legend" | "estimate" | "rail" | "ai-table";
+    on: boolean;
+  };
+  /**
+   * The creator zoomed in far enough for rows to show their text — the first
+   * time per board visit. Tells us whether zoom-to-read is being found.
+   */
+  studio_board_read: {
+    world_id: string;
+    zoom: number;
+  };
+  /** An official theme or layout was applied in the player-view tab. */
+  studio_look_applied: {
+    world_id: string;
+    kind: "theme" | "layout";
+    /** The official preset id, or "none" when switching back to the platform default. */
+    id: string;
   };
 
   /** Bounded, geometry-only diagnostics for mobile resume/interaction recovery. */

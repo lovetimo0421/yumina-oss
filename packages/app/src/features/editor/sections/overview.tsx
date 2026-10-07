@@ -1,8 +1,11 @@
 import { useDiscoverAccess } from "@/hooks/use-discover-access";
 import { DiscoverCoverFields } from "../components/discover-cover-fields";
+import { isPlaceholderCardName } from "@/lib/world-templates";
+import { WorldCoverPreview } from "@/components/world-cover-previews";
+import { useSession } from "@/lib/auth-client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { X, Plus, ImageIcon, Loader2, Camera, FolderOpen, Upload, Globe, Type, History, Sparkles, Volume2 } from "lucide-react";
+import { X, Plus, ImageIcon, Loader2, FolderOpen, Upload, Globe, Type, History, Sparkles, Volume2 } from "lucide-react";
 import { FieldError } from "@/components/ui/field-error";
 import { WorldUpdateHistory } from "@/features/library/world-update-history";
 import { MAX_WORLD_DESCRIPTION, MAX_WORLD_NAME } from "@yumina/shared";
@@ -12,16 +15,19 @@ import {
   uploadAssetWithPresignedUrl,
 } from "@/lib/asset-upload";
 import {
-  CroppedImage,
-  normalizeCoverCrop,
   type CoverCropSettings,
 } from "@/lib/cover-crop";
-import { getWorldGalleryDisplayCrop } from "@/lib/world-cover-crop";
-import { useEditorStore } from "@/stores/editor";
-import { VoiceField } from "../components/voice-field";
+
+import { adoptOwnWriteToken, useEditorStore } from "@/stores/editor";
 import { AssetPicker } from "../asset-picker";
+import { VoiceField } from "../components/voice-field";
+import { DebouncedInput, DebouncedTextarea } from "../components/debounced-field";
+import { worldImportCounts } from "@/lib/import-summary";
 import { CoverCropDialog } from "../components/cover-crop-dialog";
+import { confirmAction } from "@/components/ui/global-confirm-dialog";
 import { TwoTapDeleteButton } from "@/components/ui/two-tap-delete-button";
+
+
 
 
 const apiBase = import.meta.env.VITE_API_URL || "";
@@ -36,10 +42,12 @@ function fetchWithTimeout(input: RequestInfo, init: RequestInit, timeoutMs: numb
   });
 }
 
-export function OverviewSection() {
+/** `embedded`: inside the canvas inspector, which already scrolls and pads. */
+export function OverviewSection({ embedded = false }: { embedded?: boolean } = {}) {
   const { enabled: discoverPreview } = useDiscoverAccess();
   const { t } = useTranslation("editor");
   const { t: tLibrary } = useTranslation("library");
+  const creator = useSession().data?.user;
   const worldDraft = useEditorStore(s => s.worldDraft);
   const serverWorldId = useEditorStore(s => s.serverWorldId);
   const readOnlyInspect = useEditorStore(s => s.readOnlyInspect);
@@ -59,6 +67,7 @@ export function OverviewSection() {
   const [importResult, setImportResult] = useState<string | null>(null);
   const [loadedGallery, setLoadedGallery] = useState(false);
   const [showCoverPicker, setShowCoverPicker] = useState(false);
+  const coverTarget = useRef<"portrait" | "landscape">("portrait");
   const [showGalleryPicker, setShowGalleryPicker] = useState(false);
   // Every failure on this screen has a panel to sit in: cover problems print
   // under the cover buttons, gallery problems under the gallery grid (R4).
@@ -66,9 +75,11 @@ export function OverviewSection() {
   const [coverError, setCoverError] = useState<string | null>(null);
   const [galleryError, setGalleryError] = useState<string | null>(null);
   const [cropDialog, setCropDialog] = useState<{
-    src: string;
-    coverCrop: CoverCropSettings;
-    galleryCoverCrop: CoverCropSettings;
+    src?: string;
+    landscapeSrc?: string;
+    mode: "cover" | "gallery";
+    coverCrop?: CoverCropSettings;
+    landscapeCoverCrop?: CoverCropSettings;
   } | null>(null);
   const coverFileRef = useRef<HTMLInputElement>(null);
   const galleryFileRef = useRef<HTMLInputElement>(null);
@@ -89,7 +100,7 @@ export function OverviewSection() {
       //      a new one (which would orphan the published card).
       const isReplacingExisting = !!serverWorldId;
       if (isReplacingExisting) {
-        const ok = window.confirm(t("overview.confirmReplaceWorld"));
+        const ok = await confirmAction(t("overview.confirmReplaceWorld"), { tone: "destructive" });
         if (!ok) {
           e.target.value = "";
           return;
@@ -105,13 +116,14 @@ export function OverviewSection() {
           // Use the PNG card image as the cover (saves the world first if new).
           await useEditorStore.getState().applyImportedCover(coverImage);
         }
-        const entryCount = world.entries.length;
-        const variableCount = world.variables.length;
-        const ruleCount = world.rules.length;
-        const componentCount = world.components.length;
-        const audioCount = (world.audioTracks ?? []).length;
-        const n = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
-        const summary = `Imported "${world.name}" (${n(entryCount, "entry", "entries")}, ${n(variableCount, "variable", "variables")}, ${n(ruleCount, "rule", "rules")}, ${n(componentCount, "component", "components")}, ${audioCount} audio)`;
+        const counts = Object.entries(worldImportCounts(world))
+          .filter(([, count]) => count > 0)
+          .map(([key, count]) => t(`worldImportCounts.${key}` as never, { ns: "toasts", count }) as string);
+        const summary = t("importedWorldSummary" as never, {
+          ns: "toasts",
+          name: world.name,
+          summary: counts.length > 0 ? counts.join(", ") : (t("worldImportCounts.empty" as never, { ns: "toasts" }) as string),
+        }) as string;
         // Replacing a live card needs a save to take effect — say so in the
         // same line, where the creator is already reading the result.
         setImportResult(
@@ -134,6 +146,7 @@ export function OverviewSection() {
 
   const handleCoverUpload = useCallback(
     async (file: File) => {
+      const target = coverTarget.current;
       setUploadingCover(true);
       setCoverError(null);
       try {
@@ -147,23 +160,26 @@ export function OverviewSection() {
           return;
         }
 
-        await uploadAssetWithPresignedUrl<{ thumbnailUrl: string }>({
+        const data = await uploadAssetWithPresignedUrl<{ thumbnailUrl: string; previousUpdatedAt?: string | null; updatedAt?: string }>({
           file,
           preferredType: "image",
           resizeImageMaxDimension: 2048, // card cover — don't store the full original
           prepareUrl: `${apiBase}/api/worlds/${id}/thumbnail`,
           registerUrl: `${apiBase}/api/worlds/${id}/thumbnail/confirm`,
-          registerBody: ({ key }) => ({ key }),
+          registerBody: ({ key }) => ({ key, target }),
         });
 
-        if (useEditorStore.getState().serverWorldId !== id) return;
-        await useEditorStore.getState().refreshWorldSchema(false, { source: "cover-upload" });
-        if (useEditorStore.getState().serverWorldId !== id) return;
-        const refreshedDraft = useEditorStore.getState().worldDraft;
+        adoptOwnWriteToken(id, data);
+        const draft = useEditorStore.getState().worldDraft;
+        setField(target === "landscape" ? "landscapeCover" : "avatar", data.thumbnailUrl);
+        setField(target === "landscape" ? "landscapeCoverCrop" : "coverCrop", undefined);
+        if (target === "portrait") setField("galleryCoverCrop", undefined);
         setCropDialog({
-          src: refreshedDraft.avatar ?? "",
-          coverCrop: normalizeCoverCrop(refreshedDraft.coverCrop),
-          galleryCoverCrop: normalizeCoverCrop(refreshedDraft.galleryCoverCrop),
+          src: target === "portrait" ? data.thumbnailUrl : draft.avatar,
+          landscapeSrc: target === "landscape" ? data.thumbnailUrl : draft.landscapeCover,
+          mode: target === "landscape" ? "gallery" : "cover",
+          coverCrop: target === "portrait" ? undefined : draft.coverCrop,
+          landscapeCoverCrop: target === "landscape" ? undefined : draft.landscapeCoverCrop,
         });
       } catch (error) {
         setCoverError(getAssetUploadErrorMessage(error));
@@ -176,6 +192,7 @@ export function OverviewSection() {
 
   const handleCoverFromAsset = useCallback(
     async (assetRef: string) => {
+      const target = coverTarget.current;
       const match = assetRef.match(/@asset:(.+)/);
       if (!match) return;
       const assetId = match[1]!;
@@ -198,7 +215,7 @@ export function OverviewSection() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             credentials: "include",
-            body: JSON.stringify({ assetId }),
+            body: JSON.stringify({ assetId, target }),
           },
           FROM_ASSET_TIMEOUT_MS,
         );
@@ -207,14 +224,18 @@ export function OverviewSection() {
           setCoverError((err as { error?: string }).error || t("overview.coverFromAssetFailed"));
           return;
         }
-        if (useEditorStore.getState().serverWorldId !== id) return;
-        await useEditorStore.getState().refreshWorldSchema(false, { source: "cover-upload" });
-        if (useEditorStore.getState().serverWorldId !== id) return;
-        const refreshedDraft = useEditorStore.getState().worldDraft;
+        const { data } = await res.json();
+        adoptOwnWriteToken(id, data);
+        const draft = useEditorStore.getState().worldDraft;
+        setField(target === "landscape" ? "landscapeCover" : "avatar", data.thumbnailUrl);
+        setField(target === "landscape" ? "landscapeCoverCrop" : "coverCrop", undefined);
+        if (target === "portrait") setField("galleryCoverCrop", undefined);
         setCropDialog({
-          src: refreshedDraft.avatar ?? "",
-          coverCrop: normalizeCoverCrop(refreshedDraft.coverCrop),
-          galleryCoverCrop: normalizeCoverCrop(refreshedDraft.galleryCoverCrop),
+          src: target === "portrait" ? data.thumbnailUrl : draft.avatar,
+          landscapeSrc: target === "landscape" ? data.thumbnailUrl : draft.landscapeCover,
+          mode: target === "landscape" ? "gallery" : "cover",
+          coverCrop: target === "portrait" ? undefined : draft.coverCrop,
+          landscapeCoverCrop: target === "landscape" ? undefined : draft.landscapeCoverCrop,
         });
       } catch {
         setCoverError(t("overview.coverFromAssetFailed"));
@@ -224,19 +245,27 @@ export function OverviewSection() {
   );
 
   const handleSaveCrop = useCallback(
-    async (value: { coverCrop: CoverCropSettings; galleryCoverCrop: CoverCropSettings }) => {
-      setField("coverCrop", value.coverCrop);
-      setField("galleryCoverCrop", getWorldGalleryDisplayCrop(value.galleryCoverCrop));
+    async (value: { coverCrop?: CoverCropSettings; landscapeCoverCrop?: CoverCropSettings }) => {
+      // Both crops are one "save crop" action → one undo step.
+      const store = useEditorStore.getState();
+      store.beginBatch();
+      try {
+        if (cropDialog?.landscapeSrc) setField("landscapeCover", cropDialog.landscapeSrc);
+        setField("coverCrop", value.coverCrop);
+        setField("landscapeCoverCrop", value.landscapeCoverCrop);
+      } finally {
+        store.commitBatch();
+      }
       setCropDialog(null);
       // The cover preview above re-renders with the new crop and the header
       // shows the save — nothing else to announce.
       await useEditorStore.getState().saveDraft();
     },
-    [setField]
+    [setField, cropDialog]
   );
 
-  const coverCrop = normalizeCoverCrop(worldDraft.coverCrop);
-  const galleryCoverCrop = getWorldGalleryDisplayCrop(worldDraft.galleryCoverCrop);
+  const coverCrop = worldDraft.coverCrop;
+  const landscapeCoverCrop = worldDraft.landscapeCoverCrop;
 
   const handleGalleryFromAsset = useCallback(
     async (assetRef: string) => {
@@ -256,7 +285,7 @@ export function OverviewSection() {
           return;
         }
 
-        if (galleryImages.length >= 8) {
+        if (useEditorStore.getState().galleryImages.length >= 8) {
           setGalleryError(t("overview.maxGalleryError"));
           return;
         }
@@ -277,12 +306,15 @@ export function OverviewSection() {
           return;
         }
         const { data } = await res.json();
-        setGalleryImages([...galleryImages, data.url]);
+        // Append to the LATEST list, not the one captured when this upload
+        // started — two uploads in flight used to each append to the same
+        // stale array and the second overwrote the first.
+        setGalleryImages([...useEditorStore.getState().galleryImages, data.url]);
       } catch {
         setGalleryError(t("overview.galleryAddFailed"));
       }
     },
-    [serverWorldId, saveDraft, galleryImages, setGalleryImages, t]
+    [serverWorldId, saveDraft, setGalleryImages, t]
   );
 
   // Load gallery images from server on mount (they're presigned URLs)
@@ -307,7 +339,7 @@ export function OverviewSection() {
           return;
         }
 
-        if (galleryImages.length >= 8) {
+        if (useEditorStore.getState().galleryImages.length >= 8) {
           setGalleryError(t("overview.maxGalleryError"));
           return;
         }
@@ -320,19 +352,26 @@ export function OverviewSection() {
           registerBody: ({ key }) => ({ key }),
         });
 
-        setGalleryImages([...galleryImages, data.url]);
+        // Latest list, not the closure's (see handleGalleryFromAsset). The
+        // server's own galleryImages holds raw storage keys while the store
+        // holds display URLs, so it can't be dropped in as-is.
+        setGalleryImages([...useEditorStore.getState().galleryImages, data.url]);
       } catch (error) {
         setGalleryError(getAssetUploadErrorMessage(error));
       } finally {
         setUploadingGallery(false);
       }
     },
-    [serverWorldId, saveDraft, galleryImages, setGalleryImages, t]
+    [serverWorldId, saveDraft, setGalleryImages, t]
   );
 
   const handleRemoveGalleryImage = useCallback(
     async (index: number) => {
       if (!serverWorldId) return;
+      // The server deletes by index, so remember WHICH image was clicked and
+      // remove that one from the latest list afterwards — filtering the
+      // closure's array by index could drop an image added meanwhile.
+      const removedUrl = useEditorStore.getState().galleryImages[index];
       setRemovingIndex(index);
       setGalleryError(null);
       try {
@@ -348,20 +387,21 @@ export function OverviewSection() {
           return;
         }
         // The tile leaves the grid — that is the confirmation.
-        const updated = galleryImages.filter((_, i) => i !== index);
-        setGalleryImages(updated);
+        const latest = useEditorStore.getState().galleryImages;
+        const at = removedUrl !== undefined ? latest.indexOf(removedUrl) : -1;
+        setGalleryImages(latest.filter((_, i) => i !== (at >= 0 ? at : index)));
       } catch {
         setGalleryError(t("overview.imageRemoveFailed"));
       } finally {
         setRemovingIndex(null);
       }
     },
-    [serverWorldId, galleryImages, setGalleryImages, t]
+    [serverWorldId, setGalleryImages, t]
   );
 
   return (
-    <div className="@container flex-1 overflow-y-auto p-6">
-      <div className="mx-auto max-w-3xl space-y-8">
+    <div className={embedded ? "@container" : "@container flex-1 overflow-y-auto p-6"}>
+      <div className={embedded ? "space-y-6" : "mx-auto max-w-3xl space-y-8"}>
         <div>
           <h2 className="text-lg font-semibold text-foreground">{t("overview.title")}</h2>
           <p className="mt-1 text-sm text-muted-foreground/50">
@@ -375,19 +415,19 @@ export function OverviewSection() {
               htmlFor="overview-world-title"
               className="text-sm font-semibold text-foreground"
             >
-              {t("overview.worldTitle", { defaultValue: "World title" })}
+              {t("overview.worldTitle")}
             </label>
             <span className="shrink-0 rounded-full border border-border/70 bg-background/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground/60">
-              {(worldDraft.name ?? "").length}/{MAX_WORLD_NAME}
+              {(isPlaceholderCardName(worldDraft.name) ? "" : worldDraft.name ?? "").length}/{MAX_WORLD_NAME}
             </span>
           </div>
           <div className="relative">
             <Type className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground/55" />
-            <input
+            <DebouncedInput
               id="overview-world-title"
               type="text"
-              value={worldDraft.name}
-              onChange={(e) => setField("name", e.target.value)}
+              value={isPlaceholderCardName(worldDraft.name) ? "" : worldDraft.name}
+              onCommit={(name) => setField("name", name)}
               placeholder={t("shell.namePlaceholder")}
               maxLength={MAX_WORLD_NAME}
               className="w-full rounded-xl border border-border bg-card py-4 pl-12 pr-4 text-xl font-semibold text-foreground outline-none transition-colors placeholder:text-muted-foreground/30 focus:ring-2 focus:ring-ring"
@@ -451,124 +491,58 @@ export function OverviewSection() {
         </div>
 
         {/* Cover Image */}
-        {discoverPreview ? <DiscoverCoverFields /> : <div className="rounded-lg border border-border bg-background p-5">
+        {discoverPreview ? <DiscoverCoverFields /> : <div data-learn="ov-cover" className="rounded-lg border border-border bg-background p-5">
           <div className="mb-4">
             <h3 className="text-sm font-semibold text-foreground">{t("overview.coverImage")}</h3>
             <p className="mt-0.5 text-xs text-muted-foreground/50">
               {t("overview.coverImageDesc")}
             </p>
           </div>
-          <div className="flex flex-col @[480px]:flex-row @[480px]:items-start gap-4 @[480px]:gap-6">
-            <div className="group relative h-40 w-40 shrink-0 overflow-hidden rounded-xl border border-border bg-card shadow-lg">
-              {worldDraft.avatar ? (
-                <>
-                  <div className="absolute inset-0 z-10 bg-black/40 transition-colors group-hover:bg-black/20" />
-                  <CroppedImage
-                    src={worldDraft.avatar}
-                    alt="Cover"
-                    crop={coverCrop}
-                    className="h-full w-full"
-                  />
-                </>
-              ) : (
-                <>
-                  <div className="absolute inset-0 z-10 bg-black/20 transition-colors group-hover:bg-black/10" />
-                  <div className="flex h-full w-full items-center justify-center bg-card">
-                    <ImageIcon className="h-10 w-10 text-muted-foreground/20" />
-                  </div>
-                </>
-              )}
-              <div className="touch-reveal absolute inset-0 z-20 flex items-center justify-center opacity-0 backdrop-blur-[2px] transition-opacity group-hover:opacity-100">
-                <button
-                  onClick={() => coverFileRef.current?.click()}
-                  disabled={uploadingCover}
-                  className="flex items-center gap-2 rounded-lg border border-border bg-black/60 px-3 py-2 text-xs font-medium text-foreground shadow-lg transition-all hover:border-primary/50 hover:bg-black/80 hover:text-primary disabled:opacity-50"
-                >
-                  {uploadingCover ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Camera className="h-4 w-4" />
-                  )}
-                  {uploadingCover ? t("overview.uploading") : t("overview.change")}
-                </button>
-              </div>
-              {uploadingCover && (
-                <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/50">
-                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          <div className="grid grid-cols-1 gap-6 @[480px]:grid-cols-[minmax(0,1fr)_minmax(0,1.65fr)]">
+            {(["portrait", "landscape"] as const).map((target) => {
+              const portrait = target === "portrait";
+              const source = portrait ? worldDraft.avatar : worldDraft.landscapeCover;
+              const openCrop = (landscapeSrc = worldDraft.landscapeCover) => setCropDialog({
+                src: worldDraft.avatar, landscapeSrc, mode: portrait ? "cover" : "gallery",
+                coverCrop, landscapeCoverCrop: landscapeSrc === worldDraft.landscapeCover ? landscapeCoverCrop : undefined,
+              });
+              return <section key={target} className="min-w-0" aria-label={t(portrait ? "extra.crop.phone" : "extra.crop.desktop")}>
+                <div className="mb-2 flex items-baseline justify-between gap-2">
+                  <h4 className="text-sm font-medium">{t(portrait ? "extra.crop.phone" : "extra.crop.desktop")}</h4>
+                  <span className="text-[11px] text-muted-foreground">{portrait ? "1000 × 1500" : "1600 × 900"}</span>
                 </div>
-              )}
-            </div>
-            <div className="flex flex-col gap-2 pt-2">
-              {worldDraft.avatar && (
-                <div className="mb-2 w-48 max-w-full rounded-lg border border-border bg-card p-2">
-                  <p className="mb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/50">
-                    Gallery preview
-                  </p>
-                  <CroppedImage
-                    src={worldDraft.avatar}
-                    alt="Gallery preview"
-                    crop={galleryCoverCrop}
-                    className="aspect-video w-full rounded-md border border-border"
-                  />
-                </div>
-              )}
-              <button
-                onClick={() => coverFileRef.current?.click()}
-                disabled={uploadingCover}
-                className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-40"
-              >
-                {/* The cover tile has its own spinner overlay; this button is the
-                    other way in, so it shows the upload in place too (R6/T0 —
-                    progress on the control, no pill). */}
-                {uploadingCover ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Camera className="h-3.5 w-3.5" />
-                )}
-                {uploadingCover
-                  ? t("overview.uploading")
-                  : worldDraft.avatar
-                    ? t("overview.changeCover")
-                    : t("overview.uploadCover")}
-              </button>
-              <button
-                onClick={async () => {
-                  setCoverError(null);
-                  if (!serverWorldId) {
-                    await saveDraft();
-                    if (!useEditorStore.getState().serverWorldId) {
-                      setCoverError(t("overview.saveWorldForAssets"));
-                      return;
-                    }
-                  }
-                  setShowCoverPicker(true);
-                }}
-                className="flex items-center gap-2 rounded-lg border border-dashed border-primary/30 bg-primary/5 px-3 py-1.5 text-sm font-medium text-primary/70 transition-colors hover:border-primary/50 hover:bg-primary/10 hover:text-primary"
-              >
-                <FolderOpen className="h-3.5 w-3.5" />
-                {t("overview.fromAssets")}
-              </button>
-              {worldDraft.avatar && (
-                <button
-                  onClick={() =>
-                    setCropDialog({
-                      src: worldDraft.avatar!,
-                      coverCrop,
-                      galleryCoverCrop,
-                    })
-                  }
-                  className="flex items-center gap-2 rounded-lg border border-border px-3 py-1.5 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-                >
-                  <ImageIcon className="h-3.5 w-3.5" />
-                  Adjust crop
+                <button type="button" disabled={uploadingCover} onClick={() => {
+                  coverTarget.current = target;
+                  if (source) openCrop(); else coverFileRef.current?.click();
+                }} aria-label={t(portrait ? "extra.crop.phone" : "extra.crop.desktop")} className={`relative w-full overflow-hidden rounded-lg border border-border bg-card outline-none focus-visible:ring-2 focus-visible:ring-ring ${portrait ? "max-w-52" : ""} ${source ? "block" : "flex aspect-video items-center justify-center"}`}>
+                  {source ? <WorldCoverPreview src={source} crop={portrait ? coverCrop : landscapeCoverCrop} shape={target}
+                    details={{ title: worldDraft.name, description: worldDraft.description, creatorName: creator?.name, creatorImage: creator?.image }} />
+                    : <span className="flex flex-col items-center gap-2 px-4 text-center text-xs text-muted-foreground"><ImageIcon className="h-7 w-7 opacity-40" />{t("overview.uploadCover")}</span>}
                 </button>
-              )}
-              <p className="text-xs text-muted-foreground/40">
-                {t("overview.imageFormats")}
-              </p>
-              <FieldError id="cover-error" message={coverError} />
-            </div>
+                <p className="mb-3 mt-2 text-xs leading-relaxed text-muted-foreground">{t(portrait ? "overview.portraitUse" : "overview.landscapeUse")}</p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" disabled={uploadingCover} onClick={() => { coverTarget.current = target; coverFileRef.current?.click(); }}
+                    className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border px-3 text-xs hover:bg-accent disabled:opacity-40">
+                    {uploadingCover && coverTarget.current === target ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                    {t(source ? "overview.changeCover" : "overview.uploadCover")}
+                  </button>
+                  <button type="button" disabled={uploadingCover} onClick={async () => {
+                    coverTarget.current = target;
+                    if (!serverWorldId) await saveDraft();
+                    if (useEditorStore.getState().serverWorldId) setShowCoverPicker(true);
+                    else setCoverError(t("overview.saveWorldForAssets"));
+                  }} className="inline-flex min-h-9 items-center gap-1.5 rounded-md border border-border px-3 text-xs hover:bg-accent">
+                    <FolderOpen className="h-3.5 w-3.5" />{t("overview.fromAssets")}
+                  </button>
+                  {source && <button type="button" onClick={() => openCrop()} className="min-h-9 px-1 text-xs text-primary hover:underline">{t("extra.adjustCoverCrop")}</button>}
+                </div>
+                {!portrait && worldDraft.avatar && !source && <button type="button" onClick={() => openCrop(worldDraft.avatar)}
+                  className="mt-3 min-h-9 text-left text-xs text-primary hover:underline">{t("overview.reusePortrait")}</button>}
+                {!portrait && !source && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{t("overview.landscapeNeeded")}</p>}
+              </section>;
+            })}
           </div>
+          <FieldError id="cover-error" message={coverError} />
           <input
             ref={coverFileRef}
             type="file"
@@ -583,7 +557,7 @@ export function OverviewSection() {
         </div>}
 
         {/* Gallery Images */}
-        <div className="rounded-lg border border-border bg-background p-5">
+        <div data-learn="ov-gallery" className="rounded-lg border border-border bg-background p-5">
           <div className="mb-4 flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold text-foreground">
@@ -696,9 +670,9 @@ export function OverviewSection() {
               {t("overview.descriptionDesc")}
             </p>
           </div>
-          <textarea
+          <DebouncedTextarea
             value={worldDraft.description}
-            onChange={(e) => setField("description", e.target.value)}
+            onCommit={(description) => setField("description", description)}
             placeholder={t("overview.descriptionPlaceholder")}
             rows={8}
             maxLength={MAX_WORLD_DESCRIPTION}
@@ -715,7 +689,7 @@ export function OverviewSection() {
         </div>
 
         {/* Language */}
-        <div className="rounded-lg border border-border bg-background p-5">
+        <div data-learn="ov-language" className="rounded-lg border border-border bg-background p-5">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
               <Globe className="h-4 w-4 text-primary" />
@@ -782,7 +756,7 @@ export function OverviewSection() {
             <VoiceField
               label={t("voiceField.narratorLabel")}
               hint={t("voiceField.narratorHint")}
-              title={t("voiceField.narrator")}
+              title={t("blueprint.voice.narrator")}
               value={worldDraft.settings?.narratorVoice}
               onChange={(narratorVoice: string | undefined) => {
                 const store = useEditorStore.getState();
@@ -790,8 +764,8 @@ export function OverviewSection() {
               }}
             />
             <div className="space-y-2">
-              <label className="text-sm font-bold text-foreground">{t("voiceField.inputTitle")}</label>
-              <div className="flex flex-wrap gap-2" role="group" aria-label={t("voiceField.inputTitle")}>
+              <label className="text-sm font-bold text-foreground">{t("blueprint.voice.inputTitle")}</label>
+              <div className="flex flex-wrap gap-2" role="group" aria-label={t("blueprint.voice.inputTitle")}>
                 {(["confirm", "auto"] as const).map((m) => {
                   const active = (worldDraft.settings?.voiceInputMode ?? "confirm") === m;
                   return (
@@ -805,12 +779,12 @@ export function OverviewSection() {
                       }}
                       className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${active ? "border-primary/50 bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
                     >
-                      {t(m === "auto" ? "voiceField.inputAuto" : "voiceField.inputConfirm")}
+                      {t(m === "auto" ? "blueprint.voice.inputAuto" : "blueprint.voice.inputConfirm")}
                     </button>
                   );
                 })}
               </div>
-              <p className="text-xs text-muted-foreground">{t("voiceField.inputHint")}</p>
+              <p className="text-xs text-muted-foreground">{t("blueprint.voice.inputHint")}</p>
             </div>
           </div>
         </div>
@@ -821,8 +795,11 @@ export function OverviewSection() {
       {cropDialog && (
         <CoverCropDialog
           src={cropDialog.src}
+          landscapeSrc={cropDialog.landscapeSrc}
+          details={{ title: worldDraft.name, description: worldDraft.description, creatorName: creator?.name, creatorImage: creator?.image }}
+          initialMode={cropDialog.mode}
           initialCoverCrop={cropDialog.coverCrop}
-          initialGalleryCrop={cropDialog.galleryCoverCrop}
+          initialLandscapeCrop={cropDialog.landscapeCoverCrop}
           onCancel={() => setCropDialog(null)}
           onSave={handleSaveCrop}
         />

@@ -209,7 +209,9 @@
     "export": "Export",
     "exported": "Bundle exported",
     "deleteBundle": "Delete Bundle",
-    "deleteConfirm": "Are you sure you want to delete <strong>{{name}}</strong>? This action cannot be undone."
+    "deleteConfirm": "Are you sure you want to permanently delete <strong>{{name}}</strong>?",
+    "importBundle": "Import Bundle",
+    "deleteConsequence": "The bundle and its editable contents will be permanently deleted."
   },
   "favorites": {
     "backToLibrary": "Back to Library",
@@ -327,7 +329,8 @@
       "viewInAssets": "View in assets",
       "shareInCommunity": "Share in community"
     },
-    "reviews": "Reviews"
+    "reviews": "Reviews",
+    "overviewSubtitle": "Key information, notes, and description in one place."
   },
   "bulk": {
     "select": "Select",
@@ -369,7 +372,11 @@
     "deleteAction": "Delete",
     "deletePermanently": "Delete Permanently",
     "deleteIrreversible": "This action cannot be undone.",
-    "authorDoesNotAllowEditing": "Author does not allow editing"
+    "authorDoesNotAllowEditing": "Author does not allow editing",
+    "deleteProjectConsequenceFiles": "The editable project and its local data will be permanently deleted.",
+    "deletePublishedConsequence": "Players who saved this published world will lose access.",
+    "removeGameConsequenceHistory": "Saved sessions and play history for this game will be deleted.",
+    "removeGameConsequenceHub": "The published game will remain available on Discover."
   },
   "card": {
     "play": "Play",
@@ -426,7 +433,7 @@
   },
   "create": {
     "title": "Create New",
-    "mobileTitle": "Create a New Story",
+    "mobileTitle": "Create Something New",
     "mobileInstructionTitle": "Choose how you want to create",
     "import": "Import",
     "back": "Back",
@@ -438,7 +445,8 @@
       "signInBody": "Sign in to generate images and music, save your work, and revisit your generation history.",
       "signInAction": "generate images and music",
       "signIn": "Sign in to create"
-    }
+    },
+    "mobileSubtitle": "Build a world, chat with a character, or bring an image to life."
   },
   "time": {
     "justNow": "Just now",
@@ -453,9 +461,9 @@
   },
   "templates": {
     "blank": "Blank Project",
-    "blankDesc": "An empty world — no presets.",
+    "blankDesc": "An empty world with only the default narration.",
     "importWorld": "Import World",
-    "importWorldDesc": "Import a world from a JSON file.",
+    "importWorldDesc": "A SillyTavern character card (PNG or JSON), or an exported Yumina card.",
     "characterChat": "Character Chat",
     "characterChatDesc": "Create a character for one-on-one chat.",
     "worldSimulation": "World Simulation",
@@ -884,7 +892,7 @@
       "sectionOutput": "Output",
       "tabVideo": "Video",
       "videoTitle": "AI video",
-      "videoLead": "Videos are saved to your asset library and can go into character portraits and openings."
+      "videoLead": "Videos are saved to your asset library and can go into portraits, openings and the player screen."
     },
     "music": {
       "workshopTitle": "Generate a BGM",
@@ -1027,13 +1035,17 @@
       },
       "placeFailed": {
         "noGreeting": "This card has no opening yet.",
-        "linkFailed": "Couldn't attach this video to the card. Try again."
+        "linkFailed": "Couldn't attach this video to the card. Try again.",
+        "noUi": "This card has no visual player screen yet — pick a template under Player screen first."
       },
       "style": "Art style",
       "styleCost": "For text-only videos · first frame +{{count}} mushies",
       "styleNone": "No style",
       "styleFromFrame": "You've added a first or last frame, so the video keeps that picture's style.",
-      "howStyle": "{{style}} style"
+      "howStyle": "{{style}} style",
+      "placeUi": "Player screen (new video frame)",
+      "styleHint": "The first frame is drawn in this style, then animated, so the whole clip keeps it.",
+      "styleNoneHint": "{{model}} draws straight from the text; it leans realistic."
     },
     "folderLoadFallback": "Couldn't load this card's folder; generating into All assets for now.",
     "quality": {

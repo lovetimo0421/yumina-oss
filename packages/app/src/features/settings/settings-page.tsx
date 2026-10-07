@@ -19,7 +19,6 @@ import {
   Bell,
   Info,
   Globe,
-  FlaskConical,
   Lock,
   LogOut,
   ArrowLeft,
@@ -191,8 +190,12 @@ interface ProfileSettings {
   voiceInputMode: "" | "confirm" | "auto";
   /** KeyboardEvent.code of the hold-to-talk key. */
   voiceInputKey: string;
-  /** Experimental: per-turn pictures (preferences.experimentalTurnImages). Off unless turned on. */
+  /** Story illustrations (preferences.experimentalTurnImages, old key name). On unless turned off. */
   experimentalTurnImages: boolean;
+  /** "Illustrate every reply". Honoured only next to an explicit experimentalTurnImages:true. */
+  autoTurnImages: boolean;
+  /** Scene video, the realtime film (experimental, paid). Off unless turned on. */
+  experimentalFilm: boolean;
   discoverWallpaper: WallpaperChoice;
   profileWallpaper: WallpaperChoice;
   settingsWallpaper: WallpaperChoice;
@@ -222,7 +225,9 @@ const DEFAULTS: ProfileSettings = {
   voiceInputEnabled: true,
   voiceInputMode: "",
   voiceInputKey: "Space",
-  experimentalTurnImages: false,
+  experimentalTurnImages: true,
+  autoTurnImages: false,
+  experimentalFilm: false,
   discoverWallpaper: "starry-night",
   profileWallpaper: "starry-night",
   settingsWallpaper: "starry-night",
@@ -328,7 +333,9 @@ function loadSettings(preferences?: Record<string, unknown>): ProfileSettings {
     base.worldAudioEnabled = preferences.worldAudioEnabled !== false;
     base.ttsEnabled = isTtsOptedIn(preferences);
     base.ttsAutoPlay = preferences.ttsAutoPlay === true;
-    base.experimentalTurnImages = preferences.experimentalTurnImages === true;
+    base.experimentalTurnImages = preferences.experimentalTurnImages !== false;
+    base.autoTurnImages = preferences.experimentalTurnImages === true && preferences.autoTurnImages === true;
+    base.experimentalFilm = preferences.experimentalFilm === true;
     base.ttsMode = preferences.ttsMode === "dialogue" ? "dialogue" : "full";
     base.ttsVoice =
       typeof preferences.ttsVoice === "string" && /^[a-f0-9]{32}$/.test(preferences.ttsVoice)
@@ -517,6 +524,8 @@ function createSettingsSearchItems(
     { id: "world-audio", sectionId: "display", targetId: "settings-target-world-audio", title: t("display.worldAudio.title"), description: t("display.worldAudio.description"), category: category.display },
     { id: "tts", sectionId: "display", targetId: "settings-target-tts", title: t("display.tts.title"), description: t("display.tts.offDescription"), category: category.display },
     { id: "voice-input", sectionId: "display", targetId: "settings-target-voice-input", title: t("display.voiceInput.title"), description: t("display.voiceInput.description"), category: category.display },
+    { id: "turn-images", sectionId: "display", targetId: "settings-target-turn-images", title: t("display.turnImages.title"), description: t("display.turnImages.description"), category: category.display },
+    { id: "scene-video", sectionId: "display", targetId: "settings-target-scene-video", title: t("display.sceneVideo.title"), description: t("display.sceneVideo.description"), category: category.display },
     { id: "language", sectionId: "display", targetId: "settings-target-language", title: t("display.language.title"), category: category.display, keywords: LANGUAGE_OPTIONS.flatMap((language) => [language.label, language.native]) },
 
     { id: "wallpaper", sectionId: "wallpaper", targetId: "settings-target-wallpaper", title: category.wallpaper, description: t("wallpaper.description"), category: category.wallpaper },
@@ -590,6 +599,8 @@ export function SettingsPage() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchResultRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const normalizedSearchQuery = searchQuery.trim();
+  const turnImagesOffered = useUserProfileStore((s) => s.profile?.turnImagesOffered === true);
+  const filmOffered = useUserProfileStore((s) => s.profile?.filmOffered === true);
   const searchItems = useMemo(() => {
     const localizedItems = mergeSettingsSearchAliases(
       createSettingsSearchItems(t, i18n.language),
@@ -602,8 +613,10 @@ export function SettingsPage() {
     return localizedItems.filter((item) =>
       visibleSectionIds.has(item.sectionId)
       && (!isTouchDevice || item.id !== "send-key")
+      && (turnImagesOffered || item.id !== "turn-images")
+      && (filmOffered || item.id !== "scene-video")
       && (!isSingleUser || !SINGLE_USER_HIDDEN_ACCOUNT_ITEMS.has(item.id)));
-  }, [isTouchDevice, t, i18n.language, visibleSections, isSingleUser]);
+  }, [isTouchDevice, t, i18n.language, visibleSections, isSingleUser, turnImagesOffered, filmOffered]);
   const searchResults = useMemo(
     () => searchSettingsItems(searchItems, normalizedSearchQuery),
     [normalizedSearchQuery, searchItems]
@@ -2216,7 +2229,7 @@ function BlacklistManager() {
 
       {open && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm animate-in fade-in duration-150"
+          className="fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 animate-in fade-in duration-150"
           onClick={() => setOpen(false)}
         >
           <div
@@ -2374,6 +2387,7 @@ function DisplaySection({
   const setComposerSendKey = useUiStore((s) => s.setComposerSendKey);
   const forceFetchProfile = useUserProfileStore((s) => s.forceFetchProfile);
   const turnImagesOffered = useUserProfileStore((s) => s.profile?.turnImagesOffered === true);
+  const filmOffered = useUserProfileStore((s) => s.profile?.filmOffered === true);
   const languageTitle = t("display.language.title", { defaultValue: "Language" });
   const languageCurrent = t("display.language.current", { defaultValue: "Current" });
 
@@ -2408,6 +2422,37 @@ function DisplaySection({
   return (
     <div className="max-w-2xl space-y-8">
       <SectionHeader id="settings-target-display" title={t("display.title")} />
+
+      <Card id="settings-target-language">
+        <div className="flex-1 space-y-4">
+          <DisplaySubsectionHeader icon={Globe} title={languageTitle} />
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {LANGUAGE_OPTIONS.map((lang) => {
+              const isActive = lang.code === i18n.language;
+              return (
+                <button
+                  key={lang.code}
+                  type="button"
+                  onClick={() => void handleLanguageChange(lang.code)}
+                  className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all ${
+                    isActive
+                      ? "border-gold/40 bg-gold/10"
+                      : "border-white/8 bg-white/[0.02] hover:border-white/15"
+                  }`}
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-main">{lang.native}</div>
+                    <div className="mt-0.5 text-xs text-sub">{lang.label}</div>
+                  </div>
+                  <span className={`text-xs font-semibold ${isActive ? "text-gold" : "text-sub/50"}`}>
+                    {isActive ? languageCurrent : ""}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </Card>
 
       <Card id="settings-target-font-size">
         <div className="flex-1 space-y-4">
@@ -2472,60 +2517,96 @@ function DisplaySection({
 
       <VoiceInputSettingsCard settings={settings} updateSetting={updateSetting} />
 
-      <Card id="settings-target-language">
-        <div className="flex-1 space-y-4">
-          <DisplaySubsectionHeader icon={Globe} title={languageTitle} />
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {LANGUAGE_OPTIONS.map((lang) => {
-              const isActive = lang.code === i18n.language;
-              return (
-                <button
-                  key={lang.code}
-                  type="button"
-                  onClick={() => void handleLanguageChange(lang.code)}
-                  className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all ${
-                    isActive
-                      ? "border-gold/40 bg-gold/10"
-                      : "border-white/8 bg-white/[0.02] hover:border-white/15"
-                  }`}
-                >
-                  <div>
-                    <div className="text-sm font-semibold text-main">{lang.native}</div>
-                    <div className="mt-0.5 text-xs text-sub">{lang.label}</div>
-                  </div>
-                  <span className={`text-xs font-semibold ${isActive ? "text-gold" : "text-sub/50"}`}>
-                    {isActive ? languageCurrent : ""}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </Card>
+      {turnImagesOffered && <TurnImagesSettingsCard settings={settings} updateSetting={updateSetting} />}
 
-      {turnImagesOffered && (
-        <Card id="settings-target-experimental">
-          <div className="flex-1 space-y-4">
-            <DisplaySubsectionHeader icon={FlaskConical} title={t("display.experimental.title")} />
+      {filmOffered && (
+        <ToggleRow
+          id="settings-target-scene-video"
+          title={t("display.sceneVideo.title")}
+          description={t("display.sceneVideo.description")}
+          checked={settings.experimentalFilm}
+          onChange={(value) => updateSetting("experimentalFilm", value)}
+        />
+      )}
+
+    </div>
+  );
+}
+
+/** Story illustrations: the on/off switch, "illustrate every reply", and
+ *  what the next picture costs. */
+function TurnImagesSettingsCard({
+  settings,
+  updateSetting,
+}: {
+  settings: ProfileSettings;
+  updateSetting: <K extends keyof ProfileSettings>(key: K, value: ProfileSettings[K]) => void | Promise<void>;
+}) {
+  const { t } = useTranslation("settings");
+  const on = settings.experimentalTurnImages;
+  const [cost, setCost] = useState<{ freeLeft: number; price: number; unlimited: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!on) return;
+    let live = true;
+    fetch(`${apiBase}/api/messages/turn-images/settings`, { credentials: "include" })
+      .then(async (r) => (r.ok ? ((await r.json()) as { data: { freeLeft?: number; price?: number; unlimited?: boolean } }).data : null))
+      .then((d) => {
+        if (live && d && typeof d.price === "number") {
+          setCost({ freeLeft: d.freeLeft ?? 0, price: d.price, unlimited: d.unlimited === true });
+        }
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [on]);
+
+  const forgetChatCopy = () =>
+    void import("@/features/chat/turn-image-drawing").then((m) => m.forgetTurnImageSettings());
+
+  return (
+    <Card id="settings-target-turn-images">
+      <div className="flex-1 space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <DisplaySubsectionHeader icon={ImageIcon} title={t("display.turnImages.title")} className="min-w-0 flex-1" />
+          <ToggleSwitch
+            checked={on}
+            label={t("display.turnImages.title")}
+            onChange={(v) => {
+              void updateSetting("experimentalTurnImages", v);
+              forgetChatCopy();
+            }}
+          />
+        </div>
+        <p className="text-xs text-sub">{t("display.turnImages.description")}</p>
+
+        {on && (
+          <>
             <div className="flex items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.02] px-4 py-3">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-main">{t("display.experimental.turnImages.title")}</div>
-                <div className="mt-0.5 text-xs text-sub">{t("display.experimental.turnImages.description")}</div>
-              </div>
+              <div className="min-w-0 text-sm font-semibold text-main">{t("display.turnImages.auto")}</div>
               <ToggleSwitch
-                checked={settings.experimentalTurnImages}
-                label={t("display.experimental.turnImages.title")}
-                onChange={(v) => {
-                  void updateSetting("experimentalTurnImages", v);
-                  // The chat reads this once per visit; make the next turn read it fresh.
-                  void import("@/features/chat/turn-image-drawing").then((m) => m.forgetTurnImageSettings());
+                checked={settings.autoTurnImages}
+                label={t("display.turnImages.auto")}
+                onChange={async (v) => {
+                  // The server honours auto only next to an explicit opt-in.
+                  if (v) await updateSetting("experimentalTurnImages", true);
+                  await updateSetting("autoTurnImages", v);
+                  forgetChatCopy();
                 }}
               />
             </div>
-          </div>
-        </Card>
-      )}
-    </div>
+            {cost && (
+              <p className="text-[11px] text-sub/50">
+                {cost.unlimited
+                  ? t("display.turnImages.unlimited")
+                  : cost.freeLeft > 0
+                    ? t("display.turnImages.free", { count: cost.freeLeft, price: cost.price })
+                    : t("display.turnImages.price", { price: cost.price })}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </Card>
   );
 }
 

@@ -43,6 +43,50 @@ export const gameGuestLinks = pgTable("game_guest_links", {
   linkedAt: timestamp("linked_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("game_guest_links_user_idx").on(t.userId)]);
 
+// Durable native public time; subjects include signed guest IDs, so no account FK.
+export const nativeGamePlaytime = pgTable("native_game_playtime", {
+  id: text("id").primaryKey(),
+  gameId: text("game_id").notNull(),
+  subject: text("subject").notNull(),
+  activeMs: bigint("active_ms", { mode: "bigint" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("native_game_playtime_game_subject").on(t.gameId, t.subject),
+  check("native_game_playtime_active_ms_check", sql`${t.activeMs} >= 0`)]);
+
+// Immutable per-subject evidence for legacy/native counter reconciliation.
+export const nativeGamePlaytimeHistory = pgTable("native_game_playtime_history", {
+  gameId: text("game_id").notNull(),
+  subject: text("subject").notNull(),
+  legacyMs: bigint("legacy_ms", { mode: "bigint" }).notNull(),
+  nativeMs: bigint("native_ms", { mode: "bigint" }).notNull(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.gameId,t.subject] }),
+  check("native_game_playtime_history_legacy_ms_check", sql`${t.legacyMs} >= 0`),
+  check("native_game_playtime_history_native_ms_check", sql`${t.nativeMs} >= 0`)]);
+
+export const nativeGamePlaytimeCutovers = pgTable("native_game_playtime_cutovers", {
+  id: text("id").primaryKey(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const gameSoloPlaytimeSessions = pgTable("game_solo_playtime_sessions", {
+  id: uuid("id").primaryKey(),
+  gameId: text("game_id").notNull(),
+  subject: text("subject").notNull(),
+  sequence: bigint("sequence", { mode: "bigint" }).notNull(),
+  clientActiveMs: bigint("client_active_ms", { mode: "bigint" }).notNull(),
+  activeMs: bigint("active_ms", { mode: "bigint" }).notNull().default(sql`0`),
+  active: boolean("active").notNull().default(false),
+  stopped: boolean("stopped").notNull().default(false),
+  lastServerMs: bigint("last_server_ms", { mode: "bigint" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("game_solo_playtime_live_subject_idx").on(t.subject,t.gameId,t.lastServerMs).where(sql`${t.active}`),
+  check("game_solo_playtime_sessions_game_id_check", sql`${t.gameId} = 'pvz'`),
+  check("game_solo_playtime_sessions_sequence_check", sql`${t.sequence} > 0`),
+  check("game_solo_playtime_sessions_client_active_ms_check", sql`${t.clientActiveMs} >= 0`),
+  check("game_solo_playtime_sessions_active_ms_check", sql`${t.activeMs} >= 0`),
+  check("game_solo_playtime_sessions_check", sql`NOT (${t.stopped} AND ${t.active})`)]);
+
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
@@ -65,6 +109,8 @@ export const user = pgTable("user", {
   role: text("role").notNull().default("user"),
   isBanned: boolean("is_banned").notNull().default(false),
   isSuspended: boolean("is_suspended").notNull().default(false),
+  isMuted: boolean("is_muted").notNull().default(false),
+  mutedUntil: timestamp("muted_until"),
   // Trusted creator: an admin can flip this so this user's card first-publishes
   // and edits auto-approve instead of entering the human review queue. Bundles
   // and content-safety/structural gates are NOT bypassed; ban always wins.
@@ -193,6 +239,87 @@ export const jwks = pgTable("jwks", {
   expiresAt: timestamp("expires_at"),
 });
 
+// Better Auth `@better-auth/oauth-provider`: Yumina as an OAuth 2.1
+// authorization server, so an outside AI (Claude, ChatGPT, Codex, Cursor)
+// connects to the card MCP by signing in instead of pasting a card token.
+// Field names are the plugin's; DDL in scripts/2026-10-06-oauth-provider.sql.
+export const oauthClient = pgTable("oauth_client", {
+  id: text("id").primaryKey(),
+  clientId: text("client_id").notNull().unique(),
+  clientSecret: text("client_secret"),
+  disabled: boolean("disabled").default(false),
+  skipConsent: boolean("skip_consent"),
+  enableEndSession: boolean("enable_end_session"),
+  subjectType: text("subject_type"),
+  scopes: text("scopes").array(),
+  userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
+  name: text("name"),
+  uri: text("uri"),
+  icon: text("icon"),
+  contacts: text("contacts").array(),
+  tos: text("tos"),
+  policy: text("policy"),
+  softwareId: text("software_id"),
+  softwareVersion: text("software_version"),
+  softwareStatement: text("software_statement"),
+  redirectUris: text("redirect_uris").array().notNull(),
+  postLogoutRedirectUris: text("post_logout_redirect_uris").array(),
+  tokenEndpointAuthMethod: text("token_endpoint_auth_method"),
+  grantTypes: text("grant_types").array(),
+  responseTypes: text("response_types").array(),
+  public: boolean("public"),
+  type: text("type"),
+  requirePKCE: boolean("require_pkce"),
+  referenceId: text("reference_id"),
+  metadata: jsonb("metadata"),
+});
+
+export const oauthRefreshToken = pgTable("oauth_refresh_token", {
+  id: text("id").primaryKey(),
+  token: text("token").notNull(),
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  sessionId: text("session_id").references(() => session.id, { onDelete: "set null" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  referenceId: text("reference_id"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at"),
+  revoked: timestamp("revoked"),
+  authTime: timestamp("auth_time"),
+  scopes: text("scopes").array().notNull(),
+}, (t) => [
+  index("oauth_refresh_token_token_idx").on(t.token),
+  index("oauth_refresh_token_user_idx").on(t.userId),
+]);
+
+export const oauthAccessToken = pgTable("oauth_access_token", {
+  id: text("id").primaryKey(),
+  token: text("token").unique(),
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  sessionId: text("session_id").references(() => session.id, { onDelete: "set null" }),
+  userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+  referenceId: text("reference_id"),
+  refreshId: text("refresh_id").references(() => oauthRefreshToken.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at"),
+  scopes: text("scopes").array().notNull(),
+}, (t) => [
+  index("oauth_access_token_user_idx").on(t.userId),
+]);
+
+export const oauthConsent = pgTable("oauth_consent", {
+  id: text("id").primaryKey(),
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+  referenceId: text("reference_id"),
+  scopes: text("scopes").array().notNull(),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
+}, (t) => [
+  index("oauth_consent_user_client_idx").on(t.userId, t.clientId),
+]);
+
 // Privacy-preserving anti-abuse record. The identity is an HMAC of normalized
 // email (never raw PII), retained after account deletion to preserve bans,
 // invite-code redemption history, the three-day repeat-deletion cooling-off
@@ -264,6 +391,10 @@ export const worlds = pgTable("worlds", {
   // hub page (mirrors allowReviews — author opt-out for a per-card UGC type).
   allowSessionSharing: boolean("allow_session_sharing").notNull().default(true),
   allowCommunityCitations: boolean("allow_community_citations").notNull().default(true),
+  // Hard per-card gate for the globally installed Lore Shift extension.
+  // Independent from allowEdit (forking/download) in both directions.
+  allowLiveCanon: boolean("allow_live_canon").notNull().default(false),
+  allowLiveCanonAdditions: boolean("allow_live_canon_additions").notNull().default(false),
   // Creator-controlled cover-thumbnail blur, decoupled from age rating.
   // Nullable on purpose: null = "follow age rating" (legacy/auto — sensitive
   // covers blur, all-ages don't); true/false = explicit creator choice.
@@ -385,6 +516,13 @@ export const playSessions = pgTable("play_sessions", {
   state: jsonb("state").notNull().$type<Record<string, unknown>>().default({}),
   stateGuardEnabled: boolean("state_guard_enabled").notNull().default(true),
   stateGuardModel: text("state_guard_model"),
+  /**
+   * Run-scope ledger (副本记忆): open-run markers and closed-run records for
+   * runScoped worldbooks — see lib/run-scopes.ts. Its OWN column, not a key
+   * inside `state`: the async run summarizer must be able to land its result
+   * without racing a turn's whole-state save.
+   */
+  runMemories: jsonb("run_memories").$type<Record<string, unknown>>(),
   /** Structured summary of compacted (older) messages */
   summary: text("summary"),
   summaryUpdatedAt: timestamp("summary_updated_at"),
@@ -480,6 +618,28 @@ export const playSessions = pgTable("play_sessions", {
   index("play_sessions_ephemeral_cleanup_idx").on(t.ephemeral, t.updatedAt),
 ]);
 
+/**
+ * Session-only lore overlay. Author source schemas are never written through
+ * this table; deleting a play session removes every row automatically.
+ */
+export const sessionLoreEntries = pgTable("session_lore_entries", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sessionId: text("session_id").notNull().references(() => playSessions.id, { onDelete: "cascade" }),
+  kind: text("kind", { enum: ["created", "override"] }).notNull(),
+  baseEntryId: text("base_entry_id"),
+  name: text("name"),
+  content: text("content").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  alwaysSend: boolean("always_send").notNull().default(true),
+  keywords: jsonb("keywords").$type<string[]>().notNull().default([]),
+  matchWholeWords: boolean("match_whole_words").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  unique().on(t.sessionId, t.kind, t.baseEntryId),
+  index("session_lore_entries_session_idx").on(t.sessionId),
+]);
+
 export const userLibrary = pgTable(
   "user_library",
   {
@@ -500,6 +660,20 @@ export const userLibrary = pgTable(
     unique().on(t.userId, t.worldId),
     index("user_library_user_id_idx").on(t.userId),
   ]
+);
+
+/** Values a player keeps across playthroughs of one card (variables marked
+ *  persist: "player" — clears, unlocked endings, collected CGs). One row per
+ *  player and card. DDL: scripts/player-world-state.sql. */
+export const playerWorldState = pgTable(
+  "player_world_state",
+  {
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+    values: jsonb("values").$type<Record<string, unknown>>().notNull().default({}),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.worldId] })],
 );
 
 export const messages = pgTable("messages", {
@@ -530,6 +704,9 @@ export const messages = pgTable("messages", {
         stateSnapshot?: Record<string, unknown>;
         /** State before this reply, for replacement rather than cumulative regeneration. */
         generationState?: Record<string, unknown>;
+        /** The AI of a group chat that said this (a worldbook id), when it was
+         *  not the turn's first voice. lib/group-reply.ts. */
+        voice?: string;
         createdAt: string;
         model?: string;
         modelFallback?: import("@yumina/shared").ModelFallbackRecord;
@@ -1525,6 +1702,32 @@ export const apiKeys = pgTable("api_keys", {
   index("api_keys_user_id_idx").on(t.userId),
 ]);
 
+// ─── World Access Tokens ────────────────────────────────────────────
+// A key a creator hands to an outside AI (Claude Code, Codex, Cursor) so it
+// can read, edit and playtest ONE card through /api/agent/v1 — the same tools
+// the Studio assistant uses. Only a hash is kept; the token is shown once.
+
+export const worldAccessTokens = pgTable("world_access_tokens", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  worldId: text("world_id")
+    .notNull()
+    .references(() => worlds.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  tokenPrefix: text("token_prefix").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
+  revokedAt: timestamp("revoked_at"),
+}, (t) => [
+  index("world_access_tokens_world_idx").on(t.worldId),
+  index("world_access_tokens_user_idx").on(t.userId),
+]);
+
 // ─── Studio Conversations ───────────────────────────────────────────
 
 export const studioConversations = pgTable("studio_conversations", {
@@ -1753,14 +1956,20 @@ export const worldVersions = pgTable("world_versions", {
   name: text("name").notNull(),
   note: text("note"),
   schema: jsonb("schema").notNull().$type<Record<string, unknown>>(),
+  metadata: jsonb("metadata").$type<import("../lib/world-version-content.js").VersionMetadata>(),
+  // Untyped on purpose: recovery versions (testing) write "save" / "restore" /
+  // "restore_backup", publish versions (main) write "manual" / "publish" /
+  // "live" / "backup". Both readers narrow at their own boundary.
+  source: text("source").notNull().default("manual"),
+  contentHash: text("content_hash"),
   publishedAt: timestamp("published_at"),
-  source: text("source").notNull().default("manual").$type<"manual" | "publish" | "live" | "backup" | "incoming">(),
   thumbnailUrl: text("thumbnail_url"),
   // Null identifies legacy schema-only snapshots; restore keeps the current cover/rating.
   ageRating: text("age_rating"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("world_versions_world_id_idx").on(t.worldId),
+  index("world_versions_world_hash_idx").on(t.worldId, t.contentHash),
   index("world_versions_world_created_idx").on(t.worldId, t.createdAt),
 ]);
 
@@ -3110,6 +3319,7 @@ export const planEntitlements = pgTable(
     source: text("source").notNull().default("event"),
     sourceId: text("source_id").notNull(),
     idempotencyKey: text("idempotency_key").notNull().unique(),
+    giftCredits: integer("gift_credits"), // purchased allowance snapshot; null for non-gift grants
     durationDays: integer("duration_days").notNull(),
     remainingDurationSeconds: integer("remaining_duration_seconds").notNull(),
     status: text("status").notNull().default("queued"),
@@ -3133,7 +3343,7 @@ export const planEntitlements = pgTable(
     // Relaxed 2026-07-19 (scripts/relax-plan-entitlement-sources.sql): admin +
     // referral time-limited grants live on this overlay too, so wallet.plan
     // stays strictly the PAID tier and grants can never fight billing state.
-    check("plan_entitlements_source_check", sql`${t.source} IN ('event','admin','referral')`),
+    check("plan_entitlements_source_check", sql`${t.source} IN ('event','admin','referral','gift')`),
     check("plan_entitlements_status_check", sql`${t.status} IN ('queued','active','consumed','cancelled')`),
   ]
 );
@@ -3580,6 +3790,7 @@ export const worldPendingEdits = pgTable(
     groupKey: text("group_key").notNull(),
     // Full proposed WorldDefinition (the creator's working copy of the schema).
     schema: jsonb("schema").$type<Record<string, unknown>>().notNull(),
+    metadata: jsonb("metadata").$type<import("../lib/world-version-content.js").VersionMetadata>(),
     // Version switches keep the working draft separate even for non-material edits.
     preserveDraft: boolean("preserve_draft").notNull().default(false),
     // Proposed cover + rating. Null means "unchanged from the live value".

@@ -53,13 +53,17 @@
   },
   "search": {
     "hub": "搜索世界、角色、故事...",
-    "library": "搜索库..."
+    "library": "搜索库...",
+    "bundles": "搜索资源包、作者或功能..."
   },
   "aria": {
     "showSidebar": "显示侧边栏",
     "hideSidebar": "隐藏侧边栏",
     "closeNav": "关闭导航菜单",
-    "openNav": "打开导航菜单"
+    "openNav": "打开导航菜单",
+    "pagination": "分页",
+    "prevPage": "上一页",
+    "nextPage": "下一页"
   },
   "auth": {
     "signInToContinue": "登录以继续",
@@ -83,7 +87,10 @@
       "sendMessages": "发送私信",
       "viewSensitiveContent": "查看无限制内容",
       "writeReviews": "撰写评论"
-    }
+    },
+    "signUpToContinue": "注册即可继续",
+    "signUpFree": "免费注册",
+    "haveAccountSignIn": "已有账号，登录"
   },
   "hint": {
     "sidebarCollapse": "将鼠标悬停在左侧边缘以显示菜单"
@@ -225,7 +232,7 @@
     "tipRefunded": "一笔 {{amount}} 的打赏已退款",
     "wechatRenewalReminder": "你的方案即将到期——点击续费",
     "reviewSubmitted": "你的作品「{{worldName}}」已提交审核。我们会在 24 小时内通知你。",
-    "reviewApproved": "你的作品「{{worldName}}」已通过审核，已在 Discover 上线。",
+    "reviewApproved": "你的作品「{{worldName}}」已通过审核，已在发现页上线。",
     "reviewRejected": "你的作品「{{worldName}}」需要修改（{{reason}}）。",
     "reviewRejectedWithDetail": "你的作品「{{worldName}}」需要修改（{{reason}}）：{{detail}}",
     "reviewPendingAdmin": "{{author}} 提交了「{{worldName}}」等待审核",
@@ -296,7 +303,8 @@
     },
     "giftBonusExpires": "{{amount}} 奖励蘑菇于 {{date}} 到期",
     "promptPackApproved": "你的提示词「{{packTitle}}」审核通过，已出现在提示词广场",
-    "promptPackRejected": "你的提示词「{{packTitle}}」没通过审核，原因见 库 › 提示词"
+    "promptPackRejected": "你的提示词「{{packTitle}}」没通过审核，原因见 库 › 提示词",
+    "planGiftReceived": "你收到了一份 {{days}} 天的 {{plan}} 会员礼物。"
   },
   "time": {
     "justNow": "刚刚",
@@ -478,7 +486,7 @@
   "languageLabel": "语言",
   "creatorHub": "创作者中心",
   "openingStandalone": "正在打开独立创作者站点...",
-  "loadingStudio": "正在加载 Studio...",
+  "loadingStudio": "正在打开编辑器…",
   "friends": {
     "title": "好友",
     "subtitle": "互相关注即成为好友",
@@ -518,5 +526,28 @@
       "popupFailed": "登录未完成。请关闭此窗口再试一次。",
       "backToGame": "返回 Krew.io"
     }
-  }
+  },
+  "planAlert": {
+    "cancelsOn": "你的订阅将于 {{date}} 取消，在此之前仍可使用当前权益。",
+    "downgradesOn": "你的套餐将于 {{date}} 降级。",
+    "giftExpiresOn": "你的赠送套餐将于 {{date}} 到期。",
+    "dismiss": "关闭"
+  },
+  "studioNotYours": "这个世界不是你的，只能打开自己创建的卡。",
+  "studioLoadFailed": "这个世界没能加载出来。检查一下网络再试试。",
+  "backToMyWorlds": "我的世界",
+  "userMute": {
+    "until": "禁言至 {{date}}",
+    "permanent": "永久禁言",
+    "help": "禁言期间无法发帖、评论、发布动态或发送私信，仍可浏览和游玩故事。"
+  },
+  "communityMutedPermanent": "你已被永久禁言，无法在社区和评论区发言。",
+  "notFound": {
+    "title": "找不到这个页面",
+    "description": "链接可能写错了，或者页面已经搬走了。",
+    "back": "返回",
+    "home": "回到发现",
+    "library": "回到库"
+  },
+  "macroYou": "你"
 }

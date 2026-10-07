@@ -1,4 +1,7 @@
+import { WORLD_VERSION_SCHEMA_SQL } from "./world-version-schema.js";
 import fs from "node:fs";
+import { USER_MUTE_COLUMNS_SQL } from "./user-mute-schema.js";
+import { planAdditiveSql, type CatalogQuery } from "./schema-probe.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { drizzle as drizzlePg } from "drizzle-orm/node-postgres";
@@ -12,12 +15,14 @@ import * as schema from "./schema.js";
 import { USER_MUTES_STATEMENTS } from "./user-mutes-ddl.js";
 import { WORLD_AUDIENCE_DDL } from "./world-audience-ddl.js";
 import { CREATIVE_UPLOAD_STATEMENTS } from "./creative-upload-ddl.js";
+import { NATIVE_PLAYTIME_HISTORY_DDLS, NATIVE_PLAYTIME_HISTORY_SNAPSHOT } from "./native-game-playtime-history-ddl.js";
 import {
   PLAN_ENTITLEMENT_SOURCE_CHECK,
   PLAN_ENTITLEMENT_SOURCE_CONSTRAINT_DDL,
 } from "./plan-entitlement-source-constraint.js";
 import { ACHIEVEMENT_GROUPS, ACHIEVEMENTS } from "../lib/achievements/definitions.js";
 import { env } from "../lib/env.js";
+import { NARRATIVE_PLAY_ENDPOINTS_SQL } from "../lib/analytics-play-endpoints.js";
 import { redis } from "../lib/redis.js";
 import { posthog, captureServerError } from "../lib/posthog.js";
 import { armConnectionErrorHandling, armReadOnlyEviction, makeReadOnlyVerify } from "./pool-guards.js";
@@ -261,12 +266,59 @@ export async function executeSqlScript(text: string): Promise<void> {
   await db.execute(sql.raw(text));
 }
 
+/**
+ * Probe-first additive self-heal. Reads information_schema / pg_indexes (no
+ * table locks) and sends only the statements whose table / column / index is
+ * missing, so a boot against an up-to-date database runs no DDL at all. A
+ * no-op `ADD COLUMN IF NOT EXISTS` still takes ACCESS EXCLUSIVE, and on
+ * worlds / play_sessions / messages that queued behind Discover reads and
+ * stalled every request behind it on each replica boot.
+ *
+ * Accepts only statements schema-probe.ts can prove present (CREATE TABLE /
+ * CREATE INDEX / ALTER TABLE ... ADD COLUMN, all IF NOT EXISTS) plus UPDATE
+ * backfills, which run only when DDL in the same call runs. Anything else
+ * would make the whole call run every boot, so it is rejected loudly.
+ * In production the pre-deploy step is the apply path; reaching the DDL
+ * branch there means it was skipped, so it is logged as such.
+ */
+export async function healAdditiveSchema(label: string, statements: string[]): Promise<string[]> {
+  const query: CatalogQuery = async (text) => {
+    const result = await db.execute(sql.raw(text));
+    return { rows: result.rows as Record<string, unknown>[] };
+  };
+  const plan = await planAdditiveSql(query, [{ name: label, sql: statements.join(";\n") }]);
+  if (plan.unprobed.length) {
+    throw new Error(`[DB] ${label}: healAdditiveSchema only takes probe-able additive DDL`);
+  }
+  if (!plan.run.length) return [];
+  console.warn(`[DB] ${label}: self-heal applying ${plan.run.length} statement(s); missing ${plan.missing.join(", ")}` +
+    (process.env.NODE_ENV === "production" ? " (the pre-deploy step should have provisioned these)" : ""));
+  for (const statement of plan.run) await db.execute(sql.raw(statement.text));
+  return plan.missing;
+}
+
 export async function ensureSessionPersonaColumn() {
-  await db.execute(sql`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_persona JSONB`);
-  await db.execute(sql`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS persona_locked BOOLEAN NOT NULL DEFAULT false`);
+  await healAdditiveSchema("session persona", [
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_persona JSONB`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS persona_locked BOOLEAN NOT NULL DEFAULT false`,
+  ]);
 }
 
 const TABLE_DDLS = [
+  ...NATIVE_PLAYTIME_HISTORY_DDLS,
+  // Native playtime schema is prepared explicitly on PostgreSQL before deploy;
+  // these definitions keep fresh PGlite development databases compatible.
+  `CREATE TABLE IF NOT EXISTS native_game_playtime (
+    id TEXT PRIMARY KEY, game_id TEXT NOT NULL, subject TEXT NOT NULL,
+    active_ms BIGINT NOT NULL CHECK(active_ms >= 0), updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  )`,
+  `CREATE TABLE IF NOT EXISTS game_solo_playtime_sessions (
+    id UUID PRIMARY KEY, game_id TEXT NOT NULL CHECK(game_id='pvz'), subject TEXT NOT NULL,
+    sequence BIGINT NOT NULL CHECK(sequence>0), client_active_ms BIGINT NOT NULL CHECK(client_active_ms>=0),
+    active_ms BIGINT NOT NULL DEFAULT 0 CHECK(active_ms>=0), active BOOLEAN NOT NULL DEFAULT false,
+    stopped BOOLEAN NOT NULL DEFAULT false, last_server_ms BIGINT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(), CHECK(NOT(stopped AND active))
+  )`,
   `CREATE TABLE IF NOT EXISTS featured_collections (
   channel TEXT NOT NULL CHECK (channel IN ('all','games','literature','roleplays','anime','screen')),
   language TEXT NOT NULL CHECK (language IN ('default','en','zh','es','ja')),
@@ -282,6 +334,10 @@ const TABLE_DDLS = [
     bio TEXT, location TEXT, website TEXT, username TEXT UNIQUE,
     birth_year INTEGER, featured_world_id TEXT, preferences JSONB DEFAULT '{}',
     created_at TIMESTAMP NOT NULL DEFAULT NOW(), updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+  )`,
+  `CREATE TABLE IF NOT EXISTS game_guest_links (
+    guest_id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+    linked_at TIMESTAMPTZ NOT NULL DEFAULT now()
   )`,
   ...USER_MUTES_STATEMENTS,
   ...CREATIVE_UPLOAD_STATEMENTS,
@@ -348,6 +404,8 @@ const TABLE_DDLS = [
     is_nsfw BOOLEAN DEFAULT false, allow_edit BOOLEAN DEFAULT true,
     allow_custom_api BOOLEAN NOT NULL DEFAULT true,
     allow_reviews BOOLEAN NOT NULL DEFAULT true,
+    allow_live_canon BOOLEAN NOT NULL DEFAULT false,
+    allow_live_canon_additions BOOLEAN NOT NULL DEFAULT false,
     age_rating TEXT NOT NULL DEFAULT 'all', visibility TEXT NOT NULL DEFAULT 'public',
     download_count INTEGER NOT NULL DEFAULT 0,
     tags JSONB NOT NULL DEFAULT '[]', gallery_images JSONB DEFAULT '[]',
@@ -388,6 +446,7 @@ const TABLE_DDLS = [
     session_memory_status TEXT NOT NULL DEFAULT 'idle',
     session_memory_error TEXT,
     session_memory_source_hash TEXT,
+    session_memory_claimed_at TIMESTAMP,
     session_memory_processed_message_id TEXT,
     session_memory_retry_count INTEGER NOT NULL DEFAULT 0,
     session_memory_stale_at TIMESTAMP,
@@ -405,6 +464,21 @@ const TABLE_DDLS = [
     last_played_at TIMESTAMP, last_seen_update_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(user_id, world_id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS session_lore_entries (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES play_sessions(id) ON DELETE CASCADE,
+    kind TEXT NOT NULL CHECK (kind IN ('created','override')),
+    base_entry_id TEXT,
+    name TEXT,
+    content TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT true,
+    always_send BOOLEAN NOT NULL DEFAULT true,
+    keywords JSONB NOT NULL DEFAULT '[]'::jsonb,
+    match_whole_words BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE(session_id, kind, base_entry_id)
   )`,
   `CREATE TABLE IF NOT EXISTS messages (
     id TEXT PRIMARY KEY,
@@ -837,6 +911,9 @@ const TABLE_DDLS = [
 ];
 
 const INDEX_DDLS = [
+  `CREATE INDEX IF NOT EXISTS game_guest_links_user_idx ON game_guest_links(user_id)`,
+  `CREATE INDEX IF NOT EXISTS native_game_playtime_game_subject ON native_game_playtime(game_id,subject)`,
+  `CREATE INDEX IF NOT EXISTS game_solo_playtime_live_subject_idx ON game_solo_playtime_sessions(subject,game_id,last_server_ms) WHERE active`,
   `CREATE INDEX IF NOT EXISTS session_user_id_idx ON session(user_id)`,
   `CREATE INDEX IF NOT EXISTS account_user_id_idx ON account(user_id)`,
   `CREATE INDEX IF NOT EXISTS worlds_creator_id_idx ON worlds(creator_id)`,
@@ -924,6 +1001,7 @@ const COLUMN_ALTERS = [
   `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`,
   `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_banned BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS is_suspended BOOLEAN NOT NULL DEFAULT false`,
+  USER_MUTE_COLUMNS_SQL,
   // PGlite / fresh-clone self-heal only (ensureTables early-returns on Neon).
   // Prod + dev get skip_review via manual db:push BEFORE the code that reads it
   // ships — same prod-DB-first rule as is_primary_variant above.
@@ -948,6 +1026,10 @@ const COLUMN_ALTERS = [
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS playtime_lease_id TEXT`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS playtime_last_seen_at TIMESTAMP`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS name TEXT`,
+  // Run-scope ledger (副本记忆) — dev/testing/prod get this via manual SQL
+  // BEFORE the code that reads it ships (DB-before-code rule); this line only
+  // self-heals fresh local DBs.
+  `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS run_memories JSONB`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_updated_at TIMESTAMP`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_model TEXT`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS state_guard_enabled BOOLEAN NOT NULL DEFAULT true`,
@@ -995,6 +1077,8 @@ const COLUMN_ALTERS = [
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS moderation_action TEXT`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_reviews BOOLEAN NOT NULL DEFAULT true`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_custom_api BOOLEAN NOT NULL DEFAULT true`,
+  `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_live_canon BOOLEAN NOT NULL DEFAULT false`,
+  `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_live_canon_additions BOOLEAN NOT NULL DEFAULT false`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS blur_cover BOOLEAN`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS language TEXT`,
   `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS language_group_id TEXT`,
@@ -1023,9 +1107,9 @@ const COLUMN_ALTERS = [
   // Stripe cancel-at-period-end tracking. Prod gets this via explicit SQL before
   // deploy (DB-before-code); this entry self-heals fresh PGlite / new-contributor DBs.
   `ALTER TABLE credit_wallets ADD COLUMN IF NOT EXISTS subscription_cancel_at TIMESTAMP`,
-  // Private, user-only persona note (never injected into prompts). Real
-  // Postgres gets this via explicit SQL (drizzle/0047_persona_note.sql) before
-  // this code deploys; this entry keeps PGlite/fresh local DBs in sync.
+  // Private, user-only persona note (never injected into prompts). Testing's
+  // hopper DB picks this up via ensureRecentAdditiveSchema on boot; prod gets it
+  // via explicit SQL (drizzle/0047_persona_note.sql) before this code deploys.
   `ALTER TABLE user_personas ADD COLUMN IF NOT EXISTS note TEXT`,
   `ALTER TABLE user_personas ADD COLUMN IF NOT EXISTS entries JSONB NOT NULL DEFAULT '[]'::jsonb`,
   `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_persona JSONB`,
@@ -1501,21 +1585,20 @@ export async function ensureTables() {
   for (const ddl of TABLE_DDLS) {
     await db.execute(sql.raw(ddl));
   }
-  for (const ddl of COLUMN_ALTERS) {
-    await db.execute(sql.raw(ddl));
-  }
+  await ensurePgliteColumnsAndIndexes();
   await db.execute(sql.raw(`INSERT INTO referral_redemptions (invitee_id, redeemed_at)
     SELECT id, COALESCE(referred_at, created_at) FROM "user" WHERE referred_by IS NOT NULL
     ON CONFLICT (invitee_id) DO NOTHING`));
-  await db.execute(sql.raw(`INSERT INTO referral_redemptions (invitee_id, redeemed_at)
-    SELECT qualification.invitee_id, qualification.joined_at
-    FROM referral_qualifications qualification
-    JOIN "user" invitee ON invitee.id = qualification.invitee_id
-    ON CONFLICT (invitee_id) DO NOTHING`));
-  for (const ddl of INDEX_DDLS) {
-    await db.execute(sql.raw(ddl));
+  const qualificationTable = await db.execute(sql.raw(`SELECT to_regclass('public.referral_qualifications') IS NOT NULL AS ready`));
+  if ((qualificationTable.rows[0] as { ready?: boolean } | undefined)?.ready === true) {
+    await db.execute(sql.raw(`INSERT INTO referral_redemptions (invitee_id, redeemed_at)
+      SELECT qualification.invitee_id, qualification.joined_at
+      FROM referral_qualifications qualification
+      JOIN "user" invitee ON invitee.id = qualification.invitee_id
+      ON CONFLICT (invitee_id) DO NOTHING`));
   }
   await ensureWorldsSchemaDerived();
+  await db.execute(sql.raw(NATIVE_PLAYTIME_HISTORY_SNAPSHOT));
   await ensureMessagesSwipeCount();
   console.log("[DEV] PGlite tables + indexes created");
 }
@@ -1530,6 +1613,35 @@ export async function ensureCreativeUploadSchema() {
   });
 }
 
+/**
+ * COLUMN_ALTERS + INDEX_DDLS. PGlite-only, like ensureTables above — real
+ * Postgres gets these from migrations and ensureRecentAdditiveSchema.
+ *
+ * Runs twice, and tolerates failure both times. A handful of these name a
+ * table that a LATER ensure* step creates (world_versions is the first), so a
+ * single strict pass threw there and left every table after it uncreated — on
+ * an already-provisioned database that never showed, but an empty one is
+ * exactly what the isolated test runner starts with. The second pass, after
+ * the rest of the heal, picks those up.
+ *
+ * Some never land at all: COLUMN_ALTERS also names tables that only the
+ * Drizzle migrations create, and nothing in this file does. Those are logged
+ * rather than thrown — the embedded-database boot path awaits this before it
+ * serves, and an index on a table that dev does not have is not worth a dead
+ * server.
+ */
+export async function ensurePgliteColumnsAndIndexes(): Promise<string[]> {
+  if (!IS_PGLITE) return [];
+  const deferred: string[] = [];
+  for (const ddl of [...COLUMN_ALTERS, ...INDEX_DDLS]) {
+    try {
+      await db.execute(sql.raw(ddl));
+    } catch {
+      deferred.push(ddl);
+    }
+  }
+  return deferred;
+}
 // Hot-path indexes for real Postgres. ensureTables() above is PGlite-only, so
 // prod never received the INDEX_DDLS additions at boot. These are the 2026-09-07
 // findings (pg_stat_user_tables seq_scan since 07-28): user_prompts 4.4M scans,
@@ -1637,7 +1749,7 @@ export async function ensureWorldsSchemaDerived() {
  * guard means a message write can never fail because of the trigger.
  */
 export async function ensureMessagesSwipeCount() {
-  await db.execute(sql.raw(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS swipe_count INTEGER`));
+  await healAdditiveSchema("messages.swipe_count", [`ALTER TABLE messages ADD COLUMN IF NOT EXISTS swipe_count INTEGER`]);
   await db.execute(sql.raw(`
     CREATE OR REPLACE FUNCTION messages_set_swipe_count() RETURNS trigger AS $fn$
     BEGIN
@@ -1669,8 +1781,53 @@ export async function ensureMessagesSwipeCount() {
  */
 export async function ensureWorldReviewControlsColumn() {
   if (IS_PGLITE) return;
-  await db.execute(sql.raw(`ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_reviews BOOLEAN NOT NULL DEFAULT true`));
-  await db.execute(sql.raw(`ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_community_citations BOOLEAN NOT NULL DEFAULT true`));
+  await healAdditiveSchema("world review controls", [
+    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_reviews BOOLEAN NOT NULL DEFAULT true`,
+    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_community_citations BOOLEAN NOT NULL DEFAULT true`,
+    // Declared in schema.ts since the session-sharing work but never added here,
+    // so a database built from this DDL alone was missing it.
+    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS allow_session_sharing BOOLEAN NOT NULL DEFAULT true`,
+    // Two more the schema has declared for a while without this DDL catching up.
+    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS target_audience TEXT NOT NULL DEFAULT 'all'`,
+    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS game_path TEXT`,
+  ]);
+}
+
+/**
+ * TESTING-ONLY schema auto-heal (lives on the `testing` branch, not `main`).
+ *
+ * The testing service deploys to a real Postgres (hopper) that nobody migrates
+ * by hand, but main only applies TABLE_DDLS/COLUMN_ALTERS in the PGlite path
+ * (ensureTables early-returns on real Postgres). So a testing deploy silently
+ * drifts from main's schema and 500s on the newest columns — e.g. the
+ * 2026-06-17 incident where credit_wallets.subscription_cancel_at was missing
+ * and broke both the admin user list and generation's credit deduction.
+ *
+ * Re-run main's own additive DDL against real Postgres on boot. Pointed at the
+ * maintained COLUMN_ALTERS / TABLE_DDLS (not a hand-curated snapshot) so it
+ * stays current as main grows. Every statement is CREATE/ALTER ... IF NOT
+ * EXISTS, so it is safe + idempotent and a no-op once the schema is in sync.
+ * INDEX_DDLS is intentionally excluded (a missing index is a perf issue, not a
+ * 500, and we don't want to build indexes on the boot path).
+ *
+ * Production never runs this. The branch that owned this function has now been
+ * merged into main, and the note it left behind said exactly what to do first:
+ * gate it to non-prod hosts. Production keeps DB-before-code — every additive
+ * statement it needs is applied by the Railway pre-deploy step
+ * (scripts/prepare-deployment.mjs) BEFORE a replica of the new code boots, and
+ * boot-time DDL against a live production database is what caused the
+ * 2026-06-05 outage.
+ */
+export async function ensureRecentAdditiveSchema() {
+  if (IS_PGLITE) return; // PGlite already provisions these via ensureTables()
+  // Never on a production host: there the pre-deploy step is the apply path.
+  if (process.env.NODE_ENV === "production") return;
+  for (const ddl of TABLE_DDLS) {
+    await db.execute(sql.raw(ddl));
+  }
+  for (const ddl of COLUMN_ALTERS) {
+    await db.execute(sql.raw(ddl));
+  }
 }
 
 /**
@@ -2072,13 +2229,24 @@ export async function ensureAccountDeletionForeignKeys() {
     END
     $clear_post_reply_snapshot$
   `));
-  await db.execute(sql.raw(`DROP TRIGGER IF EXISTS posts_clear_reply_snapshot ON posts`));
-  await db.execute(sql.raw(`
-    CREATE TRIGGER posts_clear_reply_snapshot
-    BEFORE UPDATE OF reply_to_id ON posts
-    FOR EACH ROW
-    EXECUTE FUNCTION clear_post_reply_snapshot_on_target_delete()
+  // DROP TRIGGER takes ACCESS EXCLUSIVE on posts even when it recreates the
+  // same trigger, so every replica boot stalled community reads behind it.
+  // The definition never changes; only (re)install when it is missing.
+  const replySnapshotTrigger = await db.execute(sql.raw(`
+    SELECT 1 FROM pg_trigger
+    WHERE tgname = 'posts_clear_reply_snapshot'
+      AND tgrelid = to_regclass('public.posts')
+      AND NOT tgisinternal
   `));
+  if (!replySnapshotTrigger.rows.length) {
+    await db.execute(sql.raw(`DROP TRIGGER IF EXISTS posts_clear_reply_snapshot ON posts`));
+    await db.execute(sql.raw(`
+      CREATE TRIGGER posts_clear_reply_snapshot
+      BEFORE UPDATE OF reply_to_id ON posts
+      FOR EACH ROW
+      EXECUTE FUNCTION clear_post_reply_snapshot_on_target_delete()
+    `));
+  }
 
   const relationships = [
     ["user", "referred_by", "user", "user_referred_by_user_id_fk", false, "SET NULL", "n"],
@@ -2172,7 +2340,11 @@ export async function ensureAccountDeletionForeignKeys() {
     }
   }
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS world_click_history_world_id_idx ON world_click_history (world_id)`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS posts_reply_to_idx ON posts (reply_to_id)`));
+  // A no-op CREATE INDEX IF NOT EXISTS still takes SHARE on posts first.
+  const replyToIndex = await db.execute(sql.raw(`SELECT to_regclass('public.posts_reply_to_idx') IS NOT NULL AS present`));
+  if ((replyToIndex.rows[0] as { present?: boolean } | undefined)?.present !== true) {
+    await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS posts_reply_to_idx ON posts (reply_to_id)`));
+  }
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS tip_payment_intents_sender_idx ON tip_payment_intents (sender_id)`));
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS tip_payment_intents_creator_idx ON tip_payment_intents (creator_id)`));
   await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS tip_payment_intents_pi_idx ON tip_payment_intents (stripe_payment_intent_id)`));
@@ -2332,15 +2504,15 @@ export async function ensureWorldReviewTables() {
     }
     return;
   }
-  await db.execute(sql.raw(`ALTER TABLE worlds ADD COLUMN IF NOT EXISTS review_status TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE worlds ADD COLUMN IF NOT EXISTS submitted_for_review_at TIMESTAMP`));
-  await db.execute(sql.raw(`ALTER TABLE worlds ADD COLUMN IF NOT EXISTS reviewed_by TEXT REFERENCES "user"(id) ON DELETE SET NULL`));
-  await db.execute(sql.raw(`ALTER TABLE worlds ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP`));
-  await db.execute(sql.raw(`ALTER TABLE worlds ADD COLUMN IF NOT EXISTS rejection_reason TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE worlds ADD COLUMN IF NOT EXISTS rejection_detail TEXT`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS worlds_review_status_idx ON worlds(review_status, submitted_for_review_at)`));
-
-  await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS world_review_submissions (
+  await healAdditiveSchema("world review tables", [
+    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS review_status TEXT`,
+    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS submitted_for_review_at TIMESTAMP`,
+    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS reviewed_by TEXT REFERENCES "user"(id) ON DELETE SET NULL`,
+    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP`,
+    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS rejection_reason TEXT`,
+    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS rejection_detail TEXT`,
+    `CREATE INDEX IF NOT EXISTS worlds_review_status_idx ON worlds(review_status, submitted_for_review_at)`,
+    `CREATE TABLE IF NOT EXISTS world_review_submissions (
     id TEXT PRIMARY KEY,
     world_id TEXT NOT NULL REFERENCES worlds(id) ON DELETE CASCADE,
     group_key TEXT NOT NULL,
@@ -2357,16 +2529,15 @@ export async function ensureWorldReviewTables() {
     snapshot_visibility TEXT,
     snapshot_allow_edit BOOLEAN,
     snapshot_allow_reviews BOOLEAN
-  )`));
-  // Admin "ignore" parking columns — additive, decision stays 'pending' so the
-  // author-facing review-history never reveals the ignore.
-  await db.execute(sql.raw(`ALTER TABLE world_review_submissions ADD COLUMN IF NOT EXISTS ignored_at TIMESTAMP`));
-  await db.execute(sql.raw(`ALTER TABLE world_review_submissions ADD COLUMN IF NOT EXISTS ignored_by TEXT REFERENCES "user"(id) ON DELETE SET NULL`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS world_review_submissions_decision_idx ON world_review_submissions(decision, submitted_at)`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS world_review_submissions_group_idx ON world_review_submissions(group_key, decision)`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS world_review_submissions_world_idx ON world_review_submissions(world_id, submitted_at)`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS world_review_submissions_submitter_idx ON world_review_submissions(submitted_by, submitted_at)`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS world_review_submissions_ignored_idx ON world_review_submissions(group_key, ignored_at)`));
+  )`,
+    `ALTER TABLE world_review_submissions ADD COLUMN IF NOT EXISTS ignored_at TIMESTAMP`,
+    `ALTER TABLE world_review_submissions ADD COLUMN IF NOT EXISTS ignored_by TEXT REFERENCES "user"(id) ON DELETE SET NULL`,
+    `CREATE INDEX IF NOT EXISTS world_review_submissions_decision_idx ON world_review_submissions(decision, submitted_at)`,
+    `CREATE INDEX IF NOT EXISTS world_review_submissions_group_idx ON world_review_submissions(group_key, decision)`,
+    `CREATE INDEX IF NOT EXISTS world_review_submissions_world_idx ON world_review_submissions(world_id, submitted_at)`,
+    `CREATE INDEX IF NOT EXISTS world_review_submissions_submitter_idx ON world_review_submissions(submitted_by, submitted_at)`,
+    `CREATE INDEX IF NOT EXISTS world_review_submissions_ignored_idx ON world_review_submissions(group_key, ignored_at)`,
+  ]);
 }
 
 /**
@@ -2433,36 +2604,39 @@ export async function ensureExtensionTables() {
  */
 export async function ensureSessionContextColumns() {
   if (IS_PGLITE) return;
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS state_guard_enabled BOOLEAN NOT NULL DEFAULT true`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS state_guard_model TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS state_validation JSONB`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_updated_at TIMESTAMP`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_model TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_model TEXT`));
-  await db.execute(sql.raw(`
+  await healAdditiveSchema("session context columns", [
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS state_guard_enabled BOOLEAN NOT NULL DEFAULT true`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS state_guard_model TEXT`,
+    `ALTER TABLE messages ADD COLUMN IF NOT EXISTS state_validation JSONB`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_updated_at TIMESTAMP`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_model TEXT`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_model TEXT`,
+    `
     UPDATE play_sessions
     SET summaryception_model = summary_model
     WHERE summaryception_model IS NULL
       AND summary_model IS NOT NULL
-  `));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_implementation TEXT NOT NULL DEFAULT 'localdev'`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_mode TEXT NOT NULL DEFAULT 'threshold'`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_included BOOLEAN NOT NULL DEFAULT true`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_trigger_tokens INTEGER`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_recent_tail_tokens INTEGER`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_status TEXT NOT NULL DEFAULT 'idle'`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_error TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_source_hash TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_covers_until_message_id TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_token_count INTEGER`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_budget_window_started_at TIMESTAMP`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_budget_resume_pending BOOLEAN NOT NULL DEFAULT false`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_status TEXT NOT NULL DEFAULT 'idle'`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_error TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_updated_at TIMESTAMP`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_source_hash TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_covers_until_message_id TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_token_count INTEGER`));
+  `,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_implementation TEXT NOT NULL DEFAULT 'localdev'`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_mode TEXT NOT NULL DEFAULT 'threshold'`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_included BOOLEAN NOT NULL DEFAULT true`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_trigger_tokens INTEGER`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_recent_tail_tokens INTEGER`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_status TEXT NOT NULL DEFAULT 'idle'`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_error TEXT`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_source_hash TEXT`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_covers_until_message_id TEXT`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_token_count INTEGER`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_budget_window_started_at TIMESTAMP`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summary_budget_resume_pending BOOLEAN NOT NULL DEFAULT false`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_status TEXT NOT NULL DEFAULT 'idle'`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_error TEXT`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_updated_at TIMESTAMP`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_source_hash TEXT`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_covers_until_message_id TEXT`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS summaryception_token_count INTEGER`,
+  ]);
+  // Adds summaryception_included only when absent (a catalog read otherwise).
   await db.execute(sql.raw(`
     DO $$
     BEGIN
@@ -2478,20 +2652,21 @@ export async function ensureSessionContextColumns() {
       END IF;
     END $$;
   `));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory JSONB`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_updated_at TIMESTAMP`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_model TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_included BOOLEAN NOT NULL DEFAULT true`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_status TEXT NOT NULL DEFAULT 'idle'`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_error TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_source_hash TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_claimed_at TIMESTAMP`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_processed_message_id TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_retry_count INTEGER NOT NULL DEFAULT 0`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_stale_at TIMESTAMP`));
-  await db.execute(sql.raw(`ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_pinned TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS summaryception_compacted BOOLEAN NOT NULL DEFAULT false`));
-  await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS summaryception_snippets (
+  await healAdditiveSchema("session memory + summaryception", [
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory JSONB`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_updated_at TIMESTAMP`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_model TEXT`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_included BOOLEAN NOT NULL DEFAULT true`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_status TEXT NOT NULL DEFAULT 'idle'`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_error TEXT`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_source_hash TEXT`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_claimed_at TIMESTAMP`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_processed_message_id TEXT`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_retry_count INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_stale_at TIMESTAMP`,
+    `ALTER TABLE play_sessions ADD COLUMN IF NOT EXISTS session_memory_pinned TEXT`,
+    `ALTER TABLE messages ADD COLUMN IF NOT EXISTS summaryception_compacted BOOLEAN NOT NULL DEFAULT false`,
+    `CREATE TABLE IF NOT EXISTS summaryception_snippets (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES play_sessions(id) ON DELETE CASCADE,
     layer_index INTEGER NOT NULL DEFAULT 0,
@@ -2507,10 +2682,11 @@ export async function ensureSessionContextColumns() {
     promoted BOOLEAN NOT NULL DEFAULT false,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
-  )`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS messages_session_summaryception_compacted_idx ON messages(session_id, summaryception_compacted)`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS summaryception_snippets_session_layer_idx ON summaryception_snippets(session_id, layer_index, snippet_order)`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS summaryception_snippets_session_idx ON summaryception_snippets(session_id)`));
+  )`,
+    `CREATE INDEX IF NOT EXISTS messages_session_summaryception_compacted_idx ON messages(session_id, summaryception_compacted)`,
+    `CREATE INDEX IF NOT EXISTS summaryception_snippets_session_layer_idx ON summaryception_snippets(session_id, layer_index, snippet_order)`,
+    `CREATE INDEX IF NOT EXISTS summaryception_snippets_session_idx ON summaryception_snippets(session_id)`,
+  ]);
 }
 
 /**
@@ -2542,8 +2718,10 @@ export async function ensureCommunityEventTables() {
  */
 export async function ensureCommunityImageColumns() {
   if (IS_PGLITE) return;
-  await db.execute(sql.raw(`ALTER TABLE threads ADD COLUMN IF NOT EXISTS images JSONB NOT NULL DEFAULT '[]'::jsonb`));
-  await db.execute(sql.raw(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS images JSONB NOT NULL DEFAULT '[]'::jsonb`));
+  await healAdditiveSchema("community images", [
+    `ALTER TABLE threads ADD COLUMN IF NOT EXISTS images JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    `ALTER TABLE posts ADD COLUMN IF NOT EXISTS images JSONB NOT NULL DEFAULT '[]'::jsonb`,
+  ]);
 }
 
 /**
@@ -2553,7 +2731,7 @@ export async function ensureCommunityImageColumns() {
  */
 export async function ensureCommunityOfficialColumn() {
   if (IS_PGLITE) return;
-  await db.execute(sql.raw(`ALTER TABLE threads ADD COLUMN IF NOT EXISTS is_official BOOLEAN NOT NULL DEFAULT false`));
+  await healAdditiveSchema("threads.is_official", [`ALTER TABLE threads ADD COLUMN IF NOT EXISTS is_official BOOLEAN NOT NULL DEFAULT false`]);
 }
 
 /**
@@ -2563,15 +2741,16 @@ export async function ensureCommunityOfficialColumn() {
  */
 export async function ensurePlatformAchievementTables() {
   if (IS_PGLITE) return;
-  await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS platform_achievement_groups (
+  await healAdditiveSchema("platform achievements (1)", [
+    `CREATE TABLE IF NOT EXISTS platform_achievement_groups (
     id TEXT PRIMARY KEY,
     key TEXT NOT NULL UNIQUE,
     title TEXT NOT NULL,
     description TEXT,
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW()
-  )`));
-  await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS platform_achievements (
+  )`,
+    `CREATE TABLE IF NOT EXISTS platform_achievements (
     id TEXT PRIMARY KEY,
     group_id TEXT NOT NULL REFERENCES platform_achievement_groups(id) ON DELETE CASCADE,
     key TEXT NOT NULL UNIQUE,
@@ -2581,15 +2760,16 @@ export async function ensurePlatformAchievementTables() {
     tier TEXT NOT NULL DEFAULT 'Common',
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMP DEFAULT NOW()
-  )`));
-  await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS user_platform_achievements (
+  )`,
+    `CREATE TABLE IF NOT EXISTS user_platform_achievements (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
     achievement_id TEXT NOT NULL REFERENCES platform_achievements(id) ON DELETE CASCADE,
     earned_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(user_id, achievement_id)
-  )`));
-  await db.execute(sql.raw(`ALTER TABLE "user" ADD COLUMN IF NOT EXISTS showcased_achievement_id TEXT`));
+  )`,
+    `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS showcased_achievement_id TEXT`,
+  ]);
   await db.execute(sql.raw(`DO $$
     BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'user_showcased_achievement_fk') THEN
@@ -2597,14 +2777,17 @@ export async function ensurePlatformAchievementTables() {
           FOREIGN KEY (showcased_achievement_id) REFERENCES platform_achievements(id) ON DELETE SET NULL;
       END IF;
     END $$;`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS platform_achievements_group_id_idx ON platform_achievements(group_id)`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS user_platform_achievements_user_id_idx ON user_platform_achievements(user_id)`));
+  await healAdditiveSchema("platform achievements (2)", [
+    `CREATE INDEX IF NOT EXISTS platform_achievements_group_id_idx ON platform_achievements(group_id)`,
+    `CREATE INDEX IF NOT EXISTS user_platform_achievements_user_id_idx ON user_platform_achievements(user_id)`,
+  ]);
 
   // ── Achievement engine additions (tiers + progress + worlds.published_at) ──
-  await db.execute(sql.raw(`ALTER TABLE platform_achievements ADD COLUMN IF NOT EXISTS metric_key TEXT`));
-  await db.execute(sql.raw(`ALTER TABLE platform_achievements ADD COLUMN IF NOT EXISTS trigger_type TEXT NOT NULL DEFAULT 'event'`));
-  await db.execute(sql.raw(`ALTER TABLE platform_achievements ADD COLUMN IF NOT EXISTS is_capstone BOOLEAN NOT NULL DEFAULT false`));
-  await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS platform_achievement_tiers (
+  await healAdditiveSchema("platform achievements (3)", [
+    `ALTER TABLE platform_achievements ADD COLUMN IF NOT EXISTS metric_key TEXT`,
+    `ALTER TABLE platform_achievements ADD COLUMN IF NOT EXISTS trigger_type TEXT NOT NULL DEFAULT 'event'`,
+    `ALTER TABLE platform_achievements ADD COLUMN IF NOT EXISTS is_capstone BOOLEAN NOT NULL DEFAULT false`,
+    `CREATE TABLE IF NOT EXISTS platform_achievement_tiers (
     id TEXT PRIMARY KEY,
     achievement_id TEXT NOT NULL REFERENCES platform_achievements(id) ON DELETE CASCADE,
     level TEXT NOT NULL DEFAULT 'bronze',
@@ -2612,9 +2795,10 @@ export async function ensurePlatformAchievementTables() {
     badge TEXT,
     sort_order INTEGER NOT NULL DEFAULT 0,
     UNIQUE(achievement_id, level)
-  )`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS platform_achievement_tiers_achievement_id_idx ON platform_achievement_tiers(achievement_id)`));
-  await db.execute(sql.raw(`ALTER TABLE user_platform_achievements ADD COLUMN IF NOT EXISTS tier_level TEXT NOT NULL DEFAULT 'bronze'`));
+  )`,
+    `CREATE INDEX IF NOT EXISTS platform_achievement_tiers_achievement_id_idx ON platform_achievement_tiers(achievement_id)`,
+    `ALTER TABLE user_platform_achievements ADD COLUMN IF NOT EXISTS tier_level TEXT NOT NULL DEFAULT 'bronze'`,
+  ]);
   await db.execute(sql.raw(`DO $$
     DECLARE c text;
     BEGIN
@@ -2626,16 +2810,18 @@ export async function ensurePlatformAchievementTables() {
         ALTER TABLE user_platform_achievements ADD CONSTRAINT user_platform_ach_user_ach_tier_uniq UNIQUE (user_id, achievement_id, tier_level);
       END IF;
     END $$;`));
-  await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS user_achievement_progress (
+  await healAdditiveSchema("platform achievements (4)", [
+    `CREATE TABLE IF NOT EXISTS user_achievement_progress (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
     metric_key TEXT NOT NULL,
     value INTEGER NOT NULL DEFAULT 0,
     updated_at TIMESTAMP DEFAULT NOW(),
     UNIQUE(user_id, metric_key)
-  )`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS user_achievement_progress_user_id_idx ON user_achievement_progress(user_id)`));
-  await db.execute(sql.raw(`ALTER TABLE worlds ADD COLUMN IF NOT EXISTS published_at TIMESTAMP`));
+  )`,
+    `CREATE INDEX IF NOT EXISTS user_achievement_progress_user_id_idx ON user_achievement_progress(user_id)`,
+    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS published_at TIMESTAMP`,
+  ]);
   await db.execute(sql.raw(`UPDATE worlds SET published_at = COALESCE(reviewed_at, created_at) WHERE published_at IS NULL AND is_published = true`));
 }
 
@@ -2818,17 +3004,20 @@ export async function ensureBillingV2Schema() {
   // here left plan_version missing, and since Drizzle selects every schema
   // column, EVERY wallet read failed with 'column "plan_version" does not
   // exist' — local dev without a Neon URL could not open a wallet at all.
-  await db.execute(sql.raw(`ALTER TABLE credit_wallets ADD COLUMN IF NOT EXISTS plan_version INTEGER NOT NULL DEFAULT 1`));
-  await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS wallet_plan_drops (
+  await healAdditiveSchema("billing v2 (1)", [
+    `ALTER TABLE credit_wallets ADD COLUMN IF NOT EXISTS plan_version INTEGER NOT NULL DEFAULT 1`,
+    `CREATE TABLE IF NOT EXISTS wallet_plan_drops (
     wallet_id TEXT PRIMARY KEY REFERENCES credit_wallets(id) ON DELETE CASCADE,
     period_start TIMESTAMP NOT NULL,
     drops_released INTEGER NOT NULL DEFAULT 1,
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-  )`));
+  )`,
+  ]);
   // Per-cycle delivery calendar (2026-09-22, scripts/paid-drops-weekly-2026-09-22.sql).
   // NULL rows are cycles that opened under the launch schedule.
-  await db.execute(sql.raw(`ALTER TABLE wallet_plan_drops ADD COLUMN IF NOT EXISTS schedule TEXT`));
-  await db.execute(sql.raw(`CREATE TABLE IF NOT EXISTS quest_claims (
+  await healAdditiveSchema("billing v2 (2)", [
+    `ALTER TABLE wallet_plan_drops ADD COLUMN IF NOT EXISTS schedule TEXT`,
+    `CREATE TABLE IF NOT EXISTS quest_claims (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
     day_key TEXT NOT NULL,
@@ -2836,8 +3025,9 @@ export async function ensureBillingV2Schema() {
     reward_amount INTEGER NOT NULL,
     claimed_at TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(user_id, day_key)
-  )`));
-  await db.execute(sql.raw(`CREATE INDEX IF NOT EXISTS quest_claims_user_claimed_idx ON quest_claims(user_id, claimed_at)`));
+  )`,
+    `CREATE INDEX IF NOT EXISTS quest_claims_user_claimed_idx ON quest_claims(user_id, claimed_at)`,
+  ]);
 }
 
 /**
@@ -3024,7 +3214,7 @@ export function stopDailyRecoveryInterval(): void {
 // rewrites the same recomputed count), so concurrent runs from multiple Railway
 // replicas converge to the same state and need no lock.
 
-const PLAY_ENDPOINTS_ROLLUP = sql`('send','regenerate','continue')`;
+const PLAY_ENDPOINTS_ROLLUP = sql.raw(`(${NARRATIVE_PLAY_ENDPOINTS_SQL})`);
 
 // Must match FALLBACK_INPUT_PRICE / FALLBACK_OUTPUT_PRICE in admin-usage.ts —
 // applied to the rare model without an active model_prices row.
@@ -3109,7 +3299,7 @@ export async function ensureAnalyticsRollupTables(): Promise<void> {
  * predicate is also deliberately on raw `created_at` (not `created_at::date`)
  * so the created_at index is used instead of a full seq scan.
  */
-async function refreshDailyUserActivity(days: number): Promise<number> {
+export async function refreshDailyUserActivity(days: number): Promise<number> {
   const result = await db.execute(sql`
     INSERT INTO daily_user_activity (user_id, activity_date, play_messages)
     SELECT user_id, created_at::date, COUNT(*)::int
@@ -3183,8 +3373,13 @@ async function refreshDailyPlatformStats(days: number): Promise<number> {
  * platform-paid). `cost` is non-BYOK only, priced with the model_prices rows
  * active at refresh time — freezing cost history against later price edits.
  */
-async function refreshDailyModelStats(days: number): Promise<number> {
-  const result = await db.execute(sql`
+export async function refreshDailyModelStats(days: number): Promise<number> {
+  return db.transaction(async (tx) => {
+    // Reclassification can move a model/day's last Other request to Play.
+    // Replace the bounded window atomically so an absent old category cannot
+    // survive the upsert and inflate all-request/token totals.
+    await tx.execute(sql`DELETE FROM daily_model_stats WHERE stat_date >= CURRENT_DATE - (${days}::int)`);
+    const result = await tx.execute(sql`
     INSERT INTO daily_model_stats (
       stat_date, model, category, messages, prompt_tokens, completion_tokens,
       byok_messages, byok_prompt_tokens, byok_completion_tokens, cost, input_cost, output_cost
@@ -3229,7 +3424,8 @@ async function refreshDailyModelStats(days: number): Promise<number> {
       output_cost = EXCLUDED.output_cost,
       updated_at = now()
   `);
-  return (result as unknown as { rowCount?: number }).rowCount ?? 0;
+    return (result as unknown as { rowCount?: number }).rowCount ?? 0;
+  });
 }
 
 // ─── Feed training log + engagement stats (recsys Ship 1) ──────────────────
@@ -3745,3 +3941,19 @@ export async function readForEdit(viewerId: string | null | undefined, ownerId: 
 
 export { db, dbRead };
 export type Database = typeof db;
+
+/** Post-deploy safety net. The Railway pre-deploy command provisions these first. */
+export async function ensureUserMuteColumns() {
+  const columns = await db.execute(sql`SELECT column_name FROM information_schema.columns
+    WHERE table_schema = current_schema() AND table_name = 'user'
+      AND column_name IN ('is_muted', 'muted_until')`);
+  if (columns.rows.length === 2) return;
+  await db.transaction(async (tx) => {
+    await tx.execute(sql`SET LOCAL lock_timeout = '5s'`);
+    await tx.execute(sql.raw(USER_MUTE_COLUMNS_SQL));
+  });
+}
+
+export async function ensureWorldVersionSchema(): Promise<void> {
+  await healAdditiveSchema("world versions", [WORLD_VERSION_SCHEMA_SQL]);
+}

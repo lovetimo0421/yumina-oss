@@ -45,7 +45,8 @@ function readProductConst(source: string, name: string): number {
 
 test("the client outlasts the server: recovery never gives up on a live run", () => {
   const clientCap = readNumericConst(studioStore, "HARD_CAP_MS");
-  const serverCap = readProductConst(agentRoute, "ABSOLUTE_TIMEOUT_MS");
+  // The longest a run may go: a job the creator started.
+  const serverCap = Math.max(readProductConst(agentRoute, "CHAT_TIMEOUT_MS"), readProductConst(agentRoute, "JOB_TIMEOUT_MS"));
 
   assert.ok(
     clientCap > serverCap,
@@ -63,8 +64,8 @@ test("the client outlasts the server: recovery never gives up on a live run", ()
 
 test("the stall watchdog stays well inside the absolute timeout", () => {
   const idle = readProductConst(agentRoute, "IDLE_TIMEOUT_MS");
-  const absolute = readProductConst(agentRoute, "ABSOLUTE_TIMEOUT_MS");
-  assert.ok(idle < absolute, "IDLE_TIMEOUT_MS must trip before ABSOLUTE_TIMEOUT_MS");
+  const absolute = readProductConst(agentRoute, "CHAT_TIMEOUT_MS");
+  assert.ok(idle < absolute, "IDLE_TIMEOUT_MS must trip before the shortest absolute timeout");
 });
 
 test("recovery treats a stale heartbeat as death, not a slow model", () => {

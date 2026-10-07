@@ -12,6 +12,10 @@ import { cn } from "@/lib/utils";
 import { EntityPreview } from "./entity-preview";
 import type { ToolCall, ToolResult, ProposalStatus } from "../lib/types";
 import { isReadTool } from "../lib/types";
+import { toolLabel } from "./change-labels";
+import { toneChip, toneText, toolKind, type ToneKind } from "../lib/kind-tone";
+import { KIND_STYLE } from "../panels/blueprint/style";
+import { useEditorStore } from "@/stores/editor";
 
 interface ProposalCardProps {
   toolCalls: ToolCall[];
@@ -51,6 +55,17 @@ export function ProposalCard({ toolCalls, toolResults, status, onApprove, onReje
         <span className="font-medium text-foreground">
           {writeToolCalls.length === 1 ? t("studio.proposal.proposedChange", { count: 1 }) : t("studio.proposal.proposedChanges", { count: writeToolCalls.length })}
         </span>
+        {/* What kinds of things it touched, in the board's colours. */}
+        <span className="flex items-center gap-1">
+          {kindTally(writeToolCalls).map(([kind, count]) => {
+            const Icon = KIND_STYLE[kind].icon;
+            return (
+              <span key={kind} className={cn("inline-flex items-center gap-0.5 rounded border px-1 py-px text-[10px] tabular-nums", toneChip(kind))}>
+                <Icon className={cn("h-2.5 w-2.5", toneText(kind))} aria-hidden="true" />{count > 1 ? count : null}
+              </span>
+            );
+          })}
+        </span>
         {status === "approved" && (
           <span className="flex items-center gap-1 text-emerald-400">
             <CheckCircle2 className="h-3 w-3" />
@@ -79,7 +94,7 @@ export function ProposalCard({ toolCalls, toolResults, status, onApprove, onReje
         <div className="mt-2 space-y-1.5">
           {writeToolCalls.map((tc, i) => (
             <div key={tc.id || i} className="space-y-1">
-              <EntityPreview toolCall={tc} />
+              <EntityPreview toolCall={tc} applied={status === "approved"} />
               {onInspectChange && (
                 <button
                   type="button"
@@ -123,7 +138,7 @@ export function ProposalCard({ toolCalls, toolResults, status, onApprove, onReje
               <div key={i} className="flex items-start gap-1.5 text-[10px] text-red-400">
                 <XCircle className="h-3 w-3 shrink-0 mt-0.5" />
                 <span>
-                  <strong>{r.name}:</strong> {r.error}
+                  <strong>{toolLabel(r.name, t as unknown as Parameters<typeof toolLabel>[1])}:</strong> {r.error}
                 </span>
               </div>
             ))}
@@ -131,4 +146,17 @@ export function ProposalCard({ toolCalls, toolResults, status, onApprove, onReje
       )}
     </div>
   );
+}
+
+/** How many changes of each kind, in first-seen order. */
+function kindTally(calls: ToolCall[]): Array<[ToneKind, number]> {
+  const counts = new Map<ToneKind, number>();
+  for (const call of calls) {
+    let args: Record<string, unknown> | undefined;
+    try { args = JSON.parse(call.function.arguments) as Record<string, unknown>; } catch { args = undefined; }
+    const role = useEditorStore.getState().worldDraft.entries?.find((e) => e.id === args?.id)?.role;
+    const kind = toolKind(call.function.name, { role, ...args });
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  return [...counts];
 }

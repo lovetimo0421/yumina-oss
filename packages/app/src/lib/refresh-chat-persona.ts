@@ -1,4 +1,5 @@
 import type { SessionData } from "@/stores/chat";
+import { sameJson } from "./json-equality";
 
 const identityKeys = ["personaActive", "personaName", "personaImage", "personaAppearance", "personaPersonality", "personaBackstory", "personaEntries"] as const;
 type Identity = Pick<SessionData, "id" | "sessionPersona" | "personaLocked"> & { state: { metadata?: Record<string, unknown> } };
@@ -12,9 +13,15 @@ function applyIdentity(options: Options, data: Identity, signal?: AbortSignal) {
   const current = options.getState();
   if (signal?.aborted || current.isStreaming || current.session?.id !== options.sessionId || data.id !== options.sessionId) return false;
   const metadata = { ...(current.session.state.metadata as Record<string, unknown> | undefined) };
-  for (const key of identityKeys) metadata[key] = data.state.metadata?.[key];
+  let state = current.session.state;
+  // Foreground identity refreshes must retain equal state snapshots so they do
+  // not invalidate pending checkpoint ACKs. Missing fields still clear old values.
+  if (!identityKeys.every(key => sameJson(metadata[key], data.state.metadata?.[key]))) {
+    for (const key of identityKeys) metadata[key] = data.state.metadata?.[key];
+    state = { ...state, metadata };
+  }
   options.apply({ ...current.session, sessionPersona: data.sessionPersona, personaLocked: data.personaLocked,
-    state: { ...current.session.state, metadata } });
+    state });
   return true;
 }
 

@@ -77,6 +77,9 @@ test("the share link stays visible after native sharing is canceled and can be c
     assert.ok(dom.window.document.body.textContent?.includes("Link copied"));
   } finally {
     await act(async () => root.unmount());
+    // Radix restores focus on a zero-delay timer after unmount. Keep this
+    // JSDOM's Event constructors installed until that cleanup has dispatched.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
     dom.window.close();
     for (const key of globals) {
       const descriptor = originals.get(key);

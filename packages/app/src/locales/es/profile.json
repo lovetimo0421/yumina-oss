@@ -46,7 +46,8 @@
     "manageSessions": "Gestionar sesiones",
     "playedAgo": "Jugado {{time}}",
     "updatedAgo": "Actualizado {{time}}",
-    "noFavorites": "Aún no hay favoritos públicos."
+    "noFavorites": "Aún no hay favoritos públicos.",
+    "playedRelative": "Jugado {{time}}"
   },
   "sidebar": {
     "about": "Acerca de",
@@ -260,8 +261,8 @@
     "avgCostPerChatByPeriod": "Punta ~{{peak}} · Fuera de punta ~{{offPeak}} mushies / chat",
     "privateApiMode": "Modo API privada",
     "privateApiDesc": "Sin límites de tasa, sin seguimiento de uso — se factura directamente a tu proveedor",
-    "confirmSwitchPrivate": "¿Cambiar a clave privada? Necesitarás tu propia clave API y tu proveedor te facturará.",
-    "confirmSwitchOfficial": "¿Cambiar a la API de Yumina? Tu uso se descontará de tus créditos de mushies.",
+    "confirmSwitchPrivate": "Necesitarás tu propia clave API y tu proveedor facturará el uso.",
+    "confirmSwitchOfficial": "Tu uso se descontará de tus créditos de Mushies.",
     "tiers": {
       "budget": "Económico",
       "standard": "Estándar",
@@ -402,7 +403,10 @@
     "ledgerReconciliation": "Corrección del libro: saldo confirmado; un movimiento anterior no se había registrado",
     "voiceReadoutDescription": "Lectura en voz alta · {{bytes}} bytes",
     "ledgerOpeningBalance": "Saldo inicial (el libro empieza aquí)",
-    "pilePerMonth": "{{amount}} al mes"
+    "pilePerMonth": "{{amount}} al mes",
+    "switchPrivateTitle": "¿Cambiar a una clave API privada?",
+    "switchOfficialTitle": "¿Cambiar a la API de Yumina?",
+    "initialPlanGrant": "Asignación inicial del plan {{plan}}"
   },
   "summary": {
     "chooseModel": "Elegir modelo",
@@ -590,7 +594,15 @@
     "alreadyInvitedDesc": "Esta cuenta ya tiene acceso al nivel invitado."
   },
   "settings": {
-    "title": "Ajustes de cuenta"
+    "title": "Ajustes de cuenta",
+    "contentLevel": "Modo de contenido",
+    "safeOnly": "Limitado",
+    "safeOnlyDesc": "Mostrar solo contenido Limitado",
+    "allowSensitive": "Sin límites",
+    "allowSensitiveDesc": "Incluir contenido Sin límites",
+    "minorRestriction": "El modo Sin límites no está disponible para esta cuenta.",
+    "blurSensitive": "Difuminar contenido Sin límites",
+    "blurSensitiveDesc": "Difumina las miniaturas de contenido Sin límites en Descubrir."
   },
   "editModal": {
     "avatarUpdateFailed": "Falló al actualizar el avatar",
@@ -671,7 +683,7 @@
     "noWorlds": "Aún no hay mundos.",
     "noPlayHistory": "Aún no hay historial de juego",
     "noAchievements": "Aún no hay logros",
-    "joined": "Se unió el {{date}}",
+    "joined": "Se unió en {{date}}",
     "privateTitle": "Esta cuenta es privada",
     "privateDescription": "Este perfil solo es visible para las personas que este usuario sigue.",
     "block": "Bloquear",
@@ -686,7 +698,15 @@
     "noWorksSearch": "Ninguna obra coincide con esta búsqueda.",
     "previousWorks": "Página anterior de obras",
     "nextWorks": "Página siguiente de obras",
-    "worksPage": "{{current}} / {{total}}"
+    "worksPage": "{{current}} / {{total}}",
+    "moreActions": "Más acciones del perfil",
+    "sectionsLabel": "Secciones del perfil",
+    "worksTab": "Obras {{count}}",
+    "activityTab": "Actividad",
+    "aboutTab": "Acerca de",
+    "sortWorks": "Ordenar obras",
+    "sortNewest": "Más recientes",
+    "sortPopular": "Más populares"
   },
   "customPrompts": {
     "createFailed": "No se pudo crear el prompt",
@@ -787,7 +807,8 @@
       "followingHint": "Esta partida sigue tu persona global. Al elegir una persona abajo, queda fijada automáticamente para esta partida.",
       "locked": "Persona fijada",
       "lockedHint": "Esta partida conserva la persona seleccionada aunque cambies tu persona global.",
-      "saveError": "No se pudo guardar la persona. Inténtalo de nuevo."
+      "saveError": "No se pudo guardar la persona. Inténtalo de nuevo.",
+      "lockLabel": "Fijar la persona de esta partida"
     },
     "binding": {
       "saveError": "No se pudo guardar la persona predeterminada. Inténtalo de nuevo.",
@@ -840,7 +861,7 @@
     }
   },
   "historyPage": {
-    "clickedAgo": "Clic hace {{time}}",
+    "clickedAgo": "Clic {{time}}",
     "discoveryCard": "Clic en Descubrir",
     "libraryPlay": "Reproducción de Biblioteca",
     "deleteEntry": "Eliminar del historial",
@@ -936,7 +957,24 @@
     "sent": "Enviado",
     "paymentProcessing": "El pago de {{amount}} se está procesando.",
     "failedCreateTip": "No se pudo crear la propina",
-    "somethingWentWrong": "Algo salió mal. Inténtalo de nuevo."
+    "somethingWentWrong": "Algo salió mal. Inténtalo de nuevo.",
+    "savedGiftInfo": "Puedes regalar Saved Mushies a cualquiera. Los Mushies mensuales y de bonificación aún requieren que el creador cumpla los requisitos.",
+    "useSavedOnly": "Usar solo Saved Mushies",
+    "checkingGiftBalance": "Comprobando disponibilidad…",
+    "sendPlanGift": "Regalar un plan",
+    "planGiftRecipient": "Regalo para {{name}}",
+    "planGiftPlan": "Elige un plan",
+    "planGiftDays": "{{count}} días",
+    "planGiftRules": "Pago único, sin renovación automática. Una membresía igual o superior deja el regalo en espera. Los regalos superiores pausan los inferiores y conservan sus días. Las suscripciones de pago existentes se siguen facturando.",
+    "planGiftCredits": "Incluye {{count}} Saved Mushies al activarse el regalo.",
+    "planGiftCheckout": "Continuar al pago del regalo",
+    "planGiftUnavailable": "El pago del regalo no está disponible. Inténtalo de nuevo.",
+    "planGiftRefunded": "El destinatario no pudo recibir el regalo. Se ha reembolsado el pago.",
+    "planGiftQueued": "Regalo entregado. Los 30 días se guardan hasta que puedan utilizarse.",
+    "planGiftDelivered": "Regalo entregado correctamente.",
+    "planGiftWaiting": "La confirmación está tardando. Comprueba de nuevo; no vuelvas a pagar.",
+    "planGiftProcessing": "Confirmando el pago del regalo…",
+    "planGiftCheckAgain": "Comprobar de nuevo"
   },
   "promptConfig": {
     "positionHelp": "Posición (los ajustes oficiales usan 0–3; usa decimales como 1.5 para insertar entre ellos)",
@@ -1079,7 +1117,8 @@
       "plus": "Se desbloquea con Platino",
       "pro": "Se desbloquea con Diamante",
       "ultra": "Se desbloquea con Ascendente"
-    }
+    },
+    "claimUncertain": "No pudimos confirmar tu recompensa. Actualiza para comprobar si se añadió."
   },
   "wallet": {
     "title": "Saldo de Mushies",
@@ -1549,5 +1588,22 @@
       "question": "¿Tienes preguntas o alguna inquietud?",
       "message": "Escribe a {{username}}"
     }
+  },
+  "planModelPage": {
+    "back": "Volver al perfil",
+    "title": "Plan y modelo",
+    "subtitle": "Consulta tu plan, créditos, proveedor de IA y modelo activo."
+  },
+  "achievements": {
+    "title": "Logros y títulos",
+    "backToProfile": "Volver al perfil",
+    "empty": "Aún no hay logros disponibles",
+    "earned": "Conseguido",
+    "locked": "Bloqueado",
+    "showcase": "Destacar",
+    "showcased": "Destacado",
+    "showcaseSet": "Ahora destacas \"{{title}}\"",
+    "showcaseRemoved": "Ya no destacas este logro",
+    "showcaseFailed": "No se pudo actualizar el destacado"
   }
 }

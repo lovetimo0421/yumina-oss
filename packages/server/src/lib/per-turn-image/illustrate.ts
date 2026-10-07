@@ -23,7 +23,7 @@ import { getObjectBuffer, putObject } from "../s3.js";
 import type { MessageContent } from "../llm/types.js";
 import { sql } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import { isExplicitMoment, negativeFor, normalizeTags, stripExplicit } from "./age.js";
+import { isExplicitMoment, negativeFor, normalizeTags } from "./age.js";
 import { perTurnImagesEnabled, turnImagePrefs } from "./availability.js";
 import { recordUsageLog } from "../usage-log.js";
 import { redis } from "../redis.js";
@@ -69,21 +69,21 @@ const POV_SOLO_NEGATIVE = { girl: ", 2girls, multiple girls, clone", boy: ", 2bo
 // whole card, once, and each person's body is kept apart from their clothes:
 // the body never changes between turns, the clothes change with the story.
 const CAST_SYSTEM = `You read an interactive-fiction card and write fixed appearance tags for its characters, for an anime illustration model (Illustrious SDXL, danbooru tags).
-Return ONLY JSON: {"player":"unknown","cast":[{"name":"<name>","aliases":["<other names>"],"who":"<who they are, max 12 words>","tags":"<body tags>","outfit":"<outfit tags>","minor":false}]}
+Return ONLY JSON: {"player":"unknown","cast":[{"name":"<name>","aliases":["<other names>"],"who":"<who they are, max 12 words>","tags":"<body tags>","outfit":"<outfit tags>"}]}
 - player: the sex of the player's own character ("you"/{{user}}) when the card states or clearly implies it ("female", "male"), e.g. an otome card whose heroine is the player, or characters calling the player 哥哥/姐姐/怒那/欧巴; otherwise "unknown".
 - cast: the people who can appear on screen with the player, most important first (the card's lead or heroine first). Include EVERY name listed under "Character entries"; add at most 8 others. Not the player ({{user}}, "you", the protagonist the player controls), not groups, factions, places, systems or rules.
 - name: as the card writes it. aliases: nicknames, short forms, other-language or romanized forms the story may use.
 - tags: 6-14 comma-separated English danbooru tags for the body only: head count first (1girl, 1boy or 1other), then hair color and style, eye color, skin, body type and size, species features (animal ears, horns, tail, wings), and permanent marks (glasses, scars, tattoos). No clothes, names, pose, expression or personality. When the card gives no appearance, infer a plausible consistent one from their role.
 - outfit: 3-8 danbooru tags for what they usually wear.
-- minor: true if the card gives an age under 18, or calls them a child, a minor, an elementary or middle school student, or a high school student without stating an adult age. Otherwise false. Draw everyone at their real age: for someone under 18 use plain age tags (child, young girl, young boy, teenage); never loli, lolita or shota.`;
+- Draw everyone as an adult: never child, loli, lolita or shota tags.`;
 
 const MOMENT_SYSTEM = `You turn the end of one interactive-story turn into an anime illustration prompt for an uncensored illustration model (danbooru tags).
 Explicit adult content is allowed. When nudity or sex is visible, tag it plainly with standard danbooru tags (nude, breasts, nipples, penis, pussy, sex, cowgirl position, fellatio, footjob, cum, ...). Never soften or leave it out; never add nudity or sex the text does not show.
 Draw the KEY MOMENT of this reply: the main visual event it is about (the sex act, the fight, the arrival, the reveal, the embrace), as far as it has gone by the end. If the reply winds down afterwards (an aftermath, someone leaving, the player left alone, a closing line of dialogue), still draw the main event with its characters in it. Draw an empty place only when no character is on screen anywhere in the reply.
 Return ONLY JSON:
-{"characters":[{"name":"<name>","look":"","outfit":"<tags>","outfit_lasting":false,"minor":false}],"player":"male","pov":false,"player_in_shot":false,"nsfw":false,"shot":"<shot>","action":"<tags>","scene":"<tags>","caption":"<one or two English sentences>"}
+{"characters":[{"name":"<name>","look":"","outfit":"<tags>","outfit_lasting":false}],"player":"male","pov":false,"player_in_shot":false,"nsfw":false,"shot":"<shot>","action":"<tags>","scene":"<tags>","caption":"<one or two English sentences>"}
 - characters: who is physically present and visible in the key moment, the most important first. Someone only mentioned, remembered, phoned or texted is not visible. The player ("you") is never listed, even when the story narrates the player's body. "Known characters" is a list to match against, not a list of who is here. Match a known character only when the reply uses that name or one of its other names, or clearly refers back to someone the reply already named that way ("she"/"他"). A person the reply calls by a name that is not in the list is a NEW character, even when their role sounds like a known one: give their look from how the reply describes them. Add someone new (including a monster or creature) only when the reply describes them as present; never invent extras.
-- name: a known character's given name; for someone the reply never names, a short description in the reply's language (修女, the guard, 老板娘). look: "" for a known character; for anyone else, 6-12 danbooru tags starting with 1girl, 1boy or 1other, then hair, eyes, body (appearance only, reused in later scenes). minor: true if the text makes them under 18 or a child.
+- name: a known character's given name; for someone the reply never names, a short description in the reply's language (修女, the guard, 老板娘). look: "" for a known character; for anyone else, 6-12 danbooru tags starting with 1girl, 1boy or 1other, then hair, eyes, body (appearance only, reused in later scenes).
 - outfit: what that character is wearing in the key moment, as 2-8 danbooru tags, ONLY from the text (the reply, or the player's line): clothes it names and their state (open shirt, skirt lift, pantyhose, torn clothes, bra, panties, towel, nude, naked apron...). "" when neither says anything about their clothes: the story already knows what they wear, so never guess.
 - outfit_lasting: true when outfit is what they wear from now on: they got dressed or changed clothes, the text describes their clothes for the first time, or the player's line says what someone should wear or look like (then outfit is exactly that). false for a passing state of the same clothes (unbuttoned, pulled aside, taken off for sex, wet, torn).
 - player: "male", "female" or "unknown": the player's sex, from the player's persona when given, otherwise from how the story addresses or describes "you" (pronouns; 怒那/欧尼/姐姐 = a woman is being addressed, 欧巴/哥哥/hyung = a man; body parts).
@@ -228,7 +228,6 @@ interface Look {
   tags: string;
   /** What they usually wear; a turn's own outfit replaces it. */
   outfit?: string;
-  minor: boolean;
   /** The author's portrait of this character, if any: the character is drawn from it. */
   portrait?: string;
   /** Who they are, in a few words. */
@@ -297,18 +296,17 @@ function lookKey(looks: Record<string, Look>, name: string): string | undefined 
 function toLook(raw: unknown): Look | null {
   if (typeof raw === "string" || Array.isArray(raw)) {
     const tags = str(raw);
-    return tags ? { tags: normalizeTags(tags, false), minor: false } : null;
+    return tags ? { tags: normalizeTags(tags) } : null;
   }
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const tags = str(r.tags) || str(r.look);
-  const minor = r.minor === true;
   if (!tags) return null;
   const outfit = str(r.outfit);
   const aliases = Array.isArray(r.aliases) ? r.aliases.filter((a): a is string => typeof a === "string" && a.trim() !== "") : [];
   const who = str(r.who);
   return {
-    tags: normalizeTags(tags, minor), minor,
+    tags: normalizeTags(tags),
     ...(outfit ? { outfit } : {}), ...(aliases.length ? { aliases } : {}), ...(who ? { who: who.slice(0, 80) } : {}),
   };
 }
@@ -395,9 +393,8 @@ function readCast(chars: { name: string; content: string; portrait?: string }[],
       if (!read) return;
       const key = Object.keys(out).find((k) => sameName(k, c.name)) ?? c.name;
       const prior = out[key];
-      const minor = prior?.minor ?? false;
       out[key] = {
-        ...prior, tags: normalizeTags(read.tags, minor), minor, portrait: c.portrait,
+        ...prior, tags: normalizeTags(read.tags), portrait: c.portrait,
         ...(read.outfit ? { outfit: read.outfit } : {}), who: prior?.who ?? firstSentence(c.content),
       };
     }));
@@ -952,12 +949,10 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
       // Someone the card doesn't know (the story made her up this turn). With
       // no look from the tagger she is still drawn as herself, from her
       // clothes; standing in the card's lead would draw the wrong person.
-      look = toLook({ tags: entry.look, minor: entry.minor })
-        ?? { tags: normalizeTags(str(entry.outfit) || "1girl", entry.minor === true).split(", ").filter((t) => /^(1girl|1boy|1other|adult|child|young girl|young boy|teenage)$/i.test(t)).join(", "), minor: entry.minor === true };
+      look = toLook({ tags: entry.look })
+        ?? { tags: normalizeTags(str(entry.outfit) || "1girl").split(", ").filter((t) => /^(1girl|1boy|1other|adult)$/i.test(t)).join(", ") };
       if (name !== "__proto__") remembered[name] = look;
     }
-    // The turn may say someone is a minor that the card didn't: never the other way round.
-    if (look && entry.minor === true && !look.minor) look = { ...look, minor: true, tags: normalizeTags(look.tags, true) };
     if (look && !cast.some((c) => c.look === look)) {
       const worn = str(entry.outfit);
       const filed = key ?? name;
@@ -981,28 +976,19 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
     cast.push({ look: lead, outfit: outfitFor("", false, memory.outfits[leadName], lead.outfit) });
     shown.push(leadName);
   }
-  // The text models refuse sexual content about minors, but the image model
-  // is open-weight and refuses nothing, so this one check lives here. It is
-  // silent (no picture, no message) and only for explicit moments: ordinary
-  // scenes with the same characters are drawn as usual, at their own age.
-  const anyMinor = cast.some((c) => c.look.minor);
-  if (anyMinor && (explicit || isExplicitMoment(false, ...cast.map((c) => c.outfit)))) return { draw: false, shown };
-
   const people = cast.length > 0 || pov;
   // Up to three people share the prompt (a campfire with the whole party);
   // past that SDXL drops or merges them.
   const drawn = cast.slice(0, 3);
-  const minorShown = drawn.some((c) => c.look.minor);
-  // A minor on screen: nothing sexual or suggestive reaches the prompt.
-  const clean = (tags: string) => (minorShown ? stripExplicit(tags) : tags);
   // The body never changes; the clothes are the ones the story last put them in.
-  const bodies = drawn.map((c) => [c.look.tags, clean(c.outfit)].filter(Boolean).join(", "));
+  // Normalized again here: looks cached before this change kept youth tags.
+  const bodies = drawn.map((c) => [normalizeTags(c.look.tags), c.outfit].filter(Boolean).join(", "));
   // The player beside one character (asleep in his arms): an anonymous figure
   // of the player's sex takes the second half of the frame.
   const playerShown = moment.player_in_shot === true && !pov && !nsfw && drawn.length === 1 && (player === "female" || player === "male");
   if (playerShown) bodies.push(player === "female" ? "1girl, adult" : "1boy, adult");
   // An empty scene's "action" describes the unseen player.
-  const action = people ? clean(str(moment.action)) : "";
+  const action = people ? str(moment.action) : "";
   // A close-up of a whole-body pose (straddling, lying, kneeling) is two
   // views of it, which the model draws as a collage: frame the upper body.
   const shot = /close-?up/i.test(str(moment.shot)) && BODY_POSE_RE.test(action) ? "upper body" : str(moment.shot);
@@ -1013,7 +999,7 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
   const scene = dedupeTags([quality(), nsfw && people ? "nsfw, explicit" : "",
     nsfw && action ? `(${action}:1.25)` : "",
     drawn.length ? parts.count || parts.inline : pov ? "" : "no humans, scenery", soloMale, pov ? (femalePov ? "pov, female pov" : "pov") : "",
-    people ? shot : "", nsfw ? "" : action, clean(str(moment.scene))].filter(Boolean).join(", "));
+    people ? shot : "", nsfw ? "" : action, str(moment.scene)].filter(Boolean).join(", "));
   // Each of the first two drawn characters with a portrait is drawn from it
   // (in their own half of a group frame).
   const portraits = (await Promise.all(drawn.slice(0, 2).map(async (c, slot) => {
@@ -1024,11 +1010,11 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
     });
     return image ? { ...image, slot } : null;
   }))).filter((p) => p !== null);
-  const caption = minorShown ? "" : str(moment.caption).slice(0, 400);
+  const caption = str(moment.caption).slice(0, 400);
   const prompt: TurnPrompt = { scene, bodies: parts.bodies, ...(caption ? { caption } : {}), ...(portraits.length ? { portraits } : {}) };
   const solo = drawn.length === 1 && !playerShown;
   const sex = soloMale || /(^|,\s*)1boy(\s*,|$)/.test(parts.inline) ? "boy" : "girl";
-  const negative = negativeFor(minorShown, !explicit, env.PER_TURN_IMAGE_NEGATIVE || undefined) + (solo ? (pov ? POV_SOLO_NEGATIVE : SOLO_NEGATIVE)[sex] : "");
+  const negative = negativeFor(!explicit, env.PER_TURN_IMAGE_NEGATIVE || undefined) + (solo ? (pov ? POV_SOLO_NEGATIVE : SOLO_NEGATIVE)[sex] : "");
   return { draw: true, prompt, negative, shown, nsfw: explicit, pov, player };
 }
 

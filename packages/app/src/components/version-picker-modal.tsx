@@ -6,6 +6,21 @@ import { LANGUAGE_SHORT, variantRowLabels } from "@/lib/languages";
 import type { LanguageVariant } from "@/lib/languages";
 
 
+/**
+ * The one version to start without asking: the only variant in the reader's
+ * language (by base language, so zh-Hant readers count zh). Other variants
+ * are translations they did not ask for; a chooser with a single option was
+ * just a second click (launch QA). Null when there is a real choice.
+ */
+export function soleCurrentLanguageVariant(
+  variants: readonly LanguageVariant[],
+  uiLanguage: string,
+): LanguageVariant | null {
+  const base = uiLanguage.split("-")[0];
+  const current = variants.filter((v) => (v.language ?? "").split("-")[0] === base);
+  return current.length === 1 ? current[0]! : null;
+}
+
 interface VersionPickerModalProps {
   open: boolean;
   onClose: () => void;
@@ -79,7 +94,7 @@ export function VersionPickerModal({
   return createPortal(
     <div className="fixed inset-0 z-[90] flex items-center justify-center">
       <div
-        className="absolute inset-0 bg-black/78 animate-in fade-in duration-150"
+        className="absolute inset-0 modal-backdrop animate-in fade-in duration-150"
         onClick={onClose}
       />
       <div
@@ -185,7 +200,7 @@ export function VersionPickerModal({
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary/90 px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-all hover:bg-primary disabled:opacity-50"
           >
             <Play className="h-4 w-4" />
-            Preview
+            {tChat("preview.openPreview")}
           </button>
         </div>
       </div>

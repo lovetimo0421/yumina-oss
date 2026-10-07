@@ -132,7 +132,7 @@ export function buildContinuityPlan(world: WorldDefinition, state: GameState, in
 
   for (const v of world.variables) {
     if (!isContinuityOwned(world, v)) continue;
-    if (!isVariableActive(v, state)) continue;
+    if (!isVariableActive(v, state, world.worldbooks)) continue;
     const key = `var__${v.id}`;
     const rules = ruleText(v);
     const raw = state.variables[v.id] ?? v.defaultValue;

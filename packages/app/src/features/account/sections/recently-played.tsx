@@ -6,6 +6,7 @@ import { useSession } from "@/lib/auth-client";
 import { useUiStore } from "@/stores/ui";
 import { useFeature } from "@/edition/edition";
 import { usePlayWithLanguage } from "@/hooks/use-play-with-language";
+import { formatTimeAgo, parseServerTime } from "@/lib/format-time";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
@@ -26,17 +27,6 @@ interface RecentSessionRow {
 
 const MAX_RECENT_WORLDS = 5;
 
-function timeAgo(dateStr: string): string {
-  const diff = Date.now() - new Date(dateStr).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return new Date(dateStr).toLocaleDateString();
-}
-
 /**
  * Newest world per session list. The hosted `recent-played` endpoint reads the
  * user's library (published worlds only); without a library the user's own
@@ -49,7 +39,7 @@ export function recentWorldsFromSessions(
   const byWorld = new Map<string, RecentlyPlayedWorld>();
   for (const row of rows) {
     const existing = byWorld.get(row.worldId);
-    if (existing && new Date(existing.lastPlayedAt).getTime() >= new Date(row.updatedAt).getTime()) continue;
+    if (existing && parseServerTime(existing.lastPlayedAt) >= parseServerTime(row.updatedAt)) continue;
     byWorld.set(row.worldId, {
       id: row.worldId,
       name: row.worldName ?? fallbackName,
@@ -58,14 +48,14 @@ export function recentWorldsFromSessions(
     });
   }
   return [...byWorld.values()]
-    .sort((a, b) => new Date(b.lastPlayedAt).getTime() - new Date(a.lastPlayedAt).getTime())
+    .sort((a, b) => parseServerTime(b.lastPlayedAt) - parseServerTime(a.lastPlayedAt))
     .slice(0, MAX_RECENT_WORLDS);
 }
 
 // ─── Recently Played Section ─────────────────────────────────────────
 
 export function RecentlyPlayed() {
-  const { t } = useTranslation("profile");
+  const { t, i18n } = useTranslation("profile");
   const { t: tChat } = useTranslation("chat");
   const { data: session } = useSession();
   const navigate = useNavigate();
@@ -162,7 +152,7 @@ export function RecentlyPlayed() {
                   {world.name}
                 </h4>
                 <p className="mt-0.5 text-[10px] text-sub/60">
-                  {t("overview.playedAgo", { time: timeAgo(world.lastPlayedAt) })}
+                  {t("overview.playedRelative", { time: formatTimeAgo(world.lastPlayedAt, i18n.language) })}
                 </p>
               </div>
             </div>

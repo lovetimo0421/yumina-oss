@@ -4,6 +4,7 @@ import {
   filterEntriesByActiveWorldbooks,
 } from "../lorebook/worldbook.js";
 import { GameStateManager } from "../state/game-state-manager.js";
+import { PromptBuilder } from "../prompts/prompt-builder.js";
 import {
   createMockEntry,
   createMockGameState,
@@ -123,6 +124,38 @@ describe("computeActiveWorldbookIds", () => {
 describe("filterEntriesByActiveWorldbooks", () => {
   const coreEntry = createMockEntry({ id: "c1", content: "core lore" }); // no worldbookId
   const tavernEntry = createMockEntry({ id: "t1", content: "tavern lore", worldbookId: "tavern" });
+
+  it("keeps an active worker's persona private while preserving ordinary module lore", () => {
+    const worker = { ...coreBook, id: "worker", station: { kind: "worker" as const } };
+    const narrator = { ...coreBook, id: "narrator", station: { kind: "narrator" as const } };
+    const entries = [coreEntry, ...["core", "worker", "narrator", "missing"].map((id) =>
+      createMockEntry({ id, worldbookId: id, alwaysSend: true }),
+    )];
+    const state = createMockGameState();
+    expect(computeActiveWorldbookIds([coreBook, worker, narrator], state).has("worker")).toBe(true);
+    expect(filterEntriesByActiveWorldbooks(entries, [coreBook, worker, narrator], state).map((e) => e.id))
+      .toEqual(["c1", "core", "narrator", "missing"]);
+    // Filtering a player prompt must not remove the worker's source material.
+    expect(entries.find((e) => e.id === "worker")?.content).toBe("A brave adventurer.");
+  });
+
+  it("does not inject worker instructions through any player lore section", () => {
+    const worker = { ...coreBook, id: "worker", station: { kind: "worker" as const } };
+    const privateEntries = (["system-presets", "chat-history", "post-history"] as const).map((section) =>
+      createMockEntry({ worldbookId: "worker", section, alwaysSend: true, content: "PRIVATE WORKER PERSONA", depth: 0 }),
+    );
+    const publicEntry = createMockEntry({ alwaysSend: true, content: "PUBLIC NARRATOR" });
+    const world = createMockWorld({ worldbooks: [worker], entries: [...privateEntries, publicEntry] });
+    const state = createMockGameState();
+    const builder = new PromptBuilder();
+    const prompt = [
+      ...builder.buildSystemMessages(world, state),
+      ...builder.buildDepthEntries(world, state, privateEntries),
+      ...builder.buildPostHistoryEntries(world, state, privateEntries),
+    ];
+    expect(prompt.some((entry) => entry.content.includes("PUBLIC NARRATOR"))).toBe(true);
+    expect(prompt.some((entry) => entry.content.includes("PRIVATE WORKER PERSONA"))).toBe(false);
+  });
 
   it("keeps Core (no worldbookId) entries regardless of state", () => {
     const kept = filterEntriesByActiveWorldbooks(

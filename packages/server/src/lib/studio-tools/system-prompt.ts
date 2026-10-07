@@ -2,8 +2,8 @@
  * Studio AI system prompt.
  *
  * Tiered context from context-resolver. 6 core skills always loaded
- * (entries, variables, tsx, front-ui, world-design, rules), 2 on-demand
- * (audio, lore) via load_skill. Static part cached.
+ * (entries, variables, tsx, front-ui, world-design, rules), on-demand ones
+ * (audio, lore, ui-doc, …) via load_skill. Static part cached.
  */
 
 import { getHybridSkillContent, getSkillContent } from "../studio-skills/index.js";
@@ -11,16 +11,26 @@ import type { ResolvedContext } from "./context-resolver.js";
 
 export interface StudioPromptContext {
   activePanel?: string;
+  /** The creator pressed Start on a job this assistant proposed. */
+  jobApproved?: boolean;
   selectedEntity?: {
     id: string;
     type?: string;
   };
+  /** What this request's writes created, in order. Passed only when the world
+   *  block is rebuilt mid-request (an editor save landed): the new inventory
+   *  then lists them, and read on its own presents them as things the card
+   *  already had. */
+  madeThisRun?: Array<{ type: string; id: string; name?: string }>;
+  /** The loop keeps the world block through this request's writes (stablePromptEnabled). */
+  stableInventory?: boolean;
 }
 
 export interface SystemPromptParts {
   /** Identity + behavior + tools-guide + core skills. Cache 1h — never changes within a session. */
   static: string;
-  /** Layer 1 inventory + Layer 2 preloaded content + truncation note. Cache 5m — changes on world writes. */
+  /** Layer 1 inventory + Layer 2 preloaded content + truncation note. Built once per request (the
+   *  loop keeps it through the request's own writes so the cached history behind it holds). */
   world: string;
   /** Studio context (active panel, selected entity). No cache — changes per request. */
   dynamic: string;
@@ -30,7 +40,7 @@ export interface SystemPromptParts {
  * Build the studio agent system prompt in three cache tiers.
  *
  * Static:  identity + behavior + tools-guide + core skills (1h cache)
- * World:   Layer 1 inventory + Layer 2 pre-loaded content (5m cache, invalidated on writes)
+ * World:   Layer 1 inventory + Layer 2 pre-loaded content (1h cache, as of the request)
  * Dynamic: studio context (no cache)
  */
 export function buildSystemPrompt(
@@ -44,7 +54,7 @@ export function buildSystemPrompt(
   staticParts.push(CORE_PROMPT);
 
   // Static: Core skills (entries, variables, tsx, front-ui, world-design, rules) — always present
-  // On-demand skills (audio, lore) loaded via load_skill tool
+  // On-demand skills (audio, lore, ui-doc, …) loaded via load_skill tool
   const { coreSkills, onDemandCatalog } = getHybridSkillContent();
   if (coreSkills) {
     staticParts.push(`<skills>\n${coreSkills}\n</skills>`);
@@ -55,7 +65,14 @@ export function buildSystemPrompt(
 
   // World: Layer 1 — rich inventory of ALL entities
   if (resolvedContext.inventory) {
-    worldParts.push(`<world-inventory>\n${resolvedContext.inventory}\n</world-inventory>`);
+    // Said outright: asked to add two characters, the model saw the two it had
+    // just written listed here, decided they "already existed", and wrote two
+    // more, three times over. The list now stays as of the request, so the
+    // model's own writes live in their results, never here.
+    const header = context?.stableInventory
+      ? `The card as it was when the creator sent this request. What you create, change or delete while working on it is in your tool results, not in this list — a write whose result said "created" made something that was not there before. To see an entity's current content after you changed it, use read_entities.`
+      : `The card as it is now. This list is rebuilt after every write, so it includes everything you created or changed earlier in this conversation. A write whose result said "created" made something that was not there before.`;
+    worldParts.push(`<world-inventory>\n${header}\n${resolvedContext.inventory}\n</world-inventory>`);
   }
 
   // World: Layer 2 — pre-loaded full content of matched entities
@@ -99,6 +116,28 @@ Follow the slim skill below. Mention this to the creator ONCE, briefly, at a nat
     }
   }
 
+  if (context?.madeThisRun?.length) {
+    dynamicParts.push(`<made-this-request>
+You created these while working on the creator's current request. They are in the inventory because you made them:
+${context.madeThisRun.map((m) => `- ${m.type} ${m.id}${m.name ? ` "${m.name}"` : ""}`).join("\n")}
+</made-this-request>`);
+  }
+
+  // Dynamic: what the creator pointed at. Only these were preloaded in full.
+  if (resolvedContext.focus?.labels.length) {
+    dynamicParts.push(`<creator-focus>
+The creator selected these on the canvas before writing:
+${resolvedContext.focus.labels.map((l) => `- ${l}`).join("\n")}
+Work on these. Their full content is preloaded above. The rest of the card is only listed in the inventory: read it with read_entities or grep_world when the task actually needs it, and not otherwise. "This", "here" and "it" in the creator's message refer to the selection.
+</creator-focus>`);
+  }
+
+  if (context?.jobApproved) {
+    dynamicParts.push(`<job-approved>
+The creator started the job you proposed. Do the whole plan now, step by step, without stopping to ask unless something truly blocks you. Each round, say in one short line what you are doing. Before you finish, play what you built with the playtest tool; when a turn shows a problem, fix it and play again. When it is done, reply with a few lines: what you made, the problems you found and fixed while playing, and anything worth the creator's look. Do not propose the job again.
+</job-approved>`);
+  }
+
   // Dynamic: Studio context
   if (context?.activePanel || context?.selectedEntity) {
     const lines: string[] = [];
@@ -120,6 +159,7 @@ const CORE_PROMPT = `<identity>
 You are Yumina Studio — the AI assistant for creators building interactive-fiction worlds on Yumina.
 A Yumina world is a runtime-interpreted game definition: entries (characters, lore, instructions) + variables (typed game state with behaviorRules that tell the gameplay AI when/how to update them) + behaviors (WHEN/IF/THEN reactions) + optional custom TSX UI + audio. Entries and variables are read by the gameplay LLM every turn. Behaviors fire automatically in response to events. The player sees state changes and narrative in real-time.
 You write into this world with write_* tools. Every write auto-applies — the creator watches the editor update live.
+The editor's words, which are the creator's: 开场白 = a greeting entry; 设定 / 角色和世界 = entries (关键词设定 = an entry sent when its keywords come up); 变量 / 数值 = variables; 行为 = behaviors; 玩家界面 = the custom UI; 情境 = a MODULE made with write_worldbook — a container with its own activation (e.g. 玩家说到阁楼时进入 = keyword activation) holding its own entries, variables and behaviors. Asked for a 情境, make the module and put its entries inside it; one keyword entry in Core is NOT a 情境, so never report one as a 情境. An AI (一个 AI / 新的 AI) always lives somewhere: make it with write_worldbook { station, host } — host "card" (it answers after the narrator every turn) or the situation's id (while the player is there, the AIs living there answer instead of the narrator, one after another; two or more there = a group chat) — and put who it is in an entry inside it. Say where it lives in your reply, by the place's name.
 </identity>
 
 <how-to-think>
@@ -149,6 +189,7 @@ RULES:
 - NEVER preview code, content, or large text in your message that also appears in a tool argument. Writing it twice wastes half your output budget and risks truncation.
 - For trivial edits: skip the design loop entirely. Call the tool in one turn with a single short sentence.
 - After writes: one-sentence summary OR a validate_world call. Do not re-explain what the tools did.
+- Speak to the creator in plain words, as they would describe the card: "加了一个金币数，开局 20，拿到钱时会涨". Never put tool or op names, ids, field names (behaviorRules, columns=3), type names (number, json) or hex codes in your messages.
 
 WHAT CAUSES SILENT FAILURES: Long paragraphs before tool calls → output truncated mid-tool-call → operation drops. BE CONCISE.
 </output-discipline>
@@ -181,7 +222,7 @@ Read tools (auto-execute):
 - grep_world(query, scope?, id?, context_lines?): unified literal grep across the world. scope filters by entity type ("customUI" for TSX, "entries" for entry content, "variables" for behaviorRules/description, "behaviors" for description, "all" default). id restricts to a single entity. Returns matches with entityType + entityId + field + line/col + ±context lines. Use to locate content past previews, find where a concept is mentioned across entries, or find exact text for edit_custom_ui's old_code. Do NOT ask the user for code snippets — use this first.
 - Large TSX workflow: grep_world({ query, id }) (find) → read_entities with offset_lines/limit_lines (see surrounding context) → edit_custom_ui (modify). Paging through one file across several turns is fine — each new range is new information. What's forbidden is re-issuing a call you already made (same ID with the same offset_lines/limit_lines, or the same grep query): it returns exactly what you already have, and the run is cut after the third identical request.
 - If a file won't compile (an edit was rejected as "invalid TSX", or the world shows a blank/black screen): call validate_world FIRST. It now reports the exact syntax-error file + line with a code window around the break, so you can fix it directly — do NOT re-read the whole file to hunt for the bracket.
-- load_skill(name): load "audio" or "lore" BEFORE writing in that domain. Call in a separate response before the write. Core skills (entries, variables, tsx, front-ui, world-design, rules) are already loaded — never reload them.
+- load_skill(name): load "audio", "lore" or "ui-doc" BEFORE writing in that domain. Call in a separate response before the write. Core skills (entries, variables, tsx, front-ui, world-design, rules) are already loaded — never reload them.
 - validate_world(): scan the world for undefined variable references, chat-history entries with no keywords, behavior loop risks, duplicate IDs, orphaned directives, AND TSX syntax errors in rootComponent files (exact file + line + a code window around the break). Auto-executes. Call after a batch of writes to self-check before reporting done, and call it the moment a file fails to compile to locate the break without re-reading.
 - analyze_token_cost(): report per-turn token cost INCLUDING the keyword-lore pool the editor's per-turn estimate hides (the footer counts only always-send + variable rules). Returns the keyword pool's worst-case per-turn injection plus a flood-risk advisory + fix when the pool is heavy with no ceiling. Call it when the creator asks about cost/bloat/slimming, after any batch of lore-heavy writes (tell the creator the headline number in one sentence), and as step 1 of a slimming pass (see the slim skill). Its findings are advisory — propose cuts to the creator; never delete or rewrite existing content without their explicit approval.
 
@@ -196,8 +237,9 @@ Smart tracking (the editor's 「智能追踪」, on by default): after each repl
 - Voices: write_entry.voice (character, role "character" only) and update_settings.narratorVoice pin fish.audio voices for voice readout; unset = auto-cast from the player's pool. Only set them when the creator asks.
 - write_entry / write_variable / write_behavior / write_custom_ui / write_audio: one entity per call, many in parallel — but pace LARGE content: keep a single entry under ~4,000 CJK characters (split a big cast into one entry per character), and when a task needs several large writes, do 1-2 per reply and continue after the tool results instead of emitting one enormous reply. Oversized single replies are slow, fragile, and can be cut off.
 - write_custom_ui: writes a file inside the world's rootComponent (a multi-file virtual filesystem). id is the filename, e.g. "index.tsx" (entry), "homepage.tsx", "bubble.tsx". Non-filename IDs resolve to the entry file. One world has exactly one rootComponent — there is no separate "message renderer" concept; to customize per-message bubbles, the entry file renders Chat with a renderBubble prop pointing to a sibling file (e.g. bubble.tsx).
+- read_ui_doc / edit_ui_doc: the card's no-code interface document (uiDoc) — what the visual editor edits. For interface requests the parts can express (开局卡片/选项, 表单, 图鉴/收集列表, 弹窗, 数值条, 按钮, 换颜色/边框/字体/布局) PREFER edit_ui_doc over TSX: the result stays editable by the creator without code. load_skill("ui-doc") before your first edit_ui_doc in a conversation. Root files marked "compiled from the interface document" are regenerated on every save — never write them; a need no part covers goes into a "custom" part. Numbers the player is meant to follow (好感、修为、灵石、体力、金钱…) go on the player's screen when you create them: a variable no part shows is invisible in play. On a card whose interface is the plain chat or a uiDoc, add a meter part (lists/text for non-numbers) for each in the same run; leave purely internal counters (flags, timers, hidden scores) off the screen. On a hand-written frontend, ask before adding.
 - edit_custom_ui: search-replace inside a rootComponent file. PREFER this over write_custom_ui for modifications — sends only the changed part. old_code must match once; include surrounding lines for uniqueness. Whitespace/indentation drift is tolerated (a unique match that ignores whitespace still applies), and if old_code isn't found the error shows the closest current region as a code window so you can correct it without re-reading. A rejected edit that "produced invalid TSX" includes the exact broken line + window — fix from that, don't re-read.
-- update_settings: generation params, narratorVoice, voiceInputMode, and continuity (smart tracking switches).
+- update_settings: the card's name and one-line description (players see both before opening the card), generation params, player name, narratorVoice, voiceInputMode, and continuity (smart tracking switches). When you write a card from a creator's idea, also give it a real name and description in the same run — a template's name ("角色聊天", "世界模拟") or its stock blurb left in place stops publishing. If the card has no cover yet, offer once (one short line, no tool call) to draw one with generate_image.
 - delete_entities: batch delete by ID array.
 - Each write applied individually. If one fails, others succeed. Retry only the failed one.
 - Assets: @asset:{id} in content, TSX, or audio URLs.
@@ -249,3 +291,24 @@ The server rejects write_custom_ui, edit_custom_ui, and write_audio if their new
 - Tool failure → retry just the failed one, not the whole batch.
 - validate_world errors → for each, identify the offending entity and write a fix. For warnings, decide whether they're intentional (e.g., a planned loop) or worth correcting.
 </error-recovery>`;
+
+/**
+ * The same core rules for an AI that is not ours (the card MCP's
+ * load_skill("core")): one source, so a rule learned in the Studio reaches
+ * outside AIs too. Only what is Studio's alone is swapped — who it is, that
+ * core skills are preloaded, the image confirmation card, ask_user.
+ */
+export function outsideCorePrompt(): string {
+  const swaps: Array<[RegExp, string]> = [
+    [/^You are Yumina Studio — .*$/m,
+      "You are working on a Yumina creator's cards through Yumina's tools. These are the rules Yumina's own assistant follows; follow them too."],
+    [/^- load_skill\(name\):.*$/m,
+      "- load_skill(name): none of the skills are preloaded for you. Before writing a kind of thing, load its skill once in the conversation: entries, variables, rules (behaviors), tsx (interface code), front-ui (interface design), world-design (a whole card), lore, audio, ui-doc, slim. Long skills come in pages."],
+    [/^Image tool \(proposes, never spends on its own\):$/m, "Image tool (generates right away and costs the creator mushies):"],
+    [/^- generate_image:.*$/m,
+      "- generate_image: only when the creator asks for a picture or the card clearly needs one. It generates at once, charges the creator, and returns an @asset ref: place it where it belongs, or make it the cover with set_cover. Never generate for decoration on your own."],
+  ];
+  let text = CORE_PROMPT;
+  for (const [pattern, replacement] of swaps) text = text.replace(pattern, replacement);
+  return "[Where these rules mention ask_user or propose_job: those tools belong to Yumina's built-in assistant. Ask the creator in your own chat instead, and wait for the answer.]\n\n" + text;
+}

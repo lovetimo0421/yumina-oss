@@ -40,13 +40,53 @@ export function displayCharacterName(raw: string): string {
   return m && m[1]!.trim() ? m[1]!.trim() : trimmed;
 }
 
-/** Whether this world should be asked for a speaker tag: two or more
- *  characters with portraits (with one, every line is theirs), and no
- *  variable that would collide with the tag's name. */
-export function speakerTagEnabled(world: Pick<WorldDefinition, "entries" | "variables">): boolean {
-  if (portraitCharacters(world.entries).length < 2) return false;
-  if ((world.variables ?? []).some((v) => v.id.toLowerCase() === "speaker")) return false;
-  return true;
+/** The names the stock templates give their character entries, in every UI
+ *  language (app `templates-content.json`; a test there keeps this in step).
+ *  A character still called this has not been named by its author yet, so it
+ *  is no name to put over a line. */
+const PLACEHOLDER_CHARACTER_NAMES = new Set([
+  "角色", "人物一", "人物二",
+  "Character", "Character one", "Character two",
+  "キャラクター", "人物その一", "人物その二",
+  "Personaje", "Personaje uno", "Personaje dos",
+]);
+
+export function isPlaceholderCharacterName(raw: string | undefined): boolean {
+  const name = displayCharacterName(raw ?? "");
+  return !name || PLACEHOLDER_CHARACTER_NAMES.has(name);
+}
+
+/** Characters that live in a frame with an AI of its own: one named
+ *  character per narrating station. Each speaks when its AI does, and only
+ *  the reply can say whether she is the one talking or the AI is narrating
+ *  someone else. */
+export function aiVoiceCharacters(world: Pick<WorldDefinition, "entries" | "worldbooks">): WorldEntry[] {
+  const out: WorldEntry[] = [];
+  for (const book of world.worldbooks ?? []) {
+    if (book.enabled === false || book.station?.kind !== "narrator") continue;
+    const own = (world.entries ?? []).filter((e) => e.worldbookId === book.id && e.role === "character" && e.enabled !== false);
+    if (own.length === 1 && !isPlaceholderCharacterName(own[0]!.name)) out.push(own[0]!);
+  }
+  return out;
+}
+
+/** The characters the model may name in the tag. Two or more with portraits
+ *  (with one, every line is theirs); or, on a card with an AI of its own,
+ *  every named character, so a reply says whether that AI's character is
+ *  talking or someone else is. Nobody when a variable would collide with
+ *  the tag's name. */
+export function speakerRoster(world: Pick<WorldDefinition, "entries" | "variables" | "worldbooks">): WorldEntry[] {
+  if ((world.variables ?? []).some((v) => v.id.toLowerCase() === "speaker")) return [];
+  if (aiVoiceCharacters(world).length > 0) {
+    return (world.entries ?? []).filter((e) => e.role === "character" && e.enabled !== false && !isPlaceholderCharacterName(e.name));
+  }
+  const faces = portraitCharacters(world.entries);
+  return faces.length >= 2 ? faces : [];
+}
+
+/** Whether this world should be asked for a speaker tag. */
+export function speakerTagEnabled(world: Pick<WorldDefinition, "entries" | "variables" | "worldbooks">): boolean {
+  return speakerRoster(world).length > 0;
 }
 
 export interface SpeakerTagParse {
@@ -76,12 +116,13 @@ export function isPartialLeadingSpeakerTag(text: string): boolean {
 
 /** The prompt block that teaches the tag. Empty when the world doesn't
  *  qualify. */
-export function buildSpeakerFormatBlock(world: Pick<WorldDefinition, "entries" | "variables">): string {
-  if (!speakerTagEnabled(world)) return "";
-  const names = portraitCharacters(world.entries).map((e) => displayCharacterName(e.name));
+export function buildSpeakerFormatBlock(world: Pick<WorldDefinition, "entries" | "variables" | "worldbooks">): string {
+  const roster = speakerRoster(world);
+  if (roster.length === 0) return "";
+  const names = [...new Set(roster.map((e) => displayCharacterName(e.name)))];
   return [
     "<speaker-format>",
-    `Characters with portraits: ${names.join(", ")}.`,
+    aiVoiceCharacters(world).length > 0 ? `Characters: ${names.join(", ")}.` : `Characters with portraits: ${names.join(", ")}.`,
     "Begin EVERY reply with a speaker tag as the very first thing, before any prose:",
     "  [speaker: Name]",
     "Name is exactly one of the names above — the character whose voice the reply is mainly in.",

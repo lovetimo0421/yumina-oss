@@ -1,4 +1,4 @@
-import type { AiGenerationConfig, ImageCompletionMessage } from "@yumina/shared";
+import type { AiGenerationConfig, CompletionResponseFormat, ImageCompletionMessage, SideCompletionWorldbookIds } from "@yumina/shared";
 import { kimiRepetitionOverride } from "@/lib/kimi-repetition";
 
 export interface SideCompletionParams {
@@ -8,7 +8,8 @@ export interface SideCompletionParams {
   temperature?: number;
   context?: "session";
   includeLorebook?: boolean | "all" | "matched";
-  responseFormat?: { type: "json_object" };
+  worldbookIds?: SideCompletionWorldbookIds;
+  responseFormat?: CompletionResponseFormat;
 }
 
 type Preferences = Omit<AiGenerationConfig, "reasoningEffort" | "storyMemory"> & { reasoningEffort?: string };
@@ -23,6 +24,7 @@ export function buildSideCompletionRequest(params: SideCompletionParams, prefere
     temperature: params.temperature,
     context: params.context,
     includeLorebook: params.includeLorebook,
+    worldbookIds: params.worldbookIds,
     responseFormat: params.responseFormat,
     ...(params.context === "session" && { overrides: {
       maxTokens: preferences.maxTokens,

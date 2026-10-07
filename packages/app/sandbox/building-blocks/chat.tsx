@@ -1,8 +1,10 @@
 import React, { useMemo, useRef } from "react";
 import { useYumina } from "../sandbox-context";
+import { ChatBackground } from "../chat/chat-background";
 import { MessageList } from "../chat/message-list";
 import { MessageInput } from "../chat/message-input";
 import { renderMessage } from "../chat/markdown";
+import type { MessageDesign } from "../chat/designed-message";
 
 /**
  * Props for the creator's custom bubble renderer.
@@ -44,6 +46,10 @@ export interface ChatProps {
   className?: string;
   /** Content to render above the message list */
   children?: React.ReactNode;
+  /** A message style + 特殊写法 rules (from the visual editor). Used only when
+   *  there is no `renderBubble` — see MessageList. */
+  design?: MessageDesign | null;
+  fontMap?: Record<string, string>;
 }
 
 /**
@@ -69,7 +75,7 @@ export interface ChatProps {
  *   <div className="p-2 border-b">Custom header content</div>
  * </Chat>
  */
-export function Chat({ renderBubble, className, children }: ChatProps) {
+export function Chat({ renderBubble, className, children, design, fontMap }: ChatProps) {
   const api = useYumina();
 
   // Bridge the creator's `renderBubble` into the component format MessageList
@@ -141,12 +147,17 @@ export function Chat({ renderBubble, className, children }: ChatProps) {
       // textarea while positioned toolbar buttons remain visible above it.
       className={`relative z-0 flex h-full w-full min-w-0 flex-1 flex-col overflow-hidden ${className ?? ""}`}
     >
+      {/* The card's background, painted as a sibling of the transcript rather
+          than a backdrop-filter over it — see ChatBackground. A card with no
+          background renders nothing here. */}
+      <ChatBackground background={api.background ?? null} />
+
       {/* Optional creator header content */}
       {children}
 
       {/* Message list with optional custom renderer */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <MessageList rendererComponent={rendererComponent} />
+      <div className="relative z-[1] flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <MessageList rendererComponent={rendererComponent} design={design} fontMap={fontMap} />
         {!api.readOnly && <MessageInput />}
         {api.readOnly &&
           (api.messages as unknown[])?.length > 0 && (

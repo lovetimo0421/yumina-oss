@@ -31,9 +31,10 @@ export {
  *
  * The fix marks the USER message rather than inserting a synthetic assistant
  * row. That choice is deliberate: a fake assistant row would be picked up by
- * the history builders (`buildRawHistoryWhere` in routes/messages.ts) and fed
- * back to the model as a real assistant turn, corrupting the conversation. The
- * user message is already legitimately part of history and stays there on retry.
+ * the history builders and fed back to the model as a real assistant turn,
+ * corrupting the conversation. Failed user rows remain in the visible transcript
+ * but are excluded from future prompt history. The exact active user row is
+ * included when retried, without replaying other abandoned failed actions.
  */
 
 /**

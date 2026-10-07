@@ -18,7 +18,10 @@ export const DOCS_URLS = {
   get home() { return url("/"); },
   get welcome() { return url("/creator/"); },
   get beginnerGuide() { return url("/creator/advanced/tutorial-basic"); },
+  // Shipped with the app: testing must not depend on a production docs release.
+  get blueprintStart() { return "/app/learn"; },
   get entries() { return url("/creator/entries"); },
+  get modules() { return url("/creator/modules"); },
   get variables() { return url("/creator/variables"); },
   get rulesEngine() { return url("/creator/automation"); },
   get components() { return url("/creator/advanced/custom-ui-deep"); },

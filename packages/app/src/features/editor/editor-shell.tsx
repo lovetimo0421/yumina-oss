@@ -1,12 +1,15 @@
+import { VariantTranslateBanner } from "./variant-translate-banner";
 import { useStoryNavigation } from "@/hooks/use-story-navigation";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { Fragment, lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { IDockviewPanelProps } from "dockview-react";
 import { useRouter } from "@tanstack/react-router";
 import { useAuthGuard } from "@/hooks/use-auth-guard";
 import { navigateBackSafely } from "@/lib/safe-back";
 import { useHistoryEntryState } from "@/hooks/use-history-entry-state";
 import {
   ArrowLeft,
+  Boxes,
   Check,
   ChevronDown,
   Save,
@@ -17,9 +20,9 @@ import {
   LayoutGrid,
   Music,
   Images,
+  Image as ImageIcon,
   FolderOpen,
   Play,
-  Wand2,
   MoreVertical,
   MessageCircle,
   Sparkles,
@@ -28,8 +31,11 @@ import {
   History,
   Package,
   SlidersHorizontal,
+  MessageSquare,
+  Smartphone,
 } from "lucide-react";
 import { feedback } from "@/lib/feedback";
+import { useBlueprintAccess } from "@/lib/blueprint-access";
 import { useTransientFlag } from "@/hooks/use-transient-flag";
 import { cn } from "@/lib/utils";
 import { DOCS_URLS } from "@/lib/docs-urls";
@@ -37,35 +43,52 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useEditorStore, type EditorSection } from "@/stores/editor";
 import { useWorldsStore } from "@/stores/worlds";
-import { saveEditorMode, saveGlobalEditorMode } from "./quick-create-editor";
+import { rememberEditorChoice } from "./lib/editor-mode";
+import { getEditorSurface, saveEditorSurface } from "@/lib/editor-surface";
+import { VisualSurfaceSwitch } from "./visual-surface-switch";
 import { VariantTabBar } from "./variant-tab-bar";
 import { ReviewStateControl } from "./review-state-control";
 import { GuestEditorReadOnly } from "./components/guest-editor-readonly";
+import { flushPendingEditorFields } from "./components/debounced-field";
 import { FirstMessageSection } from "./sections/first-message";
 import { KnowledgeBasesSection } from "./sections/knowledge-bases";
+import { ModulesSection } from "./sections/modules";
 import { VariablesSection } from "./sections/variables";
 import { BehaviorsSection } from "./sections/behaviors-section";
 import { ComponentsSection } from "./sections/components";
 import { AudioSection } from "./sections/audio";
 import { SceneImagesSection } from "./sections/scene-images";
+import { BackgroundsSection } from "./sections/backgrounds";
+import { MechanicPacksSection } from "./sections/mechanic-packs";
 import { AssetsSection } from "./sections/assets";
 import { OverviewSection } from "./sections/overview";
 import { BundlesSection, GenerationEditorSection, WorldPublishModal } from "@/edition/slots";
 import { useEdition } from "@/edition/edition";
 import { ExportCardMenu } from "./export-card-menu";
+import { DockWorkspace, type DockTool } from "@/features/studio/dock-tools";
+import "dockview-react/dist/styles/dockview.css";
+import "@/features/studio/studio-theme.css";
+const AiChatPanel = lazy(() => importWithChunkRecovery(() => import("@/features/studio/panels/ai-chat-panel")).then(m => ({ default: m.AiChatPanel })));
+const StudioChangeReviewPanel = lazy(() => importWithChunkRecovery(() => import("@/features/studio/components/studio-change-review-panel")).then(m => ({ default: m.StudioChangeReviewPanel })));
+const PlaytestPanel = lazy(() => importWithChunkRecovery(() => import("@/features/studio/panels/playtest-panel")).then(m => ({ default: m.PlaytestPanel })));
 import { UpdateNotifyDialog } from "./update-notify-dialog";
 import { isEditorTourDone } from "./tour/tour-state";
+import { readLearningProgress } from "@/features/studio/learn/learning-catalog";
+import { useUserProfileStore } from "@/stores/user-profile";
 import { importWithChunkRecovery } from "@/lib/stale-chunk-reload";
 const EditorTour = lazy(() => importWithChunkRecovery(() => import("./tour/editor-tour")).then(m => ({ default: m.EditorTour })));
 const VersionHistoryDialog = lazy(() => importWithChunkRecovery(() => import("./version-history-dialog")).then(m => ({ default: m.VersionHistoryDialog })));
 import { useUiStore } from "@/stores/ui";
+import { isPlaceholderCardName } from "@/lib/world-templates";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
+const TOOL_PANEL_PROPS = {} as IDockviewPanelProps;
 
 const SECTION_KEYS: { id: EditorSection; labelKey: string; icon: typeof FileText }[] =
   [
@@ -73,11 +96,14 @@ const SECTION_KEYS: { id: EditorSection; labelKey: string; icon: typeof FileText
     { id: "entries", labelKey: "sections.lorebook", icon: BookOpen },
     { id: "variables", labelKey: "sections.variables", icon: Variable },
     { id: "rules", labelKey: "sections.behaviors", icon: Zap },
+    { id: "modules", labelKey: "sections.modules", icon: Boxes },
     { id: "components", labelKey: "sections.customUI", icon: LayoutGrid },
     { id: "audio", labelKey: "sections.audio", icon: Music },
     { id: "scene-images", labelKey: "sections.sceneImages", icon: Images },
-    { id: "generation", labelKey: "sections.aiGeneration", icon: Sparkles },
+    { id: "backgrounds", labelKey: "sections.backgrounds", icon: ImageIcon },
+    { id: "packs", labelKey: "sections.packs", icon: Zap },
     { id: "assets", labelKey: "sections.assets", icon: FolderOpen },
+    { id: "generation", labelKey: "sections.aiGeneration", icon: Sparkles },
     { id: "overview", labelKey: "sections.overview", icon: FileText },
     { id: "bundles", labelKey: "sections.bundles", icon: Package },
   ];
@@ -86,9 +112,19 @@ const SECTION_KEYS: { id: EditorSection; labelKey: string; icon: typeof FileText
 // Bundles is intentionally absent — it lives as a standalone "marketplace"
 // card at the sidebar bottom (separate visual treatment from regular sections).
 const SECTION_GROUPS: { groupKey: string; ids: EditorSection[] }[] = [
-  { groupKey: "content", ids: ["first-message", "entries", "variables", "rules"] },
+  // The card IS a module — the one its openings, lore, variables and
+  // behaviours live in until somebody makes another, and the one every other
+  // module's content is shared into. So the module page comes first and stands
+  // on its own: it is the shape of the card, not a fifth kind of content.
+  //
+  // The four lists below are the same objects laid flat across every module,
+  // which is why each of them wears the module scope chips. The group label
+  // says so, because a nav that lists "Lorebook" beside "Modules" reads as two
+  // separate places to keep entries — and that is the one thing they are not.
+  { groupKey: "card", ids: ["modules"] },
+  { groupKey: "content", ids: ["first-message", "entries", "variables", "rules", "packs"] },
+  { groupKey: "presentation", ids: ["components", "backgrounds", "audio", "scene-images", "assets"] },
   { groupKey: "creation", ids: ["generation"] },
-  { groupKey: "presentation", ids: ["components", "audio", "scene-images", "assets"] },
   { groupKey: "publish", ids: ["overview"] },
 ];
 
@@ -97,11 +133,14 @@ const SECTION_COMPONENTS: Record<EditorSection, React.FC> = {
   entries: KnowledgeBasesSection,
   variables: VariablesSection,
   rules: BehaviorsSection,
+  modules: ModulesSection,
   components: ComponentsSection,
   // In-story Apps are bundles now; an old saved "apps" section opens Bundles.
   apps: BundlesSection,
   audio: AudioSection,
   "scene-images": SceneImagesSection,
+  backgrounds: BackgroundsSection,
+  packs: MechanicPacksSection,
   assets: AssetsSection,
   generation: GenerationEditorSection,
   overview: OverviewSection,
@@ -133,9 +172,12 @@ function useIsMobileEditor() {
 interface EditorShellProps {
   onBack?: () => void;
   onSwitchToSimple?: () => void;
+  /** Create route: the card was made this session — the first-visit tour may
+   *  auto-open even after the draft's first auto-save. */
+  autoTour?: boolean;
 }
 
-export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
+export function EditorShell({ onBack, onSwitchToSimple, autoTour = false }: EditorShellProps) {
   const { t } = useTranslation(["editor", "common"]);
   const router = useRouter();
   const navigateToStory = useStoryNavigation();
@@ -159,22 +201,54 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
   const variants = useEditorStore(s => s.variants);
   const readOnlyInspect = useEditorStore(s => s.readOnlyInspect);
   const guestMode = useEditorStore(s => s.guestMode);
+  // Server-side switch for the experimental blueprint (BLUEPRINT_ACCESS).
+  // `true` until the server answers, so the entry never blinks in late.
+  const blueprintAllowed = useBlueprintAccess();
   // Edition gates: publishing/review, hub translations (variant bar), bundles.
   const { features } = useEdition();
   const { requireAuth } = useAuthGuard();
   const [showUpdateNotify, setShowUpdateNotify] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
+  // The assistant and a playtest, as windows over (or docked beside) the section.
+  // The assistant starts open on the right; read-only and guest views have no assistant.
+  const [toolOpen, setToolOpen] = useState<{ ai: boolean; playtest: boolean }>(() => ({ ai: !readOnlyInspect && !guestMode, playtest: false }));
+  // "Inspect change" from the assistant: the proposed change, docked as a tab.
+  const [review, setReview] = useState<{ toolCall: unknown; agentRunId?: string; key: number } | null>(null);
+  useEffect(() => {
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<{ toolCall?: unknown; agentRunId?: string }>).detail;
+      if (detail?.toolCall) setReview({ toolCall: detail.toolCall, agentRunId: detail.agentRunId, key: Date.now() });
+    };
+    window.addEventListener("yumina:studio-mobile-review", open);
+    return () => window.removeEventListener("yumina:studio-mobile-review", open);
+  }, []);
   const isMobileEditor = useIsMobileEditor();
   // First-visit guided tour — separate step lists per layout (the mobile shell
   // shares no anchors with desktop); never in admin inspect mode.
-  // Auto-pop ONLY on a fresh, never-saved draft (the create flow): the tour's
-  // hands-on steps create real entries/variables/behaviors, and on an existing
-  // card those would autosave into the draft (published cards: into a held
-  // pending edit). Existing creators reach the tour via ⋮ → replay instead.
-  const [showTour, setShowTour] = useState(
-    () => !isEditorTourDone() && !useEditorStore.getState().serverWorldId
-  );
+  //
+  // This is no longer the guide a new creator meets. On a desktop an advanced
+  // card opens on the canvas, and the canvas has its own first-story guide —
+  // running both would be the same mushroom teaching two editors back to back,
+  // the first of which they never return to. What is left for this one is the
+  // surfaces that really are this editor: a phone, which never gets the canvas,
+  // and the creator who deliberately turned 画布 off.
+  //
+  // On a phone it still auto-pops ONLY on a fresh, never-saved draft (the
+  // create flow): the hands-on steps create real entries/variables/behaviors,
+  // and on an existing card those would autosave into the draft (published
+  // cards: into a held pending edit). Everyone else reaches it via ⋮ → replay.
+  const [showTour, setShowTour] = useState(() => {
+    if (isEditorTourDone()) return false;
+    const phone = typeof window !== "undefined" && !!window.matchMedia
+      && window.matchMedia("(max-width: 767px)").matches;
+    if (phone) return autoTour || !useEditorStore.getState().serverWorldId;
+    // Someone who already met the canvas's guide knows the card's parts; the
+    // mushroom walking them through the same parts again is in ⋮ if wanted.
+    const learned = readLearningProgress(useUserProfileStore.getState().profile?.id ?? "guest");
+    if (learned.seenRelease || Object.keys(learned.completed).length > 0) return false;
+    return getEditorSurface() === "classic";
+  });
   const tourActive = showTour && !readOnlyInspect && !guestMode;
 
   useEffect(() => {
@@ -240,6 +314,10 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
       rules: worldDraft.rules.length + reactionCount,
       components: componentFiles,
       audio: worldDraft.audioTracks.length,
+      // +1 for the card. It is a module — the one the others' content is
+      // shared into — and a badge reading 0 on a card full of lore was the
+      // clearest way to say the opposite.
+      modules: (worldDraft.worldbooks?.length ?? 0) + 1,
     };
   }, [
     worldDraft.entries,
@@ -248,6 +326,7 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
     worldDraft.reactions,
     worldDraft.rootComponent,
     worldDraft.audioTracks,
+    worldDraft.worldbooks,
   ]);
 
   // Fallback to "entries" if activeSection is invalid or hidden for this variant
@@ -282,6 +361,9 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
 
   const handleEnterStudio = async () => {
     if (guestMode) { requireAuth("create worlds"); return; }
+    // Flipping the switch on is a choice, so it is remembered before the
+    // navigation: every card they open next lands on the canvas too.
+    saveEditorSurface("visual");
     try {
       const id = await ensureServerWorldId();
       if (id) {
@@ -295,6 +377,17 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
       feedback.error(t("shell.failedEnterStudio"));
     }
   };
+
+  // 简单模式 in the ⋮ menu. Simple is rendered in place by whoever mounted
+  // this shell; the 画布 switch top-left is the way to the canvas.
+  const handleSwitchToSimple = () => {
+    if (!onSwitchToSimple) return;
+    const store = useEditorStore.getState();
+    store.setField("editorMode", "simple");
+    rememberEditorChoice(store.serverWorldId, "simple");
+    onSwitchToSimple();
+  };
+  const showCanvasSwitch = !readOnlyInspect && blueprintAllowed;
 
   // Annotated so the Retry action below can reference the handler it lives in.
   const handlePlayWorld: () => Promise<void> = async () => {
@@ -324,7 +417,7 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
         if (existing) {
           useUiStore.getState().recordRecentPlayedWorld({
             id: worldId,
-            name: worldDraft.name || "Untitled World",
+            name: worldDraft.name || t("shell.untitledWorld"),
             thumbnailUrl: null,
           });
           navigateToStory(existing.id);
@@ -345,7 +438,7 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
       const { data } = await res.json();
       useUiStore.getState().recordRecentPlayedWorld({
         id: worldId,
-        name: worldDraft.name || "Untitled World",
+        name: worldDraft.name || t("shell.untitledWorld"),
         thumbnailUrl: null,
       });
       navigateToStory(data.id);
@@ -357,6 +450,9 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
 
   const handleSave = async () => {
     if (guestMode) { requireAuth("create worlds"); return; }
+    // The field being typed in holds its last pause of text locally; commit
+    // it first or the save misses it and the dirty dot comes straight back.
+    flushPendingEditorFields();
     const success = await saveDraft();
     // Offer the "notify your players" dialog only when the card is actually
     // LIVE (status === "published"). worldIsPublished alone is wrong here: the
@@ -373,9 +469,13 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
     try {
       // Flush unsaved edits before publishing so the listing reflects the
       // current editor state, mirroring the Play handler above.
-      if (useEditorStore.getState().isDirty) {
+      if (useEditorStore.getState().isDirty || useEditorStore.getState().layoutDirty) {
         // saveDraft reports its own failure — don't stack a second pill.
         if (!(await saveDraft())) return;
+        if (useEditorStore.getState().isDirty || useEditorStore.getState().layoutDirty) {
+          feedback.error(t("shell.saveWorldFirst"));
+          return;
+        }
       }
       const id = await ensureServerWorldId();
       if (!id) return;
@@ -405,6 +505,8 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
+        // Same as the Save button: pending debounced text goes in first.
+        flushPendingEditorFields();
         const state = useEditorStore.getState();
         if (!state.saving) {
           state.saveDraft().then((ok) => {
@@ -418,6 +520,43 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, []);
+
+  const toolFallback = <div className="flex h-full items-center justify-center"><Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /></div>;
+  const editorTools: DockTool[] = [
+    {
+      id: "ai",
+      title: t("studio.panels.aiAssistant"),
+      open: toolOpen.ai,
+      onClose: () => setToolOpen(o => ({ ...o, ai: false })),
+      keepMounted: true,
+      defaultPosition: { direction: "right", size: 400 },
+      children: <Suspense fallback={toolFallback}><AiChatPanel {...TOOL_PANEL_PROPS} /></Suspense>,
+    },
+    {
+      id: "playtest",
+      title: t("studio.panels.playtest"),
+      open: toolOpen.playtest,
+      onClose: () => setToolOpen(o => ({ ...o, playtest: false })),
+      defaultPosition: { direction: "right", size: 480 },
+      children: <Suspense fallback={toolFallback}><PlaytestPanel {...TOOL_PANEL_PROPS} /></Suspense>,
+    },
+    {
+      id: "review",
+      title: t("studio.proposal.inspect"),
+      open: !!review,
+      onClose: () => setReview(null),
+      defaultPosition: { withMain: true },
+      focusKey: review?.key,
+      children: review && (
+        <Suspense fallback={toolFallback}>
+          <StudioChangeReviewPanel
+            key={review.key}
+            params={{ toolCall: review.toolCall as never, agentRunId: review.agentRunId, worldId: serverWorldId }}
+          />
+        </Suspense>
+      ),
+    },
+  ];
 
   if (isMobileEditor) {
     return (
@@ -434,23 +573,36 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
                     )
               }
               className="hover-surface inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground"
-              aria-label={t("action.back", { defaultValue: "Back" })}
+              aria-label={t("action.back", { ns: "common", defaultValue: "Back" })}
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
 
+            {/* The same switch as everywhere, named Studio: on a phone it opens
+                the phone shell, not a canvas. */}
+            {showCanvasSwitch && (
+              <VisualSurfaceSwitch
+                on={false}
+                surface="studio"
+                onToggle={() => { void handleEnterStudio(); }}
+                disabled={saving}
+                tour="m-studio"
+                className="h-9 rounded-xl"
+              />
+            )}
+
             <div className="flex min-w-0 flex-1 items-center gap-2">
               <input
                 type="text"
-                value={worldDraft.name}
+                value={isPlaceholderCardName(worldDraft.name) ? "" : worldDraft.name}
                 onChange={(e) => setField("name", e.target.value)}
                 placeholder={t("shell.namePlaceholder")}
                 readOnly={guestMode}
                 aria-readonly={guestMode}
                 tabIndex={guestMode ? -1 : undefined}
-                autoFocus={!guestMode && !worldDraft.name}
+                autoFocus={!guestMode && isPlaceholderCardName(worldDraft.name)}
                 className={cn(
-                  "min-w-0 flex-1 bg-transparent text-base font-semibold text-foreground placeholder:text-muted-foreground/35 focus:outline-none",
+                  "min-w-[5rem] flex-1 bg-transparent text-base font-semibold text-foreground placeholder:text-muted-foreground/35 focus:outline-none",
                   guestMode && "cursor-not-allowed opacity-60",
                 )}
               />
@@ -506,18 +658,39 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
                 })()}
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-52">
-              {visibleSections.map((section) => (
-                <DropdownMenuItem
-                  key={section.id}
-                  onClick={() => selectSection(section.id)}
-                  data-tour-section-m={section.id}
-                  className="gap-2"
-                >
-                  <section.icon className={cn("h-4 w-4", safeSection === section.id ? "text-primary" : "text-muted-foreground")} />
-                  <span className="flex-1">{t(section.labelKey as any)}</span>
-                  {safeSection === section.id && <Check className="h-4 w-4 text-primary" />}
-                </DropdownMenuItem>
+            {/* Grouped exactly like the desktop sidebar. A flat list of eleven
+                entries buried the one thing the nav exists to say: Modules is
+                the shape of the card, and the four lists under it are the same
+                objects laid flat across every module. */}
+            <DropdownMenuContent align="start" className="w-60">
+              {visibleGroups.map((group, groupIdx) => (
+                <Fragment key={group.groupKey}>
+                  {groupIdx > 0 && <DropdownMenuSeparator />}
+                  <DropdownMenuLabel className="px-2 py-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground/50">
+                    {t(`shell.groups.${group.groupKey}` as any)}
+                  </DropdownMenuLabel>
+                  {group.sections.map((section) => {
+                    const count = sectionCounts[section.id];
+                    const isActive = safeSection === section.id;
+                    return (
+                      <DropdownMenuItem
+                        key={section.id}
+                        onClick={() => selectSection(section.id)}
+                        data-tour-section-m={section.id}
+                        className="gap-2"
+                      >
+                        <section.icon className={cn("h-4 w-4", isActive ? "text-primary" : "text-muted-foreground")} />
+                        <span className="min-w-0 flex-1 truncate">{t(section.labelKey as any)}</span>
+                        {typeof count === "number" && count > 0 && (
+                          <span className="shrink-0 rounded-full bg-muted/40 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-muted-foreground/70">
+                            {count}
+                          </span>
+                        )}
+                        {isActive && <Check className="h-4 w-4 shrink-0 text-primary" />}
+                      </DropdownMenuItem>
+                    );
+                  })}
+                </Fragment>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -530,19 +703,6 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
           )}
           {!readOnlyInspect && !features.publishing && (
             <ExportCardMenu worldId={serverWorldId} worldName={worldDraft.name} size="sm" disabled={saving} />
-          )}
-
-          {!readOnlyInspect && (
-            <button
-              onClick={handleEnterStudio}
-              disabled={saving || (!serverWorldId && !worldDraft.name)}
-              title={t("shell.enterStudio")}
-              data-tour="m-studio"
-              className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-primary/10 px-2.5 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 disabled:opacity-40"
-            >
-              <Wand2 className="h-3.5 w-3.5" />
-              <span className="hidden min-[390px]:inline">{t("shell.enterStudio")}</span>
-            </button>
           )}
 
           <DropdownMenu>
@@ -584,17 +744,9 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
               {onSwitchToSimple && (
                 <>
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    onClick={() => {
-                      const store = useEditorStore.getState();
-                      store.setField("editorMode", "simple");
-                      const id = store.serverWorldId;
-                      if (id) saveEditorMode(id, "simple");
-                      saveGlobalEditorMode("simple");
-                      onSwitchToSimple();
-                    }}
-                  >
-                    {t("quickCreate.simpleMode")}
+                  <DropdownMenuItem onClick={handleSwitchToSimple} disabled={saving} data-editor-menu-mode="simple">
+                    <SlidersHorizontal className="mr-2 h-4 w-4" />
+                    {t("shell.menuSimpleMode")}
                   </DropdownMenuItem>
                 </>
               )}
@@ -618,7 +770,7 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
         {showUpdateNotify && serverWorldId && (
           <UpdateNotifyDialog
             worldId={serverWorldId}
-            worldName={worldDraft.name || "Untitled World"}
+            worldName={worldDraft.name || t("shell.untitledWorld")}
             held={!!pendingEdit}
             onClose={() => setShowUpdateNotify(false)}
           />
@@ -677,16 +829,27 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
             <ArrowLeft className="h-4 w-4" />
           </button>
 
+          {/* 画布, off. The canvas carries the same pill in the same place, on;
+              the simple editor carries it off. */}
+          {showCanvasSwitch && (
+            <VisualSurfaceSwitch
+              on={false}
+              onToggle={() => { void handleEnterStudio(); }}
+              disabled={saving}
+              className="self-center"
+            />
+          )}
+
           <div className="flex-1 min-w-0">
             <input
               type="text"
-              value={worldDraft.name}
+              value={isPlaceholderCardName(worldDraft.name) ? "" : worldDraft.name}
               onChange={(e) => setField("name", e.target.value)}
               placeholder={t("shell.namePlaceholder")}
               readOnly={guestMode}
               aria-readonly={guestMode}
               tabIndex={guestMode ? -1 : undefined}
-              autoFocus={!guestMode && !worldDraft.name}
+              autoFocus={!guestMode && isPlaceholderCardName(worldDraft.name)}
               className={cn(
                 "w-full bg-transparent text-lg font-semibold text-foreground placeholder:text-muted-foreground/30 focus:outline-none",
                 guestMode && "cursor-not-allowed opacity-60",
@@ -695,7 +858,7 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
           </div>
 
           <div className="editor-shell-header-actions editor-shell-header-actions--advanced flex items-center gap-2">
-            {/* More actions: mode switch, version history, import/export */}
+            {/* More actions: version history, tour, 简单模式 */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -706,21 +869,6 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[180px]">
-                {onSwitchToSimple && (
-                  <DropdownMenuItem
-                    onClick={() => {
-                      const store = useEditorStore.getState();
-                      store.setField("editorMode", "simple");
-                      const id = store.serverWorldId;
-                      if (id) saveEditorMode(id, "simple");
-                      saveGlobalEditorMode("simple");
-                      onSwitchToSimple();
-                    }}
-                  >
-                    <SlidersHorizontal className="mr-2 h-4 w-4" />
-                    {t("shell.switchSimple")}
-                  </DropdownMenuItem>
-                )}
                 <DropdownMenuItem
                   disabled={!serverWorldId}
                   title={!serverWorldId ? t("versionHistory.needsServerSave") : undefined}
@@ -733,8 +881,38 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
                   <Sparkles className="mr-2 h-4 w-4" />
                   {t("tour.replay")}
                 </DropdownMenuItem>
+                {onSwitchToSimple && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={handleSwitchToSimple} disabled={saving} data-editor-menu-mode="simple">
+                      <SlidersHorizontal className="mr-2 h-4 w-4" />
+                      {t("shell.menuSimpleMode")}
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* The assistant and a playtest open in a column beside the section. */}
+            {!readOnlyInspect && !guestMode && (["ai", "playtest"] as const).map(id => {
+              const Icon = id === "ai" ? MessageSquare : Smartphone;
+              const active = toolOpen[id];
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  data-editor-side-toggle={id}
+                  onClick={() => setToolOpen(o => ({ ...o, [id]: !o[id] }))}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                    active ? "border-primary/50 bg-primary/10 text-primary" : "border-border/70 bg-card/70 text-muted-foreground hover:border-border hover:bg-accent hover:text-foreground",
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span className="hidden lg:inline">{t(id === "ai" ? "studio.panels.aiAssistant" : "studio.panels.playtest")}</span>
+                </button>
+              );
+            })}
 
             {/* Creator Guide — promoted to top bar, sits next to ⋮ as a quiet "help" link */}
             <a
@@ -753,19 +931,6 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
               aria-hidden
               className="mx-2.5 h-7 w-px bg-gradient-to-b from-border/40 via-border to-border/40"
             />
-
-            {/* Enter Studio — light gold tint, sits where Play used to */}
-            {!readOnlyInspect && (
-              <button
-                onClick={handleEnterStudio}
-                disabled={saving}
-                data-tour="studio"
-                className="editor-shell-studio-button group flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3.5 py-2 text-sm font-semibold text-primary transition-colors hover:border-primary/50 hover:bg-primary/20 disabled:opacity-40"
-              >
-                <Wand2 className="h-3.5 w-3.5 transition-transform group-hover:rotate-[-8deg]" />
-                {t("shell.enterStudio")}
-              </button>
-            )}
 
             {!readOnlyInspect && (
               <>
@@ -816,6 +981,7 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
 
       {/* Variant tab bar — between header and body */}
       {features.hub && <VariantTabBar />}
+      <VariantTranslateBanner canAsk={false} />
 
       {/* Body: sidebar + content */}
       <div className="editor-shell-body flex flex-1 overflow-hidden">
@@ -933,6 +1099,7 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
         </aside>
 
         {/* Content — elevated workspace canvas */}
+        <DockWorkspace scope="editor" mainTitle={worldDraft.name || t("shell.untitledWorld")} tools={editorTools} className="flex min-w-0 flex-1">
         <div className="editor-shell-content flex-1 overflow-hidden p-3 md:p-6 lg:p-8">
           <div className="editor-shell-surface flex h-full flex-col overflow-hidden rounded-2xl border border-border bg-background shadow-xl shadow-black/20">
             <div className="editor-shell-section-surface relative flex flex-1 flex-col overflow-hidden">
@@ -946,13 +1113,14 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
             </div>
           </div>
         </div>
+        </DockWorkspace>
       </div>
 
       {/* Update notification dialog — shown after saving a published world */}
       {showUpdateNotify && serverWorldId && (
         <UpdateNotifyDialog
           worldId={serverWorldId}
-          worldName={worldDraft.name || "Untitled World"}
+          worldName={worldDraft.name || t("shell.untitledWorld")}
           held={!!pendingEdit}
           onClose={() => setShowUpdateNotify(false)}
         />
@@ -976,7 +1144,12 @@ export function EditorShell({ onBack, onSwitchToSimple }: EditorShellProps) {
             initialWorldId={serverWorldId}
             onClose={() => setShowPublishModal(false)}
             onPublished={() => {
+              // Same as the mobile modal above: the optimistic flag alone left
+              // the desktop review chip on "Not live / Publish" after a submit.
               useEditorStore.setState({ worldIsPublished: true });
+              useEditorStore.getState().refreshWorldStatus();
+              useWorldsStore.getState().invalidate();
+              useWorldsStore.getState().fetchWorlds();
             }}
           />
         )}

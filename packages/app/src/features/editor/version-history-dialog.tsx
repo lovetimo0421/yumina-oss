@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useModalFocus } from "@/hooks/use-modal-focus";
 import { useTranslation } from "react-i18next";
 import {
   History,
@@ -53,10 +54,13 @@ function defaultVersionName(locale: string): string {
 }
 
 export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const confirmRef = useRef<HTMLDivElement>(null);
   const { t, i18n } = useTranslation("editor");
   const reloadWorld = useEditorStore((s) => s.loadWorld);
   const saveDraft = useEditorStore((s) => s.saveDraft);
-  const isDirty = useEditorStore((s) => s.isDirty);
+  // The blueprint canvas tracks its layout separately; both count as "unsaved".
+  const isDirty = useEditorStore((s) => s.isDirty || s.layoutDirty);
 
   const [versions, setVersions] = useState<WorldVersion[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -116,9 +120,24 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [confirm.kind, onClose, actionsBusy]);
+  useModalFocus(panelRef, confirm.kind === "idle");
+  useModalFocus(confirmRef, confirm.kind !== "idle");
 
   const trimmedName = name.trim();
   const canSave = !!trimmedName && !saving && busyId === null;
+
+  /** Persist everything the editor is holding — content AND the blueprint
+   *  canvas layout, which is dirty-tracked separately — before a snapshot is
+   *  taken from the server's copy. Returns false if anything is still pending. */
+  async function flushCurrentDraft() {
+    const state = useEditorStore.getState();
+    if (state.serverWorldId !== worldId) return false;
+    if (!state.isDirty && !state.layoutDirty) return true;
+    if (!await saveDraft()) return false;
+    // A save can succeed while newer content or layout edits remain pending.
+    const latest = useEditorStore.getState();
+    return latest.serverWorldId === worldId && !latest.isDirty && !latest.layoutDirty;
+  }
 
   async function postSave(opts: { evictOldest: boolean; nameToUse: string; noteToUse: string | null }) {
     const res = await fetch(`${apiBase}/api/worlds/${worldId}/versions`, {
@@ -142,12 +161,9 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
     try {
       // Persist the editor's in-memory edits first so the snapshot reflects
       // what the user sees on screen, not the last server-side autosave.
-      if (useEditorStore.getState().isDirty) {
-        const ok = await saveDraft();
-        if (!ok || useEditorStore.getState().isDirty) {
-          setSaveError(t("versionHistory.saveFailed"));
-          return;
-        }
+      if (!await flushCurrentDraft()) {
+        setSaveError(t("versionHistory.saveFailed"));
+        return;
       }
 
       const noteToSend = note.trim() ? note.trim().slice(0, MAX_VERSION_NOTE_LENGTH) : null;
@@ -188,6 +204,10 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
     setSaving(true);
     setConfirmError(null);
     try {
+      if (!await flushCurrentDraft()) {
+        setConfirmError(t("versionHistory.saveFailed"));
+        return;
+      }
       const result = await postSave({
         evictOldest: true,
         nameToUse: confirm.pendingName,
@@ -238,12 +258,9 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
       // Only flush dirty edits when we're going to capture them in a safety
       // snapshot. If the user opted out, their unsaved edits will be discarded
       // by the restore — saving them first would just create churn.
-      if (makeSafetySnapshot && useEditorStore.getState().isDirty) {
-        const ok = await saveDraft();
-        if (!ok || useEditorStore.getState().isDirty) {
-          setConfirmError(t("versionHistory.restoreFailed"));
-          return;
-        }
+      if (makeSafetySnapshot && !await flushCurrentDraft()) {
+        setConfirmError(t("versionHistory.restoreFailed"));
+        return;
       }
 
       const draftAtRequest = useEditorStore.getState().worldDraft;
@@ -279,12 +296,9 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
     setBusyId(version.id);
     setConfirmError(null);
     try {
-      if (useEditorStore.getState().isDirty) {
-        const ok = await saveDraft();
-        if (!ok || useEditorStore.getState().isDirty) {
-          setConfirmError(t("versionHistory.saveBeforeSwitchFailed"));
-          return;
-        }
+      if (!await flushCurrentDraft()) {
+        setConfirmError(t("versionHistory.saveBeforeSwitchFailed"));
+        return;
       }
       const res = await fetch(`${apiBase}/api/worlds/${worldId}/versions/${version.id}/make-live`, {
         method: "POST", credentials: "include",
@@ -319,12 +333,19 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm animate-in fade-in duration-150"
+      className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4 animate-in fade-in duration-150"
       onClick={(e) => {
         if (e.target === e.currentTarget && confirm.kind === "idle" && !actionsBusy) onClose();
       }}
     >
-      <div className="flex w-full max-w-2xl max-h-[88vh] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_18px_60px_rgba(0,0,0,0.45)] animate-in zoom-in-95 duration-200">
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="version-history-title"
+        tabIndex={-1}
+        className="flex w-full max-w-2xl max-h-[88vh] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_18px_60px_rgba(0,0,0,0.45)] animate-in zoom-in-95 duration-200 focus:outline-none"
+      >
         {/* Header */}
         <div className="relative shrink-0 border-b border-border/60 px-6 py-5">
           <div className="flex items-start gap-3">
@@ -332,7 +353,7 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
               <History className="h-5 w-5" />
             </div>
             <div className="flex-1 min-w-0">
-              <h3 className="text-lg font-semibold text-foreground">{t("versionHistory.title")}</h3>
+              <h3 id="version-history-title" className="text-lg font-semibold text-foreground">{t("versionHistory.title")}</h3>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {t("versionHistory.subtitle", { cap, automaticCap: MAX_AUTO_VERSIONS_PER_WORLD })}
               </p>
@@ -341,7 +362,7 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
               onClick={onClose}
               disabled={actionsBusy}
               className="shrink-0 rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              aria-label="Close"
+              aria-label={t("action.close", { ns: "common" })}
             >
               <X className="h-4 w-4" />
             </button>
@@ -441,7 +462,7 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
       </div>
 
       {/* Confirm overlays */}
-      {confirm.kind === "makeLive" && <ConfirmOverlay
+      {confirm.kind === "makeLive" && <ConfirmOverlay panelRef={confirmRef}
         icon={<Radio className="h-5 w-5" />} tone="primary"
         title={t("versionHistory.makeLiveTitle")}
         body={t("versionHistory.makeLiveBody")}
@@ -450,7 +471,7 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
         onConfirm={() => handleMakeLive(confirm.version)} busy={busyId !== null} error={confirmError}
       />}
       {confirm.kind === "atCap" && (
-        <ConfirmOverlay
+        <ConfirmOverlay panelRef={confirmRef}
           icon={<AlertTriangle className="h-5 w-5" />}
           tone="amber"
           title={t("versionHistory.atCapTitle")}
@@ -465,7 +486,7 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
         />
       )}
       {confirm.kind === "restore" && (
-        <ConfirmOverlay
+        <ConfirmOverlay panelRef={confirmRef}
           icon={<RotateCcw className="h-5 w-5" />}
           tone="primary"
           title={t("versionHistory.restoreConfirmTitle")}
@@ -501,7 +522,7 @@ export function VersionHistoryDialog({ worldId, onClose }: VersionHistoryDialogP
         />
       )}
       {confirm.kind === "delete" && (
-        <ConfirmOverlay
+        <ConfirmOverlay panelRef={confirmRef}
           icon={<Trash2 className="h-5 w-5" />}
           tone="destructive"
           title={t("versionHistory.deleteConfirmTitle")}
@@ -533,7 +554,26 @@ function VersionRow({ version, busy, locale, onRestore, onMakeLive, onDelete }: 
   const relative = useMemo(() => formatTimeAgo(String(version.createdAt), locale), [version.createdAt, locale]);
   const source = version.source;
   const automatic = !!source && source !== "manual";
-  const displayName = source && source !== "manual" ? t(`versionHistory.source.${source}`) : version.name;
+  // `source` is a plain string on the wire: this line wrote "publish" / "live"
+  // / "backup" / "incoming", the older recovery line wrote "save" / "restore" / …, and rows
+  // from either can still be in the table. Only label the ones we have copy
+  // for; anything else keeps the version's own name.
+  const sourceLabel =
+    source === "publish" ? t("versionHistory.source.publish")
+    : source === "live" ? t("versionHistory.source.live")
+    : source === "backup" ? t("versionHistory.source.backup")
+    : source === "incoming" ? t("versionHistory.source.incoming")
+    : null;
+  // The server names every automatic checkpoint "Saved version · <ISO>"
+  // regardless of source, and a source this dialog has no copy for used to
+  // show that raw timestamp as the row's title. Recognise the shape and say
+  // it in the reader's language and clock instead; the exact time is on the
+  // line below anyway.
+  const displayName =
+    sourceLabel
+    ?? (/^Saved version · \d{4}-\d{2}-\d{2}T/.test(version.name)
+      ? t("versionHistory.automaticName", { date: new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(version.createdAt)) })
+      : version.name);
 
   return (
     <li className="group rounded-xl border border-border bg-background/30 px-4 py-3 transition-all hover:border-primary/30 hover:bg-primary/[0.04]">
@@ -597,6 +637,8 @@ interface ConfirmOverlayProps {
   extra?: React.ReactNode;
   /** Failure of the confirmed action — printed here, never as a pill. */
   error?: string | null;
+  /** The parent hands its focus trap over while this is up. */
+  panelRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 function ConfirmOverlay({
@@ -612,7 +654,10 @@ function ConfirmOverlay({
   tone = "primary",
   extra,
   error,
+  panelRef,
 }: ConfirmOverlayProps) {
+  const titleId = useId();
+  const bodyId = useId();
   const iconBg =
     tone === "destructive" ? "bg-destructive/15 text-destructive"
     : tone === "amber" ? "bg-amber-500/15 text-amber-400"
@@ -623,8 +668,16 @@ function ConfirmOverlay({
     : "bg-primary text-primary-foreground hover:bg-primary-hover";
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-[0_18px_60px_rgba(0,0,0,0.5)] animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center modal-backdrop p-4 animate-in fade-in duration-150">
+      <div
+        ref={panelRef}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={bodyId}
+        tabIndex={-1}
+        className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-[0_18px_60px_rgba(0,0,0,0.5)] animate-in zoom-in-95 duration-200 focus:outline-none"
+      >
         <div className="flex items-start gap-3">
           {icon && (
             <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${iconBg}`}>
@@ -632,8 +685,8 @@ function ConfirmOverlay({
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <h4 className="text-base font-semibold text-foreground">{title}</h4>
-            <p className="mt-1.5 text-sm text-muted-foreground whitespace-pre-line">{body}</p>
+            <h4 id={titleId} className="text-base font-semibold text-foreground">{title}</h4>
+            <p id={bodyId} className="mt-1.5 text-sm text-muted-foreground whitespace-pre-line">{body}</p>
           </div>
         </div>
         {extra}

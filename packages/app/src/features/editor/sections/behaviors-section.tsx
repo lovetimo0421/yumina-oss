@@ -1,3 +1,4 @@
+import { useEditorFocus } from "@/features/studio/lib/use-editor-focus";
 import { useState, useMemo, useEffect } from "react";
 import {
   Plus,
@@ -9,10 +10,7 @@ import {
   Zap,
   ArrowUpDown,
   Eye,
-  Volume2,
-  Bell,
   Search,
-  Settings2,
   Ban,
   ArrowLeft,
   Dices,
@@ -27,7 +25,11 @@ type TFn = (key: any) => string;
 import { useEditorStore } from "@/stores/editor";
 import { ConditionEditor } from "../components/condition-editor";
 import { KeywordsInput } from "../components/keywords-input";
-import { DebouncedInput } from "../components/debounced-field";
+import { ModuleScopeChips } from "../components/module-scope-chips";
+import { inModuleScope, moduleIdOfScope, normalizeModuleScope } from "../lib/module-scope";
+import { DebouncedInput, DebouncedTextarea } from "../components/debounced-field";
+import { StyledCheckbox } from "../components/styled-checkbox";
+import { DraftNumberInput } from "../components/condition-editor";
 import { Select } from "@/components/ui/select";
 import { NumberInput } from "@/components/ui/number-input";
 import { sampleRandomSpec } from "@yumina/engine";
@@ -41,7 +43,16 @@ import type {
   TriggerConfig,
 } from "@yumina/engine";
 import { TwoTapDeleteButton } from "@/components/ui/two-tap-delete-button";
-import { resolveWhenPreset, buildWhenForPreset } from "../lib/when-preset-logic";
+import { resolveWhenPreset, buildWhenForPreset, describeWhenValues } from "../lib/when-preset-logic";
+
+import {
+  extractFieldValues,
+  getDoPresets,
+  identifyPreset,
+  parseSmartValue,
+  type DoField,
+  type DoPreset,
+} from "../lib/behavior-effect-presets";
 
 // ── Shared input classes (matching variables section) ──
 
@@ -83,7 +94,7 @@ function NumField({
 
 // ── WHEN presets — friendly names for event patterns ──
 
-interface WhenPreset {
+export interface WhenPreset {
   id: string;
   label: string;
   description: string;
@@ -104,7 +115,7 @@ interface WhenField {
   operator?: "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "contains" | "every";
 }
 
-function getWhenPresets(t: TFn): WhenPreset[] {
+export function getWhenPresets(t: TFn): WhenPreset[] {
   return [
     // Messages
     { id: "every-turn", label: t("behaviors.whenPresets.everyTurn"), description: t("behaviors.whenPresets.everyTurnDesc"), icon: Zap, category: t("behaviors.whenCategories.messages"), eventType: "turn:complete" },
@@ -123,154 +134,34 @@ function getWhenPresets(t: TFn): WhenPreset[] {
     { id: "action-fired", label: t("behaviors.whenPresets.actionFired"), description: t("behaviors.whenPresets.actionFiredDesc"), icon: Play, category: t("behaviors.whenCategories.gameState"), eventType: "action:fired", fields: [{ name: "actionId", label: t("behaviors.whenFields.actionId"), type: "text", placeholder: "attack" }] },
     // Timing
     { id: "turn-n", label: t("behaviors.whenPresets.everyNTurns"), description: t("behaviors.whenPresets.everyNTurnsDesc"), icon: Clock, category: t("behaviors.whenCategories.timing"), eventType: "turn:complete", fields: [{ name: "turnCount", label: t("behaviors.whenFields.everyNTurns"), type: "number", placeholder: "5", operator: "every" }] },
+    // Real time, while the game is open: the open page ticks it (chat-view).
+    { id: "clock-every", label: t("behaviors.whenPresets.everyNSeconds"), description: t("behaviors.whenPresets.everyNSecondsDesc"), icon: Clock, category: t("behaviors.whenCategories.timing"), eventType: "clock:every", fields: [{ name: "seconds", label: t("behaviors.whenFields.everyNSeconds"), type: "number", placeholder: "30" }] },
   ];
 }
 
 // ── Event type badge mapping for sidebar cards ──
 
-const EVENT_TYPE_BADGES: Record<string, { label: string; color: string }> = {
-  "turn:complete": { label: "TURN", color: "bg-secondary text-primary/80 border-primary/20" },
-  "message:user": { label: "MSG", color: "bg-secondary text-muted-foreground border-border" },
-  "message:ai": { label: "AI", color: "bg-secondary text-muted-foreground border-border" },
-  "session:start": { label: "START", color: "bg-secondary text-muted-foreground border-border" },
-  "state:changed": { label: "STATE", color: "bg-secondary text-primary/80 border-primary/20" },
-  "state:crossed": { label: "THRESH", color: "bg-secondary text-muted-foreground border-border" },
-  "action:fired": { label: "ACT", color: "bg-secondary text-muted-foreground border-border" },
+// `key` resolves under behaviors.eventBadge.*; `label` is the English fallback.
+const EVENT_TYPE_BADGES: Record<string, { key: string; label: string; color: string }> = {
+  "turn:complete": { key: "turn", label: "TURN", color: "bg-secondary text-primary/80 border-primary/20" },
+  "message:user": { key: "user", label: "MSG", color: "bg-secondary text-muted-foreground border-border" },
+  "message:ai": { key: "ai", label: "AI", color: "bg-secondary text-muted-foreground border-border" },
+  "session:start": { key: "start", label: "START", color: "bg-secondary text-muted-foreground border-border" },
+  "state:changed": { key: "state", label: "STATE", color: "bg-secondary text-primary/80 border-primary/20" },
+  "state:crossed": { key: "threshold", label: "THRESH", color: "bg-secondary text-muted-foreground border-border" },
+  "action:fired": { key: "action", label: "ACT", color: "bg-secondary text-muted-foreground border-border" },
 };
 
-const DEFAULT_BADGE = { label: "EVT", color: "bg-secondary text-muted-foreground border-border" };
+const DEFAULT_BADGE = { key: "event", label: "EVT", color: "bg-secondary text-muted-foreground border-border" };
 
 // ── DO action presets — friendly names for effects ──
 
-interface DoPreset {
-  id: string;
-  label: string;
-  icon: typeof Zap;
-  category: string;
-  /** Create the ReactionEffect from user input */
-  build: (input: Record<string, string>) => ReactionEffect;
-  /** Fields to show for this action */
-  fields: DoField[];
-}
-
-interface DoField {
-  name: string;
-  label: string;
-  type: "text" | "textarea" | "number" | "variable" | "entry" | "audio" | "select" | "behavior" | "operand";
-  placeholder?: string;
-  options?: { value: string; label: string }[];
-}
-
-function getDoPresets(t: TFn): DoPreset[] {
-  return [
-    // Game
-    {
-      id: "change-var", label: t("behaviors.doPresets.changeVar"), icon: Zap, category: t("behaviors.doCategories.game"),
-      fields: [
-        { name: "variableId", label: t("behaviors.doFields.variable"), type: "variable" },
-        { name: "operation", label: t("behaviors.doFields.operation"), type: "select", options: [
-          { value: "set", label: t("behaviors.effectOps.set") }, { value: "add", label: t("behaviors.effectOps.add") },
-          { value: "subtract", label: t("behaviors.effectOps.subtract") }, { value: "multiply", label: t("behaviors.effectOps.multiply") },
-          { value: "toggle", label: t("behaviors.effectOps.toggle") }, { value: "append", label: t("behaviors.effectOps.append") },
-        ] },
-        { name: "value", label: t("behaviors.doFields.value"), type: "operand", placeholder: "10" },
-      ],
-      build: (input) => {
-        const raw = input.value ?? "0";
-        // "@ref:<id>" means the operand is another variable's value (变量 mode).
-        if (raw.startsWith("@ref:")) {
-          const ref = raw.slice(5);
-          return { type: "set", path: input.variableId ?? "", value: 0, operation: (input.operation ?? "set") as any, valueRef: ref || undefined };
-        }
-        return { type: "set", path: input.variableId ?? "", value: parseSmartValue(raw), operation: (input.operation ?? "set") as any };
-      },
-    },
-    {
-      id: "toggle-variable", label: t("behaviors.doPresets.toggleVariable"), icon: Settings2, category: t("behaviors.doCategories.game"),
-      fields: [
-        { name: "variableId", label: t("behaviors.doFields.variable"), type: "variable" },
-        { name: "enabled", label: t("behaviors.doFields.state"), type: "select", options: [{ value: "true", label: t("behaviors.doFields.enable") }, { value: "false", label: t("behaviors.doFields.disable") }] },
-      ],
-      // Enable-gate override — while off, the variable leaves <game-state> and
-      // the player UI but keeps its value. See state/variable-activation.ts.
-      build: (input) => ({ type: "set", path: `@vars.enabled.${input.variableId ?? ""}`, value: input.enabled === "true", operation: "set" }),
-    },
-    // AI & Story
-    {
-      id: "tell-ai", label: t("behaviors.doPresets.tellAi"), icon: MessageSquare, category: t("behaviors.doCategories.aiStory"),
-      fields: [
-        { name: "content", label: t("behaviors.doFields.instructionForAi"), type: "textarea", placeholder: t("extra.behaviorInstr") },
-      ],
-      // One-shot: injected into the next AI prompt via the pendingContext channel,
-      // then automatically cleared. For persistent guidance use enable/disable entry instead.
-      build: (input) => ({ type: "set", path: "@prompt.context", value: input.content ?? "", operation: "set" }),
-    },
-    {
-      id: "enable-entry", label: t("behaviors.doPresets.enableEntry"), icon: Eye, category: t("behaviors.doCategories.aiStory"),
-      fields: [{ name: "entryId", label: t("behaviors.doFields.entry"), type: "entry" }],
-      build: (input) => ({ type: "set", path: `@prompt.entry.${input.entryId ?? ""}`, value: true, operation: "set" }),
-    },
-    {
-      id: "disable-entry", label: t("behaviors.doPresets.disableEntry"), icon: Eye, category: t("behaviors.doCategories.aiStory"),
-      fields: [{ name: "entryId", label: t("behaviors.doFields.entry"), type: "entry" }],
-      build: (input) => ({ type: "set", path: `@prompt.entry.${input.entryId ?? ""}`, value: false, operation: "set" }),
-    },
-    // Audio
-    {
-      id: "play-music", label: t("behaviors.doPresets.playMusic"), icon: Volume2, category: t("behaviors.doCategories.audio"),
-      fields: [{ name: "trackId", label: t("behaviors.doFields.track"), type: "audio" }],
-      build: (input) => ({ type: "set", path: "@audio.bgm", value: input.trackId ?? "", operation: "set" }),
-    },
-    {
-      id: "play-sfx", label: t("behaviors.doPresets.playSfx"), icon: Volume2, category: t("behaviors.doCategories.audio"),
-      fields: [{ name: "trackId", label: t("behaviors.doFields.track"), type: "audio" }],
-      build: (input) => ({ type: "set", path: "@audio.sfx", value: input.trackId ?? "", operation: "set" }),
-    },
-    {
-      id: "stop-audio", label: t("behaviors.doPresets.stopAudio"), icon: Volume2, category: t("behaviors.doCategories.audio"),
-      fields: [{ name: "trackId", label: t("behaviors.doFields.track"), type: "audio" }],
-      build: (input) => ({ type: "set", path: "@audio.stop", value: input.trackId ?? "", operation: "set" }),
-    },
-    // Player
-    {
-      id: "notify", label: t("behaviors.doPresets.notify"), icon: Bell, category: t("behaviors.doCategories.player"),
-      fields: [
-        { name: "message", label: t("behaviors.doFields.message"), type: "text", placeholder: t("extra.behaviorMsg") },
-        { name: "style", label: t("behaviors.doFields.notifyStyle"), type: "select", options: [
-          { value: "info", label: t("behaviors.doFields.notifyStyleInfo") },
-          { value: "success", label: t("behaviors.doFields.notifyStyleSuccess") },
-          { value: "warning", label: t("behaviors.doFields.notifyStyleWarning") },
-          { value: "error", label: t("behaviors.doFields.notifyStyleError") },
-        ] },
-      ],
-      build: (input) => ({ type: "emit", event: { type: "ui:notification", message: input.message ?? "", style: input.style || "info" } }),
-    },
-    // Advanced
-    {
-      id: "toggle-behavior", label: t("behaviors.doPresets.toggleBehavior"), icon: Settings2, category: t("behaviors.doCategories.advanced"),
-      fields: [
-        { name: "ruleId", label: t("behaviors.doFields.behavior"), type: "behavior" },
-        { name: "enabled", label: t("behaviors.doFields.state"), type: "select", options: [{ value: "true", label: t("behaviors.doFields.enable") }, { value: "false", label: t("behaviors.doFields.disable") }] },
-      ],
-      build: (input) => ({ type: "set", path: `@rules.disabled.${input.ruleId ?? ""}`, value: input.enabled !== "true", operation: "set" }),
-    },
-  ];
-}
-
-function parseSmartValue(raw: string): any {
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  const num = Number(raw);
-  if (!isNaN(num) && raw !== "") return num;
-  return raw;
-}
-
 // ── Helpers: extract human-readable info from a Reaction ──
 
-function describeWhen(reaction: Reaction, t: TFn): string {
+function describeWhen(reaction: Reaction, t: TFn, variables: ReadonlyArray<{ id: string; name: string }>): string {
   const preset = resolveWhenPreset(getWhenPresets(t), reaction.when);
   if (!preset) return reaction.when.eventType;
-  const matchValues = Object.values(reaction.when.match ?? {}).map((m) => String(m.value)).filter(Boolean);
+  const matchValues = describeWhenValues(preset, reaction.when.match, variables);
   return matchValues.length > 0 ? `${preset.label}: ${matchValues.join(", ")}` : preset.label;
 }
 
@@ -295,18 +186,35 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
   const [search, setSearch] = useState("");
   const [showLimits, setShowLimits] = useState(false);
 
+  // One module, or the card's shared ones — the same chip row the lorebook
+  // and variables pages wear, so the module page can hand it over.
+  const moduleScope = useEditorStore((s) => s.moduleScope);
+  const setModuleScope = useEditorStore((s) => s.setModuleScope);
+  const books = worldDraft.worldbooks ?? [];
+  const scope = normalizeModuleScope(moduleScope, books);
+
+  // Another page asked for one behaviour: open it.
+  const pendingFocus = useEditorStore((s) => s.pendingFocus);
+  const clearPendingFocus = useEditorStore((s) => s.clearPendingFocus);
+  useEffect(() => {
+    if (pendingFocus?.kind !== "reaction") return;
+    setSelectedId(pendingFocus.id);
+    clearPendingFocus();
+  }, [pendingFocus, clearPendingFocus]);
+
   // Show the same legacy + native behavior list that mutations operate on.
   const reactions = useMemo(() => {
     return editableBehaviors(worldDraft);
   }, [worldDraft.reactions, worldDraft.rules]);
 
   const filtered = useMemo(() => {
-    if (!search) return reactions;
+    const scoped = reactions.filter((r) => inModuleScope(scope, r.worldbookId));
+    if (!search) return scoped;
     const q = search.toLowerCase();
-    return reactions.filter((r) =>
+    return scoped.filter((r) =>
       r.name.toLowerCase().includes(q) || (r.description ?? "").toLowerCase().includes(q)
     );
-  }, [reactions, search]);
+  }, [reactions, search, scope]);
 
   // Respect an explicit null (mobile back button) so the user can return to
   // the list view. Only fall back when the previously selected reaction has
@@ -319,6 +227,7 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
   }, [selectedId, reactions]);
 
   const selected = reactions.find((r) => r.id === effectiveSelectedId);
+  useEditorFocus("reaction", selected?.id, worldDraft);
 
   // Hide engine-managed vars (e.g. random-pick cooldown history) from every
   // picker — the creator never targets them by hand.
@@ -326,15 +235,23 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
   const entries = worldDraft.entries;
   const audioTracks = worldDraft.audioTracks ?? [];
 
-  function handleAdd() {
-    addReaction();
-    setTimeout(() => {
-      const latest = useEditorStore.getState().worldDraft.reactions;
-      if (latest && latest.length > 0) {
-        setSelectedId(latest[latest.length - 1]!.id);
-      }
-    }, 0);
-  }
+  // 添加行为 puts a new one on the list and opens it, as on the canvas: its
+  // sentence is written in its own form afterwards.
+  const addNew = () => {
+    const store = useEditorStore.getState();
+    store.beginBatch();
+    try {
+      addReaction(moduleIdOfScope(scope) ?? undefined);
+      const latest = useEditorStore.getState().worldDraft.reactions ?? [];
+      const created = latest[latest.length - 1];
+      if (!created) return;
+      useEditorStore.getState().updateReaction(created.id, { name: String(t("blueprint.defaults.behavior")) });
+      setSearch("");
+      setSelectedId(created.id);
+    } finally {
+      store.commitBatch();
+    }
+  };
 
   function handleDelete(id: string) {
     removeReaction(id);
@@ -360,14 +277,16 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                 <a href={DOCS_URLS.rulesEngine} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{t("behaviors.learnMore")}</a>
               </p>
             </div>
-            <button
-              onClick={handleAdd}
-              data-tour="behaviors-add"
-              className="flex items-center gap-2 rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground shadow-[0_0_15px_hsl(var(--primary)/0.3)] transition-colors hover:bg-primary/90"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              {t("behaviors.addBehavior")}
-            </button>
+            <div className="relative">
+              <button
+                onClick={addNew}
+                data-tour="behaviors-add"
+                className="flex items-center gap-2 rounded-lg bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground shadow-[0_0_15px_hsl(var(--primary)/0.3)] transition-colors hover:bg-primary/90"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {t("behaviors.addBehavior")}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -395,18 +314,24 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                 />
               </div>
               {compact && (
-                <button
-                  onClick={handleAdd}
-                  className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                </button>
+                <div className="relative shrink-0">
+                  <button
+                    onClick={addNew}
+                    data-tour="behaviors-add"
+                    className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               )}
             </div>
           </div>
 
           {/* Behavior cards */}
-          <div className="flex flex-col gap-2 overflow-y-auto p-5">
+          <div className="flex flex-col gap-2 overflow-y-auto p-5" data-tour="behaviors-list">
+            {books.length > 0 && (
+              <ModuleScopeChips value={scope} onChange={setModuleScope} books={books} className="mb-1" />
+            )}
             {reactions.length === 0 && (
               <div className="rounded-xl border border-dashed border-border py-12 text-center">
                 <Zap className="mx-auto h-8 w-8 text-muted-foreground/20" />
@@ -437,7 +362,7 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                       badge.color
                     )}
                   >
-                    {badge.label}
+                    {t(`behaviors.eventBadge.${badge.key}` as never, badge.label)}
                   </div>
                   <div className="min-w-0 flex-1">
                     <span
@@ -449,12 +374,12 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                       {reaction.name || t("behaviors.namePlaceholder")}
                     </span>
                     <span className="block truncate text-xs text-muted-foreground">
-                      {describeWhen(reaction, t)}
+                      {describeWhen(reaction, t, worldDraft.variables)}
                     </span>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     {!reaction.enabled && (
-                      <span className="text-[9px] text-muted-foreground/40">OFF</span>
+                      <span className="text-[9px] text-muted-foreground/40">{t("modules.badge.disabled")}</span>
                     )}
                     {isActive && (
                       <div className="h-1.5 w-1.5 rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary)/0.8)]" />
@@ -467,6 +392,15 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
               <p className="px-3 py-2 text-xs text-muted-foreground/40">
                 {t("behaviors.noBehaviorsMatch", { query: search })}
               </p>
+            )}
+            {/* The module chips can hide every behaviour while the card still
+                has some — say so instead of showing a blank list. */}
+            {filtered.length === 0 && reactions.length > 0 && !search && (
+              <div className="rounded-xl border border-dashed border-border py-8 text-center">
+                <p className="text-xs text-muted-foreground/50">
+                  {t("modules.scope.empty", "Nothing in this module yet")}
+                </p>
+              </div>
             )}
           </div>
         </div>
@@ -537,6 +471,28 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                   />
                 </div>
 
+                {/* Module membership — inactive worldbook mutes the behavior */}
+                {(worldDraft.worldbooks?.length ?? 0) > 0 && (
+                  <div className="space-y-1.5">
+                    <label className="text-[13px] font-bold text-foreground">
+                      {t("behaviors.worldbookLabel")}
+                    </label>
+                    <select
+                      value={selected.worldbookId ?? ""}
+                      onChange={(e) =>
+                        updateReaction(selected.id, { worldbookId: e.target.value || undefined })
+                      }
+                      className={inputClass}
+                    >
+                      <option value="">{t("behaviors.worldbookCore")}</option>
+                      {(worldDraft.worldbooks ?? []).map((wb) => (
+                        <option key={wb.id} value={wb.id}>{wb.name}</option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-muted-foreground">{t("behaviors.worldbookHint")}</p>
+                  </div>
+                )}
+
                 {/* ════ WHEN ════ */}
                 <div className="border-t border-border pt-6">
                   <div className="mb-6 flex items-center gap-2">
@@ -573,7 +529,7 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                             : "text-muted-foreground hover:text-foreground"
                         )}
                       >
-                        ALL
+                        {t("blueprint.logic.all")}
                       </button>
                       <button
                         onClick={() =>
@@ -586,14 +542,14 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                             : "text-muted-foreground hover:text-foreground"
                         )}
                       >
-                        ANY
+                        {t("blueprint.logic.any")}
                       </button>
                     </div>
                   </div>
 
                   {selected.conditions.length === 0 && (
                     <p className="mb-4 text-sm italic text-muted-foreground/50">
-                      {t("behaviors.optional")} -- leave empty for unconditional trigger
+                      {t("behaviors.onlyIfEmptyHint", "optional -- leave empty for unconditional trigger")}
                     </p>
                   )}
 
@@ -603,7 +559,7 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                     onChange={(conditions) =>
                       updateReaction(selected.id, { conditions })
                     }
-                    label="Conditions"
+                    label={t("conditionEditor.conditions")}
                   />
                 </div>
 
@@ -759,40 +715,13 @@ export function BehaviorsSection({ compact, mobileListMode }: { compact?: boolea
                       </div>
 
                       {/* Enabled */}
-                      <label className="group mt-6 flex cursor-pointer items-center gap-3">
-                        <div
-                          className={cn(
-                            "flex h-5 w-5 items-center justify-center rounded border shadow-inner transition-colors",
-                            selected.enabled
-                              ? "border-primary/50 bg-primary/10"
-                              : "border-border bg-card"
-                          )}
-                        >
-                          {selected.enabled && (
-                            <svg
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              className="h-3.5 w-3.5 text-primary"
-                              stroke="currentColor"
-                              strokeWidth="3"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            >
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                          )}
-                        </div>
-                        <span
-                          className="text-sm font-bold text-foreground transition-colors group-hover:text-foreground/80"
-                          onClick={() =>
-                            updateReaction(selected.id, {
-                              enabled: !selected.enabled,
-                            })
-                          }
-                        >
-                          {t("behaviors.enabled")}
-                        </span>
-                      </label>
+                      <div className="mt-6">
+                        <StyledCheckbox
+                          checked={selected.enabled}
+                          onChange={(enabled) => updateReaction(selected.id, { enabled })}
+                          label={t("behaviors.enabled")}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
@@ -868,7 +797,7 @@ function LegacyTriggerFields({ trigger, variables, onChange }: {
   return null;
 }
 
-function WhenEditor({
+export function WhenEditor({
   reaction,
   variables,
   onUpdate,
@@ -929,7 +858,7 @@ function WhenEditor({
               : [
                   {
                     value: "_custom",
-                    label: `Custom: ${reaction.when.eventType}`,
+                    label: t("behaviors.customEvent", { event: reaction.when.eventType, defaultValue: "Custom: {{event}}" }),
                   },
                 ]),
           ]}
@@ -1051,16 +980,33 @@ function WhenEditor({
                     })) ?? []
                   }
                 />
+              ) : field.type === "number" ? (
+                // Typed as text and committed on blur: the old per-keystroke
+                // Number(x) || 0 made the box impossible to clear or to take a
+                // negative / decimal. A blank box reverts (these match fields
+                // also mark which preset is selected).
+                <DraftNumberInput
+                  value={typeof matchVal === "number" ? matchVal : Number(matchVal) || 0}
+                  onCommit={(num) =>
+                    onUpdate({
+                      when: {
+                        ...reaction.when,
+                        match: {
+                          ...reaction.when.match,
+                          [field.name]: { operator: field.operator ?? "eq", value: num },
+                        },
+                      },
+                    })
+                  }
+                  placeholder={field.placeholder}
+                  className={inputClass}
+                />
               ) : (
-                <input
-                  type={field.type === "number" ? "number" : "text"}
+                <DebouncedInput
+                  type="text"
                   value={String(matchVal)}
-                  onChange={(e) => {
-                    const val =
-                      field.type === "number"
-                        ? Number(e.target.value) || 0
-                        : e.target.value;
-                    if (!e.target.value && field.type !== "number") {
+                  onCommit={(val) => {
+                    if (!val) {
                       const newMatch = { ...reaction.when.match };
                       delete newMatch[field.name];
                       onUpdate({
@@ -1103,7 +1049,7 @@ function WhenEditor({
 // DO Editor
 // ══════════════════════════════════════════════
 
-function DoEditor({
+export function DoEditor({
   effects,
   variables,
   entries,
@@ -1253,7 +1199,7 @@ function DoEffectRow({
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           {preset && <preset.icon className="h-4 w-4 text-emerald-500/70" />}
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-500/70">
+          <span className="text-xs font-semibold text-emerald-500/80">
             {preset?.label ?? t("behaviors.customEffect")}
           </span>
         </div>
@@ -1456,7 +1402,7 @@ function ChangeVarRow({
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Zap className="h-4 w-4 text-emerald-500/70" />
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-500/70">
+          <span className="text-xs font-semibold text-emerald-500/80">
             {tx("behaviors.doPresets.changeVar")}
           </span>
         </div>
@@ -1510,9 +1456,12 @@ function ChangeVarRow({
           </div>
 
           {mode === "const" && (
-            <input
+            // Raw text stays local while typing; it is parsed only when
+            // committed (pause / blur), so "0." or "-" survive mid-typing
+            // instead of snapping to 0.
+            <DebouncedInput
               value={String(effect.value ?? "")}
-              onChange={(e) => patch({ value: parseSmartValue(e.target.value) })}
+              onCommit={(raw) => patch({ value: parseSmartValue(raw) })}
               placeholder="10"
               className={fieldInputClass}
             />
@@ -1540,7 +1489,7 @@ function ChangeVarRow({
   );
 }
 
-function RandomValueEditor({
+export function RandomValueEditor({
   spec,
   variables,
   targetName,
@@ -1770,9 +1719,9 @@ function FieldInput({
   switch (field.type) {
     case "textarea":
       return (
-        <textarea
+        <DebouncedTextarea
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onCommit={onChange}
           placeholder={field.placeholder}
           rows={3}
           className={cn(fieldInputClass, "min-h-[80px] resize-y")}
@@ -1857,9 +1806,9 @@ function FieldInput({
               placeholder={t("behaviors.selectVariable")}
             />
           ) : (
-            <input
+            <DebouncedInput
               value={value}
-              onChange={(e) => onChange(e.target.value)}
+              onCommit={onChange}
               placeholder={field.placeholder}
               className={fieldInputClass}
             />
@@ -1869,104 +1818,23 @@ function FieldInput({
     }
     case "number":
       return (
-        <input
-          type="number"
+        <DebouncedInput
+          type="text"
+          inputMode="decimal"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onCommit={onChange}
           placeholder={field.placeholder}
           className={fieldInputClass}
         />
       );
     default:
       return (
-        <input
+        <DebouncedInput
           value={value}
-          onChange={(e) => onChange(e.target.value)}
+          onCommit={onChange}
           placeholder={field.placeholder}
           className={fieldInputClass}
         />
       );
   }
-}
-
-// ══════════════════════════════════════════════
-// Reverse-engineer which preset an effect matches
-// ══════════════════════════════════════════════
-
-function identifyPreset(effect: ReactionEffect, presets: DoPreset[]): DoPreset | null {
-  if (effect.type === "set") {
-    const e = effect as Extract<ReactionEffect, { type: "set" }>;
-    if (!e.path.startsWith("@")) return presets.find((p) => p.id === "change-var") ?? null;
-    if (e.path.startsWith("@audio.bgm")) return presets.find((p) => p.id === "play-music") ?? null;
-    if (e.path.startsWith("@audio.sfx")) return presets.find((p) => p.id === "play-sfx") ?? null;
-    if (e.path.startsWith("@audio.stop")) return presets.find((p) => p.id === "stop-audio") ?? null;
-    // New Tell AI effects use @prompt.context. Legacy directives also appear
-    // as tell-ai; text edits retain their original path and lifetime settings.
-    // Legacy stop-tell-ai (value === false) is shown as a generic custom effect
-    // so creators can review and delete it — the feature is gone.
-    if (e.path === "@prompt.context") return presets.find((p) => p.id === "tell-ai") ?? null;
-    if (e.path.startsWith("@prompt.directive.") && e.value !== false) return presets.find((p) => p.id === "tell-ai") ?? null;
-    if (e.path.startsWith("@prompt.entry.")) return e.value ? presets.find((p) => p.id === "enable-entry") ?? null : presets.find((p) => p.id === "disable-entry") ?? null;
-    if (e.path === "@ui.notification") return presets.find((p) => p.id === "notify") ?? null;
-    if (e.path.startsWith("@rules.disabled.")) return presets.find((p) => p.id === "toggle-behavior") ?? null;
-    if (e.path.startsWith("@vars.enabled.")) return presets.find((p) => p.id === "toggle-variable") ?? null;
-    // @ai.request, @timer.start, @timer.cancel are intentionally not surfaced
-    // — those runtime systems were removed. Legacy effects fall through to the
-    // raw-effect display so creators can spot and delete them.
-  }
-  if (effect.type === "emit") {
-    const e = effect as Extract<ReactionEffect, { type: "emit" }>;
-    if (e.event.type === "ui:notification") return presets.find((p) => p.id === "notify") ?? null;
-  }
-  return null;
-}
-
-function extractFieldValues(effect: ReactionEffect, preset: DoPreset | null): Record<string, string> {
-  if (!preset) return {};
-  const fields: Record<string, string> = {};
-
-  if (effect.type === "set") {
-    const e = effect as Extract<ReactionEffect, { type: "set" }>;
-    switch (preset.id) {
-      case "change-var":
-        fields.variableId = e.path;
-        fields.operation = (e.operation ?? "set");
-        fields.value = e.valueRef ? `@ref:${e.valueRef}` : String(e.value ?? "");
-        break;
-      case "tell-ai":
-        // Handles both @prompt.context (new one-shot) and legacy @prompt.directive.* (string value).
-        fields.content = typeof e.value === "string" ? e.value : typeof e.value === "object" && e.value !== null && "content" in (e.value as any) ? (e.value as any).content : String(e.value);
-        break;
-      case "enable-entry":
-      case "disable-entry":
-        fields.entryId = e.path.replace("@prompt.entry.", "");
-        break;
-      case "play-music":
-      case "play-sfx":
-      case "stop-audio":
-        fields.trackId = String(e.value ?? "");
-        break;
-      case "notify":
-        fields.message = String(e.value ?? "");
-        break;
-      case "toggle-behavior":
-        fields.ruleId = e.path.replace("@rules.disabled.", "");
-        fields.enabled = e.value ? "false" : "true"; // inverted: disabled=true means enabled=false
-        break;
-      case "toggle-variable":
-        fields.variableId = e.path.replace("@vars.enabled.", "");
-        fields.enabled = e.value ? "true" : "false";
-        break;
-    }
-  }
-
-  if (effect.type === "emit") {
-    const e = effect as Extract<ReactionEffect, { type: "emit" }>;
-    if (preset.id === "notify") {
-      fields.message = String(e.event.message ?? "");
-      fields.style = typeof e.event.style === "string" ? e.event.style : "info";
-    }
-  }
-
-  return fields;
 }

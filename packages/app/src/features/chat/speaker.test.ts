@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  aiFrameIds,
   displayCharacterName,
   resolveSpeaker,
   stripLeadingSpeakerTag,
@@ -47,11 +48,26 @@ test("an unknown tagged name falls back to the prose", () => {
   assert.equal(resolveSpeaker([mia, balder], "[speaker: Ghost] Mia: hello")?.name, "Mia");
 });
 
-test("no character entries, or none with a portrait, means no face", () => {
+test("no character entries means no speaker", () => {
   assert.equal(resolveSpeaker([lore], "Mia waves."), null);
-  assert.equal(resolveSpeaker([rex], "Rex waves."), null);
   assert.equal(resolveSpeaker([], "hi"), null);
   assert.equal(resolveSpeaker(undefined, "hi"), null);
+});
+
+test("a lone character without a portrait still names every line", () => {
+  // Was null, so a newcomer's card labelled all of its character's replies 「旁白」.
+  assert.deepEqual(resolveSpeaker([rex], "The rain kept falling."), { name: "Rex", portrait: null, video: null, voice: null });
+});
+
+test("a lone character still carrying the template's name is not a name to show", () => {
+  for (const name of ["角色", "Character", "キャラクター", "Personaje"]) {
+    assert.equal(resolveSpeaker([{ ...rex, name }], "她抬起头。"), null, name);
+    assert.equal(resolveSpeaker([{ ...mia, name }], "她抬起头。"), null, `${name} with a portrait`);
+  }
+});
+
+test("several characters without portraits stay narration unless tagged", () => {
+  assert.equal(resolveSpeaker([rex, { ...rex, name: "Ivy" }], "Rex waves."), null);
 });
 
 test("a one-character world is that character's voice on every line", () => {
@@ -109,4 +125,27 @@ test("a moving portrait is a face too, and its clips ride along", () => {
   assert.deepEqual(resolveSpeaker([ink, rex], "Ink: hello."), { name: "Ink", portrait: null, video: clips, voice: null });
   assert.deepEqual(resolveSpeaker([{ ...mia, portraitVideo: clips }, balder], "[speaker: Mia] Hi."),
     { name: "Mia", portrait: "https://cdn/mia.png", video: clips, voice: null });
+});
+
+test("a character in an AI's own frame speaks only through its tag", () => {
+  const shen = { name: "沈霏", role: "character", enabled: true, portrait: "https://cdn/shen.png", worldbookId: "upstairs" };
+  const frames = aiFrameIds([{ id: "upstairs", station: { kind: "narrator" } }, { id: "hall" }]);
+  assert.deepEqual([...frames], ["upstairs"]);
+  // A one-character card keeps its character as the voice of every other line.
+  assert.equal(resolveSpeaker([mia, shen], "The rain keeps on.", frames)?.name, "Mia");
+  assert.equal(resolveSpeaker([mia, shen], "[speaker: 沈霏]\n她抬起头。", frames)?.name, "沈霏");
+  // A card whose only character is an AI's narrates untagged lines itself.
+  assert.equal(resolveSpeaker([shen], "雨还在下。", frames), null);
+});
+
+test("an AI of a group chat answers under its own name, with its character's face when it has one", () => {
+  const voices = [
+    { id: "cat", name: "店猫", host: "card", station: { kind: "narrator" } },
+    { id: "attic", name: "阁楼", station: { kind: "narrator" } },
+  ];
+  assert.deepEqual(resolveSpeaker([], "[speaker: 店猫]\n喵。", undefined, voices), { name: "店猫", portrait: null, video: null, voice: null });
+  const tabby = { name: "橘子", role: "character", enabled: true, portrait: "https://cdn/tabby.png", worldbookId: "cat" };
+  assert.equal(resolveSpeaker([tabby], "[speaker: 店猫]\n喵。", undefined, voices)?.portrait, "https://cdn/tabby.png");
+  // A situation that is its own AI narrates; its name is not a speaker.
+  assert.equal(resolveSpeaker([], "[speaker: 阁楼]\n灰尘落下。", undefined, voices), null);
 });

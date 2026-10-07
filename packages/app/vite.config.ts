@@ -5,6 +5,8 @@ import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 import path from "path";
 import { sandboxDocAsset } from "./vite-plugins/sandbox-doc-asset";
 
+const apiTarget = process.env.YUMINA_API_TARGET || "http://localhost:3000";
+
 export default defineConfig({
   plugins: [
     TanStackRouterVite({
@@ -78,24 +80,31 @@ export default defineConfig({
       origin: "*",
     },
     proxy: {
+      // Several worktrees are usually checked out at once and only one of them
+      // can own :3000. Point this at your own server to test the stack you are
+      // actually editing: YUMINA_API_TARGET=http://localhost:3001 pnpm dev.
       "/api": {
-        target: "http://localhost:3000",
+        target: apiTarget,
         changeOrigin: true,
       },
       "/cdn": {
-        target: "http://localhost:3000",
+        target: apiTarget,
+        changeOrigin: true,
+      },
+      "/mcp": {
+        target: apiTarget,
         changeOrigin: true,
       },
       // One-command local-model installers. changeOrigin stays off so the
       // script is rendered for the page's own origin (127.0.0.1:5173 etc.).
       "/local": {
-        target: "http://localhost:3000",
+        target: apiTarget,
         changeOrigin: false,
       },
       // Local-disk asset uploads (PUT /storage/upload?token=...) when no S3
       // bucket is configured. Keeps dev same-origin; harmless in prod.
       "/storage": {
-        target: "http://localhost:3000",
+        target: apiTarget,
         changeOrigin: true,
       },
     },

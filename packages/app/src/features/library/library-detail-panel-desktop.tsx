@@ -1,12 +1,14 @@
 import { useDiscoverAccess } from "@/hooks/use-discover-access";
 import { selectWorldArtwork } from "@/lib/discover-world-artwork";
 import { useOpenWorldPreview } from "@/edition/slots";
+import { useCardTextMacros } from "@/hooks/use-card-text-macros";
 import { useEdition } from "@/edition/edition";
 import { getUserProfileHref } from "@/edition/routes";
 import { useWorldShareUrl } from "@/edition/slots.state";
 import { useStoryNavigation } from "@/hooks/use-story-navigation";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { normalizeWorldCoverCrop } from "@/lib/world-cover-crop";
 import { useNavigate } from "@tanstack/react-router";
 import {
   ArrowLeft,
@@ -49,7 +51,6 @@ import { VariantForkPicker } from "@/components/variant-fork-picker";
 import { fetchVariantsForDownload } from "@/lib/download-world";
 import type { LanguageVariant } from "@/lib/languages";
 import { CroppedImage } from "@/lib/cover-crop";
-import { normalizeWorldCoverCrop } from "@/lib/world-cover-crop";
 import { useActivityStats } from "@/lib/library-detail-stats";
 import { SessionExportModal } from "./session-export-modal";
 import { SharePlaythroughModal } from "@/features/chat/share-playthrough-modal";
@@ -85,6 +86,7 @@ export function LibraryDetailPanelDesktop({
   const { enabled: discoverPreview } = useDiscoverAccess();
   const previewArtwork = selectWorldArtwork(selectedItem, "landscape");
   const artworkSrc = discoverPreview ? previewArtwork.src : selectedItem.thumbnailUrl;
+  const cardMacros = useCardTextMacros();
   const navigate = useNavigate();
   const rootRef = useRef<HTMLDivElement>(null);
   const [confirmCopy, setConfirmCopy] = useState(false);
@@ -441,6 +443,8 @@ export function LibraryDetailPanelDesktop({
               src={artworkSrc!}
               alt={selectedItem.name}
               crop={discoverPreview ? previewArtwork.crop : selectedItemCrop.gallery}
+              width={2400}
+              fetchPriority="high"
               className="h-full w-full"
             />
           ) : (
@@ -690,7 +694,7 @@ export function LibraryDetailPanelDesktop({
             </h2>
             {selectedItem.description ? (
               <WorldDescription
-                content={selectedItem.description}
+                content={cardMacros(selectedItem.description, selectedItem.name)}
                 className="mb-6 text-sm leading-relaxed text-foreground/70"
               />
             ) : (
@@ -753,7 +757,7 @@ export function LibraryDetailPanelDesktop({
                   </div>
                   {selectedItem.description ? (
                     <WorldDescription
-                      content={selectedItem.description}
+                      content={cardMacros(selectedItem.description, selectedItem.name)}
                       className="mt-3 text-sm leading-relaxed text-foreground/72"
                     />
                   ) : (

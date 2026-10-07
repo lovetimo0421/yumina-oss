@@ -36,6 +36,8 @@ interface CroppedImageProps extends Omit<ImgHTMLAttributes<HTMLImageElement>, "s
   /** Show a shimmer placeholder behind the image until it loads (covers,
    *  grids). Off by default so avatars/inline uses stay unaffected. */
   placeholder?: boolean;
+  /** Fill unused space behind contained artwork with a soft copy of the same image. */
+  ambientBackdrop?: boolean;
   /** Target CSS display width. When set, the image is fetched through the CF
    *  resizer at this width (plus a 2x variant via srcset for retina) instead of
    *  full resolution — turns multi-MB originals into ~30-80KB. Omit for
@@ -53,6 +55,7 @@ export function CroppedImage({
   overlay,
   renderer = defaultCropImageRenderer,
   placeholder = false,
+  ambientBackdrop = false,
   style,
   ...imgProps
 }: CroppedImageProps) {
@@ -157,6 +160,11 @@ export function CroppedImage({
       className={cn("relative overflow-hidden", className)}
       style={style}
     >
+      {ambientBackdrop && loaded && (Number.parseFloat(String(imageLayoutStyle.width)) < 99.9 || Number.parseFloat(String(imageLayoutStyle.height)) < 99.9) && (
+        <img aria-hidden="true" alt="" src={resolvedSrc} srcSet={srcSet}
+          className="pointer-events-none absolute inset-0 h-full w-full scale-110 object-cover opacity-40 blur-xl"
+          decoding="async" />
+      )}
       {placeholder && (
         <div
           aria-hidden="true"

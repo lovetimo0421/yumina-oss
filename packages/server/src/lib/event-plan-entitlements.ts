@@ -1,3 +1,4 @@
+import { PLANS_V2 } from "./plan-config-v2.js";
 import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
 import { db } from "../db/index.js";
 import {
@@ -31,7 +32,7 @@ function rank(plan: string | null | undefined): number {
 async function resolveEffectivePlanWithEventEntitlementsUncached(
   userId: string,
   basePlan: PlanId,
-  activationAllowanceBasePlan: PlanId = basePlan,
+  activationAllowanceBasePlan?: PlanId,
 ): Promise<PlanId> {
   const [candidate] = await db
     .select({ id: planEntitlements.id })
@@ -46,7 +47,12 @@ async function resolveEffectivePlanWithEventEntitlementsUncached(
   const now = new Date();
 
   return db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT id FROM credit_wallets WHERE user_id = ${userId} FOR UPDATE`);
+    const [lockedWallet] = await tx.select({ plan: creditWallets.plan }).from(creditWallets)
+      .where(eq(creditWallets.userId, userId)).for("update");
+    if (!lockedWallet) return basePlan;
+    // Billing may have changed since the caller loaded its wallet snapshot.
+    basePlan = normalizePlan(lockedWallet.plan);
+    activationAllowanceBasePlan ??= basePlan;
 
     await tx
       .update(planEntitlements)
@@ -159,7 +165,12 @@ async function resolveEffectivePlanWithEventEntitlementsUncached(
         // Referral allowances are normally already paid at grant time, so the
         // referenceId check below turns this into a no-op for them. It still
         // runs for entitlements granted before that change shipped.
-        const amount = activationAllowance(
+        const [giftWallet] = next.source === "gift"
+          ? await tx.select({ planVersion: creditWallets.planVersion }).from(creditWallets).where(eq(creditWallets.userId, userId))
+          : [];
+        const amount = next.source === "gift"
+          ? next.giftCredits ?? (giftWallet?.planVersion === 2 ? PLANS_V2 : PLANS)[activatedPlan].monthlyCredits
+          : activationAllowance(
           next.source,
           activatedPlan,
           activationAllowanceBasePlan,

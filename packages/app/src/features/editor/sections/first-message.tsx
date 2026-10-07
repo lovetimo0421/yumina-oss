@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Plus, Trash2, MessageCircle, BookOpen } from "lucide-react";
 import {
@@ -22,13 +22,13 @@ import { CSS } from "@dnd-kit/utilities";
 import { cn } from "@/lib/utils";
 import { DOCS_URLS } from "@/lib/docs-urls";
 import { useEditorStore } from "@/stores/editor";
-import { estimateTokens } from "@yumina/engine";
 import { DebouncedTextarea } from "../components/debounced-field";
 import { ImageInsertButton, useImageInsert } from "../components/image-insert";
+import { useTemplateContentPlaceholder } from "../template-placeholders";
 
 const EMPTY_WB: import("@yumina/engine").Worldbook[] = [];
 
-export function FirstMessageSection({ compact }: { compact?: boolean } = {}) {
+export function FirstMessageSection({ compact, onOpenGuide }: { compact?: boolean; onOpenGuide?: () => void } = {}) {
   const { t } = useTranslation("editor");
   const worldDraft = useEditorStore(s => s.worldDraft);
   const variables = useEditorStore(s => s.worldDraft.variables);
@@ -38,6 +38,8 @@ export function FirstMessageSection({ compact }: { compact?: boolean } = {}) {
   const removeEntry = useEditorStore(s => s.removeEntry);
   const reorderEntries = useEditorStore(s => s.reorderEntries);
   const setActiveSection = useEditorStore(s => s.setActiveSection);
+  const pendingFocus = useEditorStore(s => s.pendingFocus);
+  const clearPendingFocus = useEditorStore(s => s.clearPendingFocus);
 
   const greetings = worldDraft.entries
     .filter((e) => e.role === "greeting")
@@ -45,6 +47,17 @@ export function FirstMessageSection({ compact }: { compact?: boolean } = {}) {
 
   const [activeIndex, setActiveIndex] = useState(0);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const requestedIndex = pendingFocus?.kind === "greeting"
+    ? greetings.findIndex((g) => g.id === pendingFocus.id)
+    : -1;
+  useEffect(() => {
+    if (pendingFocus?.kind !== "greeting") return;
+    if (requestedIndex >= 0) {
+      setActiveIndex(requestedIndex);
+      setConfirmDelete(false);
+    }
+    clearPendingFocus();
+  }, [pendingFocus, requestedIndex, clearPendingFocus]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -79,25 +92,36 @@ export function FirstMessageSection({ compact }: { compact?: boolean } = {}) {
   // Clamp activeIndex to valid range
   const clampedIndex = greetings.length === 0 ? 0 : Math.min(activeIndex, greetings.length - 1);
   const activeGreeting = greetings[clampedIndex];
+  // Template-seeded greeting: its writing guidance shows as the placeholder
+  // until the creator writes the real opening (see template-placeholders.ts).
+  const templatePlaceholder = useTemplateContentPlaceholder(activeGreeting ?? { tags: undefined });
   // Pictures land in the opening text at the caret: the toolbar button,
   // a dropped file or a pasted image all go through the asset library.
   const contentRef = useRef<HTMLDivElement>(null);
   const imageInsert = useImageInsert(() => contentRef.current?.querySelector("textarea") ?? null);
 
   function handleCreate() {
-    addEntry("greeting", "system-presets");
-    const entries = useEditorStore.getState().worldDraft.entries;
-    const newEntry = entries[entries.length - 1];
-    if (newEntry) {
-      const greetingCount = entries.filter((e) => e.role === "greeting").length;
-      updateEntry(newEntry.id, {
-        name: `Greeting ${greetingCount}`,
-        role: "greeting",
-        apiRole: "assistant",
-        alwaysSend: true,
-        enabled: true,
-        tags: ["First Message"],
-      });
+    // add + configure is one user action → one undo step (otherwise Ctrl+Z
+    // first reverts to a half-made, unnamed non-greeting entry).
+    const store = useEditorStore.getState();
+    store.beginBatch();
+    try {
+      addEntry("greeting", "system-presets");
+      const entries = useEditorStore.getState().worldDraft.entries;
+      const newEntry = entries[entries.length - 1];
+      if (newEntry) {
+        const greetingCount = entries.filter((e) => e.role === "greeting").length;
+        updateEntry(newEntry.id, {
+          name: t("firstMessage.greetingName", { n: greetingCount, defaultValue: "Greeting {{n}}" }),
+          role: "greeting",
+          apiRole: "assistant",
+          alwaysSend: true,
+          enabled: true,
+          tags: ["First Message"],
+        });
+      }
+    } finally {
+      store.commitBatch();
     }
     // Switch to the new tab (greetings.length is pre-add, which equals the new last index)
     setActiveIndex(greetings.length);
@@ -140,7 +164,7 @@ export function FirstMessageSection({ compact }: { compact?: boolean } = {}) {
               </h1>
               <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
                 {t("firstMessage.description")}{" "}
-                <a href={DOCS_URLS.beginnerGuide} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{t("firstMessage.learnMore")}</a>
+                {onOpenGuide ? <button type="button" onClick={onOpenGuide} className="text-primary hover:underline">{t("firstMessage.learnMore")}</button> : <a href={DOCS_URLS.beginnerGuide} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{t("firstMessage.learnMore")}</a>}
               </p>
             </div>
             {greetings.length > 0 && (
@@ -187,16 +211,16 @@ export function FirstMessageSection({ compact }: { compact?: boolean } = {}) {
 
             {/* Content textarea */}
             {activeGreeting && (
-              <div ref={contentRef} className="space-y-3" data-tour="fm-content">
+              <div ref={contentRef} className="space-y-3" data-tour="fm-content" data-onboarding-entry={activeGreeting.id}>
                 <DebouncedTextarea
                   value={activeGreeting.content}
                   onCommit={(content) => updateEntry(activeGreeting.id, { content })}
                   syncKey={activeGreeting.id}
                   rows={12}
-                  placeholder={t("firstMessage.placeholder")}
+                  placeholder={templatePlaceholder || t("firstMessage.placeholder")}
                   {...imageInsert.dropProps}
                   className={cn(
-                    "min-h-[240px] w-full resize-y rounded-xl border border-border bg-card px-4 py-4 font-mono text-sm leading-relaxed text-foreground shadow-inner transition-all placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50",
+                    "min-h-[240px] w-full resize-y rounded-xl border border-border bg-card px-4 py-4 font-mono text-sm leading-relaxed text-foreground shadow-inner transition-all placeholder:whitespace-pre-line placeholder:text-muted-foreground/30 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/50",
                     imageInsert.dragOver && "border-primary/60 ring-2 ring-primary/40",
                   )}
                 />
@@ -204,14 +228,10 @@ export function FirstMessageSection({ compact }: { compact?: boolean } = {}) {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-3">
                     <ImageInsertButton insert={imageInsert} />
-                    <p className="text-xs text-muted-foreground/50">
-                      {t("firstMessage.macros")} <code className="rounded bg-accent px-1 py-0.5 text-[11px]">{"{{user}}"}</code>{" "}
-                      <code className="rounded bg-accent px-1 py-0.5 text-[11px]">{"{{char}}"}</code>
+                    <p className="text-xs text-muted-foreground/60">
+                      {t("firstMessage.macrosPlain", { user: "{{user}}", char: "{{char}}" })}
                     </p>
                   </div>
-                  <p className="text-xs text-muted-foreground/40">
-                    ~{estimateTokens(activeGreeting.content).toLocaleString()} {estimateTokens(activeGreeting.content) === 1 ? "token" : "tokens"}
-                  </p>
                 </div>
               </div>
             )}
@@ -225,10 +245,10 @@ export function FirstMessageSection({ compact }: { compact?: boolean } = {}) {
               return (
                 <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-violet-500/20 bg-violet-500/5 px-3 py-2.5">
                   <BookOpen className="h-3.5 w-3.5 shrink-0 text-violet-400" />
-                  <span className="text-[11px] font-semibold text-violet-300">{t("kb.badgeGreeting")}:</span>
+                  <span className="text-[11px] font-semibold text-violet-300">{t("modules.badge.greeting")}:</span>
                   {bound.map((wb) => (
                     <span key={wb.id} className="rounded-full bg-violet-500/15 px-2 py-0.5 text-[10px] font-medium text-violet-300">
-                      {wb.name || t("kb.untitledBook")}
+                      {wb.name || t("modules.untitled")}
                     </span>
                   ))}
                 </div>
@@ -322,7 +342,7 @@ export function FirstMessageSection({ compact }: { compact?: boolean } = {}) {
               >
                 <Plus className="h-4 w-4" /> {t("firstMessage.createFirstMessage")}
               </button>
-              <a href={DOCS_URLS.beginnerGuide} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">{t("firstMessage.learnMore")}</a>
+              {onOpenGuide ? <button type="button" onClick={onOpenGuide} className="text-xs text-primary hover:underline">{t("firstMessage.learnMore")}</button> : <a href={DOCS_URLS.beginnerGuide} target="_blank" rel="noopener noreferrer" className="text-xs text-primary hover:underline">{t("firstMessage.learnMore")}</a>}
             </div>
           </div>
         )}

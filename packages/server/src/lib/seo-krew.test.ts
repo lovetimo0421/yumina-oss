@@ -21,6 +21,7 @@ test("Krew previews identify the same real image and canonical page", async () =
       .map((match) => JSON.parse(match[1]!));
     const game = objects.find((object) => object["@type"] === "VideoGame");
     assert.ok(game);
+    assert.equal(game["@id"], `${meta.url}#game`);
     assert.equal(game.mainEntityOfPage["@id"], meta.url);
     assert.equal(game.mainEntityOfPage.primaryImageOfPage.url, imageUrl);
     assert.equal(game.image, imageUrl);

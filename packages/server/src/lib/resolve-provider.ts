@@ -278,15 +278,6 @@ export async function resolveProviderForModel(
   return null;
 }
 
-/** Pick the right official OpenRouter key. Non-free users get the invite key if available. */
-function resolveOfficialKey(plan: string): string | null {
-  // Any plan above free (go, plus, pro, ultra, internal) gets the invite key
-  if (plan !== "free" && plan !== "regular" && env.YUMINA_INVITE_OPENROUTER_KEY) {
-    return env.YUMINA_INVITE_OPENROUTER_KEY;
-  }
-  return env.YUMINA_OPENROUTER_KEY || null;
-}
-
 /**
  * The OpenRouter key a side call (music generation) should use for this user.
  * Mirrors resolveProviderForModel: private mode uses only the user's key;
@@ -330,3 +321,13 @@ export async function resolveOfficialOpenRouterKeyForUser(userId: string): Promi
   const officialKey = resolveOfficialKey(plan);
   return officialKey ? { apiKey: officialKey, isByok: false, apiKeyTier: plan as ApiKeyTier } : null;
 }
+
+/** Pick the right official OpenRouter key. Non-free users get the invite key if available. */
+function resolveOfficialKey(plan: string): string | null {
+  // Any plan above free (go, plus, pro, ultra, internal) gets the invite key
+  if (plan !== "free" && plan !== "regular" && env.YUMINA_INVITE_OPENROUTER_KEY) {
+    return env.YUMINA_INVITE_OPENROUTER_KEY;
+  }
+  return env.YUMINA_OPENROUTER_KEY || null;
+}
+

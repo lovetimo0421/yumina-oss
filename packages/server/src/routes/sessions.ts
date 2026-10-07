@@ -1,4 +1,5 @@
 import { playtimeDecision } from "../lib/playtime-policy.js";
+import { loadMessagePage } from "../lib/message-page.js";
 import { discoveryIdentity, prepareDiscoveryOutcome, recordDiscoveryOutcome } from "../lib/discovery-outcomes.js";
 import { deleteSessionsKeepingUsage } from "../lib/delete-sessions.js";
 import { PLAY_ENGAGEMENT_LUA } from "../lib/play-engagement.js";
@@ -6,14 +7,13 @@ import { redis } from "../lib/redis.js";
 import { captureServerError } from "../lib/posthog.js";
 import { Hono } from "hono";
 import { eq, and, ne, desc, asc, sql, count, inArray, isNotNull } from "drizzle-orm";
-import { loadMessagePage } from "../lib/message-page.js";
 import { db, readOwn } from "../db/index.js";
 import { createHash, randomUUID } from "node:crypto";
-import { playSessions, worlds, messages, apiKeys, worldMemories, checkpoints, userLibrary, user, summaryceptionSnippets } from "../db/schema.js";
-import { sessionMedia } from "../lib/session-media.js";
+import { playSessions, worlds, messages, apiKeys, worldMemories, checkpoints, userLibrary, user, summaryceptionSnippets, sessionLoreEntries } from "../db/schema.js";
 import { restoreSessionStorage } from "../lib/session-storage-service.js";
 import { MediaError } from "../lib/session-media-service.js";
 import { authMiddleware } from "../middleware/auth.js";
+import { sessionMedia } from "../lib/session-media.js";
 import { decryptApiKey } from "../lib/crypto.js";
 import { extractMemories, loadWorldMemories } from "../lib/memory-extractor.js";
 import { MAX_SESSION_NAME } from "@yumina/shared";
@@ -31,14 +31,61 @@ import { enqueueLifetimePlaytime } from "../lib/lifetime-playtime-sql.js";
 import type { GameState, WorldDefinition, WorldEntry } from "@yumina/engine";
 import { GameStateManager, PromptBuilder, migrateWorldDefinition, ReactionEvaluator, runReactionChain, buildActionFiredEvent, preserveSetupScopedVariables, renewSocialEpoch } from "@yumina/engine";
 import { mergeGameStatePatch, normalizeGameState } from "../lib/game-state.js";
+import { runQuietTick } from "../lib/quiet-station.js";
+import { runGroupReply } from "../lib/group-reply.js";
+import { runAiCall } from "../lib/ai-call.js";
+import { loadPlayerValues, savePlayerValues } from "../lib/player-state.js";
+import { normalizeLiveScene } from "../lib/live-scene.js";
 import { hasStorySummary } from "../lib/session-compaction.js";
+import { applyRunTransitions, detectRunTransitions, ensureActiveRunMemories, restoreRunMemories, rebuildRunMemories, type RunMemories } from "../lib/run-scopes.js";
+import { scheduleRunSummary } from "../lib/run-summary.js";
+import { dueWorkers, scheduleWorkerRun } from "../lib/worker-station.js";
 import { collectExtensionInvalidation } from "../lib/extension-hooks.js";
 import { regenerateDroppedMemoryTiers } from "../extensions/session-memory/hooks.js";
+import { deleteTestStart, listTestStarts, runTestStart, saveTestStart, TestStartError } from "../lib/studio-test-starts.js";
 import { scheduleQuestCollect } from "../lib/quest-auto-collect.js";
 
 const sessionRoutes = new Hono<AppEnv>();
 
 sessionRoutes.use("/*", authMiddleware);
+
+// Dedicated creator-only test starts; declared before the generic /:id route.
+sessionRoutes.get("/studio-test-starts", async (c) => {
+  try {
+    return c.json({ data: await listTestStarts(c.get("user").id, c.req.query("worldId") ?? "") });
+  } catch (error) {
+    if (error instanceof TestStartError) return c.json({ error: error.message }, error.status);
+    throw error;
+  }
+});
+sessionRoutes.post("/:id/studio-test-starts", async (c) => {
+  const body = await c.req.json<{ worldId: string; name: string; expectedState: Record<string, unknown> }>();
+  if (!body.expectedState || typeof body.expectedState !== "object" || Array.isArray(body.expectedState)) return c.json({ error: "Expected playtest state is required" }, 400);
+  try {
+    return c.json({ data: await saveTestStart(c.get("user").id, body.worldId, c.req.param("id"), body.name, body.expectedState) }, 201);
+  } catch (error) {
+    if (error instanceof TestStartError) return c.json({ error: error.message, code: error.code }, error.status);
+    throw error;
+  }
+});
+sessionRoutes.post("/studio-test-starts/:checkpointId/run", async (c) => {
+  const body = await c.req.json<{ worldId: string }>();
+  try {
+    return c.json({ data: await runTestStart(c.get("user").id, body.worldId, c.req.param("checkpointId")) }, 201);
+  } catch (error) {
+    if (error instanceof TestStartError) return c.json({ error: error.message }, error.status);
+    throw error;
+  }
+});
+sessionRoutes.delete("/studio-test-starts/:checkpointId", async (c) => {
+  try {
+    await deleteTestStart(c.get("user").id, c.req.query("worldId") ?? "", c.req.param("checkpointId"));
+    return c.json({ data: { deleted: true } });
+  } catch (error) {
+    if (error instanceof TestStartError) return c.json({ error: error.message }, error.status);
+    throw error;
+  }
+});
 
 /** Newest messages returned inline by GET /sessions/:id. Older pages load via
  *  GET /sessions/:id/messages?before=… — never grow this past a few hundred:
@@ -152,6 +199,9 @@ sessionRoutes.post("/", async (c) => {
 
     const stateManager = new GameStateManager(worldDef);
     const activePersona = await personaPromise;
+    // 跨存档保留: what this player kept from earlier playthroughs.
+    const keptValues = await loadPlayerValues(currentUser.id, body.worldId, worldDef);
+    for (const [k, v] of Object.entries(keptValues)) stateManager.set(k, v as never);
     applyPersonaMetadata(stateManager, activePersona ?? null, {
       username: currentUser.username,
       displayUsername: currentUser.displayUsername,
@@ -177,6 +227,7 @@ sessionRoutes.post("/", async (c) => {
         image: currentUser.image,
       });
       for (const [k, v] of Object.entries(g.initialVariables ?? {})) sm.set(k, v);
+      for (const [k, v] of Object.entries(keptValues)) sm.set(k, v as never);
       const snap = sm.getSnapshot();
       // Stamp the active greeting ID so worldbooks with mode:"greeting" can
       // activate as a pure function of game state (revert/branch safe). Stored as
@@ -201,6 +252,7 @@ sessionRoutes.post("/", async (c) => {
     // in the session list while the API returned 500.
     const identity = await discoveryIdentity(c, currentUser.id);
     session = await db.transaction(async (tx) => {
+      const startedAt = new Date();
       const attribution = body.ephemeral ? null : await prepareDiscoveryOutcome(tx, body.discoveryAttribution, identity, world);
       const [createdSession] = await tx
         .insert(playSessions)
@@ -209,6 +261,7 @@ sessionRoutes.post("/", async (c) => {
           worldId: body.worldId,
           sessionPersona: captureSessionPersona(activePersona),
           state: initialState as unknown as Record<string, unknown>,
+          runMemories: ensureActiveRunMemories(null, worldDef.worldbooks, initialState, startedAt.toISOString()) as unknown as Record<string, unknown>,
           ...(body.name !== undefined ? { name: body.name } : {}),
           // Studio playtest passes ephemeral=true so the session is hidden from
           // the user's session list and gets swept up by the cleanup cron.
@@ -226,6 +279,7 @@ sessionRoutes.post("/", async (c) => {
           stateSnapshot: initialState as unknown as Record<string, unknown>,
           swipes,
           activeSwipeIndex: 0,
+          createdAt: startedAt,
         });
       }
 
@@ -235,7 +289,14 @@ sessionRoutes.post("/", async (c) => {
     scheduleQuestCollect(currentUser.id); // "Open a new world" may just have finished.
   } catch (err) {
     console.error("[SESSION] Failed to create session for world", body.worldId, err);
-    return c.json({ error: "Failed to initialize session — this world may have invalid data" }, 500);
+    // A storage failure (missing column, dead connection, timeout) is ours,
+    // not the author's. Blaming "invalid data" sends a newcomer back to
+    // re-read their own card for a bug that lives in the database.
+    const detail = err instanceof Error ? `${err.message} ${(err as { cause?: { message?: string } }).cause?.message ?? ""}` : "";
+    const storageFailure = (typeof err === "object" && err !== null && "code" in err) || /does not exist|relation|column|connect|timeout|ECONN/i.test(detail);
+    return c.json({ error: storageFailure
+      ? "Failed to initialize session — the server could not store it. Try again in a moment; your card is fine."
+      : "Failed to initialize session — this world may have invalid data" }, 500);
   }
 
   // This remains best-effort, but cannot record a play for a session that
@@ -586,22 +647,65 @@ sessionRoutes.patch("/:id/state", async (c) => {
   }
 
   // Row-level lock so a concurrent execute-action / message-turn / state-patch
-  // can't read-modify-write the same session state and lose updates. The lock is
-  // taken NOWAIT and retried from Node (lib/session-lock.ts) so a patch that
-  // lands mid-turn never pins a database connection while it waits.
+  // can't read-modify-write the same session state and lose updates. Taken
+  // NOWAIT and retried from Node (lib/session-lock.ts) so a patch that lands
+  // mid-turn never pins a database connection while it waits.
   let result;
   try {
     result = await withSessionRowLock(sessionId, async (tx, row) => {
-      const mergedState = mergeGameStatePatch(worldDef, row.state, body.state);
-      const updated = await tx
-        .update(playSessions)
-        .set({
-          state: mergedState as unknown as Record<string, unknown>,
-          updatedAt: new Date(),
-        })
-        .where(eq(playSessions.id, sessionId))
-        .returning();
-      return { data: updated[0] };
+    const currentState = row.state;
+    // The run ledger rides on the same locked row; the lock helper carries state only.
+    const memoryRows = await tx.execute(sql`SELECT run_memories FROM play_sessions WHERE id = ${sessionId}`);
+    const lockedRow = { state: currentState, run_memories: (memoryRows.rows[0] as { run_memories?: RunMemories | null } | undefined)?.run_memories ?? null };
+    const mergedState = mergeGameStatePatch(worldDef, currentState, body.state);
+
+    // 副本 run boundaries — the frontend's own gate flips travel THIS road
+    // (在逃命 closes a dungeon by patching active-dungeon-id from the death
+    // screen). Detected on the same lock so the ledger and the state that
+    // moved it commit together.
+    const runTransitions = detectRunTransitions(
+      worldDef.worldbooks,
+      normalizeGameState(worldDef, currentState),
+      mergedState,
+    );
+    let closedRecords: ReturnType<typeof applyRunTransitions>["closedRecords"] = [];
+    let nextRunMemories: Record<string, unknown> | undefined;
+    if (runTransitions.opened.length > 0 || runTransitions.closed.length > 0) {
+      // A patch has no message of its own — the boundary is the newest
+      // message's timestamp for CLOSES (the run's last narrated moment) and
+      // "now" for OPENS (the run's first message will come after this patch).
+      const [lastMsg] = await tx
+        .select({ createdAt: messages.createdAt })
+        .from(messages)
+        .where(eq(messages.sessionId, sessionId))
+        .orderBy(desc(messages.createdAt))
+        .limit(1);
+      const closeBoundary = (lastMsg?.createdAt ?? new Date()).toISOString();
+      const openBoundary = new Date().toISOString();
+      const afterCloses = applyRunTransitions(
+        ensureActiveRunMemories(lockedRow.run_memories, worldDef.worldbooks, normalizeGameState(worldDef, currentState), closeBoundary),
+        { opened: [], closed: runTransitions.closed },
+        closeBoundary,
+      );
+      const afterOpens = applyRunTransitions(
+        afterCloses.memories,
+        { opened: runTransitions.opened, closed: [] },
+        openBoundary,
+      );
+      closedRecords = afterCloses.closedRecords;
+      nextRunMemories = afterOpens.memories as unknown as Record<string, unknown>;
+    }
+
+    const updated = await tx
+      .update(playSessions)
+      .set({
+        state: mergedState as unknown as Record<string, unknown>,
+        ...(nextRunMemories !== undefined ? { runMemories: nextRunMemories } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(playSessions.id, sessionId))
+      .returning();
+    return { data: updated[0], closedRecords, nextState: mergedState, prevState: normalizeGameState(worldDef, currentState) };
     });
   } catch (err) {
     if (err instanceof SessionBusyError) {
@@ -610,8 +714,37 @@ sessionRoutes.patch("/:id/state", async (c) => {
     }
     throw err;
   }
-
   if (result === SESSION_NOT_FOUND) return c.json({ error: "Session not found" }, 404);
+  for (const record of result.closedRecords ?? []) {
+    const book = (worldDef.worldbooks ?? []).find((wb) => wb.id === record.bookId);
+    if (book) {
+      scheduleRunSummary({
+        sessionId,
+        userId: currentUser.id,
+        worldName: worldDef.name,
+        book,
+        record,
+      });
+    }
+  }
+  for (const { book, cause } of dueWorkers({
+    worldDef,
+    prevState: result.prevState,
+    nextState: result.nextState,
+    closedRecords: result.closedRecords ?? [],
+    turnCount: result.nextState?.turnCount,
+  })) {
+    scheduleWorkerRun({
+      sessionId,
+      userId: currentUser.id,
+      worldName: worldDef.name,
+      worldDef,
+      book,
+      state: result.nextState,
+      cause,
+      expectedGeneration: (result.data?.runMemories as RunMemories | null)?.generation,
+    });
+  }
   return c.json({ data: result.data });
 });
 
@@ -670,10 +803,18 @@ sessionRoutes.post("/:id/context", async (c) => {
 sessionRoutes.post("/:id/execute-action", async (c) => {
   const currentUser = c.get("user");
   const sessionId = c.req.param("id");
-  const body = await c.req.json<{ actionId: string }>().catch(() => null);
-  if (!body || typeof body.actionId !== "string" || !body.actionId) {
+  const body = await c.req.json<{ actionId?: string; params?: unknown; clock?: unknown }>().catch(() => null);
+  // A clock tick (behaviours that run every N seconds) instead of a button.
+  const clock = typeof body?.clock === "number" && Number.isFinite(body.clock) && body.clock >= 1 ? Math.floor(body.clock) : null;
+  if (!body || (clock === null && (typeof body.actionId !== "string" || !body.actionId))) {
     return c.json({ error: "actionId is required" }, 400);
   }
+  // What the button passed in (商品, 价格): plain values only.
+  const params = body.params && typeof body.params === "object" && !Array.isArray(body.params)
+    ? Object.fromEntries(Object.entries(body.params as Record<string, unknown>).slice(0, 30)
+        .filter(([, v]) => typeof v === "string" || typeof v === "number" || typeof v === "boolean")
+        .map(([k, v]) => [k.slice(0, 60), typeof v === "string" ? v.slice(0, 500) : v]))
+    : null;
 
   // Build the world definition BEFORE the row lock (see /state note above): the
   // world detoast + migrate is slow and stable, so keeping it out of the FOR
@@ -698,38 +839,78 @@ sessionRoutes.post("/:id/execute-action", async (c) => {
     // Row-level lock so concurrent actions / messages don't clobber state.
     // NOWAIT + retry from Node (lib/session-lock.ts).
     result = await withSessionRowLock(sessionId, async (tx, row) => {
-      const gameState = normalizeGameState(worldDef, row.state);
+    const currentState = row.state;
+    const memoryRows = await tx.execute(sql`SELECT run_memories FROM play_sessions WHERE id = ${sessionId}`);
+    const lockedActionRow = { state: currentState, run_memories: (memoryRows.rows[0] as { run_memories?: RunMemories | null } | undefined)?.run_memories ?? null };
+    const gameState = normalizeGameState(worldDef, currentState);
 
-      const stateManager = new GameStateManager(worldDef, gameState);
-      const runResult = runReactionChain(
-        reactionEvaluator,
-        stateManager,
-        [buildActionFiredEvent(body.actionId)],
-        worldDef.reactions ?? [],
-        worldDef.rules ?? [],
+    const stateManager = new GameStateManager(worldDef, gameState);
+    const runResult = runReactionChain(
+      reactionEvaluator,
+      stateManager,
+      [clock !== null ? { type: "clock:every", seconds: clock } : { ...buildActionFiredEvent(body.actionId!), ...(params ? { params } : {}) }],
+      worldDef.reactions ?? [],
+      worldDef.rules ?? [],
+      { worldbooks: worldDef.worldbooks },
+    );
+
+    // A fired reaction may stash one-shot context (tell-ai) for the AI to read
+    // on the player's NEXT message — it does not start a turn on its own.
+    if (runResult.contextMessages.length > 0) {
+      stateManager.setMetadata("pendingContext", runResult.contextMessages);
+    }
+
+    const finalState = stateManager.getSnapshot();
+
+    // 副本 run boundaries — a fired behavior can flip a runScoped gate too.
+    const runTransitions = detectRunTransitions(worldDef.worldbooks, gameState, finalState);
+    let closedRecords: ReturnType<typeof applyRunTransitions>["closedRecords"] = [];
+    let nextRunMemories: Record<string, unknown> | undefined;
+    if (runTransitions.opened.length > 0 || runTransitions.closed.length > 0) {
+      const [lastMsg] = await tx
+        .select({ createdAt: messages.createdAt })
+        .from(messages)
+        .where(eq(messages.sessionId, sessionId))
+        .orderBy(desc(messages.createdAt))
+        .limit(1);
+      const closeBoundary = (lastMsg?.createdAt ?? new Date()).toISOString();
+      const afterCloses = applyRunTransitions(
+        ensureActiveRunMemories(lockedActionRow.run_memories, worldDef.worldbooks, gameState, closeBoundary),
+        { opened: [], closed: runTransitions.closed },
+        closeBoundary,
       );
+      const afterOpens = applyRunTransitions(
+        afterCloses.memories,
+        { opened: runTransitions.opened, closed: [] },
+        new Date().toISOString(),
+      );
+      closedRecords = afterCloses.closedRecords;
+      nextRunMemories = afterOpens.memories as unknown as Record<string, unknown>;
+    }
 
-      // A fired reaction may stash one-shot context (tell-ai) for the AI to read
-      // on the player's NEXT message — it does not start a turn on its own.
-      if (runResult.contextMessages.length > 0) {
-        stateManager.setMetadata("pendingContext", runResult.contextMessages);
-      }
+    await tx
+      .update(playSessions)
+      .set({
+        state: finalState as unknown as Record<string, unknown>,
+        ...(nextRunMemories !== undefined ? { runMemories: nextRunMemories } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(playSessions.id, sessionId));
 
-      const finalState = stateManager.getSnapshot();
-      await tx
-        .update(playSessions)
-        .set({ state: finalState as unknown as Record<string, unknown>, updatedAt: new Date() })
-        .where(eq(playSessions.id, sessionId));
-
-      return {
-        data: {
-          variables: finalState.variables,
-          changes: runResult.changes,
-          notifications: runResult.notifications,
-          audio: runResult.audioEffects,
-          firedIds: runResult.firedIds,
-        },
-      };
+    return {
+      data: {
+        variables: finalState.variables,
+        state: finalState,
+        changes: runResult.changes,
+        notifications: runResult.notifications,
+        audio: runResult.audioEffects,
+        firedIds: runResult.firedIds,
+      },
+      closedRecords,
+      prevState: gameState,
+      nextState: finalState,
+      expectedGeneration: (nextRunMemories as RunMemories | undefined)?.generation ?? lockedActionRow.run_memories?.generation,
+    };
     });
   } catch (err) {
     if (err instanceof SessionBusyError) {
@@ -739,7 +920,128 @@ sessionRoutes.post("/:id/execute-action", async (c) => {
     throw err;
   }
   if (result === SESSION_NOT_FOUND) return c.json({ error: "Session not found" }, 404);
-  return c.json(result);
+  for (const record of result.closedRecords ?? []) {
+    const book = (worldDef.worldbooks ?? []).find((wb) => wb.id === record.bookId);
+    if (book) {
+      scheduleRunSummary({
+        sessionId,
+        userId: currentUser.id,
+        worldName: worldDef.name,
+        book,
+        record,
+      });
+    }
+  }
+  for (const { book, cause } of dueWorkers({
+    worldDef,
+    prevState: result.prevState,
+    nextState: result.nextState,
+    closedRecords: result.closedRecords ?? [],
+    turnCount: result.nextState?.turnCount,
+  })) {
+    scheduleWorkerRun({
+      sessionId,
+      userId: currentUser.id,
+      worldName: worldDef.name,
+      worldDef,
+      book,
+      state: result.nextState,
+      cause,
+      expectedGeneration: result.expectedGeneration,
+    });
+  }
+  return c.json({ data: result.data });
+});
+
+// POST /api/sessions/:id/quiet-tick — the open game's clock. Asks the card's
+// quiet stations (worker trigger { on: "quiet" }) whether this stretch of
+// silence is worth a line. Cheap when nothing is due: one session read.
+sessionRoutes.post("/:id/quiet-tick", async (c) => {
+  const currentUser = c.get("user");
+  const sessionId = c.req.param("id");
+  const [meta] = await db
+    .select({ worldId: playSessions.worldId, userId: playSessions.userId })
+    .from(playSessions)
+    .where(eq(playSessions.id, sessionId))
+    .limit(1);
+  if (!meta || meta.userId !== currentUser.id) {
+    return c.json({ error: "Session not found" }, 404);
+  }
+  const worldDef = await loadSessionWorldDef(meta.worldId, currentUser.id);
+  if (!worldDef) return c.json({ error: "World not found" }, 404);
+  const body = await c.req.json<{ scene?: unknown; call?: unknown }>().catch(() => ({} as { scene?: unknown; call?: unknown }));
+  // `call`: the player's screen calling one AI by id or name (trigger "ui").
+  const call = typeof body.call === "string" ? body.call.slice(0, 200) : null;
+  const result = await runQuietTick({ sessionId, userId: currentUser.id, world: worldDef, scene: normalizeLiveScene(body.scene), call });
+  return c.json({ data: result });
+});
+
+// POST /api/sessions/:id/player-state — 跨存档保留: the open game saves the
+// values of variables that persist for this player (lib/player-state.ts).
+sessionRoutes.post("/:id/player-state", async (c) => {
+  const currentUser = c.get("user");
+  const sessionId = c.req.param("id");
+  const [meta] = await db
+    .select({ worldId: playSessions.worldId, userId: playSessions.userId })
+    .from(playSessions)
+    .where(eq(playSessions.id, sessionId))
+    .limit(1);
+  if (!meta || meta.userId !== currentUser.id) return c.json({ error: "Session not found" }, 404);
+  const worldDef = await loadSessionWorldDef(meta.worldId, currentUser.id);
+  if (!worldDef) return c.json({ error: "World not found" }, 404);
+  const body = await c.req.json<{ values?: unknown }>().catch(() => ({} as { values?: unknown }));
+  if (!body.values || typeof body.values !== "object" || Array.isArray(body.values)) return c.json({ error: "values must be an object" }, 400);
+  const saved = await savePlayerValues(currentUser.id, meta.worldId, worldDef, body.values as Record<string, unknown>);
+  return c.json({ data: { saved: Object.keys(saved) } });
+});
+
+// POST /api/sessions/:id/ai-call — the card's screen calls one of its AIs
+// (api.callAi(name, input)) and gets the answer back: text, the fields it was
+// asked for, and whatever the answer changed (lib/ai-call.ts).
+sessionRoutes.post("/:id/ai-call", async (c) => {
+  const currentUser = c.get("user");
+  const sessionId = c.req.param("id");
+  const [meta] = await db
+    .select({ worldId: playSessions.worldId, userId: playSessions.userId })
+    .from(playSessions)
+    .where(eq(playSessions.id, sessionId))
+    .limit(1);
+  if (!meta || meta.userId !== currentUser.id) {
+    return c.json({ error: "Session not found" }, 404);
+  }
+  const worldDef = await loadSessionWorldDef(meta.worldId, currentUser.id);
+  if (!worldDef) return c.json({ error: "World not found" }, 404);
+  const body = await c.req.json<{ ai?: unknown; input?: unknown; scene?: unknown }>().catch(() => ({} as { ai?: unknown; input?: unknown; scene?: unknown }));
+  if (typeof body.ai !== "string" || !body.ai.trim()) return c.json({ error: "Name the AI to call" }, 400);
+  const input = typeof body.input === "string" ? body.input : body.input === undefined || body.input === null ? "" : JSON.stringify(body.input);
+  const result = await runAiCall({ sessionId, userId: currentUser.id, world: worldDef, ai: body.ai.slice(0, 200), input, scene: normalizeLiveScene(body.scene) });
+  return c.json({ data: result });
+});
+
+// POST /api/sessions/:id/group-reply — the next voice of a group chat. The
+// open game asks after each answer lands, until the room has had its say.
+sessionRoutes.post("/:id/group-reply", async (c) => {
+  const currentUser = c.get("user");
+  const sessionId = c.req.param("id");
+  const [meta] = await db
+    .select({ worldId: playSessions.worldId, userId: playSessions.userId })
+    .from(playSessions)
+    .where(eq(playSessions.id, sessionId))
+    .limit(1);
+  if (!meta || meta.userId !== currentUser.id) {
+    return c.json({ error: "Session not found" }, 404);
+  }
+  const worldDef = await loadSessionWorldDef(meta.worldId, currentUser.id);
+  if (!worldDef) return c.json({ error: "World not found" }, 404);
+  const body = await c.req.json<{ model?: unknown; scene?: unknown }>().catch(() => ({} as { model?: unknown; scene?: unknown }));
+  const result = await runGroupReply({
+    sessionId,
+    userId: currentUser.id,
+    world: worldDef,
+    model: typeof body.model === "string" ? body.model : null,
+    scene: normalizeLiveScene(body.scene),
+  });
+  return c.json({ data: result });
 });
 
 // POST /api/sessions/:id/extract-memories — extract persistent memories from session
@@ -864,6 +1166,8 @@ export async function revertSession(args: {
   }
 
   const session = sessionRows[0]!;
+  // Resolve before the timeline transaction: the shared resolver reads through
+  // the primary connection, which must not be acquired again from inside tx.
   const currentPersona = await resolvePersonaForSession(session);
   const worldRows = await db.select().from(worlds).where(eq(worlds.id, session.worldId));
   if (worldRows.length === 0) return { status: 404, body: { error: "World not found" } };
@@ -873,160 +1177,171 @@ export async function revertSession(args: {
   const rawWorldDef = (await resolveSessionWorldSchema(worldRows[0]!, userId)) as unknown as WorldDefinition;
   const worldDef = migrateWorldDefinition(rawWorldDef);
 
-  // Timeline metadata only: do not load every stored swipe/state into Node.
-  const allMessages = await db
-    .select({ id: messages.id, role: messages.role, createdAt: messages.createdAt,
-      compacted: messages.compacted, summaryceptionCompacted: messages.summaryceptionCompacted })
-    .from(messages)
-    .where(eq(messages.sessionId, sessionId))
-    .orderBy(asc(messages.createdAt), asc(messages.id));
+  const result = await db.transaction(async (tx) => {
+    // The timeline boundary, its messages and its memory ledger must move
+    // together. A background worker waits on this same session row lock.
+    const [session] = await tx.select().from(playSessions)
+      .where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, userId))).for("update");
+    if (!session) return { status: 404, body: { error: "Session not found" } };
 
-  if (allMessages.length === 0) {
-    return { status: 400, body: { error: "No messages to revert" } };
-  }
+    // Timeline metadata only: do not load every stored swipe/state into Node.
+    const allMessages = await tx
+      .select({ id: messages.id, role: messages.role, createdAt: messages.createdAt,
+        compacted: messages.compacted, summaryceptionCompacted: messages.summaryceptionCompacted })
+      .from(messages)
+      .where(eq(messages.sessionId, sessionId))
+      .orderBy(asc(messages.createdAt), asc(messages.id));
 
-  let targetIdx: number;
-
-  if (args.messageId) {
-    // Revert to a specific message — keep this message, delete everything after
-    targetIdx = allMessages.findIndex((m) => m.id === args.messageId);
-    if (targetIdx === -1) {
-      return { status: 404, body: { error: "Message not found" } };
+    if (allMessages.length === 0) {
+      return { status: 400, body: { error: "No messages to revert" } };
     }
-  } else {
-    // No messageId — revert the last exchange (find second-to-last assistant, or greeting)
-    // Find the last assistant message
-    let lastAssistantIdx = -1;
-    for (let i = allMessages.length - 1; i >= 0; i--) {
-      if (allMessages[i]!.role === "assistant") {
-        lastAssistantIdx = i;
-        break;
+
+    let targetIdx: number;
+
+    if (args.messageId) {
+      // Revert to a specific message — keep this message, delete everything after
+      targetIdx = allMessages.findIndex((m) => m.id === args.messageId);
+      if (targetIdx === -1) {
+        return { status: 404, body: { error: "Message not found" } };
+      }
+    } else {
+      // No messageId — revert the last exchange (find second-to-last assistant, or greeting)
+      // Find the last assistant message
+      let lastAssistantIdx = -1;
+      for (let i = allMessages.length - 1; i >= 0; i--) {
+        if (allMessages[i]!.role === "assistant") {
+          lastAssistantIdx = i;
+          break;
+        }
+      }
+      if (lastAssistantIdx === -1) {
+        return { status: 400, body: { error: "No assistant message to revert" } };
+      }
+
+      // Target = the user message before the last assistant, or the message before the last pair
+      // Effectively, find the message right before the user+assistant pair
+      const userBeforeIdx = lastAssistantIdx > 0 && allMessages[lastAssistantIdx - 1]!.role === "user"
+        ? lastAssistantIdx - 1
+        : lastAssistantIdx;
+
+      // Target is the message BEFORE the pair we want to delete
+      targetIdx = userBeforeIdx - 1;
+
+      if (targetIdx < 0) {
+        // Nothing left — will reinitialize from world defaults
+        targetIdx = -1;
       }
     }
-    if (lastAssistantIdx === -1) {
-      return { status: 400, body: { error: "No assistant message to revert" } };
+
+    // Delete all messages after the target
+    const toDelete = targetIdx >= 0 ? allMessages.slice(targetIdx + 1) : allMessages;
+
+    if (toDelete.length === 0) {
+      return { status: 400, body: { error: "Nothing to revert" } };
     }
 
-    // Target = the user message before the last assistant, or the message before the last pair
-    // Effectively, find the message right before the user+assistant pair
-    const userBeforeIdx = lastAssistantIdx > 0 && allMessages[lastAssistantIdx - 1]!.role === "user"
-      ? lastAssistantIdx - 1
-      : lastAssistantIdx;
+    const idsToDelete = toDelete.map((m) => m.id);
+    await tx.delete(messages).where(inArray(messages.id, idsToDelete));
 
-    // Target is the message BEFORE the pair we want to delete
-    targetIdx = userBeforeIdx - 1;
-
-    if (targetIdx < 0) {
-      // Nothing left — will reinitialize from world defaults
-      targetIdx = -1;
+    // Find the state to restore. Walk backwards from the target message to the
+    // most recent stateSnapshot. Only assistant messages carry a snapshot — user
+    // messages never do — so reverting onto a user message must fall back to the
+    // preceding assistant turn's snapshot, NOT to world defaults (which would
+    // silently wipe every variable back to its default). Mirrors branchSession's
+    // backward walk so revert and branch restore state identically.
+    let restoredState: Record<string, unknown> | null = null;
+    if (targetIdx >= 0) {
+      // The tail has been deleted in this transaction, so the newest surviving
+      // snapshot is the backward walk's result. Still bound the read to the
+      // retained target (resolved in PostgreSQL to keep microsecond precision)
+      // so a row appended by a concurrent writer can never be picked up.
+      const targetId = allMessages[targetIdx]!.id;
+      const [snapshot] = await tx.select({ stateSnapshot: messages.stateSnapshot })
+        .from(messages)
+        .where(and(eq(messages.sessionId, sessionId), isNotNull(messages.stateSnapshot),
+          sql`(${messages.createdAt}, ${messages.id}) <= (SELECT created_at, id FROM messages
+            WHERE session_id = ${sessionId} AND id = ${targetId})`))
+        .orderBy(desc(messages.createdAt), desc(messages.id)).limit(1);
+      restoredState = snapshot?.stateSnapshot ?? null;
     }
-  }
 
-  // Delete all messages after the target
-  const toDelete = targetIdx >= 0 ? allMessages.slice(targetIdx + 1) : allMessages;
-
-  if (toDelete.length === 0) {
-    return { status: 400, body: { error: "Nothing to revert" } };
-  }
-
-  const idsToDelete = toDelete.map((m) => m.id);
-  await db.delete(messages).where(inArray(messages.id, idsToDelete));
-
-  // Find the state to restore. Walk backwards from the target message to the
-  // most recent stateSnapshot. Only assistant messages carry a snapshot — user
-  // messages never do — so reverting onto a user message must fall back to the
-  // preceding assistant turn's snapshot, NOT to world defaults (which would
-  // silently wipe every variable back to its default). Mirrors branchSession's
-  // backward walk so revert and branch restore state identically.
-  let restoredState: Record<string, unknown> | null = null;
-  if (targetIdx >= 0) {
-    // Main's rewind does not hold a session-row lock. Limit this read to the
-    // retained target, even if a concurrent writer has appended another turn.
-    // Resolve its timestamp in PostgreSQL to preserve microsecond precision.
-    const targetId = allMessages[targetIdx]!.id;
-    const [snapshot] = await db.select({ stateSnapshot: messages.stateSnapshot })
-      .from(messages)
-      .where(and(eq(messages.sessionId, sessionId), isNotNull(messages.stateSnapshot),
-        sql`(${messages.createdAt}, ${messages.id}) <= (SELECT created_at, id FROM messages
-          WHERE session_id = ${sessionId} AND id = ${targetId})`))
-      .orderBy(desc(messages.createdAt), desc(messages.id)).limit(1);
-    restoredState = snapshot?.stateSnapshot ?? null;
-  }
-
-  if (!restoredState) {
-    if (targetIdx >= 0 && session.state) {
-      // The target message survives but its snapshot (and every older one) was
-      // dropped by the per-session snapshot cap. Don't zero the player's
-      // variables — fall back to the live session state, mirroring
-      // branchSession's fallback. Better to keep progress than reset to default.
-      restoredState = session.state as Record<string, unknown>;
-    } else {
-      // Full reset (no target), or a session that genuinely has no state —
-      // re-initialize from world defaults.
-      const stateManager = new GameStateManager(worldDef);
-      restoredState = stateManager.getSnapshot() as unknown as Record<string, unknown>;
+    if (!restoredState) {
+      if (targetIdx >= 0 && session.state) {
+        // The target message survives but its snapshot (and every older one) was
+        // dropped by the per-session snapshot cap. Don't zero the player's
+        // variables — fall back to the live session state, mirroring
+        // branchSession's fallback. Better to keep progress than reset to default.
+        restoredState = session.state as Record<string, unknown>;
+      } else {
+        // Full reset (no target), or a session that genuinely has no state —
+        // re-initialize from world defaults.
+        const stateManager = new GameStateManager(worldDef);
+        restoredState = stateManager.getSnapshot() as unknown as Record<string, unknown>;
+      }
     }
-  }
 
-  restoredState = normalizeGameState(worldDef, restoredState) as unknown as Record<string, unknown>;
+    restoredState = normalizeGameState(worldDef, restoredState) as unknown as Record<string, unknown>;
 
-  // Setup-scoped choices (e.g. the pre-game cast the player picked) are session
-  // config, not narrative state — a revert must not reset them to world defaults.
-  // Carry them forward from the live session state over the restored snapshot.
-  restoredState = preserveSetupScopedVariables(
-    worldDef.variables,
-    session.state as { variables?: Record<string, unknown> } | null,
-    restoredState,
-  );
+    // Setup-scoped choices (e.g. the pre-game cast the player picked) are session
+    // config, not narrative state — a revert must not reset them to world defaults.
+    // Carry them forward from the live session state over the restored snapshot.
+    restoredState = preserveSetupScopedVariables(
+      worldDef.variables,
+      session.state as { variables?: Record<string, unknown> } | null,
+      restoredState,
+    );
 
-  // Extensions stop their queued jobs and reset their derived per-session state
-  // (summaries, memory). Each tier is kept when its stored output covers only
-  // surviving messages and dropped otherwise (see invalidateForRevert). The
-  // fields merge into this one atomic update with the state.
-  //
-  // Decide from a FRESH read of the row, not the one loaded at the top: a
-  // background compaction or memory update can persist between that read and
-  // the delete above, moving the coverage pointers onto messages that are now
-  // gone. The stale row would say "kept"; the live row says "drop".
-  const [liveSession] = await db
-    .select()
-    .from(playSessions)
-    .where(eq(playSessions.id, sessionId))
-    .limit(1);
-  const invalidation = collectExtensionInvalidation({
-    reason: "session-revert",
-    sessionId,
-    userId,
-    session: liveSession ?? session,
-    removedMessages: toDelete.map((m) => ({
-      id: m.id,
-      compacted: m.compacted,
-      summaryceptionCompacted: m.summaryceptionCompacted,
-    })),
+    // Restoring social history creates a fresh incarnation; late old replies cannot enter it.
+    restoredState = renewSocialEpoch(restoredState, randomUUID());
+    const [account] = await tx.select().from(user).where(eq(user.id, userId));
+    applyPersonaMetadataToState(restoredState, currentPersona, account ?? {});
+
+    // Extensions stop their queued jobs and reset their derived per-session state
+    // (summaries, memory). The story summary is always dropped on revert (then
+    // re-derived iff over the trigger); session memory / summaryception keep when
+    // still valid. The fields merge into this one atomic update with the state.
+    // The lag-one rule (memory must not cover the newest surviving reply, or
+    // regenerating that reply reads its own facts back) is enforced inside the
+    // memory rebuild itself — see memoryLagGuard and the session-memory hook.
+    // This call site no longer passes a hint for it.
+    const invalidation = collectExtensionInvalidation({
+      reason: "session-revert",
+      sessionId,
+      userId,
+      session,
+      removedMessages: toDelete.map((m) => ({
+        id: m.id,
+        compacted: m.compacted,
+        summaryceptionCompacted: m.summaryceptionCompacted,
+      })),
+    });
+
+    const boundaryAt = (allMessages[targetIdx]?.createdAt ?? new Date()).toISOString();
+    const runMemories = restoreRunMemories(
+      targetIdx < 0 ? null : session.runMemories as RunMemories | null,
+      worldDef.worldbooks,
+      restoredState as unknown as GameState,
+      boundaryAt,
+      randomUUID(),
+    );
+    // Update session state + clear stale generated context
+    await tx
+      .update(playSessions)
+      .set({
+        state: restoredState,
+        runMemories: runMemories as unknown as Record<string, unknown>,
+        ...invalidation.sessionFields,
+        updatedAt: new Date(),
+      })
+      .where(eq(playSessions.id, sessionId));
+
+    const page = await loadMessagePage(tx, sessionId, SESSION_MESSAGES_WINDOW);
+    return { status: 200, body: { data: {
+      state: restoredState, messages: page.messages, messageTotal: targetIdx + 1,
+    } }, invalidation };
   });
-
-  // Restoring social history creates a fresh incarnation; late old replies cannot enter it.
-  restoredState = renewSocialEpoch(restoredState, randomUUID());
-  const [account] = await db.select().from(user).where(eq(user.id, userId));
-  applyPersonaMetadataToState(restoredState, currentPersona, account ?? {});
-  // Update session state + clear stale generated context
-  await db
-    .update(playSessions)
-    .set({
-      state: restoredState,
-      ...invalidation.sessionFields,
-      updatedAt: new Date(),
-    })
-    .where(eq(playSessions.id, sessionId));
-  await invalidation.runAfter();
-
-  // Rewinds return the same bounded display window as session loading.
-  const page = await loadMessagePage(db, sessionId, SESSION_MESSAGES_WINDOW);
-  const [total] = await db.select({ total: count() }).from(messages)
-    .where(eq(messages.sessionId, sessionId));
-  return { status: 200, body: { data: {
-    state: restoredState, messages: page.messages, messageTotal: total?.total ?? 0,
-  } } };
+  if ("invalidation" in result) await result.invalidation?.runAfter();
+  return { status: result.status, body: result.body };
 }
 
 // POST /api/sessions/:id/revert — revert to a specific message (delete everything after it)
@@ -1071,30 +1386,7 @@ sessionRoutes.post("/:id/restart", async (c) => {
   const rawWorldDef = (await resolveSessionWorldSchema(worldRows[0]!, currentUser.id)) as unknown as WorldDefinition;
   const worldDef = migrateWorldDefinition(rawWorldDef);
 
-  // 1. Find the first assistant message (the greeting) to preserve it
-  const existingMsgs = await db
-    .select()
-    .from(messages)
-    .where(eq(messages.sessionId, sessionId))
-    .orderBy(asc(messages.createdAt));
-
-  const firstAssistant = existingMsgs.find((m) => m.role === "assistant");
-
-  // 2. Delete all messages EXCEPT the first assistant one
-  if (firstAssistant) {
-    await db
-      .delete(messages)
-      .where(and(eq(messages.sessionId, sessionId), ne(messages.id, firstAssistant.id)));
-  } else {
-    await db.delete(messages).where(eq(messages.sessionId, sessionId));
-  }
-
-  // 3. Clear world memories for this world+user
-  await db
-    .delete(worldMemories)
-    .where(and(eq(worldMemories.worldId, session.worldId), eq(worldMemories.userId, currentUser.id)));
-
-  // 4. Keep this session's identity when restarting.
+  // Prepare the new opening before locking and replacing the old timeline.
   const stateManager = new GameStateManager(worldDef);
   const resetPersona = await resolvePersonaForSession(session);
   applyPersonaMetadata(stateManager, resetPersona ?? null, {
@@ -1134,59 +1426,76 @@ sessionRoutes.post("/:id/restart", async (c) => {
   // summaryception snippets (without this, the old story's snippets kept
   // injecting the previous playthrough into the new prompts).
   const restartInvalidation = collectExtensionInvalidation({ reason: "session-restart", sessionId });
-  await db
-    .update(playSessions)
-    .set({
-      state: initialState as unknown as Record<string, unknown>,
-      ...restartInvalidation.sessionFields,
-      updatedAt: new Date(),
-    })
-    .where(eq(playSessions.id, sessionId));
-  await restartInvalidation.runAfter();
-
-  // 6. Update existing greeting in-place or insert new one (with multi-greeting swipes)
   const greetings = promptBuilder.buildGreetings(worldDef, baseInitialState);
-  let greetingMessage = null;
-  if (greetings.length > 0) {
-    // Each swipe carries its OWN opening's snapshot (base + that opening's
-    // initialVariables + activeGreetingId), aligned index-for-index with the
-    // greeting strings — so switching openings applies that route's variables.
-    const swipes = greetings.map((content, i) => ({
-      content,
-      stateSnapshot: snapshotForGreeting(restartGreetingEntries[i]) as unknown as Record<string, unknown>,
-      createdAt: new Date().toISOString(),
-    }));
-    if (firstAssistant) {
-      await db
-        .update(messages)
-        .set({
-          content: greetings[0]!,
-          swipes,
-          activeSwipeIndex: 0,
-          stateSnapshot: initialState as unknown as Record<string, unknown>,
-        })
-        .where(eq(messages.id, firstAssistant.id));
-      greetingMessage = { ...firstAssistant, content: greetings[0]!, swipes, activeSwipeIndex: 0, stateSnapshot: initialState as unknown as Record<string, unknown> };
-    } else {
-      const result = await db
-        .insert(messages)
-        .values({
-          sessionId,
-          role: "assistant",
-          content: greetings[0]!,
-          stateSnapshot: initialState as unknown as Record<string, unknown>,
-          swipes,
-          activeSwipeIndex: 0,
-        })
-        .returning();
-      greetingMessage = result[0] ?? null;
+  const restarted = await db.transaction(async (tx) => {
+    const [locked] = await tx.select({ id: playSessions.id }).from(playSessions)
+      .where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, currentUser.id))).for("update");
+    if (!locked) return null;
+    const existingMsgs = await tx.select().from(messages).where(eq(messages.sessionId, sessionId)).orderBy(asc(messages.createdAt));
+    const firstAssistant = greetings.length ? existingMsgs.find((m) => m.role === "assistant") : undefined;
+    await tx.delete(messages).where(firstAssistant
+      ? and(eq(messages.sessionId, sessionId), ne(messages.id, firstAssistant.id))
+      : eq(messages.sessionId, sessionId));
+    await tx.delete(worldMemories)
+      .where(and(eq(worldMemories.worldId, session.worldId), eq(worldMemories.userId, currentUser.id)));
+    const startedAt = firstAssistant?.createdAt ?? new Date();
+    await tx
+      .update(playSessions)
+      .set({
+        state: initialState as unknown as Record<string, unknown>,
+        ...restartInvalidation.sessionFields,
+        runMemories: restoreRunMemories(null, worldDef.worldbooks, initialState, startedAt.toISOString(), randomUUID()) as unknown as Record<string, unknown>,
+        updatedAt: new Date(),
+      })
+      .where(eq(playSessions.id, sessionId));
+
+    // 6. Update existing greeting in-place or insert new one (with multi-greeting swipes)
+    let greetingMessage = null;
+    if (greetings.length > 0) {
+      // Each swipe carries its OWN opening's snapshot (base + that opening's
+      // initialVariables + activeGreetingId), aligned index-for-index with the
+      // greeting strings — so switching openings applies that route's variables.
+      const swipes = greetings.map((content, i) => ({
+        content,
+        stateSnapshot: snapshotForGreeting(restartGreetingEntries[i]) as unknown as Record<string, unknown>,
+        createdAt: new Date().toISOString(),
+      }));
+      if (firstAssistant) {
+        await tx
+          .update(messages)
+          .set({
+            content: greetings[0]!,
+            swipes,
+            activeSwipeIndex: 0,
+            stateSnapshot: initialState as unknown as Record<string, unknown>,
+          })
+          .where(eq(messages.id, firstAssistant.id));
+        greetingMessage = { ...firstAssistant, content: greetings[0]!, swipes, activeSwipeIndex: 0, stateSnapshot: initialState as unknown as Record<string, unknown> };
+      } else {
+        const result = await tx
+          .insert(messages)
+          .values({
+            sessionId,
+            role: "assistant",
+            content: greetings[0]!,
+            stateSnapshot: initialState as unknown as Record<string, unknown>,
+            swipes,
+            activeSwipeIndex: 0,
+            createdAt: startedAt,
+          })
+          .returning();
+        greetingMessage = result[0] ?? null;
+      }
     }
-  }
+    return { greetingMessage };
+  });
+  if (!restarted) return c.json({ error: "Session not found" }, 404);
+  await restartInvalidation.runAfter();
 
   return c.json({
     data: {
       state: initialState,
-      messages: greetingMessage ? [greetingMessage] : [],
+      messages: restarted.greetingMessage ? [restarted.greetingMessage] : [],
     },
   });
 });
@@ -1354,6 +1663,13 @@ export async function branchSession(args: {
         sessionPersona: parentPersona,
         personaLocked: parent.personaLocked,
         state: normalizedState as unknown as Record<string, unknown>,
+        runMemories: restoreRunMemories(
+          parent.runMemories as RunMemories | null,
+          worldDef.worldbooks,
+          normalizedState,
+          (messagesToCopy.at(-1)?.createdAt ?? new Date()).toISOString(),
+          randomUUID(),
+        ) as unknown as Record<string, unknown>,
         summary: keepSummary ? parent.summary : null,
         summaryModel: parent.summaryModel,
         stateGuardEnabled: parent.stateGuardEnabled,
@@ -1385,6 +1701,27 @@ export async function branchSession(args: {
 
     if (!inserted) {
       throw new Error("Failed to insert branch session");
+    }
+
+    // Session lore is configuration-style state: a branch receives a
+    // point-in-time copy and then diverges independently from its parent.
+    const parentLore = await tx
+      .select()
+      .from(sessionLoreEntries)
+      .where(eq(sessionLoreEntries.sessionId, args.sessionId));
+    if (parentLore.length > 0) {
+      await tx.insert(sessionLoreEntries).values(parentLore.map((entry) => ({
+        id: randomUUID(),
+        sessionId: inserted.id,
+        kind: entry.kind,
+        baseEntryId: entry.baseEntryId,
+        name: entry.name,
+        content: entry.content,
+        enabled: entry.enabled,
+        alwaysSend: entry.alwaysSend,
+        keywords: entry.keywords,
+        matchWholeWords: entry.matchWholeWords,
+      })));
     }
 
     // Clone messages with fresh ids
@@ -1782,18 +2119,27 @@ sessionRoutes.post("/:id/checkpoints/:checkpointId/restore", async (c) => {
   applyPersonaMetadataToState(restoredState, await resolvePersonaForSession(sessionRows[0]!), currentUser);
 
   const invalidation = collectExtensionInvalidation({ reason: "checkpoint-restore", sessionId });
+  let restored: boolean;
   try {
-  await db.transaction(async (tx) => {
-  await sessionMedia.restore(tx, currentUser.id, sessionId, checkpointId);
-  await restoreSessionStorage(tx, sessionId, checkpointId);
+  restored = await db.transaction(async (tx) => {
+    // Media writes lock the owner before taking the session's foreign-key lock.
+    // Use the same order so an image upload cannot deadlock with this restore.
+    await sessionMedia.lockOwner(tx, currentUser.id);
+    const [locked] = await tx.select({ id: playSessions.id }).from(playSessions)
+      .where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, currentUser.id))).for("update");
+    if (!locked) return false;
+    await sessionMedia.restore(tx, currentUser.id, sessionId, checkpointId);
+    await restoreSessionStorage(tx, sessionId, checkpointId);
+    // Delete all current messages
+    await tx.delete(messages).where(eq(messages.sessionId, sessionId));
 
-  // Delete all current messages
-  await tx.delete(messages).where(eq(messages.sessionId, sessionId));
-
-  // Re-insert messages from snapshot
-  if (snapshotMessages.length > 0) {
-    await tx.insert(messages).values(
-      snapshotMessages.map((m) => ({
+    // Re-insert messages from snapshot
+    const restoredRows: Array<Record<string, unknown> & { createdAt: Date }> = snapshotMessages.map((m) => ({
+      ...m,
+      createdAt: m.createdAt ? new Date(m.createdAt as string) : new Date(),
+    }));
+    if (snapshotMessages.length > 0) {
+      const rows = restoredRows.map((m) => ({
         id: m.id as string,
         sessionId,
         role: m.role as "user" | "assistant" | "system",
@@ -1814,37 +2160,45 @@ sessionRoutes.post("/:id/checkpoints/:checkpointId/restore", async (c) => {
         compacted: (m.compacted as boolean) ?? false,
         stateSnapshot: (m.stateSnapshot ?? null) as Record<string, unknown> | null,
         attachments: (m.attachments ?? null) as Array<{ type: string; mimeType: string; name: string; url: string }> | null,
-        createdAt: m.createdAt ? new Date(m.createdAt as string) : new Date(),
-      }))
-    );
-  }
+        createdAt: m.createdAt,
+      }));
+      for (const chunk of chunkRows(rows)) await tx.insert(messages).values(chunk);
+    }
 
-  // Restore session state + summary. Checkpoints CAPTURE the story summary,
-  // so this route restores those fields itself; the extensions' invalidation
-  // fields (reason: checkpoint-restore) drop what checkpoints don't capture —
-  // summaryception snippets and structured session memory — in the same
-  // atomic update, or prompts would inject content from the pre-restore
-  // timeline.
-  await tx
-    .update(playSessions)
-    .set({
-      state: restoredState as unknown as Record<string, unknown>,
-      ...invalidation.sessionFields,
-      summary: checkpoint.summary,
-      summaryUpdatedAt: checkpoint.summary ? new Date() : null,
-      summaryStatus: "idle",
-      summaryError: null,
-      summarySourceHash: null,
-      summaryCoversUntilMessageId: null,
-      summaryTokenCount: checkpoint.summary ? Math.ceil(checkpoint.summary.length / 4) : null,
-      updatedAt: new Date(),
-    })
-    .where(eq(playSessions.id, sessionId));
+    // Restore session state + summary. Checkpoints CAPTURE the story summary,
+    // so this route restores those fields itself; the extensions' invalidation
+    // fields (reason: checkpoint-restore) drop what checkpoints don't capture —
+    // summaryception snippets and structured session memory — in the same
+    // atomic update, or prompts would inject content from the pre-restore
+    // timeline.
+    const boundaryAt = new Date(restoredRows.length
+      ? Math.max(...restoredRows.map((row) => row.createdAt.getTime()))
+      : Date.now()).toISOString();
+    const runMemories = rebuildRunMemories(worldDef.worldbooks, restoredRows,
+      new GameStateManager(worldDef).getSnapshot(), restoredState, randomUUID(), boundaryAt);
+    await tx
+      .update(playSessions)
+      .set({
+        state: restoredState as unknown as Record<string, unknown>,
+        ...invalidation.sessionFields,
+        runMemories: runMemories as unknown as Record<string, unknown>,
+        summary: checkpoint.summary,
+        summaryUpdatedAt: checkpoint.summary ? new Date() : null,
+        summaryStatus: "idle",
+        summaryError: null,
+        summarySourceHash: null,
+        summaryCoversUntilMessageId: null,
+        summaryTokenCount: checkpoint.summary ? Math.ceil(checkpoint.summary.length / 4) : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(playSessions.id, sessionId));
+    return true;
   });
   } catch (error) {
     if (error instanceof MediaError) return c.json({ error: error.code, code: error.code }, error.status);
     throw error;
   }
+  if (!restored) return c.json({ error: "Session not found" }, 404);
   await invalidation.runAfter();
 
   // Return restored messages + state

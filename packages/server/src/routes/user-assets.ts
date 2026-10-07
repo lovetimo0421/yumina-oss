@@ -1,3 +1,4 @@
+import { assetIsVersioned } from "../lib/world-version-store.js";
 import { userAssetFilters } from "../lib/user-asset-filters.js";
 import { detachGenerationAsset } from "../lib/generation/asset-receipts.js";
 import { Hono } from "hono";
@@ -897,18 +898,15 @@ userAssetRoutes.delete("/:id", async (c) => {
     return c.json({ error: "Asset not found" }, 404);
   }
 
-  // Delete from S3
-  if (isS3Configured()) {
-    try {
-      await deleteObject(rows[0]!.url);
-    } catch { /* S3 delete failed — still remove DB record */ }
-  }
-
-  // assetReferences cascade on userAssets delete
-  await db.transaction(async tx => {
+  const retained = await db.transaction(async tx => {
+    await tx.execute(sql`LOCK TABLE world_versions IN SHARE ROW EXCLUSIVE MODE`);
+    if (await assetIsVersioned(tx, assetId, rows[0]!.url)) return true;
+    if (isS3Configured()) await deleteObject(rows[0]!.url);
     await detachGenerationAsset(tx, currentUser.id, assetId);
     await tx.delete(userAssets).where(eq(userAssets.id, assetId));
+    return false;
   });
+  if (retained) return c.json({ error: "This asset is retained by a saved version and cannot be deleted.", code: "ASSET_VERSIONED" }, 409);
 
   return c.json({ data: { deleted: true } });
 });

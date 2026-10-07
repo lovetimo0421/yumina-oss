@@ -68,7 +68,7 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
       ComposerPopover: ({ children, popoverRef }: { children: ReactNode; popoverRef: Ref<HTMLDivElement> }) => createElement("div", { ref: popoverRef }, children),
     },
     "./voice-input": { MicButton: empty, VoiceRecordingOverlay: empty, useHoldToTalkKey: noop, useVoiceInput: () => ({}) },
-    // Per-turn pictures (experimental, opt-in): off here, so the menu has no auto switch.
+    // Per-turn pictures: off here, so the menu has no auto switch.
     "./turn-images": { useTurnImageSettings: () => ({ settings: null, setAuto: async () => false, refresh: noop }) },
     "../protocol": { postToParentWindow: noop, wrapMessage: (value: unknown) => value },
     "../../src/lib/chat-image-input": require("./chat-image-input.ts"),
