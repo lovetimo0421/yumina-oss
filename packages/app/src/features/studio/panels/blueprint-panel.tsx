@@ -144,14 +144,14 @@ import { setPendingCodeJump } from "@/lib/code-jump";
 import { moduleSceneState } from "@/features/editor/components/preview/scene-state";
 import { measureGaps, overlapping, snapToNeighbours, type Gap, type Rect as SnapRect, type Snap } from "./blueprint/helper-lines";
 import { renderMessage } from "@/lib/markdown";
-import { AiFrameForm, BlueprintInspector, CardMemoryForm, isDerivedEdge, type InspectorTarget } from "./blueprint/inspector";
+import { BlueprintInspector, isDerivedEdge, type InspectorTarget } from "./blueprint/inspector";
 import { ObjectRelationshipsPanel, type RelationCandidate } from "./blueprint/object-relationships-panel";
 import { requestUiEditor } from "./inspector/new-page-hooks";
 import { AI_FOLLOW_EVENT } from "../lib/agent-job";
 import { VoicePickerPopover } from "./blueprint/voice-picker-popover";
 import { useAssetStore } from "@/stores/assets";
 import { contextBadgeFor, type ContextBadge } from "@/features/editor/lib/module-context";
-import { resolveCanvasInspectorNode } from "./blueprint/canvas-inspector-target";
+import { aiInspectorId, resolveCanvasInspectorNode } from "./blueprint/canvas-inspector-target";
 import { defaultStateFor, turnContextView } from "./blueprint/turn-context";
 import { liveRuntimeState } from "../lib/runtime-state";
 import { lastTurnWhy } from "../lib/turn-explain";
@@ -1169,7 +1169,6 @@ function BlueprintCanvas({
   // ── Block collapse (persisted) + row expansion (session-only) ──
   const [collapsedSet, setCollapsedSet] = useState<Set<string>>(() => new Set(storedCollapsed()));
   /** Per 「这里的 AI」 block, the row open in place. */
-  const [openAiRows, setOpenAiRows] = useState<Record<string, string | null>>({});
   /** Sticks a note beside a block (set once addNoteOn exists, further down). */
   const addNoteOnRef = useRef<(target: string) => void>(() => {});
   const [expandedBlocks, setExpandedBlocks] = useState<Set<string>>(() => new Set());
@@ -2112,6 +2111,8 @@ function BlueprintCanvas({
   /** The author's own history window, off the card's settings. A module can
    *  narrow it further; that is the module's own block's business. */
   const cardHistoryLimit = useEditorStore(s => s.worldDraft.settings?.historyLimit) || 0;
+  const cardSummaryOn = useEditorStore(s => s.worldDraft.settings?.storySummary?.enabled === true);
+  const cardPinnedNote = useEditorStore(s => (s.worldDraft.settings?.pinnedNote?.content ?? "").trim());
   /**
    * A colour per memory pool, stable across renders and shared by everyone in
    * it. The pool's id would do as a key, but it is a random string — so the
@@ -2153,7 +2154,13 @@ function BlueprintCanvas({
       if (!ownerId) {
         const open = () => setSelection({ type: "node", id: blockId.context() });
         const text = String(t("blueprint.ctx.row.memoryCardAlone")) + (cardHistoryLimit ? ` · ${t("blueprint.turnCtx.historyLimitCard", { count: cardHistoryLimit })}` : "");
-        return [{ key: "memory", icon: "memory", text, title: t("blueprint.ctx.row.memoryCardHint"), onClick: open }];
+        const cardRows: ContextRowView[] = [{ key: "memory", icon: "memory", text, title: t("blueprint.ctx.row.memoryCardHint"), onClick: open }];
+        // The two settings that change what the AI is handed show as lines of
+        // their own, so a card with a summary or a pinned note says so on the
+        // board rather than only in the column.
+        if (cardSummaryOn) cardRows.push({ key: "summary", icon: "in", text: t("blueprint.ctx.row.summaryOn"), title: t("blueprint.insp.historySummaryHint"), onClick: open });
+        if (cardPinnedNote) cardRows.push({ key: "pinned", icon: "in", text: t("blueprint.ctx.row.pinnedRow", { text: cardPinnedNote.length > 40 ? `${cardPinnedNote.slice(0, 40)}…` : cardPinnedNote }), title: cardPinnedNote, onClick: open });
+        return cardRows;
       }
       if (!book) return rows;
       // A scenario with no AI of its own talks in the card's conversation.
@@ -2199,7 +2206,7 @@ function BlueprintCanvas({
       });
       return rows;
     },
-    [worldDraft.worldbooks, contextBadges, cardHistoryLimit, poolTint, t],
+    [worldDraft.worldbooks, contextBadges, cardHistoryLimit, cardSummaryOn, cardPinnedNote, poolTint, t],
   );
 
 
@@ -2314,12 +2321,12 @@ function BlueprintCanvas({
       // told it; an open row is that object's whole editor, in place.
       ...(isWritingBlock(block) ? { collapsed: false, starterHeight: canvasWritingNodeHeight({ kind: block.kind === "opening" ? "opening" : "setting", entries: writingEntriesFor(block), rows: block.head ? [{ g: block.head, slots: block.headSlots }] : block.rows, compact: glance, expandedIds: openRowIds, columns: block.kind === "opening" ? 1 : rowColumns(writingEntriesFor(block).length, width), hiddenCount: block.hiddenCount, folders: entryFolders, presetsTitle, collapsedFolders }) } : {}),
       ...(block.kind === "context" ? { contextRows: contextRowsFor(block).length } : {}),
-      ...(block.kind === "ais" ? { aiRows: placeAisByOwner.get(block.ownerId ?? "")?.rows.length ?? 1, aiOpen: !!openAiRows[block.id] } : {}),
+      ...(block.kind === "ais" ? { aiRows: placeAisByOwner.get(block.ownerId ?? "")?.rows.length ?? 1 } : {}),
       ...(block.kind === "scene" ? { sceneWide: device === "desktop", sceneBare: isBareScene(block) } : {}),
       ...(block.kind === "frontend" ? { frontendDesktop: device === "desktop" } : {}),
       ...(hasPackDoor(block) ? { packDoor: true } : {}),
     }),
-    [collapsedSet, openedTexts, openRowIds, contextRowsFor, placeAisByOwner, openAiRows, glance, device, worldDraft.description, worldDraft.entries, defaultChat, isWritingBlock, writingEntriesFor, isBareScene, hasPackDoor, entryFolders, presetsTitle, collapsedFolders, cardHasBackground, anyOpeningWritten, screenFolded],
+    [collapsedSet, openedTexts, openRowIds, contextRowsFor, placeAisByOwner, glance, device, worldDraft.description, worldDraft.entries, defaultChat, isWritingBlock, writingEntriesFor, isBareScene, hasPackDoor, entryFolders, presetsTitle, collapsedFolders, cardHasBackground, anyOpeningWritten, screenFolded],
   );
   /** Whether a face block (the card's interface, a module's scene) has a
    *  real preview to show — which puts it on a row of its own, full width. */
@@ -3612,17 +3619,13 @@ function BlueprintCanvas({
           ? {
               ais: {
                 ...placeAisByOwner.get(block.ownerId ?? "")!,
-                // A row opens in place, like any row on the board: an AI on
-                // its settings, the narrator on the card's memory.
-                openKey: openAiRows[block.id] ?? null,
-                onToggle: (key: string, memory?: boolean) => {
-                  setOpenAiRows((prev) => ({ ...prev, [block.id]: memory || prev[block.id] !== key ? key : null }));
-                  // The memory line opens it at what it remembers.
-                  if (memory) window.setTimeout(() => document.querySelector(`[data-place-ai-editor="${key}"] [data-ai-memory], [data-place-ai-editor="${key}"] [data-card-memory]`)?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 200);
-                },
-                renderEditor: (row) => (row.bookId
-                  ? <AiFrameForm worldbookId={row.bookId} />
-                  : <div data-card-memory><CardMemoryForm /></div>),
+                // A row opens in the column, like every object on the board:
+                // an AI on its settings, the card's own AI on its judge. The
+                // open one is lit the way a selected row is.
+                openKey: selection?.type === "node"
+                  ? placeAisByOwner.get(block.ownerId ?? "")!.rows.find((r) => aiInspectorId(r.bookId ?? undefined) === selection.id)?.key ?? null
+                  : null,
+                onToggle: (_key: string, _memory?: boolean, bookId?: string) => setSelection({ type: "node", id: aiInspectorId(bookId) }),
                 ...(readOnly ? {} : { onRemove: (bookId: string) => removeAi(bookId), onNote: () => addNoteOnRef.current(block.id) }),
                 ...(readOnly || !block.ownerId
                   ? {}
@@ -3829,7 +3832,7 @@ function BlueprintCanvas({
   }, [
     blocks, gates, graph, positions, frameBoxes, collapsedSet, openedTexts, openRowIds, toggleOpenRow, selection, multiSelected, focusIds, firedBy,
     gateIndex, displayTitle, previewFor, graphById, draftById, t, readOnly, recentIds, turnMark,
-    budget, linkCounts, liveGating, liveVars, recentChanges, lastTurn, lastWhy, onDrillPanel, toggleBlockCollapse, contextRowsFor, contextScopeFor, placeAisByOwner, openAiRows,
+    budget, linkCounts, liveGating, liveVars, recentChanges, lastTurn, lastWhy, onDrillPanel, toggleBlockCollapse, contextRowsFor, contextScopeFor, placeAisByOwner,
     toggleOpeningText, expandBlockRows, onRowClick, onRowDoubleClick, worldDraft.name,
     worldDraft.description, previewOwnedElsewhere, glance, pickTrayItem, activationLabelFor, roster, litFrames, lightSources, headerHFor, clickRow, toggleMulti, screenFolded, toggleScreenFold,
     defaultChat, storyBoard, worldDraft.entries, chromeFor, presetsTitle, collapsedFolders, toggleFolder, cardHasBackground, blockTools, isWritingBlock, writingEntriesFor, showRelationships, blueprintDocumentKey, previewGreeting, previewGreetingId, selectPreviewOpening,
@@ -4836,7 +4839,7 @@ function BlueprintCanvas({
     const made = addAiTo(where, name);
     if (!made) return;
     const block = blockId.ais(where === "card" ? undefined : where);
-    setOpenAiRows((prev) => ({ ...prev, [block]: made.bookId }));
+    setSelection({ type: "node", id: aiInspectorId(made.bookId) });
     window.setTimeout(() => fitFocusedBlockRef.current(block, 420), 300);
   }, [currentModuleId, t]);
 
@@ -6004,7 +6007,7 @@ function BlueprintCanvas({
       if (!g || g.kind === "event" || g.id === "frontend") return null;
       // A setting, an opening, a scene image: the text IS the thing, and it
       // opens in its own row on the board — no second copy anywhere else.
-      if (resolved?.section !== "memory" && canEditRowInline(g.id)) return null;
+      if (!resolved?.section && canEditRowInline(g.id)) return null;
       return { type: "node", node: g, title: displayTitle(g), kindLabel: t(`blueprint.kinds.${g.kind}` as never), section: resolved?.section };
     }
     const e = graph.edges.find((x) => x.id === selection.id);
@@ -6014,7 +6017,7 @@ function BlueprintCanvas({
     const describe = `${from ? displayTitle(from) : e.from} → ${to ? displayTitle(to) : e.to}${e.label ? `  (${e.label})` : ""}`;
     return { type: "edge", edgeId: e.id, describe };
   }, [active, selection, graph, graphById, displayTitle, t]);
-  const expandedObjectId = inspectorTarget?.type === "node" && inspectorTarget.section !== "memory" && drillPanelFor(inspectorTarget.node, interfaceIsHandwritten)
+  const expandedObjectId = inspectorTarget?.type === "node" && !inspectorTarget.section && drillPanelFor(inspectorTarget.node, interfaceIsHandwritten)
     ? inspectorTarget.node.id
     : null;
   const expandInspector = expandedObjectId ? () => drillObject(expandedObjectId) : undefined;

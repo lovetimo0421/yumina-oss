@@ -53,8 +53,6 @@ export const TRAY_H = 52;
 /** 「AI」: a row is one line — its name and its type. What it remembers is
  *  the frame's Context block, not the row. */
 export const AI_ROW_H = 30;
-/** An AI row open in place: its settings, scrolled inside rather than grown. */
-export const AI_OPEN_H = 420;
 /** Context never comes out shorter than this. A line or two on a half-width
  *  block read as a footnote; the room says it carries weight even on a card
  *  that has nothing special to say about it yet (owner, 10/7: taller). */
@@ -134,8 +132,6 @@ export interface BlockChrome {
   contextRows?: number;
   /** 「这里的 AI」: how many AIs answer in this frame, the narrator counted. */
   aiRows?: number;
-  /** 「这里的 AI」: one of its rows is open in place. */
-  aiOpen?: boolean;
   /** Scene block: previewed at desktop width, two columns wide. */
   sceneWide?: boolean;
   /** Scene block with nothing of its own to preview — no scene file, on a
@@ -218,7 +214,7 @@ export function blockHeight(block: Block, chrome: BlockChrome): number {
   // Context wears the same head as the shelves above it (owner, 10/7) and
   // keeps a floor under its rows; AI has no head — a line per answerer.
   if (block.kind === "context") return Math.max(CONTEXT_MIN_H, BLOCK_HEAD_H + BLOCK_BODY_PAD * 2 + Math.max(1, chrome.contextRows ?? 1) * PLAIN_ROW_H);
-  if (block.kind === "ais") return BLOCK_BODY_PAD * 2 + Math.max(1, chrome.aiRows ?? 1) * AI_ROW_H + (chrome.aiOpen ? AI_OPEN_H : 0);
+  if (block.kind === "ais") return BLOCK_BODY_PAD * 2 + Math.max(1, chrome.aiRows ?? 1) * AI_ROW_H;
   if (chrome.collapsed) return h;
 
   switch (block.kind) {

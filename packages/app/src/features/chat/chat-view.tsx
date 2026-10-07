@@ -326,7 +326,9 @@ export function ChatView({
   const preferredProvider = useCreditStore(s => s.provider);
   const billingEnabled = useFeature("billing");
   const extensionInstallState = useExtensionsStore(s => s.installState);
-  const memorySummaryEnabled = extensionInstallState[SESSION_MEMORY_EXTENSION_KEY] === "installed";
+  // The card can switch the story summary on for everyone who plays it
+  // (Context → 摘要 + 最新 N 条); the panel that shows it opens for them too.
+  const memorySummaryEnabled = extensionInstallState[SESSION_MEMORY_EXTENSION_KEY] === "installed" || worldDef?.settings?.storySummary?.enabled === true;
   // clientEntry ids of installed extensions — drives the sandbox contribution
   // registry's lazy loading (uninstalled extension → chunk never fetched).
   const installedExtensions = useMemo(

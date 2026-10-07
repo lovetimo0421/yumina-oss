@@ -3,6 +3,7 @@ import type {
   GameState,
   WorldEntry,
   Directive,
+  Variable,
 } from "../types/index.js";
 import { expandMacros, primaryCharacterEntry } from "./macros.js";
 import { estimateTokens } from "./token-utils.js";
@@ -221,7 +222,7 @@ export class PromptBuilder {
     preCollected?: WorldEntry[]
   ): { content: string; depth: number; apiRole: "system" | "user" | "assistant" }[] {
     const allEntries = preCollected ?? this.collectEntries(world, matchedEntries, userPrompts, toggledEntries, state);
-    return allEntries
+    const fromEntries = allEntries
       .filter((e) => e.section === "chat-history" && e.depth !== undefined)
       .sort(entrySort)
       .map((e) => ({
@@ -229,6 +230,27 @@ export class PromptBuilder {
         depth: e.depth!,
         apiRole: (e.apiRole ?? "system") as "system" | "user" | "assistant",
       }));
+    const pinned = this.buildPinnedNote(world, state);
+    return pinned ? [...fromEntries, pinned] : fromEntries;
+  }
+
+  /**
+   * The author's pinned note (settings.pinnedNote): one more depth injection,
+   * shaped like a chat-history entry so the message router places it the
+   * same way. Null when the card has none or it is blank.
+   */
+  buildPinnedNote(
+    world: WorldDefinition,
+    state: GameState,
+  ): { content: string; depth: number; apiRole: "system" | "user" | "assistant" } | null {
+    const note = world.settings?.pinnedNote;
+    if (!note || typeof note.content !== "string" || !note.content.trim()) return null;
+    const depth = Number.isFinite(note.depth) ? Math.max(0, Math.floor(note.depth as number)) : 1;
+    return {
+      content: this.interpolate(note.content, world, state),
+      depth,
+      apiRole: note.apiRole ?? "system",
+    };
   }
 
   /**
@@ -952,11 +974,21 @@ export class PromptBuilder {
     state: GameState
   ): string {
     if (world.variables.length === 0) return "";
+    // The author's choice of how much state the story AI is shown each turn
+    // (settings.variablesToAi): everything, only what moved off its default,
+    // or nothing — the interface's variables are then the interface's alone.
+    const mode = world.settings?.variablesToAi ?? "all";
+    if (mode === "none") return "";
+    const unchanged = (v: Variable) => {
+      const value = state.variables[v.id];
+      return value === undefined || renderVariableValueForPrompt(value) === renderVariableValueForPrompt(v.defaultValue);
+    };
 
     return world.variables
       // Full AI-visibility gate: internal, aiAccess "none" and currently
       // inactive variables (enable gate / conditions / greeting) never render.
       .filter((v) => isAiReadable(v, state, world.worldbooks))
+      .filter((v) => mode !== "changed" || !unchanged(v))
       .map((v) => {
         const value = state.variables[v.id] ?? v.defaultValue;
         // Sanitize before injecting: strips inline base64 images / oversized blobs
@@ -1054,6 +1086,17 @@ export class PromptBuilder {
         category: "entry",
         tokens: estimateTokens(text),
         chars: text.length,
+      });
+    }
+
+    // The author's pinned note rides with the depth entries.
+    const pinned = this.buildPinnedNote(world, state);
+    if (pinned) {
+      blocks.push({
+        label: "Pinned note",
+        category: "entry",
+        tokens: estimateTokens(pinned.content),
+        chars: pinned.content.length,
       });
     }
 

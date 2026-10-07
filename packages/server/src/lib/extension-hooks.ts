@@ -62,6 +62,12 @@ export interface ResolveCapabilitiesContext {
   ownerUserId: string;
   sessionId: string;
   session: HookSessionRow;
+  /**
+   * True when this extension runs for the turn because `activeByDefault`
+   * said so (the card switched it on), not because the player installed it.
+   * A handler can keep such a run to what the card asked for.
+   */
+  defaultActivated?: boolean;
 }
 
 export interface PromptBlockContext extends ResolveCapabilitiesContext {
@@ -95,6 +101,8 @@ export interface PromptOverflowContext {
   /** Acting user (the one generating this turn). */
   userId: string;
   capabilities: ReadonlySet<string>;
+  /** See ResolveCapabilitiesContext.defaultActivated. */
+  defaultActivated?: boolean;
   model: string;
   maxContext: number;
   /** The raw-history token budget this prompt overflowed. */
@@ -109,6 +117,8 @@ export interface TurnCompleteContext {
   sessionId: string;
   userId: string;
   capabilities: ReadonlySet<string>;
+  /** See ResolveCapabilitiesContext.defaultActivated. */
+  defaultActivated?: boolean;
   userMessage: string;
   assistantMessage: string;
   state: unknown;
@@ -285,7 +295,7 @@ export async function resolveTurnHooks(ctx: ResolveCapabilitiesContext & Default
       if (uninstalled.has(key)) continue;
       viaDefault = true;
     }
-    const caps = handlers.resolveCapabilities ? await handlers.resolveCapabilities(capabilityCtx) : [];
+    const caps = handlers.resolveCapabilities ? await handlers.resolveCapabilities({ ...capabilityCtx, defaultActivated: viaDefault }) : [];
     if (caps === null) continue;
     activeExtensions.set(key, new Set(caps));
     if (viaDefault) { defaultActivated.add(key); continue; }
@@ -303,7 +313,7 @@ export async function collectPromptBlocks(
   for (const [key, capabilities] of dispatch.activeExtensions) {
     const handlers = registeredHooks.get(key);
     if (!handlers?.contributePromptBlocks) continue;
-    const contributed = await handlers.contributePromptBlocks({ ...ctx, capabilities });
+    const contributed = await handlers.contributePromptBlocks({ ...ctx, capabilities, defaultActivated: dispatch.defaultActivated?.has(key) ?? false });
     for (const block of contributed) blocks.push({ ...block, extensionKey: key });
   }
   // Deterministic composition: priority, ties broken by extension key.
@@ -360,7 +370,7 @@ export async function runPromptOverflow(
     const handlers = registeredHooks.get(key);
     if (!handlers?.onPromptOverflow) continue;
     try {
-      await handlers.onPromptOverflow({ ...ctx, capabilities });
+      await handlers.onPromptOverflow({ ...ctx, capabilities, defaultActivated: dispatch.defaultActivated?.has(key) ?? false });
     } catch (err) {
       console.warn(
         `[ExtensionHooks] onPromptOverflow "${key}" failed (${ctx.pathLabel}):`,
@@ -379,7 +389,7 @@ export function runTurnComplete(
     const handlers = registeredHooks.get(key);
     if (!handlers?.onTurnComplete) continue;
     try {
-      handlers.onTurnComplete({ ...ctx, capabilities });
+      handlers.onTurnComplete({ ...ctx, capabilities, defaultActivated: dispatch.defaultActivated?.has(key) ?? false });
     } catch (err) {
       console.warn(`[ExtensionHooks] onTurnComplete "${key}" failed:`, err instanceof Error ? err.message : err);
     }

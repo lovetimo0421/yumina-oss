@@ -544,9 +544,9 @@ interface EditorState {
     key: K,
     value: WorldDefinition[K]
   ) => void;
-  setSettings: (
-    key: keyof WorldDefinition["settings"],
-    value: string | number | boolean | undefined
+  setSettings: <K extends keyof NonNullable<WorldDefinition["settings"]>>(
+    key: K,
+    value: NonNullable<WorldDefinition["settings"]>[K]
   ) => void;
 
   // Entry actions (replaces character + lorebook)

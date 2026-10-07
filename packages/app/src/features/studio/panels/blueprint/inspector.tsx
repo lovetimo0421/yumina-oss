@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { AlertTriangle, Bot, Check as CheckIcon, ChevronRight, Copy, FolderOpen, History, Images, Maximize2, MoreHorizontal, Trash2, Upload, X } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Check, Field, Group, More, OpenToolButton, Row, Segmented, Stepper, Switch, inputClass, labelClass, rowControl } from "./controls";
+import { CONTEXT_BLOCK_ID, CardContextForm, CardNarratorForm } from "./context-forms";
 import { resolveImageUrl } from "@/lib/asset-url";
 import { feedback } from "@/lib/feedback";
 import { ANY_MODULE, UNPLACED_WORLDBOOK_ID, deriveSectionDefaultsForEntry, sceneImageEmbed, type WorkerTrigger } from "@yumina/engine";
@@ -1623,65 +1624,8 @@ function ModuleMemoryForm({ worldbookId, onOpenModule }: { worldbookId: string; 
  * whether or not there is anything to say about it, and this is what opens
  * when you click it.
  */
-export function CardMemoryForm() {
-  const { t } = useTranslation("editor");
-  const settings = useEditorStore(s => s.worldDraft.settings);
-  const setSettings = useEditorStore(s => s.setSettings);
-  const continuityEnabled = useEditorStore(s => s.worldDraft.continuity?.enabled !== false);
-  const updateContinuity = useEditorStore(s => s.updateContinuity);
-  const limit = settings?.historyLimit;
-  return (
-    <div className="space-y-4">
-      <Group title={t("entries.historyLimit")}>
-        <Field>
-          <select
-            aria-label={t("entries.historyLimit")}
-            value={limit ? "latest" : "all"}
-            onChange={event => setSettings("historyLimit", event.target.value === "latest" ? (limit ?? 20) : undefined)}
-            className={cn(rowControl, "w-full")}
-          >
-            <option value="all">{t("blueprint.insp.historyAll")}</option>
-            <option value="latest">{t("blueprint.insp.historyLatest")}</option>
-          </select>
-        </Field>
-        {limit ? (
-          <Row label={t("blueprint.insp.historyLatest")}>
-            <DebouncedInput
-              type="number"
-              min={1}
-              max={500}
-              aria-label={t("blueprint.insp.historyLatest")}
-              value={String(limit)}
-              onCommit={raw => {
-                const next = Number(raw);
-                if (Number.isFinite(next) && next >= 1) setSettings("historyLimit", Math.min(500, Math.floor(next)));
-              }}
-              className={cn(rowControl, "w-20")}
-            />
-          </Row>
-        ) : null}
-      </Group>
-      <Check
-        label={t("blueprint.insp.contextLock")}
-        hint={t("blueprint.insp.contextLockHint", { tokens: settings?.maxContext ?? 200000 })}
-        checked={settings?.contextPolicy === "author"}
-        onChange={locked => setSettings("contextPolicy", locked ? "author" : "player")}
-      />
-      {/* The judge's one switch. Also on the Overview page; here because the
-          memory block is where the board says what this AI does between
-          turns, and this is the third of those things. */}
-      <Check
-        label={t("overview.continuity")}
-        hint={t("overview.continuityDesc")}
-        checked={continuityEnabled}
-        onChange={enabled => updateContinuity({ enabled: enabled ? undefined : false })}
-      />
-    </div>
-  );
-}
-
 export type InspectorTarget =
-  | { type: "node"; node: GraphNode; title: string; kindLabel: string; section?: "memory" }
+  | { type: "node"; node: GraphNode; title: string; kindLabel: string; section?: "memory" | "ai" }
   | { type: "edge"; edgeId: string; describe: string }
   /** A whole list block — everything it holds, for the rows a tile folds
    *  behind "N more". The column is where the long list lives; the tile
@@ -1765,6 +1709,8 @@ export function BlueprintInspector({ target, world, readOnly, onPatch, onDrill, 
   const nameContainer = useRef<HTMLDivElement>(null);
   const memoryTarget = target.type === "node" && target.section === "memory";
   const cardMemoryTarget = memoryTarget && target.type === "node" && target.node.kind === "world";
+  const aiTarget = target.type === "node" && target.section === "ai";
+  const cardAiTarget = aiTarget && target.type === "node" && target.node.kind === "world";
   const targetKey = target.type === "node" ? `${target.node.id}:${target.section ?? "settings"}` : target.type === "edge" ? target.edgeId : target.blockId;
   const isVariable = target.type === "node" && target.node.kind === "variable";
 
@@ -1832,7 +1778,13 @@ export function BlueprintInspector({ target, world, readOnly, onPatch, onDrill, 
     if (memoryTarget) {
       heading = t("blueprint.blocks.context");
     }
-    if (!readOnly && !memoryTarget) {
+    if (cardAiTarget) {
+      heading = t("blueprint.insp.cardAiTitle");
+    } else if (aiTarget) {
+      const book = (useEditorStore.getState().worldDraft.worldbooks ?? []).find((b) => b.id === id);
+      heading = book?.station?.name || book?.name || heading;
+    }
+    if (!readOnly && !memoryTarget && !aiTarget) {
       const store = useEditorStore.getState;
       if (g.kind === "greeting" || (g.kind === "entry" && !g.id.startsWith("module-entries:") && g.id !== "core-entries")) {
         rename = (name) => store().updateEntry(id, { name });
@@ -1870,7 +1822,11 @@ export function BlueprintInspector({ target, world, readOnly, onPatch, onDrill, 
     if (readOnly) {
       body = <p className="text-xs text-foreground/55">{t("blueprint.insp.readOnly")}</p>;
     } else if (cardMemoryTarget) {
-      body = <CardMemoryForm />;
+      body = <CardContextForm />;
+    } else if (cardAiTarget) {
+      body = <CardNarratorForm onOpenContext={onOpenObject ? () => onOpenObject(CONTEXT_BLOCK_ID) : undefined} />;
+    } else if (aiTarget) {
+      body = <AiFrameForm key={id} worldbookId={id} onOpenObject={onOpenObject} />;
     } else if (memoryTarget) {
       body = <ModuleMemoryForm key={id} worldbookId={id} onOpenModule={onOpenModule ? () => onOpenModule(id) : undefined} />;
     } else if (g.kind === "greeting") {

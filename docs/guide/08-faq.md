@@ -197,8 +197,10 @@ Both must pass before Limitless worlds appear in search and Discover. If the acc
 Most often:
 
 - The world is **Limitless** and your content mode is **Limited** (default). Change it in Settings → Content & Safety.
-- The world is in a **language** your Hub filter is hiding. Open the Filters panel and clear language.
+- Discover searches your selected **language** by default. Choose **Show other languages** beside the **Works** heading or below the empty-results message to expand the search. This shares the **Other languages** setting in Filters.
 - The creator unpublished or renamed it. Check their profile — if unpublished it's gone from search, but if you'd already played it, your library copy still works.
+
+Expanded search keeps works in your language ahead of other languages, including when you load more results. For a translated work, it shows an available version in your language when one meets your filters; otherwise, an eligible version in another language can appear. Searching the original title can still find its translated version. Choose the language-only action to narrow the search again.
 
 ### Q: How do I report a problematic world?
 

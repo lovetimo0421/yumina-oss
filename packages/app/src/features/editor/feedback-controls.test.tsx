@@ -48,7 +48,13 @@ async function render(element: ReactElement, run: () => Promise<void>) {
   try {
     await act(async () => root.render(createElement(I18nextProvider, { i18n }, element)));
     await run();
-  } finally { await act(async () => root.unmount()); useEditorStore.getState().stopAutosave(); }
+  } finally {
+    await act(async () => root.unmount());
+    // Radix defers its unmount autofocus event by one timer turn. Drain it
+    // while this test's DOM globals still belong to the mounted document.
+    await act(async () => { await new Promise<void>((resolve) => setTimeout(resolve, 0)); });
+    useEditorStore.getState().stopAutosave();
+  }
 }
 
 test("audio editor copies the track ID, preserves it on rename, and persists the AI toggle", async () => {

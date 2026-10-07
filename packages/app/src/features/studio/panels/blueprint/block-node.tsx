@@ -75,7 +75,6 @@ import {
   PLAIN_ROW_H,
   TRAY_H,
   AI_ROW_H,
-  AI_OPEN_H,
   PREVIEW_DESKTOP_W,
   PREVIEW_H,
   SCENE_BARE_HINT_H,
@@ -474,12 +473,11 @@ export type BlockNodeData = {
   context?: { rows: ContextRowView[] };
   /** kind === "ais": who answers in this frame. */
   ais?: PlaceAis & {
-    /** The row open in place, like any row on the board. */
+    /** The row whose settings are open in the column, lit like a selected row. */
     openKey: string | null;
-    /** Open or shut a row in place; `memory` scrolls it to what it remembers. */
-    onToggle: (key: string, memory?: boolean) => void;
-    /** What an open row shows: the AI's settings, or the card's memory. */
-    renderEditor: (row: PlaceAis["rows"][number]) => React.ReactNode;
+    /** Open a row's settings in the column; `bookId` names a situation's AI,
+     *  none the card's own. */
+    onToggle: (key: string, memory?: boolean, bookId?: string) => void;
     onRemove?: (bookId: string) => void;
     /** Stick a note beside this block. */
     onNote?: () => void;
@@ -1026,10 +1024,9 @@ function AisBody({ data }: { data: BlockNodeData }) {
     <div className="group/ais relative" style={{ paddingBlock: BLOCK_BODY_PAD }}>
 
       {ais.rows.map((row) => {
-        // Every row opens: an AI on its own settings, the card's narrator on
-        // the card's memory.
-        // A row opens in place, the way any row on the board does.
-        const open = (memory?: boolean) => ais.onToggle(row.key, memory);
+        // Every row opens in the column: an AI on its own settings, the card's
+        // own AI on its judge — the same place every object on the board opens.
+        const open = (memory?: boolean) => ais.onToggle(row.key, memory, row.bookId ?? undefined);
         const isOpen = ais.openKey === row.key;
         return (
           <div key={row.key}>
@@ -1084,18 +1081,6 @@ function AisBody({ data }: { data: BlockNodeData }) {
               )}
             </div>
           </div>
-          {isOpen && (
-            <div
-              data-place-ai-editor={row.key}
-              className="nodrag nowheel nokey overflow-y-auto border-y border-white/[0.06] bg-black/10 px-3 py-2.5"
-              style={{ height: AI_OPEN_H }}
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
-              onWheel={(e) => e.stopPropagation()}
-            >
-              {ais.renderEditor(row)}
-            </div>
-          )}
           </div>
         );
       })}

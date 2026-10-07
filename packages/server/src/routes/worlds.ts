@@ -26,6 +26,7 @@ import { buildHubTagQuery, parseContentLevelParam } from "../lib/hub-tags.js";
 import { resolveWorldAudience, resolveWorldAudienceEdit } from "../lib/world-audience.js";
 import {
   buildHubBaseFilters,
+  buildHubSearchOrder,
   createEmptyRecommendationProfile,
   completeRecommendedCatalogPage,
   generateRecommendationCandidates,
@@ -796,7 +797,7 @@ worldRoutes.get("/hub", async (c, next) => {
   const tag = c.req.query("tag");
   const tagsParam = c.req.query("tags");
   const sort = c.req.query("sort") === "popular" ? "popular" : "newest";
-  const feed = c.req.query("feed") === "recommended" ? "recommended" : "default";
+  const feed = !q && c.req.query("feed") === "recommended" ? "recommended" : "default";
   const showNsfwParam = c.req.query("showNsfw") === "true";
   const contentLevelParam = parseContentLevelParam(c.req.query("contentLevel"));
   const nsfwOnly = c.req.query("nsfwOnly") === "true";
@@ -1156,10 +1157,8 @@ worldRoutes.get("/hub", async (c, next) => {
     }
   }
 
-  // Phase 2: when the user is searching, order by relevance first (ts_rank)
-  // and only use popular/newest as a tiebreaker. Keeps results clustered
-  // by "how well does this match your query" rather than "when was it
-  // published." Without a query, use the existing feed sort unchanged.
+  // Search puts the visitor's language first, then relevance and feed sort.
+  // Apply priority in SQL so it holds across every page of opt-in results.
   // Phase 2.5: only the Latin-friendly search_doc has tsvector ranking;
   // trad↔simp matches on the normalized text column don't contribute
   // to the rank but still appear in results via the WHERE clause OR.
@@ -1167,10 +1166,8 @@ worldRoutes.get("/hub", async (c, next) => {
   const newestOrder = desc(hubNewestSortExpr);
   const popularOrder = desc(aggregatedCounters.downloadCount);
   const orderBy = trimmedQuery
-    ? [
-        sql`ts_rank_cd(${worlds.searchDoc}, plainto_tsquery('simple', ${trimmedQuery})) DESC`,
-        ...(sort === "popular" ? [popularOrder, newestOrder] : [newestOrder, popularOrder]),
-      ]
+    ? buildHubSearchOrder(trimmedQuery, lang,
+        sort === "popular" ? [popularOrder, newestOrder] : [newestOrder, popularOrder])
     : sort === "popular"
       ? [popularOrder, newestOrder]
       : [newestOrder, popularOrder];

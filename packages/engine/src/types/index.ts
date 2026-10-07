@@ -1178,6 +1178,32 @@ export interface WorldSettings {
    *  per-send override wins. "author": this card's maxContext wins; the plan
    *  cap and the model window still clamp it. */
   contextPolicy?: "player" | "author";
+  /**
+   * Author-side story memory (Context → 摘要 + 最新 N 条). When on, the turns
+   * that have left the window are not simply gone: the server keeps a rolling
+   * "story so far" summary of them and sends it ahead of the raw history, the
+   * same machinery the player-side memory extension uses, switched on by the
+   * card for every player. `focus` is the author's one line to the summariser
+   * about what must survive compression (「记住人物关系、承诺和欠的债」).
+   */
+  storySummary?: { enabled: boolean; focus?: string };
+  /**
+   * A line the author pins near the end of the history every turn — the
+   * author's note. `depth` counts messages from the end (1 = right before
+   * the newest message, 0 = after it); default 1. Delivered through the same
+   * channel as a chat-history entry with a depth, without being an entry the
+   * lorebook lists.
+   */
+  pinnedNote?: { content: string; depth?: number; apiRole?: "system" | "user" | "assistant" };
+  /**
+   * How the current variable values reach the story AI each turn.
+   *   - undefined / "all": every AI-readable variable, as always.
+   *   - "changed": only the ones whose value differs from their default —
+   *     a quieter block on cards with many settings-like variables.
+   *   - "none": no <game-state> block at all; variables are the interface's
+   *     business (the AI can still be told about them in its entries).
+   */
+  variablesToAi?: "all" | "changed" | "none";
   /** @deprecated Use uiMode instead */
   layoutMode?: "split" | "game-focus" | "immersive";
   /** @deprecated No longer used — layout is automatic based on world content */

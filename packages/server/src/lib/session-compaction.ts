@@ -88,7 +88,16 @@ type StoryCompactionArgs = {
   contextTokenLimit?: number | null;
   finalPromptRawTokenLimit?: number | null;
   force?: boolean;
+  /** The card switched the summary on (settings.storySummary), so the
+   *  player's extension entitlement is not what gates this run. */
+  authorRequired?: boolean;
 };
+
+/** The author's one line to the summariser, from the card's settings. */
+function storySummaryFocus(settings: unknown): string | null {
+  const focus = (settings as { storySummary?: { focus?: unknown } } | null)?.storySummary?.focus;
+  return typeof focus === "string" && focus.trim() ? focus.trim().slice(0, 600) : null;
+}
 
 type PreparedStorySummaryJob = {
   model: string;
@@ -478,6 +487,8 @@ async function summarizeRowsWithMetadata(args: {
   sessionMemory: unknown;
   state: unknown;
   worldName?: string | null;
+  /** The author's note on what must survive compression (settings.storySummary.focus). */
+  focus?: string | null;
   mode: "compact" | "regenerate";
   language: SessionSummaryLanguage;
   fallbackTracker?: RefusalFallbackTracker;
@@ -491,7 +502,7 @@ async function summarizeRowsWithMetadata(args: {
   const signal = args.run?.signal ?? AbortSignal.timeout(10 * 60_000);
   let completed = 0;
   await args.run?.progress(0, transcripts.length, "episodes");
-  const promptFor = (transcript: string, recovery = false) => buildEpisodeSummaryPrompt({ worldName: args.worldName, transcript, language: args.language, recovery });
+  const promptFor = (transcript: string, recovery = false) => buildEpisodeSummaryPrompt({ worldName: args.worldName, focus: args.focus, transcript, language: args.language, recovery });
   const keyFor = (transcript: string, recovery: boolean) => episodeCheckpointKey(args.userId, args.sessionId, {
     model: args.model, prompt: promptFor(transcript, recovery), maxTokens: MAX_EPISODE_SUMMARY_TOKENS,
   });
@@ -772,6 +783,9 @@ async function loadSessionForSummary(sessionId: string, userId: string) {
       session: playSessions,
       worldName: worlds.name,
       worldLanguage: worlds.language,
+      // Only the settings object, not the card: the summariser needs one
+      // line of it (storySummary.focus) and a card can be megabytes.
+      worldSettings: sql<unknown>`${worlds.schema} -> 'settings'`,
     })
     .from(playSessions)
     .innerJoin(worlds, eq(playSessions.worldId, worlds.id))
@@ -910,6 +924,7 @@ async function compactStorySummaryForSessionNow(args: StoryCompactionArgs): Prom
         sessionMemory: row.session.sessionMemory,
         state: row.session.state,
         worldName: row.worldName,
+        focus: storySummaryFocus(row.worldSettings),
         mode: "regenerate",
         language,
         fallbackTracker,
@@ -1058,6 +1073,7 @@ async function compactStorySummaryForSessionNow(args: StoryCompactionArgs): Prom
       sessionMemory: row.session.sessionMemory,
       state: row.session.state,
       worldName: row.worldName,
+      focus: storySummaryFocus(row.worldSettings),
       mode,
       language,
       fallbackTracker,
@@ -1100,7 +1116,9 @@ export function scheduleStoryCompaction(args: StoryCompactionArgs): void {
   // uninstalled. The primary gate is resolveMemorySystemSettings at the call
   // site; this closes the race where an uninstall lands mid-request, after the
   // settings read but before this fire-and-forget schedule.
-  void isExtensionInstalled(args.userId, SESSION_MEMORY_EXTENSION_KEY).then((enabled) => {
+  // A card that asked for the summary itself is not gated by the install.
+  const entitled = args.authorRequired ? Promise.resolve(true) : isExtensionInstalled(args.userId, SESSION_MEMORY_EXTENSION_KEY);
+  void entitled.then((enabled) => {
     if (!enabled) return;
     if ((storyCompactionFailureCounts.get(args.sessionId) ?? 0) >= STORY_COMPACTION_MAX_CONSECUTIVE_FAILURES) {
       // Persistently failing config — stop burning a compaction per turn.
@@ -1284,6 +1302,7 @@ export function compactStorySummaryForSessionManually(args: {
         sessionMemory: row.session.sessionMemory,
         state: row.session.state,
         worldName: row.worldName,
+        focus: storySummaryFocus(row.worldSettings),
         mode: "compact",
         language,
         fallbackTracker,

@@ -46,23 +46,24 @@ test("a scene image row shows its cue, or says the AI will not show it on its ow
   assert.deepEqual(rowFacts({ id: "entry:e", kind: "entry" }, d, t), {}, "other kinds wear nothing");
 });
 
-test("the card's memory block says what it remembers, how much it reads, and whether the judge is on", () => {
-  const on = cardMemoryRows({ historyLimit: 0, continuityEnabled: true }, t);
-  assert.deepEqual(on.map((row) => [row.key, row.icon, row.text]), [
+test("the card's memory block says what it remembers and how much it reads; a summary and a pinned note each get a row", () => {
+  const plain = cardMemoryRows({ historyLimit: 0 }, t);
+  assert.deepEqual(plain.map((row) => [row.key, row.icon, row.text]), [
     ["memory", "memory", "blueprint.ctx.row.memoryCardAlone"],
     ["history", "in", "blueprint.turnCtx.historyAll"],
-    ["continuity", "judge", "blueprint.ctx.row.continuityOn"],
   ]);
-  const off = cardMemoryRows({ historyLimit: 20, continuityEnabled: false }, t);
-  assert.equal(off[1].text, "blueprint.turnCtx.historyLimitCard:20");
-  assert.equal(off[1].title, "entries.historyLimitHint");
-  assert.equal(off[2].text, "blueprint.ctx.row.continuityOff", "the row follows the switch");
-  assert.equal(off[2].title, "overview.continuityDesc");
+  const windowed = cardMemoryRows({ historyLimit: 20, summary: true, pinned: "Stay in second person." }, t);
+  assert.equal(windowed[1].text, "blueprint.turnCtx.historyLimitCard:20");
+  assert.equal(windowed[1].title, "entries.historyLimitHint");
+  assert.deepEqual(windowed.slice(2).map((row) => row.key), ["summary", "pinned"]);
+  assert.equal(windowed[3].title, "Stay in second person.", "the whole note on hover");
+  assert.ok(windowed[3].text.startsWith("blueprint.ctx.row.pinnedRow"));
 });
 
-test("card memory on its defaults folds to one line; anything changed shows all three", () => {
-  const folded = cardMemoryRows({ historyLimit: 0, continuityEnabled: true }, t, { folded: true });
-  assert.deepEqual(folded.map((row) => row.text), ["blueprint.ctx.row.memoryCardAlone · blueprint.ctx.row.continuityOn"]);
-  assert.equal(cardMemoryRows({ historyLimit: 20, continuityEnabled: true }, t, { folded: true }).length, 3);
-  assert.equal(cardMemoryRows({ historyLimit: 0, continuityEnabled: false }, t, { folded: true }).length, 3);
+test("card memory on its defaults folds to one line; anything changed shows its rows", () => {
+  const folded = cardMemoryRows({ historyLimit: 0 }, t, { folded: true });
+  assert.deepEqual(folded.map((row) => row.text), ["blueprint.ctx.row.memoryCardAlone"]);
+  assert.equal(cardMemoryRows({ historyLimit: 20 }, t, { folded: true }).length, 2);
+  assert.equal(cardMemoryRows({ historyLimit: 0, summary: true }, t, { folded: true }).length, 3);
+  assert.equal(cardMemoryRows({ historyLimit: 0, pinned: "  " }, t, { folded: true }).length, 1, "a blank note is no note");
 });

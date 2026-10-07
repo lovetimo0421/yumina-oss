@@ -39,7 +39,7 @@ import {
   updateSummaryceptionSnippet,
 } from "../lib/summaryception.js";
 import { normalizeSessionSummaryImplementation } from "../lib/summaryception-core.js";
-import { resolveMemorySystemSettings } from "../lib/memory-systems.js";
+import { resolveMemorySystemSettings, sessionWorldRequiresStorySummary } from "../lib/memory-systems.js";
 import { isExtensionInstalled } from "../lib/extensions.js";
 import { summaryJobs, summaryJobKey } from "../lib/summary-job-store.js";
 import { isActiveSummaryJob } from "../lib/summary-job-core.js";
@@ -64,10 +64,12 @@ async function requireSessionMemoryExtension(
   next: Next,
 ) {
   const currentUser = c.get("user");
-  if (!(await isExtensionInstalled(currentUser.id, SESSION_MEMORY_EXTENSION_KEY))) {
-    return c.json({ error: "Extension not installed", code: "EXTENSION_NOT_INSTALLED" }, 403);
-  }
-  return next();
+  if (await isExtensionInstalled(currentUser.id, SESSION_MEMORY_EXTENSION_KEY)) return next();
+  // A card can switch the story summary on for everyone who plays it; the
+  // panel that shows and edits that summary opens for them too.
+  const sessionId = c.req.param("sessionId");
+  if (sessionId && await sessionWorldRequiresStorySummary(sessionId, currentUser.id)) return next();
+  return c.json({ error: "Extension not installed", code: "EXTENSION_NOT_INSTALLED" }, 403);
 }
 
 // This router is mounted at /api/sessions, alongside core chat/session routes
@@ -314,7 +316,7 @@ async function toSummaryPayload(row: typeof playSessions.$inferSelect): Promise<
   const summary = normalizeStorySummaryText(row.summary);
   const model = applyModelRedirect(row.summaryModel || DEFAULT_STORY_SUMMARY_MODEL);
   const implementation = normalizeSessionSummaryImplementation(row.summaryImplementation);
-  const memorySystems = await resolveMemorySystemSettings(row.userId, row);
+  const memorySystems = await resolveMemorySystemSettings(row.userId, row, { authorRequired: await sessionWorldRequiresStorySummary(row.id, row.userId) });
   const mode = "threshold" satisfies SessionSummaryMode;
   const triggerTokens = normalizeSessionSummaryTriggerTokens(row.summaryTriggerTokens);
   const recentTailTokens = normalizeSessionSummaryRecentTailTokens(row.summaryRecentTailTokens);

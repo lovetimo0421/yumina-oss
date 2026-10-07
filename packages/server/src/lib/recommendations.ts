@@ -21,6 +21,10 @@ export async function buildHubBaseFilters(..._args: any[]): Promise<any> {
   return {};
 }
 
+export function buildHubSearchOrder(..._args: any[]): any[] {
+  return [];
+}
+
 export function createEmptyRecommendationProfile(userId?: string): any {
   return { userId: userId ?? null };
 }

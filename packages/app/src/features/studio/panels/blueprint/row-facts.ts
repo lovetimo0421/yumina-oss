@@ -65,44 +65,34 @@ export function rowFacts(g: Pick<GraphNode, "id" | "kind">, draft: RowFactsDraft
   return {};
 }
 
-/** The card's own memory block, three facts about the AI that runs when no
- *  module has taken over: it remembers the whole conversation, how much of
- *  it the author lets through each turn, and whether the judge keeps the
- *  numbers, music and scene images in step with the story. Each is a
- *  setting, and the panel makes every row a way to it. */
+/** The card's own memory block: the AI that runs when no module has taken
+ *  over remembers the whole conversation; then how much of it the author
+ *  lets through each turn, whether the rest becomes a summary, and whether a
+ *  note is pinned. Each is a setting, and the panel makes every row a way to
+ *  it. The judge (智能追踪) is the AI's own business and lives on its row. */
 export interface CardMemoryRow {
-  key: "memory" | "history" | "continuity";
-  icon: "memory" | "in" | "judge";
+  key: "memory" | "history" | "summary" | "pinned";
+  icon: "memory" | "in";
   text: string;
   title: string;
 }
 
-export function cardMemoryRows(state: { historyLimit: number; continuityEnabled: boolean }, t: Translate, opts: { folded?: boolean } = {}): CardMemoryRow[] {
-  // Nothing changed from the defaults: one line, not three. Three rows saying
-  // "the usual" were the tallest thing at the foot of every new card. Any
-  // setting moved off its default brings all three back, so what is
-  // different is where it can be seen.
-  if (opts.folded && !state.historyLimit && state.continuityEnabled) {
-    return [{
-      key: "memory",
-      icon: "memory",
-      text: `${t("blueprint.ctx.row.memoryCardAlone")} · ${t("blueprint.ctx.row.continuityOn")}`,
-      title: t("blueprint.ctx.row.memoryCardHint"),
-    }];
-  }
-  return [
+export function cardMemoryRows(state: { historyLimit: number; summary?: boolean; pinned?: string }, t: Translate, opts: { folded?: boolean } = {}): CardMemoryRow[] {
+  const pinned = (state.pinned ?? "").trim();
+  // Nothing changed from the defaults: one line, not four. Any setting moved
+  // off its default brings its own row, so what is different is where it
+  // can be seen.
+  const rows: CardMemoryRow[] = [
     { key: "memory", icon: "memory", text: t("blueprint.ctx.row.memoryCardAlone"), title: t("blueprint.ctx.row.memoryCardHint") },
-    {
-      key: "history",
-      icon: "in",
-      text: state.historyLimit ? t("blueprint.turnCtx.historyLimitCard", { count: state.historyLimit }) : t("blueprint.turnCtx.historyAll"),
-      title: t(state.historyLimit ? "entries.historyLimitHint" : "entries.historyLimitHintAll"),
-    },
-    {
-      key: "continuity",
-      icon: "judge",
-      text: t(state.continuityEnabled ? "blueprint.ctx.row.continuityOn" : "blueprint.ctx.row.continuityOff"),
-      title: t("overview.continuityDesc"),
-    },
   ];
+  if (opts.folded && !state.historyLimit && !state.summary && !pinned) return rows;
+  rows.push({
+    key: "history",
+    icon: "in",
+    text: state.historyLimit ? t("blueprint.turnCtx.historyLimitCard", { count: state.historyLimit }) : t("blueprint.turnCtx.historyAll"),
+    title: t(state.historyLimit ? "entries.historyLimitHint" : "entries.historyLimitHintAll"),
+  });
+  if (state.summary) rows.push({ key: "summary", icon: "in", text: t("blueprint.ctx.row.summaryOn"), title: t("blueprint.insp.historySummaryHint") });
+  if (pinned) rows.push({ key: "pinned", icon: "in", text: t("blueprint.ctx.row.pinnedRow", { text: pinned.length > 40 ? `${pinned.slice(0, 40)}…` : pinned }), title: pinned });
+  return rows;
 }

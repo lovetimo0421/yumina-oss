@@ -448,7 +448,13 @@ function invalidate(ctx: InvalidateContext): ExtensionInvalidation {
 
 export function registerSessionMemoryExtension(): void {
   registerExtensionHooks(SESSION_MEMORY_EXTENSION_KEY, {
-    resolveCapabilities: ({ session }) => {
+    // Context → 摘要 + 最新 N 条: the card asks for the story summary on behalf
+    // of everyone who plays it. The player's explicit uninstall still wins
+    // (the runner checks it), and such a run is the summary alone — the facts
+    // list and summaryception stay the player's own choice.
+    activeByDefault: ({ world }) => world?.settings?.storySummary?.enabled === true,
+    resolveCapabilities: ({ session, defaultActivated }) => {
+      if (defaultActivated) return ["story-summary"];
       const settings = getMemorySystemSettings(session as SessionMemorySystemRow);
       const caps: string[] = [];
       if (settings.sessionMemoryIncluded) caps.push("session-memory");
@@ -525,6 +531,7 @@ export function registerSessionMemoryExtension(): void {
           fallbackModel: ctx.model,
           contextTokenLimit: ctx.maxContext,
           finalPromptRawTokenLimit: ctx.finalPromptRawTokenLimit,
+          authorRequired: ctx.defaultActivated === true,
         });
       }
     },
@@ -547,6 +554,7 @@ export function registerSessionMemoryExtension(): void {
           userId: ctx.userId,
           fallbackModel: ctx.fallbackModel,
           contextTokenLimit: ctx.contextTokenLimit,
+          authorRequired: ctx.defaultActivated === true,
         });
       }
     },
