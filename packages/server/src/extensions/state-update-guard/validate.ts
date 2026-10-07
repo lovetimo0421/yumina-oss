@@ -60,13 +60,15 @@ export function providerFailureCode(message: string): string {
   return "provider_error";
 }
 
-/** Byte count is a conservative upper bound for the byte-level tokenizer. A
- * very long unbroken piece can make BPE merging quadratic and block even the
- * AbortSignal timer, so only tokenize bounded, ordinary text. Returning the
- * upper bound may decline an unusually dense request, never truncate it. */
+/** Bound the total input, then use the engine's model-aware estimator. It
+ * already bounds oversized BPE pieces at tokenizer boundaries and uses a
+ * linear CJK estimate for Gemini/Claude/DeepSeek. A whitespace-run check here
+ * mistakes Chinese prose and compact JSON for pathological BPE pieces and
+ * counts the entire request as bytes instead of tokens. Never alter the data
+ * just to estimate it. */
 export function boundedCorrectionInputTokens(text: string, model: string): number {
   const bytes = Buffer.byteLength(text, "utf8");
-  if (bytes > MAX_CORRECTION_TOKENIZER_BYTES || /\S{512}/u.test(text)) return bytes;
+  if (bytes > MAX_CORRECTION_TOKENIZER_BYTES) return bytes;
   return estimateTokens(text, model);
 }
 
@@ -120,7 +122,7 @@ export async function guardTurnOutput(ctx: TurnOutputContext): Promise<Validated
     await ctx.progress(audit);
     const variables = ctx.world.variables.filter((v) => isAiReadable(v, ctx.state, ctx.world.worldbooks));
     const writableVariableIds = variables.filter((v) => isAiWritable(v, ctx.state, ctx.world.worldbooks)).map((v) => v.id);
-    let data = JSON.stringify({
+    const data = JSON.stringify({
       variables, writableVariableIds, state: Object.fromEntries(variables.map((v) => [v.id, ctx.state.variables[v.id]])),
       history: ctx.history.slice(-4).map((m) => ({ role: m.role, content: typeof m.content === "string" ? m.content.slice(-6000) : "[attachment]" })),
       draft: ctx.raw, diagnostics: audit.diagnostics,
@@ -143,15 +145,7 @@ export async function guardTurnOutput(ctx: TurnOutputContext): Promise<Validated
         if (controller.signal.aborted) throw new StateGuardError("correction_timeout");
         const inputBudget = Math.min(24_000, Math.max(0, correction.maxContext - 4608));
         if (boundedCorrectionInputTokens(data + CORRECTION_INSTRUCTIONS, correction.model) > inputBudget) {
-          // Added whitespace cannot fit an input already over the byte ceiling.
-          if (Buffer.byteLength(data + CORRECTION_INSTRUCTIONS, "utf8") > MAX_CORRECTION_TOKENIZER_BYTES) throw new StateGuardError("correction_context_limit");
-          // Compact JSON can join many short fields into a dense run. Whitespace
-          // between fields preserves every value while avoiding that false alarm.
-          // Real dense strings and oversized requests still face the same bounds.
-          // Reformat the frozen serialization, not live state after model lookup.
-          data = JSON.stringify(JSON.parse(data), null, 1);
-          if (boundedCorrectionInputTokens(data + CORRECTION_INSTRUCTIONS, correction.model) > inputBudget) throw new StateGuardError("correction_context_limit");
-          usage.promptTokens = estimateCorrectionUsageTokens(data + CORRECTION_INSTRUCTIONS);
+          throw new StateGuardError("correction_context_limit");
         }
         servedModel = correction.model;
         audit.correctionModel = correction.model;
