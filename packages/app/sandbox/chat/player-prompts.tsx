@@ -145,7 +145,7 @@ export function PromptsQuickSheet() {
           type="button"
           aria-label={t("close")}
           onClick={closePromptsPanel}
-          className="absolute inset-0 h-full w-full cursor-default bg-black/50 backdrop-blur-sm"
+          className="absolute inset-0 h-full w-full cursor-default modal-backdrop"
           style={{ animation: "ppFade 0.15s ease-out" }}
         />
         <div

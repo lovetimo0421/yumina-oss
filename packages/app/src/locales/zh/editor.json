@@ -732,7 +732,7 @@
     "title": "卡的设置",
     "description": "名字、封面、公告和卡的公开页面",
     "importJson": "导入文件",
-    "importJsonDesc": "导入之前导出的卡片（`.json`），或 SillyTavern 角色卡（`.png` / `.json`）。会替换这张卡现在的全部内容。",
+    "importJsonDesc": "导入之前导出的卡片（`.json`），或角色卡（`.png` / `.json`）。会替换这张卡现在的全部内容。",
     "chooseFile": "选择文件",
     "confirmReplaceWorld": "这会用导入的 JSON 替换当前世界的内容（词条、变量、规则、组件等）。世界 ID、封面相册、标签、发布状态会保留。导入后请点击保存以应用更新。是否继续？",
     "importReplacedSaveReminder": "点击保存以更新已发布的世界",
@@ -1086,10 +1086,12 @@
       "cancelTimer": "取消计时器",
       "toggleBehavior": "启用/禁用行为",
       "toggleVariable": "启用/禁用变量",
+      "toggleScenario": "启用/禁用情境",
       "moment": "解锁一个时刻"
     },
     "doFields": {
       "variable": "要改的变量",
+      "scenario": "情境",
       "operation": "操作",
       "value": "值",
       "instructionId": "指令 ID",
@@ -4414,12 +4416,13 @@
       "history": "读最近几条对话",
       "addVariable": "＋ 一个变量",
       "sees": "它看得到",
-      "title": "自定义"
+      "title": "回答格式"
     },
     "aiType": {
       "code": "代码型",
       "ui": "界面型",
-      "turn": "回合型"
+      "turn": "回合型",
+      "custom": "自定义"
     },
     "placeAis": {
       "jobUi": "玩家界面叫它时",
@@ -4447,7 +4450,17 @@
       "jobAfter": "幕后 · 某个 AI 回复之后",
       "jobConditions": "幕后 · 数值满足条件时",
       "jobClosed": "幕后 · 某个情境结束时",
-      "jobBehind": "幕后"
+      "jobBehind": "幕后",
+      "codeCallName": "界面代码 · {{file}}",
+      "jobFromCode": "由界面代码调用 · {{file}} 第 {{line}} 行",
+      "jobFromCodeHere": "界面代码在这个情境下调用",
+      "memLoreMatched": "按关键词读词条",
+      "memLoreAll": "读所有词条",
+      "memLoreNone": "不读词条",
+      "linkReadsModules": "限定读 {{names}}",
+      "linkPicksModule": "运行时在 {{names}} 里挑一个",
+      "jobImplemented": "由界面代码实现 · {{file}} 第 {{line}} 行",
+      "jobUnimplemented": "还没有实现"
     },
     "gameData": {
       "readBy": "谁在读",
@@ -5000,7 +5013,23 @@
       "unplaced": "放在外面（没生效）",
       "openPage": "打开整页",
       "playtestSaveFirst": "先保存这张卡，才能试玩。",
-      "playtestNoSession": "没能开始试玩，请再试一次。"
+      "playtestNoSession": "没能开始试玩，请再试一次。",
+      "frontendFiles": "文件",
+      "frontendAiCalls": "代码里的 AI 调用",
+      "frontendUses": "用到的平台能力",
+      "frontendFileLine": "{{lines}} 行",
+      "varFields": "里面有什么",
+      "varFieldsHint": "列出 json 里有哪些字段、谁写它。",
+      "varFieldAdd": "加一个字段",
+      "varFieldPath": "路径（如 weather 或 drama.actors）",
+      "varFieldType": "类型",
+      "varFieldWriter": "谁写它",
+      "varFieldWriter_ui": "界面代码",
+      "varFieldWriter_ai": "AI 指令",
+      "varFieldWriter_behavior": "行为",
+      "varFieldWriter_ai-call": "自定义 AI 调用",
+      "varFieldWriterAny": "未说明",
+      "varFieldRemove": "删掉这个字段"
     },
     "addModule": "情境",
     "addVariable": "变量",
@@ -5892,6 +5921,92 @@
         "platform": "平台付"
       },
       "boardNote": "画布上亮着的，就是它这一次看得到的；暗下去的它看不到。"
+    },
+    "codeCall": {
+      "intro": "界面代码发起的 AI 调用，参数在代码里。这里是扫描结果。",
+      "kind": "类型",
+      "kind_complete": "生成一段回答",
+      "kind_decide": "选一个选项",
+      "kind_context": "只组装上下文，不生成",
+      "lore": "读的资料",
+      "loreNone": "不读卡里的词条",
+      "loreAll": "读所有启用的词条",
+      "loreMatched": "按关键词匹配词条",
+      "loreRaw": "不带卡的资料",
+      "situations": "限定情境",
+      "situationsDynamic": "运行时决定",
+      "picksSituation": "在这些情境里挑一个",
+      "session": "带玩家的存档上下文",
+      "yes": "是",
+      "no": "否",
+      "answer": "回答格式",
+      "answerJson": "JSON",
+      "answerText": "纯文本",
+      "model": "指定模型",
+      "openAt": "打开 {{file}} 第 {{line}} 行"
+    },
+    "files": {
+      "summary": "界面代码 · {{files}} 个文件 · {{lines}} 行",
+      "reads": "读 {{count}} 个变量",
+      "writes": "写 {{count}} 个变量",
+      "aiCalls": "{{count}} 处调 AI",
+      "readsList": "读：{{names}}",
+      "writesList": "写：{{names}}",
+      "usesList": "用到：{{names}}",
+      "lines": "{{count}} 行",
+      "chipReads": "读 {{count}}",
+      "chipWrites": "写 {{count}}",
+      "chipAi": "AI ×{{count}}",
+      "more": "还有 {{count}} 个文件",
+      "use_ai": "AI 调用",
+      "use_room": "联机房间",
+      "use_voice": "语音输入",
+      "use_tts": "语音朗读",
+      "use_storage": "存档数据",
+      "use_media": "媒体库",
+      "use_social": "社交模拟",
+      "use_audio": "音频",
+      "use_assets": "素材",
+      "use_chat": "聊天操作",
+      "use_session": "存档操作"
+    },
+    "hints": {
+      "title": "还能自己写的",
+      "ai": {
+        "codeCall": {
+          "title": "AI 调用",
+          "body": "api.ai.complete，模型、词条、输出格式自己定"
+        },
+        "replyRules": {
+          "title": "回答解析",
+          "body": "回复处理规则，或代码行为拆进变量"
+        },
+        "ownAi": {
+          "title": "外部 AI",
+          "body": "顶栏「连接你的 AI」(MCP)"
+        }
+      },
+      "behavior": {
+        "codeBehavior": {
+          "title": "代码行为",
+          "body": "JS，读全部变量，返回改动"
+        },
+        "fromCode": {
+          "title": "从界面触发",
+          "body": "api.executeAction(id)"
+        }
+      }
+    },
+    "custom": {
+      "mode_rule": "规则",
+      "mode_custom": "自定义",
+      "empty": "还没有实现。",
+      "noteHint": "可以贴张便签说要做什么，创作助手或外部 AI 会来写。",
+      "aiIntro": "由界面代码实现。下面是读了这个情境的 AI 调用。",
+      "behaviorIntro": "由代码实现。",
+      "implementedBy": "实现在 {{count}} 处",
+      "implementedCode": "自己的代码 · {{count}} 行",
+      "firedFrom": "界面代码触发 · {{file}} 第 {{line}} 行"
     }
   },
   "modules": {

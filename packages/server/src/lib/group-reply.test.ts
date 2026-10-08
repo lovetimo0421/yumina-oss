@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { computeActiveWorldbookIds, replyRoom, type GameState, type WorldDefinition } from "@yumina/engine";
-import { buildGroupReplyPrompt, nextVoice, stripOwnName, voiceTag } from "./group-reply.js";
+import { buildGroupReplyPrompt, nextVoice, readVoiceAnswer, stripOwnName, voiceTag } from "./group-reply.js";
 
 // A bookshop card: the narrator, a cat living on the card, and a dungeon in
 // the attic where a guide and a ghost answer instead of the narrator.
@@ -62,6 +62,34 @@ test("group reply: a voice reads the story, the place and itself — never anoth
   // The guide's line carries its name, so the ghost does not answer for it.
   assert.equal(prompt[2]!.content, "引路人: 这边走。");
   assert.equal(prompt[prompt.length - 1]!.role, "user");
+});
+
+test("group reply: card lore a behaviour switched on reaches the voice; lore switched off does not", () => {
+  const standby = { ...entry("secret", "店主其实是猫变的。", undefined, false), enabled: false };
+  const card = { ...world, entries: [...world.entries, standby] } as unknown as WorldDefinition;
+  const books = card.worldbooks ?? [];
+  const base = at("阁楼");
+  const room = replyRoom(books, computeActiveWorldbookIds(books, base));
+  const ghost = books.find((b) => b.id === "ghost")!;
+  const promptFor = (toggledEntries: Record<string, boolean>) => String(buildGroupReplyPrompt({
+    world: card, state: { ...base, ruleState: { toggledEntries } } as unknown as GameState, voice: ghost, room,
+    history: [{ role: "user", content: "有人吗？" }],
+  })[0]!.content);
+  assert.doesNotMatch(promptFor({}), /猫变的/);
+  assert.match(promptFor({ secret: true }), /猫变的/);
+  assert.doesNotMatch(promptFor({ w: false }), /雨巷/);
+});
+
+test("group reply: 回复处理 applies to a later voice — its status block is taken out and written", () => {
+  const card = {
+    ...world,
+    variables: [...(world.variables ?? []), { id: "favor", name: "好感", type: "number", defaultValue: 30 }],
+    replyRules: [{ id: "status", match: { tag: "状态" }, hide: true, to: [{ kind: "fields" }] }],
+  } as unknown as WorldDefinition;
+  const out = readVoiceAnswer(card, ["书灵: 「你又来了。」", "<状态>好感: 33</状态>"].join("\n"), "书灵", null);
+  assert.equal(out.says, "「你又来了。」");
+  assert.doesNotMatch(out.says, /状态/);
+  assert.ok(out.parsed.effects.some((e) => (e as { variableId?: string }).variableId === "favor"));
 });
 
 test("group reply: the speaker tag goes only over an AI that lives somewhere", () => {

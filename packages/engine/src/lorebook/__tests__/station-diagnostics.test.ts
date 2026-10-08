@@ -25,6 +25,11 @@ describe("worker.noInputs — the one that looks finished", () => {
     expect(codes).not.toContain("worker.noTrigger");
   });
 
+  it("stays quiet for an AI a button calls: the call is its input", () => {
+    const fortune = book({ id: "fortune", station: { kind: "worker", task: "Read the player's fortune.", trigger: { on: "ui" } } });
+    expect(codes(fortune, [fortune])).not.toContain("worker.noInputs");
+  });
+
   it("goes quiet once something is wired in", () => {
     const source = book({ id: "scene", station: { kind: "narrator", onClose: "archive" } });
     const wired = book({

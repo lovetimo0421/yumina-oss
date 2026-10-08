@@ -87,7 +87,7 @@ write_worldbook { id: "wb-chronicler", station: {
 
 The worker's own ENTRIES are who it is (史官 / 情报员 / 心理医生); `task` is the job. **A worker with no task or no trigger never runs** — the snapshot says so in those words, so check it before assuming a briefing is late. Other triggers: `{ on: "turns", every: N }` and `{ on: "conditions", conditions: […] }` (rising edge only, so a condition that stays true does not bill every turn).
 
-**`inputs` is the wiring** — the lines a creator sees between gates on the blueprint board. Each is `{ kind, from, as?, limit? }`:
+**`inputs` is the wiring** — the lines a creator sees between gates on the blueprint board. A worker on `{ on: "ui" }` (a button calls it) or `{ on: "quiet" }` never reads them: the first sees what its `sees` gives it, the second reads the story. Each is `{ kind, from, as?, limit? }`:
 
 | kind | what flows | cost |
 |---|---|---|

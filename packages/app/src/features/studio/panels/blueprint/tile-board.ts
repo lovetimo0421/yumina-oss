@@ -92,7 +92,7 @@ export type TileSection = { kind: "row"; blocks: Block[] };
  * one band across the top, which made them read as chrome, as a single
  * letterhead strip rather than the two things they are.
  *
- * Then the shelves of lore, then the two short lists read against each other,
+ * Then the shelves of lore, then the variables and the behaviours, a row each,
  * then the media, then what the card remembers, then the settings.
  */
 export function tileSections(blocks: readonly Block[], opts: TileSlotOptions = {}): TileSection[] {
@@ -134,8 +134,9 @@ export function tileSections(blocks: readonly Block[], opts: TileSlotOptions = {
   if (screen) sections.push({ kind: "row", blocks: [screen] });
   for (const b of [...openings, ...lore]) sections.push({ kind: "row", blocks: [b] });
 
-  const pair = [state, behavior].filter((b): b is Block => Boolean(b));
-  if (pair.length) sections.push({ kind: "row", blocks: pair });
+  // Variables, then behaviours, each a full row (owner, 10/7). Side by side
+  // each got half a tile and squeezed its rows; alone they have room to read.
+  for (const b of [state, behavior]) if (b) sections.push({ kind: "row", blocks: [b] });
   // Audio beside scene images: both are what the AI reaches for mid-story,
   // and each alone is a short list. One of them alone keeps the full width.
   // They stand above the memory: music and pictures are part of what the

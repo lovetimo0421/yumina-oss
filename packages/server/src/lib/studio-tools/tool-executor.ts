@@ -1589,6 +1589,7 @@ function applyBehaviorUpdates(behavior: Reaction, data: Record<string, unknown>)
   if (data.enabled !== undefined) behavior.enabled = data.enabled as boolean;
   if (data.worldbookId !== undefined) behavior.worldbookId = normalizeWorldbookId(data.worldbookId);
   if (data.elseMessage !== undefined) behavior.elseMessage = typeof data.elseMessage === "string" && data.elseMessage.trim() ? data.elseMessage.slice(0, 500) : undefined;
+  if (data.custom !== undefined) behavior.custom = data.custom === true ? true : undefined;
   if (data.code !== undefined) behavior.code = typeof data.code === "string" && data.code.trim() ? data.code.slice(0, 20000) : undefined;
 }
 
@@ -2309,6 +2310,8 @@ function applySettingsChange(draft: WorldDefinition, data: Record<string, unknow
 function normalizeStation(raw: unknown, selfId: string): Worldbook["station"] {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
   const r = raw as Record<string, unknown>;
+  // A custom station is a declared slot: nothing to normalize but its name.
+  if (r.kind === "custom") return { kind: "custom", ...(typeof r.name === "string" && r.name.trim() ? { name: r.name.trim().slice(0, 80) } : {}) };
   const kind = r.kind === "worker" ? "worker" : r.kind === "narrator" ? "narrator" : null;
   if (!kind) return undefined;
 

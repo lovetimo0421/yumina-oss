@@ -162,6 +162,7 @@ Firing order: AI response → parse directives → apply variable changes → be
 | Path | Value | Effect |
 |---|---|---|
 | `@vars.enabled.<variableId>` | `true` / `false` | Override a variable's enable gate. While off, the variable leaves `<game-state>` and the player UI and rejects AI writes — but KEEPS its value (conditions/behaviors/UI still read it). Pairs with `activation: { mode: "manual" }` on the variable (see the variables skill). |
+| `@worldbooks.on.<worldbookId>` | `true` / `false` | Switch a scenario (worldbook) on or off for this session. Read by scenarios in `manual` mode (the only way to open one mid-story) and `keywords` mode (same latch the player's words set; leave-keywords can still close it). Has no effect on `always` / `conditions` / `greeting` scenarios. |
 
 ### Spatial System (requires `systems: ["spatial"]` in world)
 | Path | Value | Effect |
@@ -183,7 +184,7 @@ Well-known event types for the `emit` effect:
 
 **When to use `set @audio.bgm` vs `emit audio:play`**: The `set` shorthand is simpler for basic play/stop. The `emit` version gives full control (volume, fade, chain, maxDuration).
 
-## 自定义 — what cards used to hand-write, as data
+## Data pieces — what cards used to hand-write, as data
 
 Most published cards wrote these in their TSX. Build them with these pieces first; reach for TSX only for presentation (a stage, a minigame view). Stick a canvas sticky note on each custom part saying what it is for, its rules that must not break, its tuning numbers, and how to test it — that note is how the next AI (or you, next session) understands it.
 
@@ -199,6 +200,7 @@ Most published cards wrote these in their TSX. Build them with these pieces firs
 - A button's 「让一条行为生效」 step can pass values: params `{ 商品: "伞", 价格: "{{price}}" }`. In the behaviour, `{参数.商品}` / `{参数.价格}` read them — in condition values, effect values and notices. A value that is only the token keeps its type (numbers stay numbers).
 - `elseMessage`: shown to the player when the event happens but the conditions fail ("金币不够，要 {参数.价格}").
 - `when: { eventType: "clock:every", match: { seconds: { operator: "eq", value: 30 } } }` — every 30 s while the game is open.
+- `custom: true` (自定义 on the canvas): the behaviour is a declared slot for code — its `code`, or the interface firing it with `api.executeAction(id)`. The sticky note on it says what it should do. Implement it; keep `custom` set.
 - `code`: the escape hatch — JS run in the card's sandbox when the behaviour fires: `ctx.vars`, `ctx.get(name)`, `ctx.set(name, v)`, `ctx.add(name, n)`, `ctx.push(name, x)`, `ctx.toast(text)`, `ctx.say(text)`, `await ctx.callAi(ai, input)`, `ctx.random(a, b)`. Only for what conditions/effects cannot say.
 - Effect `emit { type: "ui:moment", title, message, image?, collect: "<list variable id>" }` — unlocks a moment once (skipped when the list already holds the title); mark the list `persist: "player"` for once per player, add `chance` for odds.
 
@@ -214,6 +216,12 @@ for (const seat of ["玩家一", "玩家二", "玩家三"]) {
 }
 ```
 A narrator AI (`say: "story"`) can then be called with what happened to tell it — the code decides, the AI narrates.
+
+## 自定义 slots — declared on the canvas, implemented by code
+
+A situation whose station is `{ kind: "custom" }`, or a behaviour with `custom: true`, is a slot the creator declared on the canvas by picking 自定义. It is not a data piece: the creator is asking for code. The sticky note on it says what it should do; get_world's CUSTOM SLOTS says what implements it so far and how to implement it (a custom AI: `api.ai.complete({ ..., worldbookIds: ["<module id>"] })` in the rootComponent; a custom behaviour: its `code`, or `api.executeAction("<id>")` from the interface).
+
+Rules: read the note first; implement in code; leave the slot's kind as it is. If a data piece above would do the job better (a worker station with `callAi`, a button step), say so and offer the swap — do not convert the slot on your own.
 
 ## Best Practices
 

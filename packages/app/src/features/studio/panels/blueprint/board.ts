@@ -141,6 +141,8 @@ export interface BlockChrome {
   compactCard?: boolean;
   /** The card's interface is previewed at desktop width rather than phone. */
   frontendDesktop?: boolean;
+  /** Height of the file strip under the phone (0 or absent for the stock chat). */
+  frontendFilesH?: number;
   defaultChat?: boolean;
   /** The card's interface is the stock chat: one line saying so, no preview.
    *  The preview showed the stock chat with nothing in it, 200px tall, on
@@ -235,7 +237,7 @@ export function blockHeight(block: Block, chrome: BlockChrome): number {
       // The device at its own shape (see screenFrame); its controls sit in
       // the head.
       const frame = screenFrame(chrome.width ?? BLOCK_W, chrome.frontendDesktop !== false);
-      return h + frame.h + SCREEN_PAD * 2 + block.headSlots.length * SLOT_ROW_H;
+      return h + frame.h + SCREEN_PAD * 2 + (chrome.frontendFilesH ?? 0) + block.headSlots.length * SLOT_ROW_H;
     }
     // The module's own live preview, then one line (the file and the way to
     // open it), then the interface's variable ports.

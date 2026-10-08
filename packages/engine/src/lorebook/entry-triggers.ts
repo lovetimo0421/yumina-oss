@@ -32,6 +32,40 @@ export function isUiBoundEntry(
   return getUiBoundEntryIds(bindings).has(entryId);
 }
 
+/**
+ * A standby entry (the canvas's 待命设定: not every-turn, no keywords, no
+ * conditions, not bound to an interface slot) that a behaviour has switched
+ * on. It is sent every turn from then on, the way the canvas promises
+ * ("由行为开关"). Before this, switching one on only flipped `enabled`, and
+ * every prompt path read `alwaysSend` first, so the entry never reached the AI.
+ */
+export function isStandbyOn(
+  entry: Pick<WorldEntry, "id" | "alwaysSend" | "keywords" | "conditions">,
+  toggledEntries: Record<string, boolean> | undefined,
+  bindings?: LoreUiBinding[],
+): boolean {
+  if (toggledEntries?.[entry.id] !== true) return false;
+  if (entry.alwaysSend) return false;
+  if ((entry.keywords?.length ?? 0) > 0 || (entry.conditions?.length ?? 0) > 0) return false;
+  return !isUiBoundEntry(entry.id, bindings);
+}
+
+/**
+ * Whether an entry goes to the AI every turn right now: every-turn entries
+ * and switched-on standby entries, after a behaviour's 启用词条 / 禁用词条
+ * have had their say. For the side AIs (group voices, quiet AIs, AI calls)
+ * that read the card's every-turn lore without the full prompt builder.
+ */
+export function sendsEveryTurn(
+  entry: Pick<WorldEntry, "id" | "alwaysSend" | "keywords" | "conditions" | "enabled">,
+  toggledEntries: Record<string, boolean> | undefined,
+  bindings?: LoreUiBinding[],
+): boolean {
+  const on = toggledEntries && entry.id in toggledEntries ? toggledEntries[entry.id] : entry.enabled !== false;
+  if (!on) return false;
+  return entry.alwaysSend || isStandbyOn(entry, toggledEntries, bindings);
+}
+
 /** LoreSlot id that gates this entry, if any. */
 export function getEntryBoundSlotId(
   entryId: string,

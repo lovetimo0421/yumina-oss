@@ -446,7 +446,7 @@
     "blank": "空のプロジェクト",
     "blankDesc": "空のワールド。既定のナレーションだけが入っています。",
     "importWorld": "ワールドをインポート",
-    "importWorldDesc": "SillyTavern のキャラクターカード（PNG / JSON）、またはエクスポートした Yumina カード。",
+    "importWorldDesc": "ワールドまたはキャラクターカード（PNG / JSON）をインポートします。",
     "characterChat": "キャラクターチャット",
     "characterChatDesc": "ペルソナをデザインして、没入感のある 1 対 1 の対話を楽しめます。",
     "worldSimulation": "ワールドシミュレーション",

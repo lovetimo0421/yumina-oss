@@ -50,6 +50,7 @@ import {
   getDoPresets,
   identifyPreset,
   parseSmartValue,
+  switchableScenarios,
   type DoField,
   type DoPreset,
 } from "../lib/behavior-effect-presets";
@@ -1066,7 +1067,8 @@ export function DoEditor({
 }) {
   const { t } = useTranslation("editor");
   const [showPicker, setShowPicker] = useState(false);
-  const doPresets = useMemo(() => getDoPresets(t), [t]);
+  const worldbooks = useEditorStore((s) => s.worldDraft.worldbooks);
+  const doPresets = useMemo(() => getDoPresets(t, switchableScenarios(worldbooks)), [t, worldbooks]);
   const categories = useMemo(
     () => [...new Set(doPresets.map((p) => p.category))],
     [doPresets]
@@ -1175,7 +1177,8 @@ function DoEffectRow({
   onDelete: () => void;
 }) {
   const { t } = useTranslation("editor");
-  const doPresets = useMemo(() => getDoPresets(t), [t]);
+  const worldbooks = useEditorStore((s) => s.worldDraft.worldbooks);
+  const doPresets = useMemo(() => getDoPresets(t, switchableScenarios(worldbooks)), [t, worldbooks]);
 
   // "Change variable" (a set on a plain, non-@ path) has its own bespoke editor
   // because its value can be a constant, another variable, OR a random source

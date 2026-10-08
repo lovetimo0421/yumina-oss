@@ -662,7 +662,7 @@
     "title": "Ajustes de la carta",
     "description": "Nombre, portada, anuncios y la página pública de la carta",
     "importJson": "Importar archivo",
-    "importJsonDesc": "Importa una tarjeta que exportaste antes (`.json`) o una tarjeta de personaje de SillyTavern (`.png` / `.json`). Reemplaza todo el contenido de esta tarjeta.",
+    "importJsonDesc": "Importa una tarjeta que exportaste antes (`.json`) o una tarjeta de personaje (`.png` / `.json`). Reemplaza todo el contenido de esta tarjeta.",
     "chooseFile": "Elegir archivo",
     "confirmReplaceWorld": "Esto reemplazará el contenido actual del mundo (entradas, variables, reglas, componentes, etc.) con el JSON importado. Se conservarán el ID del mundo, la galería, las etiquetas y el estado de publicación. Guarda después para aplicar la actualización. ¿Continuar?",
     "importReplacedSaveReminder": "haz clic en Guardar para actualizar el mundo publicado",
@@ -1020,6 +1020,7 @@
       "cancelTimer": "Cancelar temporizador",
       "toggleBehavior": "Habilitar/deshabilitar comportamiento",
       "toggleVariable": "Habilitar/deshabilitar variable",
+      "toggleScenario": "Habilitar/deshabilitar módulo",
       "moment": "Desbloquear un momento"
     },
     "doFields": {
@@ -1047,6 +1048,7 @@
       "momentImage": "Imagen (enlace)",
       "momentTitlePlaceholder": "El primer encuentro",
       "momentTitle": "Título",
+      "scenario": "Módulo",
       "variable": "Variable que cambia"
     },
     "doCategories": {
@@ -4342,12 +4344,13 @@
       "history": "Mensajes recientes que lee",
       "addVariable": "+ una variable",
       "sees": "Lo que ve",
-      "title": "Personalizado"
+      "title": "Formato de respuesta"
     },
     "aiType": {
       "code": "Por código",
       "ui": "Por interfaz",
-      "turn": "Por turnos"
+      "turn": "Por turnos",
+      "custom": "Personalizada"
     },
     "placeAis": {
       "jobUi": "cuando la interfaz la llama",
@@ -4375,7 +4378,17 @@
       "jobAfter": "entre bastidores · tras la respuesta de una IA",
       "jobConditions": "entre bastidores · cuando un valor cumple la condición",
       "jobClosed": "entre bastidores · al cerrar una situación",
-      "jobBehind": "entre bastidores"
+      "jobBehind": "entre bastidores",
+      "codeCallName": "Código de la interfaz · {{file}}",
+      "jobFromCode": "llamada desde el código · {{file}} línea {{line}}",
+      "jobFromCodeHere": "llamada desde el código en esta situación",
+      "memLoreMatched": "lee entradas por palabra clave",
+      "memLoreAll": "lee todas las entradas",
+      "memLoreNone": "no lee entradas",
+      "linkReadsModules": "limitado a {{names}}",
+      "linkPicksModule": "elige una de {{names}} al ejecutar",
+      "jobImplemented": "implementada en el código de la interfaz · {{file}} línea {{line}}",
+      "jobUnimplemented": "sin implementar"
     },
     "gameData": {
       "readBy": "Lo leen",
@@ -4771,7 +4784,7 @@
     "insp": {
       "persistPlayer": "Se conserva entre partidas (para cada jugador)",
       "code": "Código (corre en la tarjeta mientras se juega)",
-      "elseMessagePlaceholder": "No hay oro suficiente: hace falta {参数.价格}",
+      "elseMessagePlaceholder": "No hay oro suficiente: hace falta {param.precio}",
       "elseMessage": "Si no se cumplen las condiciones, decir",
       "formulaPlaceholder": "p. ej. Ataque base * (1 + Nivel * 0.1)",
       "formula": "Fórmula (se calcula sola)",
@@ -4930,7 +4943,23 @@
       "unplaced": "Fuera (sin usar)",
       "openPage": "Abrir página completa",
       "playtestSaveFirst": "Guarda primero esta carta para probarla.",
-      "playtestNoSession": "No se pudo empezar la prueba. Inténtalo de nuevo."
+      "playtestNoSession": "No se pudo empezar la prueba. Inténtalo de nuevo.",
+      "frontendFiles": "Archivos",
+      "frontendAiCalls": "Llamadas a IA en el código",
+      "frontendUses": "Funciones de la plataforma",
+      "frontendFileLine": "{{lines}} líneas",
+      "varFields": "Qué hay dentro",
+      "varFieldsHint": "Lista los campos del json y quién los escribe.",
+      "varFieldAdd": "Añadir campo",
+      "varFieldPath": "Ruta (weather, o drama.actors)",
+      "varFieldType": "Tipo",
+      "varFieldWriter": "Lo escribe",
+      "varFieldWriter_ui": "el código de la interfaz",
+      "varFieldWriter_ai": "las directivas de la IA",
+      "varFieldWriter_behavior": "un comportamiento",
+      "varFieldWriter_ai-call": "una llamada a IA personalizada",
+      "varFieldWriterAny": "sin indicar",
+      "varFieldRemove": "Quitar este campo"
     },
     "addModule": "Módulo",
     "addVariable": "Variable",
@@ -5832,6 +5861,92 @@
         "platform": "Platform pays"
       },
       "boardNote": "Lo iluminado en el tablero es lo que ve esta llamada; lo atenuado, no."
+    },
+    "codeCall": {
+      "intro": "Llamada a IA hecha por el código de la interfaz; sus ajustes están en el código. Esto es lo que encontró el escaneo.",
+      "kind": "Tipo",
+      "kind_complete": "genera una respuesta",
+      "kind_decide": "elige una opción",
+      "kind_context": "solo arma el contexto",
+      "lore": "Lore que lee",
+      "loreNone": "ninguna entrada de la tarjeta",
+      "loreAll": "todas las entradas activas",
+      "loreMatched": "entradas por palabra clave",
+      "loreRaw": "sin lore de la tarjeta",
+      "situations": "Limitado a",
+      "situationsDynamic": "se decide al ejecutar",
+      "picksSituation": "elige una de",
+      "session": "Usa la sesión del jugador",
+      "yes": "sí",
+      "no": "no",
+      "answer": "Respuesta",
+      "answerJson": "JSON",
+      "answerText": "texto",
+      "model": "Modelo",
+      "openAt": "Abrir {{file}} en la línea {{line}}"
+    },
+    "files": {
+      "summary": "Código de la interfaz · {{files}} archivos · {{lines}} líneas",
+      "reads": "lee {{count}} variables",
+      "writes": "escribe {{count}} variables",
+      "aiCalls": "{{count}} llamadas a IA",
+      "readsList": "Lee: {{names}}",
+      "writesList": "Escribe: {{names}}",
+      "usesList": "Usa: {{names}}",
+      "lines": "{{count}} líneas",
+      "chipReads": "lee {{count}}",
+      "chipWrites": "escribe {{count}}",
+      "chipAi": "IA ×{{count}}",
+      "more": "{{count}} archivos más",
+      "use_ai": "llamadas a IA",
+      "use_room": "sala multijugador",
+      "use_voice": "voz",
+      "use_tts": "lectura en voz",
+      "use_storage": "datos guardados",
+      "use_media": "biblioteca",
+      "use_social": "simulación social",
+      "use_audio": "audio",
+      "use_assets": "recursos",
+      "use_chat": "acciones de chat",
+      "use_session": "guardado"
+    },
+    "hints": {
+      "title": "También se puede escribir a mano",
+      "ai": {
+        "codeCall": {
+          "title": "Llamada a IA",
+          "body": "api.ai.complete; modelo, lore y formato a tu elección"
+        },
+        "replyRules": {
+          "title": "Interpretar la respuesta",
+          "body": "reglas de respuesta, o un comportamiento en código a variables"
+        },
+        "ownAi": {
+          "title": "IA externa",
+          "body": "“Conecta tu IA” en la barra superior (MCP)"
+        }
+      },
+      "behavior": {
+        "codeBehavior": {
+          "title": "Comportamiento en código",
+          "body": "JS; lee todas las variables, devuelve cambios"
+        },
+        "fromCode": {
+          "title": "Disparado desde la interfaz",
+          "body": "api.executeAction(id)"
+        }
+      }
+    },
+    "custom": {
+      "mode_rule": "Regla",
+      "mode_custom": "Personalizado",
+      "empty": "Nada lo implementa todavía.",
+      "noteHint": "Puedes pegar una nota con lo que debe hacer; el asistente o una IA externa lo escribe.",
+      "aiIntro": "Implementada por el código de la interfaz. Abajo, las llamadas a IA que leen esta situación.",
+      "behaviorIntro": "Implementado por código.",
+      "implementedBy": "Implementado en {{count}} lugares",
+      "implementedCode": "Código propio · {{count}} líneas",
+      "firedFrom": "Disparado desde la interfaz · {{file}} línea {{line}}"
     }
   },
   "modules": {

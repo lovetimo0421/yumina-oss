@@ -592,13 +592,15 @@ test("avatar transport failure stops both providers and surfaces a retryable err
   assert.ok(f.events.some(e => e.type === "status" && e.status === "error" && /video/i.test(e.message ?? "")));
 });
 
-test("expired avatar heartbeat ends the whole call without leaving audio-only playback", async () => {
+test("expired avatar heartbeat ends the whole call without leaving audio-only playback", async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const f = avatarFixture(); f.deps.avatarHeartbeatMs = 5;
   const fetch = f.deps.fetch;
   f.deps.fetch = async (url, options) => String(url).endsWith("/avatar/heartbeat") ? Response.json({ active: false }) : fetch(url, options);
   await f.connect();
   try {
-    await new Promise(resolve => setTimeout(resolve, 20));
+    t.mock.timers.tick(5);
+    await tick();
     assert.equal(f.audio.closed, 1); assert.equal(f.track.stops, 1);
     assert.ok(f.events.some(e => e.type === "status" && e.status === "error" && /connection ended/i.test(e.message ?? "")));
   } finally { f.controller.stop(); }

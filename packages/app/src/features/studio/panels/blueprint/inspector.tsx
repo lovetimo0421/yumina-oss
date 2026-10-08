@@ -1,3 +1,6 @@
+import { VariableFieldsEditor } from "./variable-fields-editor";
+import { CustomAiPanel, CustomBehaviorPanel } from "./custom-implementation";
+import type { FrontendFileFacts } from "@yumina/engine";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertTriangle, Bot, Check as CheckIcon, ChevronRight, Copy, FolderOpen, History, Images, Maximize2, MoreHorizontal, Trash2, Upload, X } from "lucide-react";
@@ -816,6 +819,12 @@ export function VariableForm({ variableId }: { variableId: string }) {
           />
         </More>
       )}
+      {variable.type === "json" && (
+        <More key={`fields:${variableId}`} label={t("blueprint.insp.varFields")} defaultOpen={!!variable.fields?.length}>
+          <p className="text-[11px] leading-relaxed text-foreground/50">{t("blueprint.insp.varFieldsHint")}</p>
+          <VariableFieldsEditor fields={variable.fields ?? []} onChange={(fields) => commit({ fields: fields.length ? fields : undefined })} />
+        </More>
+      )}
       <More key={`ai:${variableId}`} label={t("blueprint.insp.aiUse")} defaultOpen={variable.persist === "player"}>
         {/* 跨存档保留: kept for the player across every playthrough. */}
         <Check label={t("blueprint.insp.persistPlayer")} checked={variable.persist === "player"} onChange={(on) => commit({ persist: on ? "player" : undefined })} />
@@ -886,6 +895,32 @@ export function BehaviorForm({ reactionId }: { reactionId: string }) {
   const logic = reaction.conditionLogic ?? "all";
   return (
     <div className="space-y-1">
+      {/* 规则 or 自定义: a behaviour is either the sentence below, or a declared
+          slot that code implements — the assistant's, an outside AI's, or
+          the author's — with a sticky note saying what it should do. */}
+      <div className="grid grid-cols-2 gap-1" role="radiogroup" data-behavior-mode-pick="">
+        {(["rule", "custom"] as const).map((k) => {
+          const on = (reaction.custom === true) === (k === "custom");
+          return (
+            <button
+              key={k}
+              type="button"
+              role="radio"
+              aria-checked={on}
+              data-behavior-mode-option={k}
+              onClick={() => { if (!on) updateReaction(reactionId, { custom: k === "custom" ? true : undefined }); }}
+              className={cn(
+                "rounded-md border px-2 py-1.5 text-[11.5px] font-semibold transition-colors",
+                on ? "border-orange-400/60 bg-orange-400/[0.12] text-foreground" : "border-white/10 text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {t(`blueprint.custom.mode_${k}`)}
+            </button>
+          );
+        })}
+      </div>
+      {reaction.custom && <CustomBehaviorPanel reactionId={reactionId} />}
+      {!reaction.custom && (<>
       {/* A behaviour is one sentence — when THIS, if THAT, do THIS — so the
           column is that sentence in three headed groups, each line of it a
           line of text with small glass slots where the changeable parts
@@ -948,6 +983,7 @@ export function BehaviorForm({ reactionId }: { reactionId: string }) {
           onChange={(stopConditions) => updateReaction(reactionId, { stopConditions: stopConditions.length ? stopConditions : undefined })}
         />
       </Group>
+      </>)}
       <More>
         <Row label={t("behaviors.priority")} hint={t("behaviors.priorityHint")}>
           <Stepper label={t("behaviors.priority")} min={-999} value={reaction.priority ?? 0} onChange={(v) => updateReaction(reactionId, { priority: v })} />
@@ -1320,27 +1356,31 @@ export function AiFrameForm({ worldbookId, onOpenObject }: { worldbookId: string
       : next === "after" ? { on: "after", from: (allBooks ?? []).find((b) => b.id !== worldbookId && b.station?.kind === "narrator")?.id ?? "" }
       : { on: "module-closed", from: ANY_MODULE };
     // Behind the scenes it has nothing to work from but what is wired in; the
-    // conversation is wired in unless something already is.
-    const inputs = station.inputs?.length ? station.inputs : [{ kind: "transcript" as const, from: "core", limit: 20 }];
+    // conversation is wired in unless something already is. One a button
+    // calls reads no wires — its 回答格式 says what it sees.
+    const inputs = next === "ui" || station.inputs?.length ? station.inputs : [{ kind: "transcript" as const, from: "core", limit: 20 }];
     updateWorldbook(worldbookId, { ...behindActivation, station: { ...station, kind: "worker", trigger, inputs } });
   };
   void voice;
   // The three kinds first (owner, 10/6), by what calls it; then, inside the
   // kind, exactly when.
   const type = aiTypeOf(station);
-  const RUNS: Record<AiType, RunWhen[]> = { turn: ["reply", "turns", "after"], ui: [], code: ["conditions", "module-closed", "quiet"] };
+  const RUNS: Record<AiType, RunWhen[]> = { turn: ["reply", "turns", "after"], ui: [], code: ["conditions", "module-closed", "quiet"], custom: [] };
+  // 自定义: the AI is a declared slot the interface code implements. Nothing
+  // of the run settings applies; the panel below shows the implementation.
+  const setCustom = () => updateWorldbook(worldbookId, { station: { kind: "custom", ...(station.name ? { name: station.name } : {}) } });
   return (
     <div className="space-y-3" data-ai-form>
       <Field label={t("blueprint.aiForm.type")}>
-        <div className="grid grid-cols-3 gap-1" role="radiogroup" data-ai-type-pick="">
-          {(["turn", "ui", "code"] as const).map((k) => (
+        <div className="grid grid-cols-4 gap-1" role="radiogroup" data-ai-type-pick="">
+          {(["turn", "ui", "code", "custom"] as const).map((k) => (
             <button
               key={k}
               type="button"
               role="radio"
               aria-checked={type === k}
               data-ai-type-option={k}
-              onClick={() => { if (k !== type) setRunWhen(RUNS[k][0] ?? "ui"); }}
+              onClick={() => { if (k === type) return; if (k === "custom") setCustom(); else setRunWhen(RUNS[k][0] ?? "ui"); }}
               className={cn(
                 "rounded-md border px-2 py-1.5 text-[11.5px] font-semibold transition-colors",
                 type === k ? "border-pink-400/60 bg-pink-400/[0.12] text-foreground" : "border-white/10 text-muted-foreground hover:text-foreground",
@@ -1351,6 +1391,8 @@ export function AiFrameForm({ worldbookId, onOpenObject }: { worldbookId: string
           ))}
         </div>
       </Field>
+      {type === "custom" && <CustomAiPanel worldbookId={worldbookId} />}
+      {type !== "custom" && (<>
       {RUNS[type].length > 0 ? (
         <Field label={t("blueprint.aiForm.runWhen")}>
           <select
@@ -1452,6 +1494,7 @@ export function AiFrameForm({ worldbookId, onOpenObject }: { worldbookId: string
           {t("blueprint.aiForm.toPlace")}
         </button>
       )}
+      </>)}
     </div>
   );
 }
@@ -1866,6 +1909,45 @@ export function BlueprintInspector({ target, world, readOnly, onPatch, onDrill, 
               {t("blueprint.insp.frontendDynamicReads", { count: dynamicReads })}
             </p>
           )}
+          {Array.isArray(g.data.files) && (g.data.files as FrontendFileFacts[]).length > 0 && (() => {
+            const files = g.data.files as FrontendFileFacts[];
+            const uses = Array.isArray(g.data.uses) ? (g.data.uses as string[]).filter((u) => u !== "ai") : [];
+            const calls = files.reduce((n, f) => n + f.aiCalls.length, 0);
+            return (
+              <div className="space-y-2" data-insp-frontend-files="">
+                {calls > 0 && (
+                  <p className="text-[11px] leading-relaxed text-foreground/70">
+                    <span className="font-semibold text-foreground/80">{t("blueprint.insp.frontendAiCalls")}</span> · {calls}
+                  </p>
+                )}
+                {uses.length > 0 && (
+                  <p className="text-[11px] leading-relaxed text-foreground/70">
+                    <span className="font-semibold text-foreground/80">{t("blueprint.insp.frontendUses")}</span> · {uses.map((u) => t(`blueprint.files.use_${u}` as never) as string).join(", ")}
+                  </p>
+                )}
+                <p className="text-[11px] font-semibold text-foreground/80">{t("blueprint.insp.frontendFiles")} · {files.length}</p>
+                <ul className="max-h-80 space-y-1 overflow-y-auto pr-1">
+                  {files.map((f) => {
+                    const facts = [
+                      f.reads.length ? t("blueprint.files.readsList", { names: f.reads.join(", ") }) : "",
+                      f.writes.length ? t("blueprint.files.writesList", { names: f.writes.join(", ") }) : "",
+                      f.aiCalls.length ? t("blueprint.files.chipAi", { count: f.aiCalls.length }) : "",
+                      f.uses.filter((u) => u !== "ai").length ? t("blueprint.files.usesList", { names: f.uses.filter((u) => u !== "ai").map((u) => t(`blueprint.files.use_${u}` as never) as string).join(", ") }) : "",
+                    ].filter(Boolean);
+                    return (
+                      <li key={f.file} className="rounded-md border border-white/[0.06] bg-white/[0.03] px-2 py-1.5 text-[11px]">
+                        <div className="flex items-center gap-2">
+                          <span className="min-w-0 truncate font-mono text-foreground/85">{f.file}</span>
+                          <span className="shrink-0 text-foreground/45">{t("blueprint.insp.frontendFileLine", { lines: f.lines })}</span>
+                        </div>
+                        {facts.length > 0 && <p className="mt-0.5 leading-relaxed text-foreground/55">{facts.join(" · ")}</p>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            );
+          })()}
           {/* The BUILDER, not the code: since adoption became lossless (the
               existing frontend rides along as the base layer) every road to
               the interface leads to the visual editor, and the code stays one

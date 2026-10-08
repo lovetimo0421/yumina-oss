@@ -5,7 +5,7 @@ import type { AudioTrack, Condition, Reaction, ReactionEffect, Variable, WorldEn
 import { cn } from "@/lib/utils";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { WhenEditor, RandomValueEditor, getWhenPresets } from "@/features/editor/sections/behaviors-section";
-import { extractFieldValues, getDoPresets, identifyPreset, parseSmartValue, type DoField, type DoPreset } from "@/features/editor/lib/behavior-effect-presets";
+import { extractFieldValues, getDoPresets, identifyPreset, parseSmartValue, switchableScenarios, type DoField, type DoPreset } from "@/features/editor/lib/behavior-effect-presets";
 import { preserveLegacyEffect } from "@/features/editor/lib/editable-behaviors";
 import { buildWhenForPreset, resolveWhenPreset } from "@/features/editor/lib/when-preset-logic";
 import {
@@ -463,7 +463,8 @@ export function EffectSentences({ effects, variables, entries, audioTracks, allR
 }) {
   const { t } = useTranslation("editor");
   const tx = t as TFn;
-  const presets = useMemo(() => getDoPresets(tx), [tx]);
+  const worldbooks = useEditorStore((s) => s.worldDraft.worldbooks);
+  const presets = useMemo(() => getDoPresets(tx, switchableScenarios(worldbooks)), [tx, worldbooks]);
   const categories = useMemo(() => [...new Set(presets.map((p) => p.category))], [presets]);
 
   const add = (preset: DoPreset) => {

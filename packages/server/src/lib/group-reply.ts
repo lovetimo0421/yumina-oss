@@ -17,6 +17,8 @@ import {
   type ReplyRoom,
   type WorldDefinition,
   type Worldbook,
+  sendsEveryTurn,
+  applyReplyRules,
 } from "@yumina/engine";
 import { db } from "../db/index.js";
 import { messages, playSessions } from "../db/schema.js";
@@ -114,6 +116,24 @@ async function runnableModel(userId: string, wanted: string | null | undefined):
   }
 }
 
+/**
+ * What a later voice's raw answer comes to: the words it says, the effects
+ * it writes and the story events it fires. 回复处理 applies to every voice,
+ * not only the narrator, so a status block a later voice writes is taken out
+ * and sent where the card's rules say.
+ */
+export function readVoiceAnswer(world: WorldDefinition, raw: string, name: string, scene: LiveScene | null) {
+  // A thinking model can hand back its thoughts before the answer; only what
+  // follows the last </think> is said in the story.
+  const parsed = responseParser.parse(raw.includes("</think>") ? raw.slice(raw.lastIndexOf("</think>") + "</think>".length) : raw);
+  const ruled = applyReplyRules(world, parsed.cleanText);
+  parsed.effects.push(...ruled.effects);
+  const storyEvents = takeStoryEvents(parsed.effects, world, scene);
+  storyEvents.push(...ruled.events);
+  const says = stripOwnName(stripStageNotes(ruled.text), name);
+  return { parsed, ruled, storyEvents, says };
+}
+
 export function buildGroupReplyPrompt(args: {
   world: WorldDefinition;
   state: GameState;
@@ -135,7 +155,7 @@ export function buildGroupReplyPrompt(args: {
   // The card's own world, and the place the room is in: a voice in a group
   // has to know whose story it is and where it is standing.
   const worldLore = (args.world.entries ?? [])
-    .filter((e) => !e.worldbookId && e.enabled !== false && e.alwaysSend && e.role !== "greeting")
+    .filter((e) => !e.worldbookId && e.role !== "greeting" && sendsEveryTurn(e, args.state.ruleState?.toggledEntries, args.world.loreUiBindings))
     .map((e) => e.content)
     .filter(Boolean)
     .join("\n\n")
@@ -198,6 +218,7 @@ export type GroupReplyResult =
       state: GameState;
       changes: Array<{ variableId: string; oldValue: unknown; newValue: unknown }>;
       storyEvents: string[];
+      replyChannels?: Array<{ channel: string; text: string; rule: string }>;
       firedIds: string[];
       notifications: unknown[];
     };
@@ -263,11 +284,7 @@ export async function runGroupReply(args: {
   });
   if (!raw.trim()) return { ran: false, reason: "none" };
 
-  // A thinking model can hand back its thoughts before the answer; only what
-  // follows the last </think> is said in the story.
-  const parsed = responseParser.parse(raw.includes("</think>") ? raw.slice(raw.lastIndexOf("</think>") + "</think>".length) : raw);
-  const storyEvents = takeStoryEvents(parsed.effects, world, args.scene ?? null);
-  const says = stripOwnName(stripStageNotes(parsed.cleanText), voice.name);
+  const { parsed, ruled, storyEvents, says } = readVoiceAnswer(world, raw, voice.name, args.scene ?? null);
   if (!says && parsed.effects.length === 0) return { ran: false, reason: "none" };
 
   const result = await withSessionRowLock(sessionId, async (tx, row) => {
@@ -331,6 +348,7 @@ export async function runGroupReply(args: {
       state: finalState,
       changes: allChanges,
       storyEvents,
+      ...(ruled.channels.length > 0 ? { replyChannels: ruled.channels } : {}),
       firedIds: rules.firedIds,
       notifications: rules.notifications,
     };

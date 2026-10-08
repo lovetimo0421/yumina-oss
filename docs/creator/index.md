@@ -1,48 +1,50 @@
 # How It Works
 
-Every time a player sends a message in Yumina, the same chain of things happens. Once you understand it, you'll know exactly when each word you write and each rule you configure gets used by the engine.
+Every time a player sends a message in Yumina, the same chain of things happens. Once you get it, you'll know exactly when each word you write and each behaviour you set up gets used.
 
 ## The Cycle
 
 ```text
-Player input (message or UI interaction)
+Player input (a message, or a button pressed in the interface)
    ↓
-① Engine assembles the prompt: entries + variables + conversation history
+① Engine assembles the prompt: lore + variables + conversation history
    ↓
-② AI generates a reply: narrative text + [state directives]
+② AI writes a reply: story text + [state directives]
    ↓
-③ Engine: extract state directives → update variables → evaluate rules → fire rule results (variable changes, audio triggers)
+③ Smart tracking: a small helper rereads what just happened and fills in the values that should change, the music that should play, the scene images that should show
    ↓
-Player sees: story + updated UI + audio
+④ Engine: update variables → check behaviours → run their effects (change values, open lore, play sounds, show notices…)
+   ↓
+Player sees: story + updated interface + music and pictures
    ↓
 Next turn
 ```
 
-As the creator, you decide what goes into this loop — what the AI sees (entries), what it tracks (variables), what happens automatically (behaviors), and how it's presented to the player (the frontend).
+As the creator, you decide what goes into this loop: what the AI sees (lore), what it remembers (variables), what happens on its own (behaviours), and what the player sees (the player interface).
 
-## One Turn, Concretely
+## One Turn, Up Close
 
 A player in a survival-horror game types "I drink the potion." Here's what happens on this turn.
 
 ### ① The prompt the engine assembles
 
-The engine stitches together what you wrote, your variables, and the conversation history into one prompt and sends it to the AI:
+The engine stitches what you wrote, your variables and the conversation history into one prompt and sends it to the AI:
 
 ```text
-// —— Your world setup ——
+// —— Your lore ——
 [system]
-You're the narrator of this survival horror game. Cold and
-restrained in tone, heavy on sensory detail, and you never decide the player's actions for them.
+You're the narrator of this survival horror game. Cold and restrained
+in tone, heavy on sensory detail, and you never decide the player's actions for them.
 
 [system]
 The long-abandoned Matsuzaki Sanatorium, sealed off in the winter of 1987.
-The player is a college student searching for a missing friend.
+The player is a college student who came up the mountain to find a missing friend.
 
-// —— The variables you defined (the engine auto-converts them into a format the AI understands) ——
+// —— Your variables (the engine turns them into a format the AI understands) ——
 [system]
 <behavior-rules>
-[health] the player's health; decreases 10-30 when injured, recovers 5-15 when resting
-[sanity] decreases 5-15 on horrific sights, recovers 5-10 when resting
+[health] the player's health; drops 10-30 when hurt, recovers 5-15 when resting
+[sanity] drops 5-15 on horrifying sights, recovers 5-10 when resting
 </behavior-rules>
 
 // —— Conversation history ——
@@ -50,12 +52,12 @@ The player is a college student searching for a missing friend.
 I push the door open
 
 [assistant]
-A hand grabs your wrist — the skin unnaturally cold...
+A hand grabs your wrist, the skin unnaturally cold...
 
 [user]
 I drink the potion
 
-// —— Current state (updated every turn from the directives the AI emits; the engine keeps a running record of the latest value of each variable) ——
+// —— Current state (updated every turn) ——
 [system]
 <game-state>
 health: 45
@@ -69,34 +71,40 @@ day: 3
 ```text
 The potion burns down your throat, but you feel better.
 
-[health: +20]  (the [state directive] the AI emitted)
+[health: +20]
 ```
 
-### ③ What the player actually sees
+### ③④ What the player finally sees
 
 > The potion burns down your throat, but you feel better.
 >
 > ❤️ &nbsp;health &nbsp;45 → 65
 
-The engine plucks `[health: +20]` off the end of the AI's output, applies it to state, checks the relevant rules (anything that should fire at full health?), strips the directive out of the text, and shows only the clean narrative to the player.
+The engine plucks `[health: +20]` out of the AI's output, applies it to the state, checks whether any behaviour should fire (anything planned for full health?), deletes the directive from the text, and shows the player only the clean story.
 
-**The AI never edits data — it writes directives, and the engine executes them.**
+If you turned on [Precise tracking](/creator/variables#precise-tracking) for `sanity`, the story-writing AI leaves it alone. The smart tracking helper reads the scene and decides instead: drinking a potion isn't scary, so sanity stays put.
+
+**The AI never edits data. It only writes directives, and the engine carries them out.** The AI never runs any code, either.
 
 ## What Makes Up a Card
 
-### 1. Entries — What the AI Reads
+On the [canvas](/creator/canvas), a card is these things, top to bottom:
 
-Entries are what the AI sees when it generates a reply — entirely yours to decide and write. They might be character descriptions, world settings, lore, a writing-style guide — these are all entries.
+![A small card on the canvas](./images/canvas/w-done.webp)
 
-An entry can be **always on** (like your world's background story), or **keyword-triggered** — switched on by keywords in the conversation. For example, you can give a tavern the keyword "drink": when the player or the AI mentions "drink," your tavern lore entry is pulled in automatically; if nobody does, it's never sent to the AI.
+### 1. Openings and lore: what the AI reads
 
-**The leaner your entries, the better the AI follows.** The AI reads every entry every turn — one unnecessary entry makes the truly important one easier to overlook.
+The opening is the first thing the player reads. Lore is written for the AI: character descriptions, world details and writing style are all lore.
 
-→ [Learn more about entries](/creator/entries)
+Lore can be **Sent every turn** (like your world's backstory), or **sent when mentioned**: give a tavern the keyword "drink", and the tavern lore only goes to the AI when the player or the AI mentions a drink. No mention, no send.
 
-### 2. Variables — The State the AI Tracks
+**The leaner your lore, the better the AI listens.** Every unnecessary entry makes the one that really matters easier to miss.
 
-Variables are the game state — health, gold, location, affinity, inventory, and so on. Every turn the AI reads the current values and updates them with simple **directives** in its reply:
+→ [Openings and lore](/creator/entries)
+
+### 2. Variables: what the story needs to remember
+
+Variables are the game state: health, coins, location, affection, inventory. Every turn the AI reads their current values and updates them with simple **directives** in its reply:
 
 ```
 The bandit's blade catches your arm.
@@ -104,70 +112,75 @@ The bandit's blade catches your arm.
 [location: set "dark forest"]
 ```
 
-The player sees the narrative. Behind the scenes the engine quietly extracts those bracket directives and updates the game state. As long as your world has variables, the engine teaches the AI the directive format automatically — all you have to do is write what the variable means and how it should change ( •̀ ω •́ )✧. For example: "decrease health by 10-30 on physical damage, never more than 30 in a single turn."
+The player only sees the story. The engine quietly takes the bracketed directives away. All you have to do is say in plain words what the variable is and how it should change, like "drops 10-30 on physical damage, never more than 30 in a single turn", and the engine teaches the AI how to write the directives by itself ( •̀ ω •́ )✧
 
-**Keep variables few, too.** Every variable takes a line in the prompt every turn — adding one you won't actually use just wastes the AI's attention.
+**Keep variables few, too.** Every variable takes up a line of the AI's attention every turn.
 
-→ [Learn more about variables](/creator/variables)
+→ [Variables](/creator/variables)
 
-### 3. Behaviors — What the Engine Drives Entirely on Its Own
+### 3. Behaviours: things the engine does by itself
 
-Behaviors handle the things the AI tends to forget or be inconsistent about. No AI involved:
+Behaviours handle what the AI tends to forget, or what has to be counted exactly. No AI involved:
 
-- **When** health drops below 10 → **show** a "You're dying!" warning
-- **When** affinity crosses 75 → **inject** a romance directive into the AI's instructions
-- **Every** 5 turns → **play** an ambient thunder sound
+- **When** health drops below 10 → **show a note**: "You're dying!"
+- **When** affection hits 80 → **open** a piece of romance lore
+- **Every** 5 turns → **play** a roll of thunder
+- The player **presses** the buy-a-drink button → **take** 5 coins
 
-Every behavior has a "when" trigger, an optional "if" condition, and a "then" action.
+→ [Behaviours](/creator/automation)
 
-Behaviors are optional. But if you want game mechanics with precise thresholds, behaviors are what keep the game consistent.
+### 4. Scenarios and AIs: other places in the card, and other voices
 
-→ [Learn more about rules & behaviors](/creator/automation)
+Once a card grows, you can pack parts of it into **scenarios**: dungeons, chapters, side stories. They only apply at certain times, and they can have their own memory.
 
-### 4. Visuals & Audio — The Presentation Layer (Optional)
+Every card comes with one AI doing the talking. You can add more: let them live in different scenarios, chat together in the same place, or quietly keep the books behind the scenes.
 
-By default players see a clean chat interface, and for most worlds that's plenty.
+→ [Scenarios](/creator/modules) · [AIs](/creator/ais)
 
-But if you want to go further, you can add **custom UI** and **audio** to shape how your world looks and sounds. Custom UI lets you build anything from styled message bubbles to a full game interface (health bars, maps, inventory). Audio adds background music, sound effects, and ambience that the AI triggers naturally in its narration.
+### 5. Player interface, pictures and sound: what the player sees and hears
 
-**You don't need to know code.** Click into the Studio and the AI assistant inside can generate a custom interface from your description. Just describe what you want ("give me an absolutely epic, AAA-tier frontend that fits my world's theme") and it builds it for you.
+By default players get a clean chat interface, and for most cards that's plenty.
 
-→ [Learn more about visuals and audio](/creator/visuals-audio)
+If you want to go further, the **Player interface** lets you start from a template and build opening pages, status panels, an inventory, a map, phone messages… no code needed. Add scene images, background music and sound effects, and the AI plays them when the story gets there.
+
+→ [Player interface](/creator/player-view) · [Visuals & audio](/creator/visuals-audio)
 
 ## The Order the AI Sees Things
 
-Here's the exact order in which content is assembled into the AI's prompt each turn. The AI pays the most attention to the **beginning and end** — content in the middle gets less focus. Understanding this helps you place content where it works hardest:
+Here's roughly the order in which things are sent to the AI each turn. The AI pays the most attention to the **beginning and the end**. The middle is easier to overlook. Knowing this tells you where things should go:
 
-| Order | What | Where You Configure It |
+| Order | What | On the canvas |
 |------|------|----------|
-| 1 | Your always-on entries (character, world, narrator instructions) | Entries → System Presets section |
-| 2 | The player's active persona (name, appearance, backstory) | The player's settings, not yours |
-| 3 | Variable behavior rules + current values | Variables tab |
-| 4 | Example dialogue | Entries with the "example" role |
-| 5 | Conversation history | Automatic |
-| 6 | Keyword-triggered entries (injected near the relevant messages) | Entries → Keyword-Triggered section |
-| 7 | Post-instructions (final emphasis, style enforcement) | Entries → Post Instructions section |
+| 1 | Lore sent every turn (characters, world, narration instructions) | Character and world |
+| 2 | The player's persona (name, looks, backstory) | Set by the player, not you |
+| 3 | Platform instructions, including your variables' Behavior Rules | Generated automatically |
+| 4 | Example dialogue | Lore with **Inject into** set to "Example dialogue" |
+| 5 | Lore mentioned this turn, or whose conditions hold | Keyword lore, Conditional lore |
+| 6 | Memory summaries, and what other scenarios handed over | A scenario's memory settings |
+| 7 | Recent conversation | Handled automatically |
+| 8 | Lines added by behaviours, values and last turn's changes | Behaviours, variables |
+| 9 | Final reminders (output format, style rules) | Lore with **Inject into** set to "At the end" |
 
-## Building With AI
+Want to see what the AI actually got on a given turn? In a [playtest](/creator/playtest), **What the AI got** splits it into these parts and tells you how big each one is.
 
-### Use Studio AI (Recommended)
+## Let AI Help You Build
 
-Open the Studio editor, describe what you want, and the built-in AI assistant creates entries, variables, and automation for you. It knows the platform inside out — valid syntax, proven patterns, reference integrity.
+### The Creation assistant (recommended)
 
-> "Create a survival horror world with health, sanity, and hunger. The player is trapped in an abandoned hospital. Sanity drops when they see disturbing things. At zero sanity, the AI should describe hallucinations."
+The **Creation assistant** in the top right of the canvas is an AI built into the editor. Tell it what you want and it writes lore, adds variables, sets up behaviours, and can even build the player interface:
 
-Studio AI will generate the entries, the variables with behavior rules, and the rules that fire at zero sanity — all correctly wired together. (Of course, giving the content of those entries one human review-and-polish pass yourself at the end makes the world far more brilliant ╰(*°▽°*)╯)
+> "Make a survival horror world with health, sanity and hunger. The player is trapped in an abandoned hospital. Sanity drops when they see horrifying things. When sanity hits zero, the AI should describe hallucinations."
 
-→ [Learn more about Studio AI](/creator/studio-ai)
+It builds the lore, the variables with their Behavior Rules, and the behaviour that fires at zero sanity, all wired together. (Of course, if you go over it all once yourself at the end, your world gets a lot more exciting ╰(*°▽°*)╯)
 
-### Use Your Own AI + the World Spec
+### Your own AI
 
-If you'd rather work in Claude Code, Cursor, or ChatGPT, download the **World Spec** — a complete technical reference designed to be fed to AI tools. Your AI reads the spec, you describe what you want, and it generates a valid world schema you can import.
+If you'd rather use Claude, ChatGPT, Cursor or Claude Code, **Connect your AI** in the top bar lets it sign in to your Yumina directly, read your card and edit it. Its changes show up live on the canvas you have open.
 
-→ [Download the World Spec](/world-spec/)
+→ [The Creation assistant and your own AI](/creator/studio-ai)
 
 ---
 
-::: tip Ready to start?
-Open the [editor](https://yumina.io/app/editor) and create a new world, or keep reading to learn about each building block in detail.
+::: tip Ready?
+Open the [editor](https://yumina.io/app/worlds/create), make a new card, pick **Canvas**, then follow [Getting started on the canvas](/creator/canvas).
 :::

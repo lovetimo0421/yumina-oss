@@ -3690,6 +3690,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           variableId: remapVarId,
           entryId: remapEntryId,
           reactionId: (id) => reactionIdMap.get(id) ?? id,
+          worldbookId: (id) => worldbookIdMap.get(id) ?? id,
         }),
         id: reactionIdMap.get(r.id)!,
         priority: (s.worldDraft.reactions?.length ?? 0) + i,

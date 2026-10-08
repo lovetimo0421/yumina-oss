@@ -16,7 +16,7 @@ Starter choices stay in this browser, separately for guests and each account. Th
 
 Discover card sizes adapt to the available width and screen height on tablets and computers. Recommended loads 10 cards at a time on phones. Larger screens load batches based on the available space: usually 12–18 cards on tablets and 18–30 on desktop, with at most 30 cards per batch even on very wide screens. More cards load as you scroll; resizing the window keeps the cards you already have and your reading position.
 
-Click any world card to see the full description, gallery, ratings, and reviews. On shorter screens, scroll inside the preview to reach **Start Playing**, Library, and Favorite. Hit **Start Playing** to jump in.
+Click any world card to see the full description, gallery, ratings, and reviews. **Start Playing**, Library, and Favorite stay visible while the overview scrolls. On shorter screens, the cover and tabs scroll above these actions too. Hit **Start Playing** to jump in.
 
 ## Sessions
 

@@ -41,7 +41,8 @@ test("the player's screen leads, alone; then the opening, the lists, the memory"
     ["block:frontend"],
     ["block:opening:a"],
     ["block:lore:always"],
-    ["block:state", "block:behavior"],
+    ["block:state"],
+    ["block:behavior"],
     ["block:context"],
   ]);
 });
@@ -101,25 +102,38 @@ test("the interface takes the whole width at the top, and nothing stands beside 
   assert.equal(opening.w, 720);
 });
 
-test("half-width blocks share a row, one bottom edge, and reach the tile's edges", () => {
+test("variables and behaviours each take a full row, variables first", () => {
   const heights = { "block:state": 120, "block:behavior": 80, "block:frontend": 250 };
   const tile = tileFrame({ id: "frame:card", blocks: card() }, flat(heights), { widths: [720] });
-  const inner = 720;
-  const half = Math.ceil((inner - TILE_GAP) / 2);
   const state = tile.blocks["block:state"]!;
   const behavior = tile.blocks["block:behavior"]!;
-  assert.equal(state.w, half);
-  assert.equal(behavior.w, half);
-  assert.equal(state.y, behavior.y);
+  assert.equal(state.w, 720);
+  assert.equal(behavior.w, 720);
   assert.equal(state.x, 0, "the stack starts at the tile edge, with no gutter");
-  assert.equal(behavior.x, half + TILE_GAP);
+  assert.equal(behavior.y, state.y! + 120 + TILE_GAP, "behaviours stand under the variables");
+  assert.equal(behavior.h, 80, "a full row keeps its own height");
+  // interface 250, opening 100, lore 100, variables 120, behaviours 80, memory 100.
+  assert.equal(tile.height, FRAME_HEADER_H + (250 + 100 + 100 + 120 + 80 + 100) + TILE_GAP * 5 + FRAME_RAIL_H);
+});
+
+test("half-width blocks share a row, one bottom edge, and reach the tile's edges", () => {
+  const blocks = [...card(), block("block:audio", "audio", 2), block("block:image", "image", 3)];
+  const heights = { "block:audio": 120, "block:image": 80 };
+  const tile = tileFrame({ id: "frame:card", blocks }, flat(heights), { widths: [720] });
+  const inner = 720;
+  const half = Math.ceil((inner - TILE_GAP) / 2);
+  const audio = tile.blocks["block:audio"]!;
+  const image = tile.blocks["block:image"]!;
+  assert.equal(audio.w, half);
+  assert.equal(image.w, half);
+  assert.equal(audio.y, image.y);
+  assert.equal(audio.x, 0, "the stack starts at the tile edge, with no gutter");
+  assert.equal(image.x, half + TILE_GAP);
   // The short half is stretched to the row: touching blocks with ragged
   // bottoms read as a bug.
-  assert.equal(state.h, 120);
-  assert.equal(behavior.h, 120);
+  assert.equal(audio.h, 120);
+  assert.equal(image.h, 120);
   assert.equal(tile.blocks["block:context"]!.w, inner);
-  // interface 250, opening 100, lore 100, pair 120, memory 100.
-  assert.equal(tile.height, FRAME_HEADER_H + (250 + 100 + 100 + 120 + 100) + TILE_GAP * 4 + FRAME_RAIL_H);
 });
 
 test("more writing never moves or stretches the interface", () => {
@@ -190,10 +204,10 @@ test("shut frames are small squares and sit in the row beside the open ones", ()
 
 test("audio and scene images share a row above the memory; either one alone keeps the full width", () => {
   const both = shape(tileSections([...card(), block("block:audio", "audio", 2), block("block:image", "image", 3)]));
-  assert.deepEqual(both[4], ["block:audio", "block:image"]);
-  assert.deepEqual(both[5], ["block:context"], "the memory is the setting under everything the card is made of");
+  assert.deepEqual(both[5], ["block:audio", "block:image"]);
+  assert.deepEqual(both[6], ["block:context"], "the memory is the setting under everything the card is made of");
   const alone = shape(tileSections([...card(), block("block:image", "image", 3)]));
-  assert.deepEqual(alone[4], ["block:image"]);
+  assert.deepEqual(alone[5], ["block:image"]);
 });
 
 test("a module with no interface stacks its writing full width", () => {
@@ -208,7 +222,8 @@ test("Context closes what is there on its own row; the tray of unused slots sits
     ["block:frontend"],
     ["block:opening:a"],
     ["block:lore:always"],
-    ["block:state", "block:behavior"],
+    ["block:state"],
+    ["block:behavior"],
     ["block:context"],
     ["block:tray"],
     ["block:ais"],

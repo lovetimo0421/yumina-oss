@@ -1873,7 +1873,7 @@
     "title": "概覽",
     "description": "世界公共頁面的相簿、公告和其他詳細資訊",
     "importJson": "匯入檔案",
-    "importJsonDesc": "匯入之前匯出的卡片（`.json`），或 SillyTavern 角色卡（`.png` / `.json`）。會替換這張卡現在的全部內容。",
+    "importJsonDesc": "匯入之前匯出的卡片（`.json`），或角色卡（`.png` / `.json`）。會替換這張卡現在的全部內容。",
     "chooseFile": "選擇檔案",
     "confirmReplaceWorld": "這會用匯入的 JSON 替換當前世界的內容（詞條、變數、規則、元件等）。世界 ID、封面相簿、標籤、釋出狀態會保留。匯入後請點選儲存以應用更新。是否繼續？",
     "importReplacedSaveReminder": "點選儲存以更新已釋出的世界",

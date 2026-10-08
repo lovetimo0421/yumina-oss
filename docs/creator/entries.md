@@ -1,94 +1,116 @@
-# Entries
+# Openings and Lore
 
-Entries are what the AI sees each time it generates a reply — they can include character descriptions, world rules, lore, writing style, and more. Everything the AI fundamentally knows about your world comes from entries and variables.
+Openings are written for the player. Lore is written for the AI. These two are the bare minimum of any card: the player opens it and reads an opening, and the AI reads your lore and carries the story on from there.
 
-In the editor, entries live in the **Lorebook** section.
+Everything the AI knows about your world comes from lore and [variables](/creator/variables).
 
-![Lorebook section with PRESETS, EXAMPLES, CHAT HISTORY and POST groups](./images/lorebook-list.png)
+## Openings
 
-## System Presets — Always On
+The opening is the first thing a player reads after opening your card. The story starts here. On the canvas, click the opening's row to write it.
 
-Entries here are sent to the AI every single turn (it's best to keep everything in this section on Always Send (✿◡‿◡)). This is where you define your world's foundation:
+![Writing the opening](./images/canvas/w-opening.webp)
 
-- Character descriptions and personality
-- World setting and rules
-- Narrator instructions and writing style
-- Game mechanics
+The AI reads the opening as if it were earlier conversation, so it has a big effect on the style of the whole game. Write a long opening and the AI leans toward writing long. Use "*italic actions*" with "quoted dialogue" and the AI will follow suit. It's best to end with a hook, so the player knows what to say next.
 
-For a survival horror game, the first entry might be a "Game Master Setup" that tells the AI its entire role:
-
-> *You are a horror survival game GM. The game lasts 14 nights. Each night, describe a visitor knocking on the door. Give clues fairly without revealing their identity. End each reply with 3-5 suggested choices.*
-
-That single entry defines what the AI is, what it does, and how it should respond. Everything else builds on top of it.
-
-## Keyword-Triggered — Appears When Relevant
-
-If you turn off Always Send, a keyword field appears for the entry. Keyword entries only activate when their keywords show up in recent messages. Use them for content the AI doesn't need to see every turn:
-
-- NPC backstories (keywords: the NPC's name)
-- Location details (keywords: place names)
-- Specific mechanics (keywords: the actions that invoke them)
-
-In the horror game, a "Peephole Observation" entry with keywords `peephole, peek, observe, look` only appears when the player tries to look through the door. It tells the AI to describe the visitor's face, teeth, eyes, and skin texture, with subtle flaws that hint at whether they're human or monster. When the player isn't looking through the peephole, this entry doesn't exist in the AI's context. Saves space, keeps focus.
-
-**Keyword options:**
-- **Primary keywords**: any single match triggers the entry ("tavern, inn, bar, drink")
-
-## Post Instructions — Final Emphasis
-
-Entries here appear after the entire conversation, right before the AI responds. Because they're the freshest thing in context, content here gets the most attention.
-
-- Output format ("Always end with available actions")
-- Style enforcement ("Write in second person, present tense")
-
-## Send As — What Role This Entry Plays
-
-Every entry has a **Send as** setting (in the editor pane: Instruction / User / AI) — it controls which role this entry takes in the AI's message sequence:
-
-- **Instruction** (default) — sent to the AI as a system instruction (system role); the most common choice
-- **User** — makes the entry look like the player said it (user role); useful for "borrowing" the player's voice to slip in background context
-- **AI** — makes the entry look like a prior AI reply (assistant role); useful for shaping the AI's voice and continuity
-
-Generally you won't need to touch this, since every AI model handles these a little differently.
-
-## First Message
-
-The first message is the opening scene players see when they start your world. In the editor, it has its own dedicated section: **First Message**.
-
-![First Message editor with a greeting](./images/first-message.png)
-
-Write the opening you want for the player. The AI reads the first message as part of the conversation history, so it strongly shapes the feel of the whole game (you can set up multiple first messages!):
-
-> *The television flickers with static. An emergency broadcast repeats: "Confirmed Visitor characteristics: teeth that are unnaturally uniform and white. Residents are advised to avoid opening doors..."*
+> *The TV screen is nothing but static. An emergency broadcast plays on loop: "Confirmed visitor trait: teeth unusually straight and white. Residents should avoid opening their doors…"*
 >
-> *You're alone in the apartment. Bathroom, living room, bedroom, study, kitchen, storage room. A peephole on the front door. A handgun in the storage room. A few days of food in the fridge.*
+> *You're alone in your apartment. There's a peephole in the front door. There's a pistol in the storage closet.*
 >
-> *Then comes the knocking.*
+> *Then the knocking starts.*
 >
-> *A young woman's voice, trembling: "Please... let me in... there's something out here chasing me..."*
+> *A young woman's voice, trembling: "Please… let me in… something out here is chasing me…"*
+
+**You can have several openings.** Click the ＋ in the top right of the opening block to add another, and players get to pick one when they start. Different openings can be different scenes, different storylines, even different starting values: drag an opening onto a variable and you can set "starting from this opening, Coins begin at 100". Drag it onto a [scenario](/creator/modules) and you get "this scenario only exists in games that start from this opening".
+
+Openings can hold pictures or videos. Click **Insert image or video** in the top right of the text box. Details in [Visuals & audio](/creator/visuals-audio#pictures-in-the-opening).
+
+## Lore
+
+Lore (also called entries) is what the AI sees each turn when it writes a reply: who the characters are, what the world is like, what the rules are, what style to write in.
+
+On the canvas, lore is split into four blocks by "when it's sent to the AI":
+
+![The four lore blocks](./images/canvas/lore-blocks.webp)
+
+| Block | When it's sent |
+|---|---|
+| **Character and world** | Every turn |
+| **Keyword lore** | Only when a certain word shows up in the recent conversation |
+| **Conditional lore** | Only when a variable meets a condition |
+| **Standby lore** | Never on its own. It waits for a behaviour to open it |
+
+Under each block's title you'll see how many entries it has and roughly how much text it costs per turn.
+
+### Character and world: sent every turn
+
+This is the foundation of your world: character descriptions and personalities, the setting, narration style, game mechanics.
+
+Click a row in this block and it opens up. Name goes on top, content below:
+
+![Writing a character entry](./images/canvas/w-setting.webp)
+
+In a survival horror game, for example, the first entry might be a "Game Master" entry that tells the AI its whole role:
+
+> *You are the GM of a survival horror game. The game lasts 14 nights. Each night, describe a visitor knocking at the door. Give clues fairly but never reveal what they are. End every reply with 3-5 suggested options.*
+
+That one entry sets who the AI is, what it does and how it responds. Everything else builds on it.
+
+One entry per character, one per place. Kept separate, they're harder for the AI to mix up.
+
+### Keyword lore: sent when mentioned
+
+For things the AI doesn't need every turn: an NPC's backstory (keyword: the NPC's name), details about a place (keyword: the place name), a particular mechanic.
+
+![Keyword lore](./images/canvas/lore-keywords.webp)
+
+In the horror game, a "Peephole" entry with the keywords `peephole, peek, look` only shows up when the player wants to look through the peephole. It tells the AI to describe the visitor's face, teeth, eyes and skin, with one small tell hinting at whether they're human or a monster. When the player isn't at the peephole, it stays out. That saves text and keeps the AI focused.
+
+Separate keywords with commas. Any one of them showing up triggers it.
+
+### Conditional lore: sent when a value gets there
+
+For example, "Drunk descriptions" is only sent when `Tipsiness ≥ 5`. The quickest way to set it up is to drag the variable onto the entry on the canvas, then click the line to change the condition.
+
+### Standby lore: waits for a behaviour
+
+Never sent on its own until some [behaviour](/creator/automation) opens it. "Yumina's Feelings" from the Guide works like this: normally the AI can't see it, but when affection reaches 80 a behaviour opens it, and Yumina starts quietly caring about you. Great for hidden storylines and switching between stages.
+
+### Switching how it's sent
+
+Every entry, once opened, has a **When the AI sees this** line at the bottom. Click it to switch between the four kinds above, and the entry moves itself into the matching block.
+
+![When the AI sees this](./images/canvas/entry-delivery.webp)
+
+### More settings
+
+You usually won't need these. Just good to know they exist:
+
+- **Inject into**: which part of the AI's prompt it goes in. **Always sent to the AI**, **Sent when mentioned**, **Example dialogue**, **At the end**. "At the end" lore comes after the whole conversation, right before the AI replies. The AI pays it the most attention, so it's the place for final reminders like output format and style rules
+- **Send as**: **Instruction** (default), **User** or **AI**. This decides whose voice the entry speaks in within the AI's messages. Every model handles this a bit differently, so it's usually best left alone
+- **Secondary Keywords**, **Scan Depth**: fine-tuning for keyword lore
 
 <div v-pre>
 
 ## Macros
 
-It sounds like a strange thing, but it just means entries support `{{macro}}` placeholders that get replaced at runtime — certain tokens are automatically swapped for the corresponding thing before the AI sees them:
+You can write `{{macros}}` in lore and openings. When the AI sees them, they're swapped for the matching thing:
 
-| Macro | Replaced With |
-|-------|--------------|
-| `{{user}}` | Player's name |
-| `{{char}}` | Character's name |
-| `{{random::a::b::c}}` | Random pick from the options |
-| `{{roll::2d6}}` | Dice roll result |
-| `{{variableName}}` | Current value of that variable |
+| Macro | Becomes |
+|-----|--------|
+| `{{user}}` | The player's name |
+| `{{char}}` | The character's name |
+| `{{random::a::b::c}}` | One of the options, picked at random |
+| `{{roll::2d6}}` | A dice roll result |
+| `{{variable_name}}` | That variable's current value |
 
-Any variable ID works as a macro. A variable called `location` becomes `{{location}}` in any entry.
+Any variable works this way. For a variable called `location`, just write `{{location}}` in your lore.
 
 </div>
 
-## Best Practices
+## Tips for Writing Good Lore
 
-**Tell the AI what to do, not what not to do.** "Write vivid combat with sensory detail" works. "Don't write boring combat" doesn't.
+**Tell the AI what to do, not what not to do.** "Describe fights with rich sensory detail" works. "Don't write boring fights" doesn't.
 
-**Keep entries concise.** The AI reads everything once per turn. Don't repeat the same content across different entries.
+**Keep it short.** The AI reads every active entry, every turn. Every unnecessary entry makes the one that really matters easier to miss. Don't repeat the same thing across entries.
 
-**Not everything needs to be always-on.** Move supplementary lore and NPC backstories to keyword-triggered. Lean entries are easier for the AI to handle.
+**Not all lore needs to be sent every turn.** Move background knowledge and NPC backstories into keyword lore, and the AI will handle them better.

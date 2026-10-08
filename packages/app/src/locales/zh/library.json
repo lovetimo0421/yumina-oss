@@ -448,7 +448,7 @@
     "blank": "空白项目",
     "blankDesc": "空白世界，只带默认叙事设置。",
     "importWorld": "导入世界",
-    "importWorldDesc": "SillyTavern 角色卡（PNG / JSON），或导出的 Yumina 卡。",
+    "importWorldDesc": "导入世界或角色卡（PNG / JSON）。",
     "characterChat": "角色聊天",
     "characterChatDesc": "设计角色，沉浸于一对一的对话之中。",
     "worldSimulation": "世界模拟",

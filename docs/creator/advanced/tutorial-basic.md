@@ -1,7 +1,7 @@
 # Step-by-Step Tutorial: Build a Survival Horror World from Scratch
 
 ::: tip
-This tutorial uses the classic editor layout. For your first story in Studio, start with the [blueprint quick start](/creator/blueprint-start).
+This tutorial uses the classic editor layout. For your first story in Studio, start with [Canvas basics](/creator/canvas).
 :::
 
 

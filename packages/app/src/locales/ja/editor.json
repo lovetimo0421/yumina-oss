@@ -658,7 +658,7 @@
     "title": "カードの設定",
     "description": "名前、カバー、お知らせ、カードの公開ページ",
     "importJson": "ファイルをインポート",
-    "importJsonDesc": "以前に書き出したカード（`.json`）または SillyTavern のキャラクターカード（`.png` / `.json`）を読み込みます。このカードの内容はすべて置き換わります。",
+    "importJsonDesc": "以前に書き出したカード（`.json`）またはキャラクターカード（`.png` / `.json`）を読み込みます。このカードの内容はすべて置き換わります。",
     "chooseFile": "ファイルを選択",
     "confirmReplaceWorld": "現在のワールドの内容(エントリ、変数、ルール、コンポーネントなど)をインポートされたJSONで置き換えます。ワールドID、ギャラリー、タグ、公開ステータスは保持されます。更新を反映するには後で保存してください。続行しますか?",
     "importReplacedSaveReminder": "「保存」をクリックして公開済みワールドを更新してください",
@@ -1012,6 +1012,7 @@
       "cancelTimer": "タイマーをキャンセル",
       "toggleBehavior": "ビヘイビアの有効/無効",
       "toggleVariable": "変数の有効/無効",
+      "toggleScenario": "シチュエーションの有効/無効",
       "moment": "ひとつの場面を解放"
     },
     "doFields": {
@@ -1039,6 +1040,7 @@
       "momentImage": "画像（リンク）",
       "momentTitlePlaceholder": "出会い",
       "momentTitle": "タイトル",
+      "scenario": "シチュエーション",
       "variable": "変える変数"
     },
     "doCategories": {
@@ -4318,12 +4320,13 @@
       "history": "読む直近のメッセージ数",
       "addVariable": "＋ 変数",
       "sees": "見えるもの",
-      "title": "カスタム"
+      "title": "回答形式"
     },
     "aiType": {
       "code": "コード型",
       "ui": "UI 型",
-      "turn": "ターン型"
+      "turn": "ターン型",
+      "custom": "カスタム"
     },
     "placeAis": {
       "jobUi": "プレイヤー画面から呼ばれたとき",
@@ -4351,7 +4354,17 @@
       "jobAfter": "裏方・あるAIの返答のあと",
       "jobConditions": "裏方・数値が条件を満たしたとき",
       "jobClosed": "裏方・ある場面が終わったとき",
-      "jobBehind": "裏方"
+      "jobBehind": "裏方",
+      "codeCallName": "インターフェースコード · {{file}}",
+      "jobFromCode": "コードから呼び出し · {{file}} {{line}} 行目",
+      "jobFromCodeHere": "このシナリオでコードから呼び出し",
+      "memLoreMatched": "キーワードで項目を読む",
+      "memLoreAll": "すべての項目を読む",
+      "memLoreNone": "項目を読まない",
+      "linkReadsModules": "{{names}} に限定",
+      "linkPicksModule": "実行時に {{names}} から一つ選ぶ",
+      "jobImplemented": "インターフェースのコードで実装 · {{file}} {{line}} 行目",
+      "jobUnimplemented": "未実装"
     },
     "gameData": {
       "readBy": "読んでいる AI",
@@ -4746,7 +4759,7 @@
     "insp": {
       "persistPlayer": "周回をまたいで保持（プレイヤーごと）",
       "code": "コード（遊んでいる間カード内で実行）",
-      "elseMessagePlaceholder": "ゴールドが足りない（{参数.价格} 必要）",
+      "elseMessagePlaceholder": "ゴールドが足りない（{param.値段} 必要）",
       "elseMessage": "条件が合わないときに伝える",
       "formulaPlaceholder": "例：基礎攻撃 * (1 + レベル * 0.1)",
       "formula": "計算式（自動で計算）",
@@ -4904,7 +4917,23 @@
       "unplaced": "外に置く（無効）",
       "openPage": "ページで開く",
       "playtestSaveFirst": "試遊するには、先にこのカードを保存してください。",
-      "playtestNoSession": "試遊を始められませんでした。もう一度お試しください。"
+      "playtestNoSession": "試遊を始められませんでした。もう一度お試しください。",
+      "frontendFiles": "ファイル",
+      "frontendAiCalls": "コード内の AI 呼び出し",
+      "frontendUses": "使っているプラットフォーム機能",
+      "frontendFileLine": "{{lines}} 行",
+      "varFields": "中身",
+      "varFieldsHint": "json 内のフィールドと書き手を列挙。",
+      "varFieldAdd": "フィールドを追加",
+      "varFieldPath": "パス（weather や drama.actors）",
+      "varFieldType": "型",
+      "varFieldWriter": "書き手",
+      "varFieldWriter_ui": "インターフェースコード",
+      "varFieldWriter_ai": "AI の指示",
+      "varFieldWriter_behavior": "ビヘイビア",
+      "varFieldWriter_ai-call": "カスタム AI 呼び出し",
+      "varFieldWriterAny": "未指定",
+      "varFieldRemove": "このフィールドを削除"
     },
     "addModule": "シチュエーション",
     "addVariable": "変数",
@@ -5796,6 +5825,92 @@
         "platform": "Platform pays"
       },
       "boardNote": "ボード上で明るいものがこの呼び出しに見えているもの、暗いものは見えていません。"
+    },
+    "codeCall": {
+      "intro": "インターフェースのコードが行う AI 呼び出し。設定はコード内。以下はスキャン結果。",
+      "kind": "種類",
+      "kind_complete": "返答を生成",
+      "kind_decide": "選択肢を選ぶ",
+      "kind_context": "文脈の組み立てのみ",
+      "lore": "読む資料",
+      "loreNone": "カードの項目は読まない",
+      "loreAll": "有効な項目をすべて読む",
+      "loreMatched": "キーワード一致の項目",
+      "loreRaw": "カードの資料なし",
+      "situations": "限定シナリオ",
+      "situationsDynamic": "実行時に決定",
+      "picksSituation": "次から一つ選ぶ",
+      "session": "プレイヤーのセッションを使う",
+      "yes": "はい",
+      "no": "いいえ",
+      "answer": "回答形式",
+      "answerJson": "JSON",
+      "answerText": "テキスト",
+      "model": "モデル指定",
+      "openAt": "{{file}} の {{line}} 行目を開く"
+    },
+    "files": {
+      "summary": "インターフェースコード · {{files}} ファイル · {{lines}} 行",
+      "reads": "{{count}} 個の変数を読む",
+      "writes": "{{count}} 個の変数を書く",
+      "aiCalls": "AI 呼び出し {{count}} 箇所",
+      "readsList": "読む：{{names}}",
+      "writesList": "書く：{{names}}",
+      "usesList": "使用：{{names}}",
+      "lines": "{{count}} 行",
+      "chipReads": "読 {{count}}",
+      "chipWrites": "書 {{count}}",
+      "chipAi": "AI ×{{count}}",
+      "more": "他 {{count}} ファイル",
+      "use_ai": "AI 呼び出し",
+      "use_room": "マルチルーム",
+      "use_voice": "音声入力",
+      "use_tts": "読み上げ",
+      "use_storage": "保存データ",
+      "use_media": "メディア",
+      "use_social": "ソーシャル",
+      "use_audio": "オーディオ",
+      "use_assets": "素材",
+      "use_chat": "チャット操作",
+      "use_session": "セーブ操作"
+    },
+    "hints": {
+      "title": "手で書けるもの",
+      "ai": {
+        "codeCall": {
+          "title": "AI 呼び出し",
+          "body": "api.ai.complete。モデル・資料・回答形式は自由"
+        },
+        "replyRules": {
+          "title": "回答の解釈",
+          "body": "返答処理ルール、またはコードビヘイビアで変数へ"
+        },
+        "ownAi": {
+          "title": "外部 AI",
+          "body": "上部「AI を接続」(MCP)"
+        }
+      },
+      "behavior": {
+        "codeBehavior": {
+          "title": "コードビヘイビア",
+          "body": "JS。全変数を読み、変更を返す"
+        },
+        "fromCode": {
+          "title": "インターフェースから発火",
+          "body": "api.executeAction(id)"
+        }
+      }
+    },
+    "custom": {
+      "mode_rule": "ルール",
+      "mode_custom": "カスタム",
+      "empty": "まだ実装がありません。",
+      "noteHint": "付箋に何をさせるか書いておくと、アシスタントか外部 AI が書きます。",
+      "aiIntro": "インターフェースのコードで実装。以下はこのシナリオを読む AI 呼び出し。",
+      "behaviorIntro": "コードで実装。",
+      "implementedBy": "{{count}} 箇所で実装",
+      "implementedCode": "独自コード · {{count}} 行",
+      "firedFrom": "インターフェースから発火 · {{file}} {{line}} 行目"
     }
   },
   "modules": {

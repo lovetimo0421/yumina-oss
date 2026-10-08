@@ -51,8 +51,12 @@ export function diagnoseStation(
     // a market town. A warning, not an error, because a writer that is meant
     // to invent (a rumour mill, a random event) is a real thing to build.
     // A quiet station reads the last messages itself — it speaks into the
-    // story, so the story is its input.
-    if (station.inputs.length === 0 && station.trigger?.on !== "quiet") out.push({ level: "warn", code: "worker.noInputs" });
+    // story, so the story is its input. One a button calls reads the button's
+    // input and what its 回答格式 lets it see (server lib/ai-call.ts), not
+    // wired inputs; a fortune teller answering the player is not a recorder
+    // making things up.
+    const ownInput = station.trigger?.on === "quiet" || station.trigger?.on === "ui";
+    if (station.inputs.length === 0 && !ownInput) out.push({ level: "warn", code: "worker.noInputs" });
     if (station.trigger?.on === "after") {
       // It waits for an AI that answers the player; anything else never does.
       const source = byId.get(station.trigger.from);

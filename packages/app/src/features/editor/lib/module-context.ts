@@ -321,7 +321,7 @@ export function contextBadgeFor(book: Worldbook, allBooks: Worldbook[]): Context
   }
 
   return {
-    role: station ? station.kind : "plain",
+    role: station && station.kind !== "custom" ? station.kind : "plain",
     ownRun: station?.kind === "narrator" ? station.onClose : null,
     links: [...links.values()].sort(
       (a, b) => DIR_RANK[a.dir] - DIR_RANK[b.dir] || a.otherName.localeCompare(b.otherName),

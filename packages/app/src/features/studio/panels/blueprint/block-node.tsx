@@ -61,6 +61,8 @@ import {
 import { cn } from "@/lib/utils";
 import { DebouncedInput, DebouncedTextarea } from "@/features/editor/components/debounced-field";
 import { KIND_STYLE, ROW_TONE } from "./style";
+import { FrontendFilesStrip } from "./frontend-files-strip";
+import type { FrontendFileFacts } from "@yumina/engine";
 import { PieceSeams } from "./piece-seam";
 import {
   AI_RECEIVES_H,
@@ -464,6 +466,12 @@ export type BlockNodeData = {
     pausedLabel?: string;
     readNames: string[];
     dynamicReads: number;
+    /** The interface's files, what each reads/writes/asks the AI — the strip
+     *  under the phone. Absent or empty for the stock chat. */
+    files?: FrontendFileFacts[];
+    entryFile?: string;
+    aiCalls?: number;
+    onOpenFile?: (file: string, line: number) => void;
     /** Which device the preview is laid out for. The player sees one or the
      *  other, so the block has to be able to show either. */
     device?: "desktop" | "phone";
@@ -1009,10 +1017,11 @@ const CONTEXT_CHIP: Record<ContextRowView["icon"], string> = {
  * the way to keep it.
  */
 /** The three kinds of AI, each its own quiet colour. */
-const AI_TYPE_CHIP: Record<"turn" | "ui" | "code", string> = {
+const AI_TYPE_CHIP: Record<"turn" | "ui" | "code" | "custom", string> = {
   turn: "bg-pink-400/15 text-pink-200",
   ui: "bg-sky-400/15 text-sky-200",
   code: "bg-violet-400/15 text-violet-200",
+  custom: "bg-amber-400/15 text-amber-200",
 };
 
 function AisBody({ data }: { data: BlockNodeData }) {
@@ -2102,6 +2111,12 @@ function FrontendBody({ data }: { data: BlockNodeData }) {
       )}
       </div>
 
+
+      {/* What the code does, file by file. Each row is a canvas object a note
+          can stick to (file:<name>) and a click opens the file. */}
+      {frontend.files && frontend.files.length > 0 && (
+        <FrontendFilesStrip files={frontend.files} entryFile={frontend.entryFile} aiCalls={frontend.aiCalls ?? 0} onOpenFile={frontend.onOpenFile} />
+      )}
 
       {/* The variables this interface reads, as ports you can wire to. */}
       {data.block.headSlots.map((slot) => (

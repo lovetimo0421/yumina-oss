@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ReactionEffect } from "@yumina/engine";
-import { extractFieldValues, getDoPresets, identifyPreset, parseSmartValue } from "./behavior-effect-presets";
+import { extractFieldValues, getDoPresets, identifyPreset, parseSmartValue, switchableScenarios } from "./behavior-effect-presets";
 
 const presets = getDoPresets((key: string) => key);
 
@@ -24,6 +24,10 @@ const ROUND_TRIP: { name: string; effect: ReactionEffect; presetId: string }[] =
     effect: { type: "set", path: "@vars.enabled.route", value: true, operation: "set" } },
   { name: "turning a variable off", presetId: "toggle-variable",
     effect: { type: "set", path: "@vars.enabled.route", value: false, operation: "set" } },
+  { name: "switching a scenario on", presetId: "toggle-scenario",
+    effect: { type: "set", path: "@worldbooks.on.attic", value: true, operation: "set" } },
+  { name: "switching a scenario off", presetId: "toggle-scenario",
+    effect: { type: "set", path: "@worldbooks.on.attic", value: false, operation: "set" } },
   { name: "telling the AI something", presetId: "tell-ai",
     effect: { type: "set", path: "@prompt.context", value: "The lamp goes out.", operation: "set" } },
   { name: "enabling an entry", presetId: "enable-entry",
@@ -58,6 +62,7 @@ test("every preset's own output identifies back as itself", () => {
   const inputs: Record<string, Record<string, string>> = {
     "change-var": { variableId: "hp", operation: "add", value: "5" },
     "toggle-variable": { variableId: "route", enabled: "true" },
+    "toggle-scenario": { worldbookId: "attic", on: "false" },
     "tell-ai": { content: "Something happens." },
     "enable-entry": { entryId: "lore-1" },
     "disable-entry": { entryId: "lore-1" },
@@ -116,4 +121,14 @@ test("parseSmartValue keeps text that only looks like a number or a boolean", ()
   // zero-padded code typed into a value field comes back as a number, so a room
   // called "007" becomes 7. Changing it is a data decision, not a refactor.
   assert.equal(parseSmartValue("007"), 7);
+});
+
+test("a behaviour switches scenarios, not the AIs that live in them", () => {
+  const books = [
+    { id: "attic", name: "阁楼" },
+    { id: "cat", name: "店猫", host: "card", station: { kind: "narrator" } },
+    { id: "guide", name: "引路人", host: "attic", station: { kind: "narrator" } },
+  ];
+  assert.deepEqual(switchableScenarios(books), [{ value: "attic", label: "阁楼" }]);
+  assert.deepEqual(switchableScenarios(undefined), []);
 });

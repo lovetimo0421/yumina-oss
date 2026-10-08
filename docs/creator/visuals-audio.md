@@ -1,86 +1,91 @@
 # Visuals & Audio
 
-Every world comes with a clean chat interface out of the box. Here's how to go further.
+Every card comes with a clean chat interface. Here's how to make it look and sound better.
 
-In the editor, custom UI lives in **Custom UI**, audio tracks in **Audio**, and uploaded files in **Assets**.
+On the canvas, audio and scene images each get their own block. If you don't have them yet, click **＋ Audio** or **＋ Scene images** in the "Add" row at the bottom of the card. The screen players see is edited under **Player interface** at the top. Uploaded files live in **Panels → Assets**.
 
 ## Character portraits
 
-Give a character a face: in the simple editor, click the camera square next to the character's name; in Studio, open the character's entry in **Lorebook** and use **Portrait**. Pick an image from **Assets** or upload one on the spot. In chat, that image and the character's name appear above every line they speak. When several characters have portraits, the AI is asked to open every reply with a hidden `[speaker: Name]` tag, so the right face is on screen before the first word arrives. A reply tagged as narration shows no face; if a model skips the tag, the chat falls back to a `Name:` marker or a name in the first sentence.
+Give a character a face: on the canvas, right-click that character's lore entry and pick **Portrait…** (in simple mode, click the camera square next to the character's name). Choose a picture from **Assets** or upload one on the spot. In chat, that picture and the character's name appear above every line they speak. When several characters have portraits, the AI is asked to start every reply with a hidden `[speaker: Name]` tag, so the right face is already on screen before the first word arrives. Replies tagged as narration show no face. If a model forgets the tag, the chat falls back to a "Name:" at the start of a line, or a name in the first sentence.
 
 ## Pictures in the opening
 
-An opening can carry a picture. Under the opening's text box, press **Insert image** and either upload a file or pick one from **Assets**; you can also drop a file onto the text box or paste one. The picture goes in at the cursor as `[image:@asset:…|alt=…]` and shows in chat where you put it. Options after the `|`: `alt=` (what the picture is), `caption=` (a line under it), `size=sm|md|lg|full`, `placement=left|center|right`. Plain markdown works too — `![](@asset:{id})` — and both accept an `https://` link instead of an asset.
+Openings can hold pictures. Click **Insert image or video** in the top right of the opening's text box, then upload one or pick one from **Assets**. You can also drag a file onto the text box, or just paste an image. The picture goes in at the cursor as `[image:@asset:…|alt=…]` and shows up in that spot in chat. After the `|` you can add: `alt=` (what the picture is), `caption=` (a line under it), `size=sm|md|lg|full`, `placement=left|center|right`. Plain markdown works too, like `![](@asset:{id})`, and both styles accept an `https://` link instead of an asset.
 
-## Custom UI
+## Player interface
 
-The default chat is enough for most worlds. Custom UI is how you go beyond it:
+The default chat interface is enough for most cards. If you want opening pages, a status panel, an inventory or a map, build them from templates in **Player interface** at the top, no code needed. See [Player interface](/creator/player-view).
 
-The horror world from earlier uses a CRT-style green-on-black interface with a status bar showing health, energy, and armed status. Studio AI generated it from a description like "post-apocalyptic horror UI, CRT monitor aesthetic, dark green glowing text, scanline effects."
+If you want an interface that's entirely your own, like a green CRT-screen terminal for the end of the world, just describe the look to the Creation assistant: "post-apocalyptic horror UI, CRT monitor aesthetic, dim green glowing text, scanline effects". What it writes is interface code, which you can see in **Panels → Front End Code**. The interface only displays things. It reads the game state, but it won't go changing it on its own.
 
-<!-- screenshot: the horror world's custom UI showing the CRT-style interface -->
-
-You don't need to know code. Describe the look and feel you want and let the Studio's AI assistant build it. Custom UI is a purely visual layer — it reads game state but never changes it.
-
-For the full Custom UI guide → [Advanced: Custom UI Deep Dive](/creator/advanced/custom-ui-deep)
+The full interface code guide → [Advanced: Custom UI Deep Dive](/creator/advanced/custom-ui-deep)
 
 ## Audio
 
 | Type | Purpose | Example |
-|------|---------|---------|
+|------|------|------|
 | **BGM** | Background music, loops continuously | Tavern theme, battle music, exploration track |
-| **SFX** | One-shot sound effects | Sword clash, door creak, notification chime |
-| **Ambient** | Environmental loops, layered with BGM | Rain, forest sounds, crowd murmur |
+| **SFX** | One-shot sound effects | Sword clash, creaking door, notification chime |
+| **Ambient** | Environmental loops, layered over the BGM | Rain, forest sounds, crowd murmur |
 
-**BGM playlists** auto-rotate through tracks, and **conditional BGM** switches based on game state (e.g., battle music when the variable `location` is "arena").
 
-Select a track in **Audio** to see its **Track ID**, then click **Copy ID**. Use that ID in custom UI calls such as `api.playAudio("track-id")`; renaming the track does not change its ID.
+**BGM playlists** rotate through tracks automatically, and **Conditional BGM** switches based on game state (like playing battle music when the variable `location` is "arena").
 
-Turn off **Allow AI control** to prevent the narrator from playing, stopping, or changing that track. Your custom UI, scripts, behaviors, and playlists can still control it. Existing tracks keep AI control enabled unless you turn it off.
+A horror world might play tense BGM while you explore, fire a sharp SFX when something lunges at the player, and keep steady rain ambience going in the background. Three layers, all at once.
 
-A horror world might play tense BGM during exploration, fire a sharp SFX when something lunges at the player, and run steady rain ambience in the background. Three layers, all at once.
+Click a track in **Panels → Audio** to see its **Track ID**, with **Copy ID** right next to it. That's the ID to use in your own interface code, like `api.playAudio("track-id")`. Renaming the track doesn't change it, so your code keeps working.
 
-For audio patterns and conditional BGM → [Advanced: Audio Design](/creator/advanced/audio-deep)
+If you don't want the AI touching a track, click it on the canvas and turn off **Allow AI control** on the right. The AI can't play, stop or change it anymore, but your interface, behaviours and playlists still can.
+
+Audio patterns and conditional BGM in detail → [Advanced: Audio Design](/creator/advanced/audio-deep)
+
+## Voices and readout
+
+Players can turn on **Voice readout** in their own settings to have the story read out. You can give each character a voice: on the canvas, right-click that character's lore entry, pick **Voice…**, choose one, and click **Preview voice** to hear it. Characters without a voice use the **Narrator voice**. If the narrator doesn't have one either, it uses whatever the player picked in their settings.
+
+The narrator voice and **Player voice input** live in the **Sound** section of **Card settings** (click **Cover & blurb** on the right of the canvas, or **Panels → Card settings**). Player voice input decides what happens when the player holds the mic, speaks and lets go: **Review first** before sending, or **Send right away**. Cards that thrive on quick reactions, like werewolf games or interrogations, suit Send right away.
+
+![The Sound section in Card settings](./images/canvas/card-settings.webp)
 
 ## Scene images
 
-Pictures that appear on their own. Each scene image has a short id (`img1`), a picture from your Assets or an https URL, and one or two sentences saying **when to show it** — "the cat Minyu gets startled and jumps straight up". That sentence is the switch and the condition, followed literally: written, the picture appears in every reply that meets it ("after every reply" means every reply); empty, it only appears where you paste its code.
+Pictures that show up on their own. Each scene image has a short id (`img1`), a picture from your asset library or an https URL, and a sentence or two saying **When to show it**, like "the cat Minyu gets startled and jumps straight up". That sentence is both the switch and the condition, and it's followed literally. Fill it in, and every reply that meets it carries the picture (write "after every reply" and it shows every turn). Leave it empty, and the picture only shows where you paste its code.
 
-**Who places the images** is one choice at the top of the Scene Images page:
+**Who places the images** is chosen at the top of the scene images page:
 
-- **Picked after each reply** (default, recommended): once the AI has written its reply, smart tracking checks each image's condition and places every image whose condition holds at the end of that reply. It works the same whichever model the player uses.
-- **The story AI inserts them**: the story AI writes `[image: img1]` in its text, so a picture can sit between paragraphs — but only if the model follows instructions, and some models almost never do.
+- **After each reply** (default, recommended): once the AI has written its reply each turn, smart tracking checks each picture's "When to show it" condition one by one, and puts every one that matches at the end of that reply. It works just as reliably whatever model the player uses.
+- **Story AI inserts them**: the story-writing AI writes `[image: img1]` in its text, so a picture can sit between two paragraphs. But it depends on whether the model listens, and some models almost never do.
 
-With smart tracking turned off in Overview, the story AI always inserts them itself.
+If you turn **Smart tracking** off in **Card settings**, only the story AI can insert them.
 
-- Add them under **Scene Images** in the editor, or in the blueprint's **Scene images** block (click a row to edit it in the right column). Upload from your computer or pick from Assets; several files at once become several images, named after the files.
-- Write `[image: img1]` in a first message to show a picture from the very start. The same works inside lore entries: the AI carries it into its reply when it uses that entry.
-- Limit an image to certain first messages under **Openings**.
-- Players get a gallery in the play header. Pictures the story has already shown are there in full; the rest show your **unlock hint** instead, so the player knows there is a moment worth reaching.
-- The "when to show it" sentence is followed as written. "When the two sit across from each other in the café" shows the picture only on those replies; "after every reply" shows it on every reply. An image already shown comes back whenever its condition holds again.
+- Add them in the canvas's **Scene images** block (if there isn't one, click **＋ Scene images** at the bottom of the card), or with **Add → Scene image**. Upload from your computer or pick from your asset library. Drag several files in at once and you get several images, each named after its file.
+- Write `[image: img1]` in an opening to show a picture right from the start. It works in lore entries too: when the AI uses that entry, it brings the picture into its reply.
+- Under **Openings** you can limit a picture to certain openings.
+- Players get a gallery in the play header. Pictures the story has already shown appear in full. The rest show your **Unlock hint**, so the player knows there's still a moment worth reaching.
+- "When to show it" is followed exactly as written. Write "when the two of them sit across from each other in the café" and only those replies get the picture. Write "after every reply" and every reply gets it. A picture that was shown before comes back whenever its condition holds again.
 
 ## Assets
 
-You can upload images, audio files, fonts, and other media through the **Assets** section in the editor. Files are hosted on Yumina's CDN and can be referenced anywhere in your custom UI, entries, or audio tracks. No need to host files yourself.
+You can upload images, audio files, fonts and other media in **Panels → Assets**. Files are hosted on Yumina's CDN, and you can use them anywhere in custom UI, entries or audio tracks. No need to host anything yourself.
 
-In **Library → Assets**, upload MP4 or WebM videos with **Upload → Upload files**. Use the **Video** filter to find them, then open a video's preview to play it with the built-in controls.
+In **My Library → Assets**, upload MP4 or WebM videos with **Upload → Upload files**. Click the **Video** filter to find them, then open a video's preview to play it with the built-in controls.
 
-In **Library → Assets**, choose **Upload → Upload folder**, or drag a folder onto the asset area. Review the folder tree and file counts before starting the import. The selected folder and its subfolders are saved inside your current asset folder; empty folders are not imported.
+In **My Library → Assets**, choose **Upload → Upload folder**, or drag a folder onto the asset area. Check the folder tree and file counts in the preview, then start the import. The folder you picked and its subfolders are saved inside your current asset folder. Empty folders aren't imported.
 
-Folder imports support JPG/JPEG, PNG, GIF, and WebP images; TXT, LOG, Markdown (`.md` / `.markdown`), CSV, and JSON text files; MP4 and WebM videos; MP3, WAV, OGG, AAC, and M4A audio; and WOFF, WOFF2, TTF, and OTF fonts. Unsupported files are listed and skipped.
+Folder imports support JPG/JPEG, PNG, GIF and WebP images; TXT, LOG, Markdown (`.md` / `.markdown`), CSV and JSON text; MP4 and WebM videos; MP3, WAV, OGG, AAC and M4A audio; and WOFF, WOFF2, TTF and OTF fonts. Unsupported files are listed and skipped.
 
-During a folder import, the dialog shows the current file's uploaded bytes, percentage, and transfer speed, plus overall progress and completed file count. Close the dialog or choose **Upload in background** to keep uploading while visiting other Yumina pages. The floating upload panel shows progress; choose **Details** to reopen the dialog. Keep the browser tab open and avoid refreshing it: the task does not survive a reload or closing the tab.
+While a folder imports, the dialog shows the current file's uploaded size, percentage and transfer speed, plus overall progress and how many files are done. Close the dialog or click **Upload in background** and you can keep browsing other Yumina pages. A floating upload panel shows the progress. Click **Details** to reopen the dialog. Keep the browser tab open and don't refresh it: once the tab is refreshed or closed, the task can't continue.
 
-**Cancel upload** stops the active transfer and remaining files. If you cancel or some files fail, choose **Retry remaining files** before dismissing the task to continue without uploading successful files again.
+Clicking **Cancel upload** stops the current transfer and the files after it. After cancelling, or if some files fail, click **Retry remaining files** before removing the task to carry on. Files that already made it won't be uploaded again.
 
-To jump through a large library, enter a page number in the pagination field and press **Go** or Enter. The outer arrow buttons jump to the first or last page; the inner arrows move one page at a time.
+With lots of assets, type a page number in the pagination box at the bottom and click **Go** or press Enter to jump there. The double arrows at either end take you to the first or last page. The single arrows inside move one page at a time.
 
 ## AI image generation
 
-You can generate images inside Yumina instead of sourcing them elsewhere. Three entry points: the **AI Image Generation** card on the **Create** page, the **AI Generation** button at the top right of **Library → Assets**, and the **AI Generation** section of the editor.
+Don't feel like hunting for pictures? Make them right on the platform. There are three ways in: the **AI Image Generation** card on the "Create" page, the **AI Generation** button in the top right of "My Library → Assets", and the **AI generation** section in the editor.
 
-Describe the picture, pick a model, an aspect ratio and how many images, then press **Generate**. The default model costs about 35 mushies per image, charged on actual usage once the image is delivered; nothing is charged if no image arrives. Delivery usually takes about 30 seconds, and a notification with a thumbnail tells you when it is done.
+Write a line describing the picture, pick a model, an aspect ratio and how many images, then click "Generate". The default model costs about 35 mushies per image, charged by actual usage once the image arrives. No image, no charge. Pictures usually take around 30 seconds, and a notification with a thumbnail tells you when they're done.
 
-Generated images land in your asset library (you can choose a folder) and are referenced like any upload with `@asset:{id}`. You can also pick an existing image as a reference and describe how to change it.
+Generated pictures go into your asset library (you can pick a folder) and are used just like uploads, with `@asset:{id}`. You can also take an existing picture as a reference and describe how to change it.
 
-At most 2 images generate at the same time, and you can submit up to 30 requests per hour. Prompts involving minors or face swaps of real people are rejected outright.
+Up to 2 pictures can generate at the same time, and you can submit up to 30 requests an hour. Prompts can't involve minors or face swaps of real people. Requests like that are rejected outright.

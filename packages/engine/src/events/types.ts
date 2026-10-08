@@ -125,6 +125,11 @@ export interface Reaction {
    *  sandbox (never the server, never written by the AI at play time) when
    *  the behaviour fires. Runs only while the game is open. */
   code?: string;
+  /** 自定义: implemented outside the form — by `code`, or by interface code
+   *  that fires it (`api.executeAction(id)`). The when/if/then of the form
+   *  are not what runs it; the canvas shows the implementation, or that
+   *  there is none yet and a sticky note is wanted. */
+  custom?: boolean;
 
   /** Which worldbook (module) this reaction belongs to. Undefined = Core
    *  (always on). Reactions of an inactive module are skipped by the runner,

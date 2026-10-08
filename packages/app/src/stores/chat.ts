@@ -998,6 +998,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
       const loadedMessages: Message[] = data.messages ?? [];
       const messageTotal: number = typeof data.messageTotal === "number" ? data.messageTotal : loadedMessages.length;
+      // Root components can request opening music as soon as the session is
+      // visible. Register tracks before publishing it; the asset-preload import
+      // below may yield long enough for the sandbox to mount on a cold load.
+      const worldDef = data.world?.schema as Record<string, unknown> | undefined;
+      useAudioStore.getState().setTracks(
+        Array.isArray(worldDef?.audioTracks)
+          ? worldDef.audioTracks as import("@yumina/engine").AudioTrack[]
+          : [],
+      );
       set({
         session: data,
         messages: loadedMessages,
@@ -1016,14 +1025,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // is interactive" to "appear as soon as the iframe mounts".
       if (data.assetManifest) {
         const { primeAssetManifest } = await import("@/lib/asset-preload");
+        if (controller.signal.aborted) return;
         primeAssetManifest(data.assetManifest);
       }
 
-      // Load audio tracks from world definition
-      const worldDef = data.world?.schema as Record<string, unknown> | undefined;
+      // Configure playback after the registry is available to the renderer.
       if (worldDef?.audioTracks && Array.isArray(worldDef.audioTracks)) {
         const audioStore = useAudioStore.getState();
-        audioStore.setTracks(worldDef.audioTracks as import("@yumina/engine").AudioTrack[]);
 
         // Set playlist and conditional rules
         if (worldDef.bgmPlaylist) {

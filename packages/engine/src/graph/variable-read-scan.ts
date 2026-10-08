@@ -74,6 +74,29 @@ function destructuredKeys(inner: string): string[] {
   return out;
 }
 
+/** The text of an object literal from its opening brace to its match,
+ *  bounded so a pathological file cannot stall the scan. */
+function balancedObject(source: string, openBrace: number, limit = 4000): string {
+  let depth = 0;
+  let inString: string | null = null;
+  const end = Math.min(source.length, openBrace + limit);
+  for (let i = openBrace; i < end; i++) {
+    const ch = source[i]!;
+    if (inString) {
+      if (ch === "\\") { i++; continue; }
+      if (ch === inString) inString = null;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") { inString = ch; continue; }
+    if (ch === "{" || ch === "(" || ch === "[") depth++;
+    else if (ch === "}" || ch === ")" || ch === "]") {
+      depth--;
+      if (depth === 0) return source.slice(openBrace + 1, i);
+    }
+  }
+  return source.slice(openBrace + 1, end);
+}
+
 export function extractVariableReadsFromFiles(files: Record<string, string>): VariableReadScan {
   const names = new Set<string>();
   const writes = new Set<string>();
@@ -84,11 +107,25 @@ export function extractVariableReadsFromFiles(files: Record<string, string>): Va
   // would make every frontend-driven variable look unwritten.
   const setLiteral = new RegExp(String.raw`\bsetVariable\s*\(\s*["'\`]([^"'\`]+)["'\`]`, "g");
   const setComputed = new RegExp(String.raw`\bsetVariable\s*\(\s*(?!["'\`])`, "g");
+  // `api.patchVariables({ "a": 1, b: 2 })` writes every key of its literal
+  // object; a computed object is a write we cannot name. The object is read
+  // with balanced braces — a bundle writes `{a: x, ...c ? {b: y} : {}}` and a
+  // flat `[^{}]*` would see nothing.
+  const patchOpen = new RegExp(String.raw`\bpatchVariables\s*\(\s*\{`, "g");
+  const patchComputed = new RegExp(String.raw`\bpatchVariables\s*\(\s*(?!\{)`, "g");
+  const patchKey = new RegExp(String.raw`(?:^|[,{])\s*(?:["'\`]([^"'\`]+)["'\`]|(${IDENT}))\s*:`, "g");
   for (const source of Object.values(files)) {
-    if (typeof source !== "string" || !source.includes("setVariable")) continue;
+    if (typeof source !== "string" || !(source.includes("setVariable") || source.includes("patchVariables"))) continue;
     let w: RegExpExecArray | null;
     while ((w = setLiteral.exec(source)) !== null) writes.add(w[1]!);
     while (setComputed.exec(source) !== null) dynamicWrites++;
+    while ((w = patchOpen.exec(source)) !== null) {
+      const body = balancedObject(source, w.index + w[0].length - 1);
+      let k: RegExpExecArray | null;
+      patchKey.lastIndex = 0;
+      while ((k = patchKey.exec(body)) !== null) writes.add((k[1] ?? k[2])!);
+    }
+    while (patchComputed.exec(source) !== null) dynamicWrites++;
   }
 
   for (const source of Object.values(files)) {
@@ -103,14 +140,22 @@ export function extractVariableReadsFromFiles(files: Record<string, string>): Va
 
     let m: RegExpExecArray | null;
 
-    const dotted = new RegExp(String.raw`${root}\s*\.\s*(${IDENT})`, "g");
+    // `api.variables.x`, and the optional-chained `api.variables?.x` a
+    // compiled bundle writes.
+    const dotted = new RegExp(String.raw`${root}\s*\??\.\s*(${IDENT})`, "g");
     while ((m = dotted.exec(source)) !== null) names.add(m[1]!);
 
-    const bracketed = new RegExp(String.raw`${root}\s*\[\s*["']([^"']+)["']\s*\]`, "g");
+    const bracketed = new RegExp(String.raw`${root}\s*(?:\?\.)?\s*\[\s*["']([^"']+)["']\s*\]`, "g");
     while ((m = bracketed.exec(source)) !== null) names.add(m[1]!);
 
-    const computed = new RegExp(String.raw`${root}\s*\[\s*(?!["'])`, "g");
+    const computed = new RegExp(String.raw`${root}\s*(?:\?\.)?\s*\[\s*(?!["'])`, "g");
     while (computed.exec(source) !== null) dynamicReads++;
+
+    // A bundle renames the api to one letter (`e.variables?.["unperson-state"]`),
+    // which no alias rule can see — but `.variables[` with a LITERAL string
+    // key is a variable read whatever the root is called.
+    const anyRootLiteral = new RegExp(String.raw`\.\s*variables\s*(?:\?\.)?\s*\[\s*["']([^"']+)["']\s*\]`, "g");
+    while ((m = anyRootLiteral.exec(source)) !== null) names.add(m[1]!);
 
     const destructured = new RegExp(String.raw`\{([^{}]*)\}\s*=\s*${root}\b`, "g");
     while ((m = destructured.exec(source)) !== null) {

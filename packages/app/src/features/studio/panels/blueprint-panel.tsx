@@ -131,6 +131,9 @@ import { AI_RECEIVES_H, BLOCK_W, FRAME_GAP, FRAME_NOTE_H, FRAME_TITLE_H, TILE_RO
 import { LETTERHEAD_W, letterheadBeside, letterheadRoom, tileBoardLayout } from "./blueprint/tile-board";
 import { arrangeSituations, type SituationGroupBox } from "./blueprint/situation-map";
 import { livesSomewhere, placeAis, type PlaceAis } from "./blueprint/place-ais";
+import { OPEN_CODE_EVENT } from "./blueprint/customization-hints";
+import { frontendFilesStripHeight } from "./blueprint/frontend-files-strip";
+import type { FrontendFileFacts } from "@yumina/engine";
 import { addAiTo, removeAi } from "./blueprint/add-ai";
 import { SituationGroupNode } from "./blueprint/situation-group-node";
 import { memoryOf, poolColours } from "./blueprint/situation-describe";
@@ -770,6 +773,14 @@ function BlueprintCanvas({
   );
   const graphById = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph]);
   const defaultChat = isDefaultChatInterface(worldDraft);
+  // The frontend node already carries the per-file facts the compiler
+  // derived; the block draws them under the phone and the board sizes for them.
+  const frontendFacts = useMemo(() => {
+    const n = graph.nodes.find((x) => x.id === "frontend");
+    const files = (Array.isArray(n?.data.files) ? (n!.data.files as FrontendFileFacts[]) : []);
+    const aiCalls = Array.isArray(n?.data.aiCalls) ? (n!.data.aiCalls as unknown[]).length : 0;
+    return { files, aiCalls };
+  }, [graph]);
   const storyBoard = (worldDraft.worldbooks?.length ?? 0) === 0;
   // A 基础 lesson's canvas: the guide names the block kinds it is about and
   // the board draws only those, zoomed to fill the frame. Nothing about the
@@ -849,7 +860,8 @@ function BlueprintCanvas({
     const reactions = new Map((worldDraft.reactions ?? []).map((r) => [r.id, r]));
     const audio = new Map((worldDraft.audioTracks ?? []).map((track) => [track.id, track]));
     const images = new Map((worldDraft.sceneImages ?? []).map((image) => [image.id, image]));
-    return { entries, variables, reactions, audio, images };
+    const bookNames = new Map((worldDraft.worldbooks ?? []).map((book) => [book.id, book.name]));
+    return { entries, variables, reactions, audio, images, bookNames };
     // The five lists it indexes, not the draft: the draft is a new object on
     // every edit anywhere (the card's name, a sticky note, a frame drag), and
     // this feeds the node build, which then redrew every block for it.
@@ -922,6 +934,7 @@ function BlueprintCanvas({
         entryOff: t("blueprint.summary.entryOff"),
         varOn: t("blueprint.summary.varOn"),
         varOff: t("blueprint.summary.varOff"),
+        scenarioNames: draftById.bookNames,
       });
     }
     if (g.id === "core-entries") return t("blueprint.nodes.coreEntriesHintShort");
@@ -2323,10 +2336,10 @@ function BlueprintCanvas({
       ...(block.kind === "context" ? { contextRows: contextRowsFor(block).length } : {}),
       ...(block.kind === "ais" ? { aiRows: placeAisByOwner.get(block.ownerId ?? "")?.rows.length ?? 1 } : {}),
       ...(block.kind === "scene" ? { sceneWide: device === "desktop", sceneBare: isBareScene(block) } : {}),
-      ...(block.kind === "frontend" ? { frontendDesktop: device === "desktop" } : {}),
+      ...(block.kind === "frontend" ? { frontendDesktop: device === "desktop", frontendFilesH: defaultChat ? 0 : frontendFilesStripHeight(frontendFacts.files.length) } : {}),
       ...(hasPackDoor(block) ? { packDoor: true } : {}),
     }),
-    [collapsedSet, openedTexts, openRowIds, contextRowsFor, placeAisByOwner, glance, device, worldDraft.description, worldDraft.entries, defaultChat, isWritingBlock, writingEntriesFor, isBareScene, hasPackDoor, entryFolders, presetsTitle, collapsedFolders, cardHasBackground, anyOpeningWritten, screenFolded],
+    [collapsedSet, openedTexts, openRowIds, contextRowsFor, placeAisByOwner, glance, device, worldDraft.description, worldDraft.entries, defaultChat, isWritingBlock, writingEntriesFor, isBareScene, hasPackDoor, entryFolders, presetsTitle, collapsedFolders, cardHasBackground, anyOpeningWritten, screenFolded, frontendFacts],
   );
   /** Whether a face block (the card's interface, a module's scene) has a
    *  real preview to show — which puts it on a row of its own, full width. */
@@ -3625,7 +3638,12 @@ function BlueprintCanvas({
                 openKey: selection?.type === "node"
                   ? placeAisByOwner.get(block.ownerId ?? "")!.rows.find((r) => aiInspectorId(r.bookId ?? undefined) === selection.id)?.key ?? null
                   : null,
-                onToggle: (_key: string, _memory?: boolean, bookId?: string) => setSelection({ type: "node", id: aiInspectorId(bookId) }),
+                onToggle: (key: string, _memory?: boolean, bookId?: string) => {
+                  // A bare code call has no object to inspect: open the code at the call.
+                  const row = placeAisByOwner.get(block.ownerId ?? "")!.rows.find((r) => r.key === key);
+                  if (row?.code && !row.bookId) { setPendingCodeJump(row.code.file, row.code.line); onDrillPanel("code-view"); return; }
+                  setSelection({ type: "node", id: aiInspectorId(bookId) });
+                },
                 ...(readOnly ? {} : { onRemove: (bookId: string) => removeAi(bookId), onNote: () => addNoteOnRef.current(block.id) }),
                 ...(readOnly || !block.ownerId
                   ? {}
@@ -3732,6 +3750,12 @@ function BlueprintCanvas({
           pausedLabel: t("blueprint.block.previewPaused"),
           readNames: [],
           dynamicReads: 0,
+          ...(defaultChat ? {} : {
+            files: frontendFacts.files,
+            entryFile: worldDraft.rootComponent?.entryFile,
+            aiCalls: frontendFacts.aiCalls,
+            onOpenFile: (file: string, line: number) => { setPendingCodeJump(file, line); onDrillPanel("code-view"); },
+          }),
           device,
           onToggleDevice: toggleDevice,
         };
@@ -4842,6 +4866,19 @@ function BlueprintCanvas({
     setSelection({ type: "node", id: aiInspectorId(made.bookId) });
     window.setTimeout(() => fitFocusedBlockRef.current(block, 420), 300);
   }, [currentModuleId, t]);
+
+  // A custom AI's or behaviour's panel found its implementation and asks to
+  // open the file at that line.
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const d = (e as CustomEvent<{ file: string; line: number }>).detail;
+      if (!d?.file) return;
+      setPendingCodeJump(d.file, d.line ?? 1);
+      onDrillPanel("code-view");
+    };
+    window.addEventListener(OPEN_CODE_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_CODE_EVENT, onOpen);
+  }, [onDrillPanel]);
 
   const handleAddGreeting = useCallback(() => {
     addInto("opening", undefined);

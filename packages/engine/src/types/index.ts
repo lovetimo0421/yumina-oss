@@ -17,6 +17,28 @@ export type VariableActivation =
   | { mode: "greeting"; greetingIds: string[] };
 
 /** A variable in the game state (e.g., health, gold, relationship score) */
+/**
+ * One named part of a json variable.
+ *
+ * A card that keeps its whole world in one json variable (a stage, a room, a
+ * notebook) shows the canvas one thick wire and nothing else: the scan cannot
+ * see inside an object the code parses for itself. Declaring the fields turns
+ * that wire back into a list the canvas, the inspector, the creation
+ * assistant and the card's public page can all read — what is in there, what
+ * it is, and who writes it. Declarative and optional; play never reads it.
+ */
+export interface VariableField {
+  /** Dot-path inside the json value: `weather`, `drama.actors`. */
+  path: string;
+  type?: "number" | "string" | "boolean" | "json";
+  /** What the creator calls it. */
+  label?: string;
+  description?: string;
+  /** Who moves it: the interface code, the AI's directives, a behaviour, or
+   *  a custom AI call's output field. */
+  writer?: "ui" | "ai" | "behavior" | "ai-call";
+}
+
 export interface Variable {
   id: string;
   name: string;
@@ -122,6 +144,8 @@ export interface Variable {
    *  still exists — module membership only gates exposure, like activation.
    *  Unknown ids fail open (mirrors WorldEntry.worldbookId). */
   worldbookId?: string;
+  /** Named parts of a json value — see VariableField. */
+  fields?: VariableField[];
 }
 
 /** A condition that checks game state */
@@ -670,7 +694,10 @@ export interface ModuleStation {
   /** narrator — this module's AI answers the player while the module is active.
    *  worker  — never speaks to the player; runs on a trigger and produces
    *            context for other modules to drink. */
-  kind: "narrator" | "worker";
+  /** custom — declared on the canvas, implemented in the interface code
+   *  (an `api.ai.complete` that reads this module). The server never runs
+   *  it; the canvas shows what implements it, or that nothing does yet. */
+  kind: "narrator" | "worker" | "custom";
   /** Model for this station's turns. Falls back to the session's model when
    *  absent, and when the player's plan or keys cannot reach it — a card may
    *  ask for a model, never force one onto someone who cannot run it. */

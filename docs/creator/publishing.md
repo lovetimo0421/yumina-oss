@@ -1,62 +1,65 @@
 # Publishing
 
-When your world is ready, publish it to the Hub so players can discover and play it.
+When your world is ready, publish it to the Hub so players can find it and play.
 
 ## Before You Publish
 
-- **Play test your world.** Send 10-20 messages. Check that variables update correctly, entries trigger at the right time, and that it actually plays well.
-- **Write a good description.** This is the first thing players see on the Hub. Be clear about what the experience is — genre, tone, premise.
-- **Add a cover image.** Worlds with cover images get noticeably more clicks.
-- **Set the content mode.** Label honestly — **Limited** for standard content boundaries, **Limitless** for expanded content boundaries. Mislabelling is a guidelines violation.
-- **Tag your world.** Tags help players find your world through search and filtering.
+- **Playtest your world.** Send 10-20 messages. Check that variables update properly, entries kick in at the right moments, and that it's actually fun to play.
+- **Write a good blurb.** It's the first thing players see on Discover. Be clear about what the experience is: genre, tone, premise.
+- **Add a cover image.** Worlds with a cover get noticeably more clicks.
+- **Set the content mode.** Label it honestly: **Limited** for standard content boundaries, **Limitless** for expanded content boundaries. Mislabelling breaks the community guidelines.
+- **Tag your world.** Tags help players find your world through search and filters.
 
 ## How to Publish
 
-1. Open your world in the editor
-2. Go to the **Overview** section and fill in the description and cover image
-3. Click **Publish** on the right of the editor's top bar (right next to **Save**)
-4. In the publish dialog, set the content mode, visibility, and whether to allow others to edit; agree to the terms; hit Publish
+1. On the canvas, click **Cover & blurb** on the right. Fill in the name and blurb, and upload both covers, portrait and landscape
+2. Click **Not live** on the right of the top bar and choose to publish
+3. Before publishing, it runs through a short checklist: a name, a cover, an opening, and at least one playtest
+4. In the publish dialog, set the content mode, visibility, and whether others can edit; tick the terms; click Publish
 
-![Publish to Discover dialog with tags, play time, visibility and content mode](./images/publish.png)
+![The Publish to Discover dialog, with tags, play time, visibility and content mode](./images/publish.png)
 
-Once it passes review, everyone can see it ( •̀ ω •́ )✧.
+Once it passes review, everyone gets to see it ( •̀ ω •́ )✧
+
+### Lore Shift
+
+The publish dialog also has a **Lore Shift** section. Players with the Lore Shift extension can change the lore and values you allow in their own game, like setting their coins to 999 or adding a new character. It only affects that player's own game. Your original card doesn't change.
+
+![Lore Shift at the bottom of Card settings](./images/canvas/card-settings.webp)
+
+- **Allow session editing**: the master switch. While it's off, nothing below it does anything
+- **Allow new session lore**: lets players add new lore to their own game. It ranks below the lore you wrote
+- Then tick **Players may edit this lore in a session** on the lore you want to open up, and **Players may edit this value in a session** on the variables you want to open up
+
+Everything is off by default. If there's nothing you want players to touch, you don't have to do anything.
 
 ## Updating a Published World
 
-After publishing, you can keep editing. Saved updates that need publishing appear as **Unpublished changes**. Saving a draft does not submit it for review or replace the live version. When you're ready to push those updates to players:
+You can keep editing after you publish. Your changes are first saved as "unpublished changes", and players still see the live version. When you're ready, open the publish menu in the top right and submit the update. You can add a short update note while you're at it, and once it passes review, it's sent to players who've played your card.
 
-1. Make and save your changes
-2. Open **Unpublished changes** in the editor's publishing status
-3. Click **Submit for review**. The status becomes **In review** only after submission; the current version stays live until approval. Creators with review bypass enabled see **Publish update** instead, which publishes without waiting for admin review. Either action saves any additional unsaved edits before submitting them.
-
-Existing players' sessions keep the story-content version they started with,
-while new sessions use the updated version. Per-card safety and Lore Shift
-permission switches are checked live, so closing session editing can also lock
-Lore Shift in an active session.
+Players who already started a game aren't affected. They keep playing the version they started with. New games use the updated version.
 
 ## Version History and Rollback
 
-Open **Versions / Version history** from the editor's top bar or its **⋮** menu. Update and Publish save one version of the changed content, cover, and age rating. Repeating an unchanged update or publication reuses its matching automatic record. Approval marks that same saved version live, without adding a separate published copy. Saving, publishing, and switching the live version do not create an extra backup of the outgoing live content.
+On the canvas, open it from **Panels → Version History** (in the full editor it's in the top bar or the **⋮** menu). Updating and publishing save one version of the changed content, cover and age rating. Submitting unchanged content again reuses the matching automatic record. Once approved, that same saved version is marked as the live version, without making a separate published copy. Saving, publishing and switching the live version don't make an extra backup of the live content you're switching away from.
 
-Each **Saved version** shows its status: **Not published**, **Currently live**, or **Previously published**. A world keeps up to **20 automatic records, including restore backups**, separately from **10 named versions**. Older automatic records are removed as the limit is reached. Manually named versions remain distinct even when their content matches an automatic version, and automatic history does not replace them.
+Each **Saved version** is marked **Not published**, **Currently live** or **Previously published**. Each world keeps up to **20 automatic records, including restore backups**, plus **10 manually named versions**. When automatic history hits its limit, older records are cleared out. Manually named versions are always kept separately. Even if their content matches an automatic version, automatic history won't replace them.
 
-- **Restore to draft:** select any saved version to replace your working content, cover, and age rating. The public version stays unchanged. Leave the safety-backup option checked to save your current draft first, then test and publish the restored draft when ready.
-- **Make live:** on a currently published world, choose an eligible **Previously published** version to switch the public content, cover, and rating. **Currently live** identifies the active version. Your working draft is preserved. Existing history remains subject to the automatic-record limit.
+- **Restore to draft:** pick any saved version to replace the content, cover and age rating you're editing. The live version stays as it is. Leave "Save current state as a safety snapshot first" ticked to back up your current draft first. After restoring, playtest to check, then publish through the normal process.
+- **Make live:** while your world is published, you can pick an eligible version marked **Previously published** to switch the content, cover and age rating everyone sees. **Currently live** marks the version in use. The draft you're editing is kept separately, and existing history still follows the automatic-record limit.
 
-Both actions keep listing details such as the title and tags unchanged. Only eligible, previously live versions offer **Make live**; named saves and versions that have never been published must be restored to a draft and published through the normal review process. The optional restore safety copy is labeled **Backup before restore**. Withdraw any pending update review before switching. If a world was taken down and approved again, versions from before that latest approval cannot be made live directly.
+Neither action rolls back listing details like the title and tags. Only eligible versions that were actually live before offer **Make live**. Named versions and saved versions that were never published have to be restored to a draft first, then published through the normal review process. The optional restore safety copy is labelled **Backup before restore**. You must withdraw any update under review before switching. If a world was taken down and approved again, versions from before the latest approval can't be made live directly.
 
 ## Multi-Language Support
 
-If your world works in multiple languages, you can create language variants:
+One card can have several versions, like a Chinese version and an English version, or different versions of the same story. On the canvas, open **Panels → Languages & variants**, or click **Cover & blurb**. The variants are right at the top, where you can switch between them or make a new language version.
 
-Just below the title you'll see your current variant, and to the right you'll find **Create New Variant** — a variant can be a different version of the same card, or a whole new language!
-
-The content entries themselves (character descriptions, lore, etc.) are part of the world schema — if you need content in a different language, create a separate world variant and link them through the language group system.
+Each variant is its own separate content: lore, openings and variables all need to be written again in that language. They're linked together through a language group, and players see the version in their own language on Discover.
 
 ## Gallery Images
 
-Add up to 8 gallery images showcasing your world — gameplay screenshots, custom UI, or promotional art. These appear on your world's Hub page.
+Add up to 8 gallery images to show off your world, like gameplay screenshots, custom UI or promo art. They appear on your world's details page.
 
 ## Announcements
 
-Pin an announcement to your world's Hub page to communicate updates, events, or important information to players. Maximum 5,000 characters.
+Pin an announcement to your world's details page to tell players about updates, events or other important news. Up to 5,000 characters.

@@ -103,3 +103,12 @@ test("engine paths read as words, and macros as names — never @prompt.context 
   assert.doesNotMatch(s, /@prompt|interpolate/);
   assert.match(s, /告诉 AI「/);
 });
+
+test("a behaviour switching a scenario reads as the word and the scenario's name", () => {
+  const s = reactionSummary(
+    reaction({ then: [{ type: "set", path: "@worldbooks.on.attic", value: false, operation: "set" }] }),
+    VARS,
+    { ...LABELS, varOn: "启用", varOff: "停用", scenarioNames: new Map([["attic", "阁楼"]]) },
+  );
+  assert.equal(s, "每回合 · 停用 阁楼");
+});

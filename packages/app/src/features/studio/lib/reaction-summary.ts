@@ -39,6 +39,8 @@ export interface SystemEffectLabels {
   /** 「启用」 / 「停用」 — a variable's enable gate. */
   varOn?: string;
   varOff?: string;
+  /** Scenario names, for 「启用 阁楼」 — a behaviour switching a scenario. */
+  scenarioNames?: Map<string, string>;
 }
 
 /** Prose with its macros read: `{{hp}}` as the variable's name, an expression
@@ -67,6 +69,10 @@ function systemEffectLabel(effect: ReactionEffect, variables: Map<string, Variab
   if (path.startsWith("@vars.enabled.") && labels.varOn && labels.varOff) {
     const id = path.slice("@vars.enabled.".length);
     return `${effect.value ? labels.varOn : labels.varOff} ${variables.get(id)?.name ?? id}`;
+  }
+  if (path.startsWith("@worldbooks.on.") && labels.varOn && labels.varOff) {
+    const id = path.slice("@worldbooks.on.".length);
+    return `${effect.value === false ? labels.varOff : labels.varOn} ${labels.scenarioNames?.get(id) ?? id}`;
   }
   return null;
 }

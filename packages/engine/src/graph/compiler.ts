@@ -4,6 +4,7 @@ import type { GameEvent } from "../events/types.js";
 import { matchesEventPattern } from "../events/event-matcher.js";
 import { extractLoreSlotsFromFiles } from "../lorebook/lore-slot-scan.js";
 import { extractVariableReadsFromFiles } from "./variable-read-scan.js";
+import { frontendManifest } from "./frontend-manifest.js";
 import { uiDocVariableRefs } from "../ui-doc/variable-refs.js";
 import { entryTrigger } from "./board.js";
 import { isAnyModule, resolveInputs, resolveStation } from "../lorebook/station.js";
@@ -301,6 +302,9 @@ export function toGraph(world: WorldLogic, options?: ToGraphOptions): CardGraph 
         variableId: v.id,
         ...(readByUi ? { readByUi: true } : {}),
         ...(dead ? { uiReadNeverWritten: true } : {}),
+        // Declared parts of a json value: the inspector lists them, and a
+        // frontend that reads the variable is read as reading these.
+        ...(v.fields?.length ? { fields: v.fields } : {}),
       },
     });
   }
@@ -516,6 +520,10 @@ export function toGraph(world: WorldLogic, options?: ToGraphOptions): CardGraph 
       : [];
     const slotIds = [...new Set([...bindings.map((bd) => bd.slotId), ...scannedSlots])];
     const readIds = [...uiReadVarIds];
+    // File by file: what each one reads, writes and asks the AI. The
+    // interface is where a demo card hides its logic; this is what makes it
+    // readable on the canvas, by the assistant and on the card's own page.
+    const manifest = world.rootComponent ? frontendManifest(world.rootComponent.files, world.rootComponent.entryFile) : null;
     nodes.push({
       id: "frontend", kind: "component", title: world.rootComponent?.name || "Frontend",
       ports: [
@@ -525,6 +533,7 @@ export function toGraph(world: WorldLogic, options?: ToGraphOptions): CardGraph 
       data: {
         drillTarget: "code-view", slotIds, readIds,
         ...(uiScan.dynamicReads > 0 ? { dynamicReads: uiScan.dynamicReads } : {}),
+        ...(manifest ? { files: manifest.files, aiCalls: manifest.aiCalls, uses: manifest.uses } : {}),
       },
     });
     // "Which variable drives this panel?" — the wire the whole canvas was for.

@@ -404,11 +404,12 @@ export const WRITE_TOOLS: ToolDefinition[] = [
           conditions: { type: "array", items: { type: "object", properties: { variableId: { type: "string" }, operator: { type: "string" }, value: {} } }, description: "State conditions: [{ variableId, operator, value }]" },
           conditionLogic: { type: "string", enum: ["all", "any"] },
           elseMessage: { type: "string", description: "A notice shown to the player when this behavior's event happens but its conditions do not hold ('金币不够，还差 {参数.价格}')." },
+          custom: { type: "boolean", description: "自定义 — the behavior is a declared slot that code implements (its `code`, or api.executeAction(id) from the interface); its when/if/then are not what runs it. Set when the creator picked 自定义 on the canvas or asks for a behavior that only code can do; keep it when you implement one." },
           code: { type: "string", description: "代码行为 — the escape hatch: the creator's own JavaScript, run in the card's sandbox when the behavior fires (only while the game is open). It gets ctx: vars, get(name), set(name,v), add(name,n), push(name,x), toast(text), say(text), callAi(ai,input) → Promise, random(a,b), event. Use only for what conditions/effects cannot say (parsing, settling a game, multi-step logic)." },
           then: {
             type: "array",
             items: { type: "object", properties: { type: { type: "string" }, path: { type: "string" }, value: {}, operation: { type: "string" }, valueRef: { type: "string" }, valueRandom: { type: "object" } } },
-            description: "Effects: [{ type:'set', path:'variableId', value:..., operation:'set'|'add'|'subtract'|'multiply'|'toggle'|'append' }]. The value can be a literal, valueRef (another variable's value), or valueRandom (a random draw resolved at fire time): { kind:'range', min, max, integer? } | { kind:'dice', count, sides, modifier? } | { kind:'list', candidates:[...], weights?:[...], cooldown?:N, historyVar?:'var', onExhausted?:'full'|'keep' }. For a list draw the operation must be 'set'. Also: { type:'emit', event:{ type:'ui:notification', message:'...' } }. System paths: '@vars.enabled.<variableId>' with a boolean value toggles that variable's enable gate (see write_variable activation).",
+            description: "Effects: [{ type:'set', path:'variableId', value:..., operation:'set'|'add'|'subtract'|'multiply'|'toggle'|'append' }]. The value can be a literal, valueRef (another variable's value), or valueRandom (a random draw resolved at fire time): { kind:'range', min, max, integer? } | { kind:'dice', count, sides, modifier? } | { kind:'list', candidates:[...], weights?:[...], cooldown?:N, historyVar?:'var', onExhausted?:'full'|'keep' }. For a list draw the operation must be 'set'. Also: { type:'emit', event:{ type:'ui:notification', message:'...' } }. System paths: '@vars.enabled.<variableId>' with a boolean value toggles that variable's enable gate (see write_variable activation); '@worldbooks.on.<worldbookId>' with a boolean value switches a manual- or keywords-mode scenario on/off for the session.",
           },
           priority: { type: "number" },
           enabled: { type: "boolean" },
@@ -718,7 +719,7 @@ export const WRITE_TOOLS: ToolDefinition[] = [
             properties: {
               kind: {
                 type: "string",
-                enum: ["narrator", "worker"],
+                enum: ["narrator", "worker", "custom"],
                 description:
                   "narrator = while this module is active, ITS AI answers the player (its own model, its own context inputs). At most one narrator is active at a time; ties break by order. worker = never speaks to the player; runs when triggered and its written output becomes context other modules can drink. A '总结模块/史官' is a worker.",
               },
@@ -730,7 +731,7 @@ export const WRITE_TOOLS: ToolDefinition[] = [
               inputs: {
                 type: "array",
                 description:
-                  "What context flows INTO this station, in injection order. This is the wiring the creator sees as lines on the canvas. Omit or [] for a station that only knows its own module.",
+                  "What context flows INTO this station, in injection order. This is the wiring the creator sees as lines on the canvas. Omit or [] for a station that only knows its own module. Ignored by a worker with trigger { on: \"ui\" } (it sees what sees/variables/history give it) or { on: \"quiet\" } (it reads the story itself) — do not wire those.",
                 items: {
                   type: "object",
                   properties: {

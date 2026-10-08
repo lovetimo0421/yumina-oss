@@ -796,7 +796,7 @@ export function LibraryAssetsTab({
           <button
             onClick={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } handleCreateFolder(); }}
             title={t("assets.newFolder")}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground border border-border hover:bg-white/5 hover:text-foreground transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-foreground border border-primary/50 bg-primary/10 hover:border-primary hover:bg-primary/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary transition-colors"
           >
             <FolderPlus size={14} />
             {t("assets.newFolder")}
@@ -807,6 +807,7 @@ export function LibraryAssetsTab({
           selectedCount={selectedAssetIds.size}
           totalCount={childAssets.length}
           selectLabel={t("assets.multiSelect")}
+          selectClassName="border-primary/50 bg-primary/10 text-foreground hover:border-primary hover:bg-primary/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           onToggle={() => (bulkMode ? exitBulkMode() : setBulkMode(true))}
           onSelectAll={() => setSelectedAssetIds(new Set(childAssets.map((a) => a.id)))}
           onClear={() => setSelectedAssetIds(new Set())}

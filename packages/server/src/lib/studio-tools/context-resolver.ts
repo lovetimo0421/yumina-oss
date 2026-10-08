@@ -4,7 +4,7 @@ import type {
   Rule,
   CustomUIComponent,
 } from "@yumina/engine";
-import { resolveStation } from "@yumina/engine";
+import { extractAiCallsFromFiles, frontendFileFacts, resolveStation } from "@yumina/engine";
 import type { Reaction } from "@yumina/engine";
 import { isContinuityEnabled, isContinuityOwned, isSceneImageJudgeOn } from "@yumina/engine";
 import { loadAssetCatalog, formatAssetCatalog } from "./asset-catalog.js";
@@ -297,6 +297,29 @@ export function buildInventory(world: WorldDefinition, assets: AssetSummary[]): 
   // entries with no book belong to the always-on Core. Two-layer gating: book
   // activation runs BEFORE each member entry's own alwaysSend/keyword/condition.
   const worldbooks = world.worldbooks ?? [];
+  // 自定义 slots: a custom AI or behaviour the creator declared on the canvas
+  // for code to implement. The scan says what implements it so far; the
+  // recipe says how, since the one reading this is the one who will write it.
+  const uiFiles = world.rootComponent?.files ?? {};
+  const aiCalls = extractAiCallsFromFiles(uiFiles);
+  const implementsAi = (bookId: string) => aiCalls
+    .filter((c) => c.worldbookIds.includes(bookId) || c.worldbookIdPrefixes.some((p) => bookId.startsWith(p)))
+    .map((c) => `${c.file}:${c.line} (api.ai.${c.kind})`);
+  const firesBehavior = (reactionId: string): string[] => {
+    const out: string[] = [];
+    const re = /\bexecuteAction\s*\(\s*["'`]([^"'`]+)["'`]/g;
+    for (const [file, src] of Object.entries(uiFiles)) {
+      if (typeof src !== "string" || !src.includes("executeAction")) continue;
+      let m: RegExpExecArray | null;
+      for (re.lastIndex = 0; (m = re.exec(src)) !== null;) if (m[1] === reactionId) out.push(`${file}:${src.slice(0, m.index).split("\n").length}`);
+    }
+    return out;
+  };
+  const customAis = worldbooks.filter((b) => b.station?.kind === "custom");
+  const customBehaviors = (world.reactions ?? []).filter((r) => r.custom);
+  if (customAis.length > 0 || customBehaviors.length > 0) {
+    parts.push(`\nCUSTOM SLOTS (自定义) — the creator declared these on the canvas for CODE to implement; a sticky note on one says what it should do. Implement a custom AI by calling api.ai.complete({ messages, context: "session", includeLorebook: "matched", worldbookIds: ["<module id>"] }) from the rootComponent (its entries become that call's lore), or — when the declared shape fits — turn it into a worker station (write_worldbook station { kind: "worker", trigger: { on: "ui" }, output... }) and call api.callAi("<name>"). Implement a custom behaviour by giving it \`code\` (write_behavior; ctx.get/set/add/push/toast/say/callAi) or by firing it from the interface with api.executeAction("<behavior id>"). Read the note first; keep the slot (do not change its kind) unless the creator says otherwise.`);
+  }
   if (worldbooks.length > 0) {
     parts.push(`\nMODULES / WORLDBOOKS (${worldbooks.length}) — members with no book = always-on Core; an inactive module gates its entries AND variables AND behaviors:`);
     for (const wb of [...worldbooks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
@@ -317,7 +340,10 @@ export function buildInventory(world: WorldDefinition, assets: AssetSummary[]): 
       if (behCount > 0) members.push(`${behCount} behavior${behCount === 1 ? "" : "s"}`);
       const off = wb.enabled === false ? " DISABLED" : "";
       const st = resolveStation(wb);
-      const run = !st
+      const impl = wb.station?.kind === "custom" ? implementsAi(wb.id) : [];
+      const run = wb.station?.kind === "custom"
+        ? ` [CUSTOM AI (自定义): a slot for code to implement — ${impl.length ? `implemented by ${impl.join(", ")}` : "NOT IMPLEMENTED YET; see CUSTOM SLOTS above"}]`
+        : !st
         ? ""
         : st.kind === "worker"
           ? " [WORKER station: background AI, never speaks to the player; its output is context for others]"
@@ -423,7 +449,15 @@ export function buildInventory(world: WorldDefinition, assets: AssetSummary[]): 
     for (const r of reactions) {
       const flags = !r.enabled ? " DISABLED" : "";
       const book = r.worldbookId ? ` book=${r.worldbookId}` : "";
-      parts.push(`  ${r.id}: "${r.name}" [${r.when.eventType}] priority=${r.priority}${book}${flags}`);
+      let custom = "";
+      if (r.custom) {
+        const by = [
+          ...(r.code?.trim() ? [`its own code (${r.code.split("\n").length} lines)`] : []),
+          ...firesBehavior(r.id).map((at) => `interface code at ${at} (api.executeAction)`),
+        ];
+        custom = ` [CUSTOM (自定义): a slot for code to implement — ${by.length ? `implemented by ${by.join(", ")}` : "NOT IMPLEMENTED YET; see CUSTOM SLOTS above"}]`;
+      }
+      parts.push(`  ${r.id}: "${r.name}" [${r.when.eventType}] priority=${r.priority}${book}${flags}${custom}`);
     }
   }
 
@@ -453,7 +487,16 @@ export function buildInventory(world: WorldDefinition, assets: AssetSummary[]): 
       const bigMark = code.length > UI_PRELOAD_MAX_FILE_CHARS
         ? " — large; read on demand with grep_world / read_entities(offset_lines)"
         : "";
-      parts.push(`    file: "${fn}" [${kb}KB]${entryMark}${bigMark}`);
+      // What the file DOES, so the agent can find the logic without reading
+      // 600KB of TSX: variables it reads/writes, AI calls, platform APIs.
+      const facts = frontendFileFacts(fn, code);
+      const doing = [
+        facts.reads.length ? `reads=[${facts.reads.join(",")}]` : "",
+        facts.writes.length ? `writes=[${facts.writes.join(",")}]` : "",
+        facts.aiCalls.length ? `ai-calls=${facts.aiCalls.length}(${facts.aiCalls.map((c) => c.kind + (c.worldbookIds.length ? ":" + c.worldbookIds.join("|") : c.worldbookIdPrefixes.length ? ":" + c.worldbookIdPrefixes.join("|") + "*" : "")).join(",")})` : "",
+        facts.uses.filter((u) => u !== "ai").length ? `uses=[${facts.uses.filter((u) => u !== "ai").join(",")}]` : "",
+      ].filter(Boolean).join(" ");
+      parts.push(`    file: "${fn}" [${kb}KB]${entryMark}${bigMark}${doing ? " · " + doing : ""}`);
     }
   }
   // The no-code interface document. One line per page keeps the inventory

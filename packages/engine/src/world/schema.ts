@@ -33,6 +33,14 @@ export const worldbookActivationSchema = z.union([
   }),
 ]);
 
+export const variableFieldSchema = z.object({
+  path: z.string().min(1).max(200),
+  type: z.enum(["number", "string", "boolean", "json"]).optional(),
+  label: z.string().max(200).optional(),
+  description: z.string().max(2000).optional(),
+  writer: z.enum(["ui", "ai", "behavior", "ai-call"]).optional(),
+});
+
 export const variableSchema = z.object({
   id: z.string(),
   // Module membership: which worldbook this object belongs to (undefined = Core). Orphans fail open.
@@ -71,6 +79,7 @@ export const variableSchema = z.object({
   // Player-edit authorization for the optional Lore Shift extension. This is
   // independent from every card-authored state mutation path and fails closed.
   liveCanonEditable: z.boolean().optional().default(false),
+  fields: z.array(variableFieldSchema).max(64).optional(),
 });
 
 export const effectSchema = z.object({
@@ -300,6 +309,7 @@ export const reactionSchema = z.object({
   maxChainDepth: z.number().int().min(1).max(20).optional(),
   elseMessage: z.string().max(500).optional(),
   code: z.string().max(20000).optional(),
+  custom: z.boolean().optional(),
 });
 
 /** @deprecated Use worldEntrySchema instead */
@@ -424,7 +434,7 @@ export const workerTriggerSchema = z.discriminatedUnion("on", [
 ]);
 
 export const moduleStationSchema = z.object({
-  kind: z.enum(["narrator", "worker"]),
+  kind: z.enum(["narrator", "worker", "custom"]),
   model: z.string().max(200).optional(),
   inputs: z.array(moduleContextInputSchema).max(12).optional(),
   history: z.enum(["shared", "own"]).optional(),

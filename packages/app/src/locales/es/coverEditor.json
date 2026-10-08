@@ -1825,7 +1825,7 @@
     "title": "Vista general",
     "description": "Galería, anuncios y detalles adicionales para la página pública de tu mundo",
     "importJson": "Importar archivo",
-    "importJsonDesc": "Importa una tarjeta que exportaste antes (`.json`) o una tarjeta de personaje de SillyTavern (`.png` / `.json`). Reemplaza todo el contenido de esta tarjeta.",
+    "importJsonDesc": "Importa una tarjeta que exportaste antes (`.json`) o una tarjeta de personaje (`.png` / `.json`). Reemplaza todo el contenido de esta tarjeta.",
     "chooseFile": "Elegir archivo",
     "confirmReplaceWorld": "Esto reemplazará el contenido actual del mundo (entradas, variables, reglas, componentes, etc.) con el JSON importado. Se conservarán el ID del mundo, la galería, las etiquetas y el estado de publicación. Guarda después para aplicar la actualización. ¿Continuar?",
     "importReplacedSaveReminder": "haz clic en Guardar para actualizar el mundo publicado",

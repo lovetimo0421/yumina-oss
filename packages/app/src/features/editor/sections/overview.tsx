@@ -169,6 +169,7 @@ export function OverviewSection({ embedded = false }: { embedded?: boolean } = {
           registerBody: ({ key }) => ({ key, target }),
         });
 
+        if (useEditorStore.getState().serverWorldId !== id) return;
         adoptOwnWriteToken(id, data);
         const draft = useEditorStore.getState().worldDraft;
         setField(target === "landscape" ? "landscapeCover" : "avatar", data.thumbnailUrl);
@@ -225,6 +226,7 @@ export function OverviewSection({ embedded = false }: { embedded?: boolean } = {
           return;
         }
         const { data } = await res.json();
+        if (useEditorStore.getState().serverWorldId !== id) return;
         adoptOwnWriteToken(id, data);
         const draft = useEditorStore.getState().worldDraft;
         setField(target === "landscape" ? "landscapeCover" : "avatar", data.thumbnailUrl);

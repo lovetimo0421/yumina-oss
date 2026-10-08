@@ -14,6 +14,8 @@ import {
   type GameState,
   type WorldDefinition,
   type Worldbook,
+  sendsEveryTurn,
+  applyReplyRules,
 } from "@yumina/engine";
 import { db } from "../db/index.js";
 import { messages, playSessions } from "../db/schema.js";
@@ -137,7 +139,7 @@ export function buildQuietPrompt(args: {
   // whose story it is. Always-sent card entries only, never another
   // situation's lore.
   const worldLore = (args.world.entries ?? [])
-    .filter((e) => !e.worldbookId && e.enabled !== false && e.alwaysSend && e.role !== "greeting")
+    .filter((e) => !e.worldbookId && e.role !== "greeting" && sendsEveryTurn(e, args.state.ruleState?.toggledEntries, args.world.loreUiBindings))
     .map((e) => e.content)
     .filter(Boolean)
     .join("\n\n")
@@ -272,8 +274,12 @@ export async function runQuietTick(args: { sessionId: string; userId: string; wo
   if (!raw.trim() || SILENT.test(raw)) { outcome("silent"); return { ran: true, spoke: false, speaker: who }; }
 
   const parsed = responseParser.parse(raw);
+  // 回复处理 applies to an AI that cuts in, the same as to the narrator.
+  const ruled = applyReplyRules(world, parsed.cleanText);
+  parsed.effects.push(...ruled.effects);
   const storyEvents = takeStoryEvents(parsed.effects, world, scene);
-  const text = stripStageNotes(parsed.cleanText);
+  storyEvents.push(...ruled.events);
+  const text = stripStageNotes(ruled.text);
   const says = text && !SILENT.test(text) ? text : "";
   // Nothing to say and nothing to change is silence. Values without words is
   // a real answer: time passed and the corrosion rose.
@@ -357,6 +363,7 @@ export async function runQuietTick(args: { sessionId: string; userId: string; wo
       changes: allChanges,
       changeTrace,
       storyEvents,
+      ...(ruled.channels.length > 0 ? { replyChannels: ruled.channels } : {}),
       firedIds: rules.firedIds,
       notifications: rules.notifications,
     };

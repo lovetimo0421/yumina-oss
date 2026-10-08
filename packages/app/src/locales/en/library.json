@@ -463,7 +463,7 @@
     "blank": "Blank Project",
     "blankDesc": "An empty world with only the default narration.",
     "importWorld": "Import World",
-    "importWorldDesc": "A SillyTavern character card (PNG or JSON), or an exported Yumina card.",
+    "importWorldDesc": "Import a world or character card (PNG or JSON).",
     "characterChat": "Character Chat",
     "characterChatDesc": "Create a character for one-on-one chat.",
     "worldSimulation": "World Simulation",

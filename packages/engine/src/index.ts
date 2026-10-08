@@ -3,6 +3,7 @@ export { getAiAudioTracks, filterAiAudioEffects, isLoopingTrack, filterResumable
 // Types
 export type {
   Variable,
+  VariableField,
   VariableActivation,
   Condition,
   Rule,
@@ -251,6 +252,8 @@ export {
   getEntryBoundSlotId,
   getUiBoundEntryIds,
   isLoreSlotActive,
+  isStandbyOn,
+  sendsEveryTurn,
   isUiBoundEntry,
   isVariableBoundEntry,
 } from "./lorebook/entry-triggers.js";
@@ -483,6 +486,12 @@ export { uiDocVariableRefs, pageVariableRefs, pageBehaviorRefs, remapUiVariable,
 export { diffGraphs } from "./graph/graph-diff.js";
 export type { GraphDiff } from "./graph/graph-diff.js";
 export type { VariableReadScan } from "./graph/variable-read-scan.js";
+export { extractAiCallsFromFiles } from "./graph/ai-call-scan.js";
+export type { FrontendAiCall, FrontendAiCallKind } from "./graph/ai-call-scan.js";
+export { frontendManifest, frontendFileFacts } from "./graph/frontend-manifest.js";
+export type { FrontendManifest, FrontendFileFacts, FrontendApiFamily } from "./graph/frontend-manifest.js";
+export { summarizeCustomization } from "./world/customization-summary.js";
+export type { CustomizationSummary } from "./world/customization-summary.js";
 export { canConnect } from "./graph/legality.js";
 export {
   BLOCK_ROW_LIMIT,

@@ -741,7 +741,7 @@
     "title": "Card settings",
     "description": "Name, cover, announcements and the card's public page",
     "importJson": "Import File",
-    "importJsonDesc": "Import a card you exported before (`.json`) or a SillyTavern character card (`.png` / `.json`). This replaces everything in this card.",
+    "importJsonDesc": "Import a card you exported before (`.json`) or a character card (`.png` / `.json`). This replaces everything in this card.",
     "chooseFile": "Choose File",
     "confirmReplaceWorld": "This will replace the current world's contents (entries, variables, rules, components, etc.) with the imported JSON. The world ID, gallery, tags, and publish status will be kept. Save afterwards to apply the update. Continue?",
     "importReplacedSaveReminder": "click Save to update the published world",
@@ -1099,10 +1099,12 @@
       "cancelTimer": "Cancel timer",
       "toggleBehavior": "Enable/disable behavior",
       "toggleVariable": "Enable/disable variable",
+      "toggleScenario": "Enable/disable scenario",
       "moment": "Unlock a moment"
     },
     "doFields": {
       "variable": "Variable to change",
+      "scenario": "Scenario",
       "operation": "Operation",
       "value": "Value",
       "instructionId": "Instruction ID",
@@ -4442,12 +4444,13 @@
       "history": "Recent messages it reads",
       "addVariable": "+ a variable",
       "sees": "What it sees",
-      "title": "Custom"
+      "title": "Answer format"
     },
     "aiType": {
       "code": "Code-based",
       "ui": "UI-based",
-      "turn": "Turn-based"
+      "turn": "Turn-based",
+      "custom": "Custom"
     },
     "placeAis": {
       "jobUi": "when the player interface calls it",
@@ -4475,7 +4478,17 @@
       "jobAfter": "behind the scenes · after an AI answers",
       "jobConditions": "behind the scenes · when a value meets a condition",
       "jobClosed": "behind the scenes · when a scenario ends",
-      "jobBehind": "behind the scenes"
+      "jobBehind": "behind the scenes",
+      "codeCallName": "Interface code · {{file}}",
+      "jobFromCode": "called from the interface code · {{file}} line {{line}}",
+      "jobFromCodeHere": "called from the interface code in this situation",
+      "memLoreMatched": "reads entries by keyword",
+      "memLoreAll": "reads every entry",
+      "memLoreNone": "reads no entries",
+      "linkReadsModules": "limited to {{names}}",
+      "linkPicksModule": "picks one of {{names}} at runtime",
+      "jobImplemented": "implemented in interface code · {{file}} line {{line}}",
+      "jobUnimplemented": "not implemented yet"
     },
     "gameData": {
       "readBy": "Read by",
@@ -4871,7 +4884,7 @@
     "insp": {
       "persistPlayer": "Kept across playthroughs (for this player)",
       "code": "Code (runs in the card while playing)",
-      "elseMessagePlaceholder": "Not enough gold — {参数.价格} needed",
+      "elseMessagePlaceholder": "Not enough gold — {param.price} needed",
       "elseMessage": "If the conditions don't hold, say",
       "formulaPlaceholder": "e.g. Base attack * (1 + Level * 0.1)",
       "formula": "Formula (worked out automatically)",
@@ -5030,7 +5043,23 @@
       "unplaced": "Outside (not in play)",
       "openPage": "Open full page",
       "playtestSaveFirst": "Save this card first to playtest it.",
-      "playtestNoSession": "The playtest could not start. Please try again."
+      "playtestNoSession": "The playtest could not start. Please try again.",
+      "frontendFiles": "Files",
+      "frontendAiCalls": "AI calls in the code",
+      "frontendUses": "Platform features used",
+      "frontendFileLine": "{{lines}} lines",
+      "varFields": "What is inside",
+      "varFieldsHint": "List the fields inside the json and who writes them.",
+      "varFieldAdd": "Add a field",
+      "varFieldPath": "Path (weather, or drama.actors)",
+      "varFieldType": "Type",
+      "varFieldWriter": "Written by",
+      "varFieldWriter_ui": "interface code",
+      "varFieldWriter_ai": "AI directives",
+      "varFieldWriter_behavior": "a behaviour",
+      "varFieldWriter_ai-call": "a custom AI call",
+      "varFieldWriterAny": "not said",
+      "varFieldRemove": "Remove this field"
     },
     "addModule": "Scenario",
     "addVariable": "Variable",
@@ -5932,6 +5961,92 @@
         "platform": "Platform pays"
       },
       "boardNote": "What's lit on the board is what this call sees; what's dimmed, it doesn't."
+    },
+    "codeCall": {
+      "intro": "An AI call made by the interface code; its settings are in the code. This is what the scan found.",
+      "kind": "Kind",
+      "kind_complete": "generates a reply",
+      "kind_decide": "picks a choice",
+      "kind_context": "assembles context only",
+      "lore": "Lore it reads",
+      "loreNone": "none of the card's entries",
+      "loreAll": "every enabled entry",
+      "loreMatched": "entries matched by keyword",
+      "loreRaw": "no card lore",
+      "situations": "Limited to",
+      "situationsDynamic": "decided at runtime",
+      "picksSituation": "picks one of",
+      "session": "Rides the player's session",
+      "yes": "yes",
+      "no": "no",
+      "answer": "Answer",
+      "answerJson": "JSON",
+      "answerText": "plain text",
+      "model": "Model",
+      "openAt": "Open {{file}} at line {{line}}"
+    },
+    "files": {
+      "summary": "Interface code · {{files}} files · {{lines}} lines",
+      "reads": "reads {{count}} variables",
+      "writes": "writes {{count}} variables",
+      "aiCalls": "{{count}} AI calls",
+      "readsList": "Reads: {{names}}",
+      "writesList": "Writes: {{names}}",
+      "usesList": "Uses: {{names}}",
+      "lines": "{{count}} lines",
+      "chipReads": "reads {{count}}",
+      "chipWrites": "writes {{count}}",
+      "chipAi": "AI ×{{count}}",
+      "more": "{{count}} more files",
+      "use_ai": "AI calls",
+      "use_room": "multiplayer room",
+      "use_voice": "voice input",
+      "use_tts": "speech",
+      "use_storage": "saved data",
+      "use_media": "media library",
+      "use_social": "social sim",
+      "use_audio": "audio",
+      "use_assets": "assets",
+      "use_chat": "chat actions",
+      "use_session": "save actions"
+    },
+    "hints": {
+      "title": "Also writable by hand",
+      "ai": {
+        "codeCall": {
+          "title": "AI call",
+          "body": "api.ai.complete; model, lore and answer shape are yours"
+        },
+        "replyRules": {
+          "title": "Answer parsing",
+          "body": "reply rules, or a code behaviour into variables"
+        },
+        "ownAi": {
+          "title": "Outside AI",
+          "body": "“Connect your AI” in the top bar (MCP)"
+        }
+      },
+      "behavior": {
+        "codeBehavior": {
+          "title": "Code behaviour",
+          "body": "JS; reads all variables, returns changes"
+        },
+        "fromCode": {
+          "title": "Fired from the interface",
+          "body": "api.executeAction(id)"
+        }
+      }
+    },
+    "custom": {
+      "mode_rule": "Rule",
+      "mode_custom": "Custom",
+      "empty": "Nothing implements this yet.",
+      "noteHint": "You can stick a note saying what it should do; the assistant or an outside AI writes it.",
+      "aiIntro": "Implemented by interface code. Below: the AI calls that read this situation.",
+      "behaviorIntro": "Implemented by code.",
+      "implementedBy": "Implemented in {{count}} places",
+      "implementedCode": "Own code · {{count}} lines",
+      "firedFrom": "Fired from interface code · {{file}} line {{line}}"
     }
   },
   "modules": {

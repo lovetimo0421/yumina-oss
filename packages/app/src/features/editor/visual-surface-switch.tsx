@@ -99,7 +99,7 @@ export function VisualSurfaceSwitch({ on, onToggle, disabled, tour = "studio", i
           className,
         )}
       >
-        <Workflow className={cn("h-3.5 w-3.5 transition-transform", on ? "rotate-[-8deg]" : "group-hover:rotate-[-8deg]")} />
+        <Workflow className="h-3.5 w-3.5" />
         <span>{t(studio ? "shell.studioSwitch" : "shell.visualSwitch")}</span>
         <span
           aria-hidden
@@ -110,7 +110,7 @@ export function VisualSurfaceSwitch({ on, onToggle, disabled, tour = "studio", i
         >
           <span
             className={cn(
-              "absolute top-[3px] h-2.5 w-2.5 rounded-full bg-background shadow-sm transition-all duration-200",
+              "absolute top-[2px] h-2.5 w-2.5 rounded-full bg-background shadow-sm transition-all duration-200",
               on ? "left-[15px]" : "left-[3px]",
             )}
           />

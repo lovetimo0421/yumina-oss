@@ -732,7 +732,7 @@
     "title": "卡的設定",
     "description": "名字、封面、公告和卡的公開頁面",
     "importJson": "匯入檔案",
-    "importJsonDesc": "匯入之前匯出的卡片（`.json`），或 SillyTavern 角色卡（`.png` / `.json`）。會替換這張卡現在的全部內容。",
+    "importJsonDesc": "匯入之前匯出的卡片（`.json`），或角色卡（`.png` / `.json`）。會替換這張卡現在的全部內容。",
     "chooseFile": "選擇檔案",
     "confirmReplaceWorld": "這會用匯入的 JSON 替換當前世界的內容（詞條、變數、規則、元件等）。世界 ID、封面相簿、標籤、釋出狀態會保留。匯入後請點選儲存以應用更新。是否繼續？",
     "importReplacedSaveReminder": "點選儲存以更新已釋出的世界",
@@ -1086,6 +1086,7 @@
       "cancelTimer": "取消計時器",
       "toggleBehavior": "啟用/禁用行為",
       "toggleVariable": "啟用/禁用變數",
+      "toggleScenario": "啟用/禁用情境",
       "moment": "解鎖一個時刻"
     },
     "doFields": {
@@ -1113,6 +1114,7 @@
       "momentImage": "圖片（連結）",
       "momentTitlePlaceholder": "初遇",
       "momentTitle": "標題",
+      "scenario": "情境",
       "variable": "要改的變數"
     },
     "doCategories": {
@@ -4392,12 +4394,13 @@
       "history": "讀最近幾條對話",
       "addVariable": "＋ 一個變數",
       "sees": "它看得到",
-      "title": "自訂"
+      "title": "回答格式"
     },
     "aiType": {
       "code": "程式型",
       "ui": "介面型",
-      "turn": "回合型"
+      "turn": "回合型",
+      "custom": "自訂"
     },
     "placeAis": {
       "jobUi": "玩家介面叫它時",
@@ -4425,7 +4428,17 @@
       "jobAfter": "幕後 · 某個 AI 回覆之後",
       "jobConditions": "幕後 · 數值滿足條件時",
       "jobClosed": "幕後 · 某個情境結束時",
-      "jobBehind": "幕後"
+      "jobBehind": "幕後",
+      "codeCallName": "介面程式碼 · {{file}}",
+      "jobFromCode": "由介面程式碼呼叫 · {{file}} 第 {{line}} 行",
+      "jobFromCodeHere": "介面程式碼在這個情境下呼叫",
+      "memLoreMatched": "按關鍵詞讀詞條",
+      "memLoreAll": "讀所有詞條",
+      "memLoreNone": "不讀詞條",
+      "linkReadsModules": "限定讀 {{names}}",
+      "linkPicksModule": "執行時在 {{names}} 裡挑一個",
+      "jobImplemented": "由介面程式碼實作 · {{file}} 第 {{line}} 行",
+      "jobUnimplemented": "還沒有實作"
     },
     "gameData": {
       "readBy": "誰在讀",
@@ -4978,7 +4991,23 @@
       "unplaced": "放在外面（沒生效）",
       "openPage": "打開整頁",
       "playtestSaveFirst": "先儲存這張卡，才能試玩。",
-      "playtestNoSession": "沒能開始試玩，請再試一次。"
+      "playtestNoSession": "沒能開始試玩，請再試一次。",
+      "frontendFiles": "檔案",
+      "frontendAiCalls": "程式碼裡的 AI 呼叫",
+      "frontendUses": "用到的平台能力",
+      "frontendFileLine": "{{lines}} 行",
+      "varFields": "裡面有什麼",
+      "varFieldsHint": "列出 json 裡有哪些欄位、誰寫它。",
+      "varFieldAdd": "加一個欄位",
+      "varFieldPath": "路徑（如 weather 或 drama.actors）",
+      "varFieldType": "類型",
+      "varFieldWriter": "誰寫它",
+      "varFieldWriter_ui": "介面程式碼",
+      "varFieldWriter_ai": "AI 指令",
+      "varFieldWriter_behavior": "行為",
+      "varFieldWriter_ai-call": "自訂 AI 呼叫",
+      "varFieldWriterAny": "未說明",
+      "varFieldRemove": "刪掉這個欄位"
     },
     "addModule": "情境",
     "addVariable": "變數",
@@ -5870,6 +5899,92 @@
         "platform": "平台付"
       },
       "boardNote": "畫布上亮著的，就是它這一次看得到的；暗下去的它看不到。"
+    },
+    "codeCall": {
+      "intro": "介面程式碼發起的 AI 呼叫，參數在程式碼裡。這裡是掃描結果。",
+      "kind": "類型",
+      "kind_complete": "生成一段回答",
+      "kind_decide": "選一個選項",
+      "kind_context": "只組裝上下文，不生成",
+      "lore": "讀的資料",
+      "loreNone": "不讀卡裡的詞條",
+      "loreAll": "讀所有啟用的詞條",
+      "loreMatched": "按關鍵詞匹配詞條",
+      "loreRaw": "不帶卡的資料",
+      "situations": "限定情境",
+      "situationsDynamic": "執行時決定",
+      "picksSituation": "在這些情境裡挑一個",
+      "session": "帶玩家的存檔上下文",
+      "yes": "是",
+      "no": "否",
+      "answer": "回答格式",
+      "answerJson": "JSON",
+      "answerText": "純文字",
+      "model": "指定模型",
+      "openAt": "打開 {{file}} 第 {{line}} 行"
+    },
+    "files": {
+      "summary": "介面程式碼 · {{files}} 個檔案 · {{lines}} 行",
+      "reads": "讀 {{count}} 個變數",
+      "writes": "寫 {{count}} 個變數",
+      "aiCalls": "{{count}} 處呼叫 AI",
+      "readsList": "讀：{{names}}",
+      "writesList": "寫：{{names}}",
+      "usesList": "用到：{{names}}",
+      "lines": "{{count}} 行",
+      "chipReads": "讀 {{count}}",
+      "chipWrites": "寫 {{count}}",
+      "chipAi": "AI ×{{count}}",
+      "more": "還有 {{count}} 個檔案",
+      "use_ai": "AI 呼叫",
+      "use_room": "連線房間",
+      "use_voice": "語音輸入",
+      "use_tts": "語音朗讀",
+      "use_storage": "存檔資料",
+      "use_media": "媒體庫",
+      "use_social": "社交模擬",
+      "use_audio": "音訊",
+      "use_assets": "素材",
+      "use_chat": "聊天操作",
+      "use_session": "存檔操作"
+    },
+    "hints": {
+      "title": "還能自己寫的",
+      "ai": {
+        "codeCall": {
+          "title": "AI 呼叫",
+          "body": "api.ai.complete，模型、詞條、輸出格式自己定"
+        },
+        "replyRules": {
+          "title": "回答解析",
+          "body": "回覆處理規則，或程式碼行為拆進變數"
+        },
+        "ownAi": {
+          "title": "外部 AI",
+          "body": "頂欄「連接你的 AI」(MCP)"
+        }
+      },
+      "behavior": {
+        "codeBehavior": {
+          "title": "程式碼行為",
+          "body": "JS，讀全部變數，回傳改動"
+        },
+        "fromCode": {
+          "title": "從介面觸發",
+          "body": "api.executeAction(id)"
+        }
+      }
+    },
+    "custom": {
+      "mode_rule": "規則",
+      "mode_custom": "自訂",
+      "empty": "還沒有實作。",
+      "noteHint": "可以貼張便籤說要做什麼，創作助手或外部 AI 會來寫。",
+      "aiIntro": "由介面程式碼實作。下面是讀了這個情境的 AI 呼叫。",
+      "behaviorIntro": "由程式碼實作。",
+      "implementedBy": "實作在 {{count}} 處",
+      "implementedCode": "自己的程式碼 · {{count}} 行",
+      "firedFrom": "介面程式碼觸發 · {{file}} 第 {{line}} 行"
     }
   },
   "modules": {

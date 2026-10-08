@@ -1894,7 +1894,7 @@
     "title": "Overview",
     "description": "Gallery, announcements, and additional details for your world's public page",
     "importJson": "Import File",
-    "importJsonDesc": "Import a card you exported before (`.json`) or a SillyTavern character card (`.png` / `.json`). This replaces everything in this card.",
+    "importJsonDesc": "Import a card you exported before (`.json`) or a character card (`.png` / `.json`). This replaces everything in this card.",
     "chooseFile": "Choose File",
     "confirmReplaceWorld": "This will replace the current world's contents (entries, variables, rules, components, etc.) with the imported JSON. The world ID, gallery, tags, and publish status will be kept. Save afterwards to apply the update. Continue?",
     "importReplacedSaveReminder": "click Save to update the published world",

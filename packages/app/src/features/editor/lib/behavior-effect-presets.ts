@@ -32,7 +32,12 @@ export interface DoField {
   options?: { value: string; label: string }[];
 }
 
-export function getDoPresets(t: TFn): DoPreset[] {
+/** Scenarios a behaviour can switch: places (情境), not the AIs that live in them. */
+export function switchableScenarios(worldbooks: ReadonlyArray<{ id: string; name: string; host?: string; station?: unknown }> | undefined): Array<{ value: string; label: string }> {
+  return (worldbooks ?? []).filter((wb) => wb.host === undefined && !wb.station).map((wb) => ({ value: wb.id, label: wb.name }));
+}
+
+export function getDoPresets(t: TFn, scenarios: Array<{ value: string; label: string }> = []): DoPreset[] {
   return [
     // Game
     {
@@ -65,6 +70,16 @@ export function getDoPresets(t: TFn): DoPreset[] {
       // Enable-gate override — while off, the variable leaves <game-state> and
       // the player UI but keeps its value. See state/variable-activation.ts.
       build: (input) => ({ type: "set", path: `@vars.enabled.${input.variableId ?? ""}`, value: input.enabled === "true", operation: "set" }),
+    },
+    {
+      id: "toggle-scenario", label: t("behaviors.doPresets.toggleScenario"), icon: Settings2, category: t("behaviors.doCategories.game"),
+      fields: [
+        { name: "worldbookId", label: t("behaviors.doFields.scenario"), type: "select", options: scenarios },
+        { name: "on", label: t("behaviors.doFields.state"), type: "select", options: [{ value: "true", label: t("behaviors.doFields.enable") }, { value: "false", label: t("behaviors.doFields.disable") }] },
+      ],
+      // The scenario's runtime switch — read by 只看启用开关 and keyword
+      // scenarios. See lorebook/worldbook.ts.
+      build: (input) => ({ type: "set", path: `@worldbooks.on.${input.worldbookId ?? ""}`, value: input.on !== "false", operation: "set" }),
     },
     // AI & Story
     {
@@ -171,6 +186,7 @@ export function identifyPreset(effect: ReactionEffect, presets: DoPreset[]): DoP
     if (e.path === "@ui.notification") return presets.find((p) => p.id === "notify") ?? null;
     if (e.path.startsWith("@rules.disabled.")) return presets.find((p) => p.id === "toggle-behavior") ?? null;
     if (e.path.startsWith("@vars.enabled.")) return presets.find((p) => p.id === "toggle-variable") ?? null;
+    if (e.path.startsWith("@worldbooks.on.")) return presets.find((p) => p.id === "toggle-scenario") ?? null;
     // @ai.request, @timer.start, @timer.cancel are intentionally not surfaced
     // — those runtime systems were removed. Legacy effects fall through to the
     // raw-effect display so creators can spot and delete them.
@@ -218,6 +234,10 @@ export function extractFieldValues(effect: ReactionEffect, preset: DoPreset | nu
       case "toggle-variable":
         fields.variableId = e.path.replace("@vars.enabled.", "");
         fields.enabled = e.value ? "true" : "false";
+        break;
+      case "toggle-scenario":
+        fields.worldbookId = e.path.replace("@worldbooks.on.", "");
+        fields.on = e.value === false ? "false" : "true";
         break;
     }
   }

@@ -801,6 +801,10 @@ export default function MyWorld() {
 
 **`renderBubble` props**: identical to the table under "Customizing Message Bubbles" above — `contentHtml`/`content`/`rawContent`/`role`/`messageIndex`/`variables`/`stateSnapshot`/`isStreaming`/`renderMarkdown` (see there for the `variables` vs `stateSnapshot` distinction).
 
+## Pattern: Implementing a custom AI slot (自定义 AI)
+
+A module whose station is `{ kind: "custom" }` is an AI the creator declared on the canvas for code to implement; its sticky note says what it should do. Implement it with a side call that reads that module's lore: `api.ai.complete({ messages, context: "session", includeLorebook: "matched", worldbookIds: ["<module id>"], responseFormat: { type: "json_object" } })`. The canvas then shows the call as that AI's implementation. Keep the station as it is.
+
 ## Pattern: Separate AI Conversation (Phone, NPC Dialogue)
 
 Use `api.ai.complete()` for any AI conversation that should NOT appear in the main chat. The component manages its own message history in React state.

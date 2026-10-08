@@ -35,7 +35,8 @@ const INPUT =
 
 type Kind = "content" | "narrator" | "worker";
 
-const kindOf = (book: Worldbook): Kind => book.station?.kind ?? "content";
+// A custom AI is implemented by interface code; the classic console treats it as content.
+const kindOf = (book: Worldbook): Kind => { const k = book.station?.kind; return k === "narrator" || k === "worker" ? k : "content"; };
 
 export function ModuleConsole({
   book,
@@ -93,6 +94,14 @@ export function ModuleConsole({
     () => diagnoseStation(book, [book, ...otherBooks]),
     [book, otherBooks],
   );
+
+  // An AI a button calls (server lib/ai-call.ts) or one that speaks up in a
+  // silence (lib/quiet-station.ts) never reads wires: what it sees is its
+  // 回答格式, or the story itself. Offering wires there let a creator wire in
+  // a dungeon's memories that never arrived.
+  const readsWires = !(station?.kind === "worker" && (station.trigger?.on === "ui" || station.trigger?.on === "quiet"));
+  // With the picker hidden, only some triggers have anything left to set.
+  const triggerHasDetail = ["conditions", "module-closed", "after", "turns", "quiet"].includes(station?.trigger?.on ?? "");
 
   const patchStation = (patch: Partial<ModuleStation>) => {
     if (!station) return;
@@ -212,7 +221,7 @@ export function ModuleConsole({
             </datalist>
           </details>
 
-          <div className={CARD} data-testid="station-inputs-entry">
+          {readsWires && <div className={CARD} data-testid="station-inputs-entry">
             <div className="flex items-center justify-between gap-2">
               <span className={LABEL}>{t("blueprint.station.inputs")}</span>
               <button
@@ -230,11 +239,11 @@ export function ModuleConsole({
                 : t("blueprint.station.inputsNone")}
             </p>
             {inputsOpen && <ModuleContextWires book={book} otherBooks={otherBooks} onChange={onChange} />}
-          </div>
+          </div>}
 
           {station.kind === "worker" && (
             <>
-              <div className={CARD}>
+              {(triggerPicker || triggerHasDetail) && <div className={CARD}>
                 {triggerPicker && <span className={LABEL}>{t("blueprint.station.trigger")}</span>}
                 {triggerPicker && <select
                   value={station.trigger?.on ?? ""}
@@ -365,7 +374,7 @@ export function ModuleConsole({
                     <span className={HINT}>{t("blueprint.station.quietSecondsUnit")}</span>
                   </label>
                 )}
-              </div>
+              </div>}
 
               <div className={CARD}>
                 <span className={cn(LABEL, "flex items-center gap-1.5")}>{t("blueprint.station.task")}<InfoTip text={t("blueprint.station.taskHint")} /></span>
@@ -461,7 +470,7 @@ export function ModuleMemorySettings({ book, otherBooks, onChange, summary = tru
       )}
       <details className={CARD}>
         <summary className="cursor-pointer text-xs font-medium text-muted-foreground">{t(station.kind === "worker" ? "blueprint.station.activityWorker" : "blueprint.station.activityRuns")}</summary>
-        <StationActivity bookId={book.id} kind={station.kind} />
+        <StationActivity bookId={book.id} kind={station.kind === "worker" ? "worker" : "narrator"} />
       </details>
     </>}
     {summary && <details className={CARD}>

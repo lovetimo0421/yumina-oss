@@ -36,6 +36,13 @@ export function describeCanvasTarget(world: WorldDefinition, id: string): string
   const scenario = (bookId: string) => `scenario "${books.find((b) => b.id === bookId)?.name ?? bookId}"`;
   const after = (prefix: string) => id.slice(prefix.length);
   if (id === "frame:card") return "the card";
+  // A file of the player interface, or an AI call written in one — the two
+  // things a coded card is made of that the canvas now draws as rows.
+  if (id.startsWith("file:")) return `file "${after("file:")}" of the player interface`;
+  if (id.startsWith("ai:code:")) {
+    const m = /^ai:code:(.+):(d+)$/.exec(id);
+    return m ? `the AI call at line ${m[2]} of "${m[1]}" in the player interface` : id;
+  }
   if (id.startsWith("ai:")) {
     const key = id.slice(3);
     if (key === "narrator") return "the card's own AI";

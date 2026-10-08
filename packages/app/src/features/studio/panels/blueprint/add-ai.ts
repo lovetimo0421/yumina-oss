@@ -2,7 +2,7 @@ import { useEditorStore } from "@/stores/editor";
 
 /** The three kinds of AI, by what calls it: the player's turn, the player's
  *  screen, or the card's own logic (a value, a scenario ending, a silence). */
-export type AiType = "turn" | "ui" | "code";
+export type AiType = "turn" | "ui" | "code" | "custom";
 
 /**
  * A new AI that lives in `place` — the card ("card") or a scenario's id —
@@ -30,6 +30,8 @@ export function addAiTo(place: string, name: string, type: AiType = "turn"): { b
       host: place,
       station: type === "turn"
         ? { kind: "narrator", onClose: "keep" }
+        : type === "custom"
+        ? { kind: "custom" }
         : {
             kind: "worker",
             trigger: type === "ui" ? { on: "ui" } : { on: "conditions", conditions: [] },

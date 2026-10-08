@@ -10,6 +10,7 @@ import {
   notEnoughMushiesMessage,
 } from "./background-billing.js";
 import { resolveProviderForModel } from "./resolve-provider.js";
+import { beginModuleGeneration } from "./module-generation-access.js";
 import { applyModelRedirect } from "./llm/model-redirects.js";
 import { captureServerEvent } from "./analytics.js";
 import { isExtensionInstalled } from "./extensions.js";
@@ -329,92 +330,97 @@ async function generateStorySummaryTextOnce(args: {
   if (args.attemptBudget && !args.attemptBudget.tryConsume()) {
     throw new Error(STORY_COMPACTION_ATTEMPT_BUDGET_ERROR);
   }
-  const resolved = await resolveProviderForModel(args.userId, args.model, {
-    allowOfficialFallback: false,
-  });
-  if (!resolved) {
-    throw new Error("No provider/API key is available for the selected summary model");
-  }
-
-  let text = "";
-  let observation = usageObservation();
-    let promptTokens = 0;
-  let completionTokens = 0;
-  let totalTokens = 0;
-  let reasoningTokens = 0;
-  let sawReasoning = false;
-  let stopReason: string | undefined;
-  const start = Date.now();
-
-  for await (const chunk of resolved.provider.generateStream({
-    conversationId: `play:${args.sessionId}`,
-    signal: args.signal,
-    model: args.model,
-    messages: args.prompt,
-    maxTokens: args.maxTokens,
-    temperature: 0.2,
-    // Summaries need concise final text, not hidden deliberation. DeepSeek V4
-    // enables thinking by default and can otherwise spend this entire small
-    // output budget on reasoning, leaving the actual summary empty.
-    disableReasoning: true,
-    singleAttempt: !!args.attemptBudget,
-    // Every possible retry must consume the shared job-local allowance. The
-    // provider's internal fallback recursion is invisible to that counter, so
-    // bounded jobs use only the explicit refusal fallback above.
-    fallbackModels:
-      args.attemptBudget || args.model === DEFAULT_STORY_SUMMARY_MODEL || args.disableModelFallback
-        ? undefined
-        : [DEFAULT_STORY_SUMMARY_MODEL],
-  })) {
-    if (chunk.type === "text") text += chunk.content;
-    if (chunk.type === "reasoning") sawReasoning = true;
-    if (chunk.stopReason) stopReason = chunk.stopReason;
-    if (chunk.usage) {
-        observation = usageObservation(chunk.usage);
-      promptTokens = chunk.usage.promptTokens;
-      completionTokens = chunk.usage.completionTokens;
-      totalTokens = chunk.usage.totalTokens;
-      reasoningTokens = chunk.usage.reasoningTokens ?? 0;
+  const moduleAccess = args.endpoint === "module-worker" ? await beginModuleGeneration(args) : null;
+  try {
+    const resolved = moduleAccess?.resolved ?? await resolveProviderForModel(args.userId, args.model, {
+      allowOfficialFallback: false,
+    });
+    if (!resolved) {
+      throw new Error("No provider/API key is available for the selected summary model");
     }
-    if (chunk.type === "error") throw new Error(chunk.content || "Story summary generation failed");
-  }
 
-  const usageLogId = totalTokens > 0 ? randomUUID() : null;
-  args.signal?.throwIfAborted();
-  return finalizeStorySummaryOutput({
-    text,
-    stopReason,
-    sawReasoning,
-    reasoningTokens,
-    recordUsage: usageLogId
-      ? () => recordUsageLog({
-        ...observation,
-          id: usageLogId,
-          userId: args.userId,
-          sessionId: args.sessionId,
-          model: args.model,
-          promptTokens,
-          completionTokens,
-          totalTokens,
-          endpoint: args.endpoint,
-          apiKeyTier: resolved.apiKeyTier,
-          generationTimeMs: Date.now() - start,
-        })
-      : undefined,
-    // Official-key background work is billed like a send only when this call
-    // produced usable text. Empty calls remain observable in usage logs but do
-    // not deduct mushies. BYOK users pay their provider directly.
-    billUsage: usageLogId && !resolved.isByok
-      ? () => billBackgroundUsage({
-          userId: args.userId,
-          model: args.model,
-          promptTokens,
-          completionTokens,
-          usageLogId,
-          endpoint: args.endpoint,
-        })
-      : undefined,
-  });
+    let text = "";
+    let observation = usageObservation();
+      let promptTokens = 0;
+    let completionTokens = 0;
+    let totalTokens = 0;
+    let reasoningTokens = 0;
+    let sawReasoning = false;
+    let stopReason: string | undefined;
+    const start = Date.now();
+
+    for await (const chunk of resolved.provider.generateStream({
+      conversationId: `play:${args.sessionId}`,
+      signal: args.signal,
+      model: args.model,
+      messages: args.prompt,
+      maxTokens: args.maxTokens,
+      temperature: 0.2,
+      // Summaries need concise final text, not hidden deliberation. DeepSeek V4
+      // enables thinking by default and can otherwise spend this entire small
+      // output budget on reasoning, leaving the actual summary empty.
+      disableReasoning: true,
+      singleAttempt: !!args.attemptBudget,
+      // Every possible retry must consume the shared job-local allowance. The
+      // provider's internal fallback recursion is invisible to that counter, so
+      // bounded jobs use only the explicit refusal fallback above.
+      fallbackModels:
+        moduleAccess || args.attemptBudget || args.model === DEFAULT_STORY_SUMMARY_MODEL || args.disableModelFallback
+          ? undefined
+          : [DEFAULT_STORY_SUMMARY_MODEL],
+    })) {
+      if (chunk.type === "text") text += chunk.content;
+      if (chunk.type === "reasoning") sawReasoning = true;
+      if (chunk.stopReason) stopReason = chunk.stopReason;
+      if (chunk.usage) {
+          observation = usageObservation(chunk.usage);
+        promptTokens = chunk.usage.promptTokens;
+        completionTokens = chunk.usage.completionTokens;
+        totalTokens = chunk.usage.totalTokens;
+        reasoningTokens = chunk.usage.reasoningTokens ?? 0;
+      }
+      if (chunk.type === "error") throw new Error(chunk.content || "Story summary generation failed");
+    }
+
+    const usageLogId = totalTokens > 0 ? randomUUID() : null;
+    args.signal?.throwIfAborted();
+    return await finalizeStorySummaryOutput({
+      text,
+      stopReason,
+      sawReasoning,
+      reasoningTokens,
+      recordUsage: usageLogId
+        ? () => recordUsageLog({
+          ...observation,
+            id: usageLogId,
+            userId: args.userId,
+            sessionId: args.sessionId,
+            model: args.model,
+            promptTokens,
+            completionTokens,
+            totalTokens,
+            endpoint: args.endpoint,
+            apiKeyTier: resolved.apiKeyTier,
+            generationTimeMs: Date.now() - start,
+          })
+        : undefined,
+      // Official-key background work is billed like a send only when this call
+      // produced usable text. Empty calls remain observable in usage logs but do
+      // not deduct mushies. BYOK users pay their provider directly.
+      billUsage: usageLogId && !resolved.isByok
+        ? () => billBackgroundUsage({
+            userId: args.userId,
+            model: args.model,
+            promptTokens,
+            completionTokens,
+            usageLogId,
+            endpoint: args.endpoint,
+          })
+        : undefined,
+    });
+  } finally {
+    await moduleAccess?.release();
+  }
 }
 
 function buildMergeSummaryPrompt(args: {

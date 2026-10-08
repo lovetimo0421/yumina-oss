@@ -9,7 +9,7 @@ import { expandMacros, primaryCharacterEntry } from "./macros.js";
 import { estimateTokens } from "./token-utils.js";
 import { filterEntriesByActiveWorldbooks } from "../lorebook/worldbook.js";
 import { filterEntriesByActiveLoreSlots } from "../lorebook/lore-slot.js";
-import { isVariableBoundEntry } from "../lorebook/entry-triggers.js";
+import { isStandbyOn, isVariableBoundEntry } from "../lorebook/entry-triggers.js";
 import { isAiReadable, isAiWritable, isContinuityOwned, isSceneImageJudgeOn } from "../state/variable-activation.js";
 import { getAiAudioTracks } from "../audio/ai-audio.js";
 import { getAiSceneImages, buildSceneImagePromptBlock, resolveSceneImageDirectives } from "../parser/scene-image-directives.js";
@@ -591,7 +591,7 @@ export class PromptBuilder {
         // Variable-bound entries are condition-gated by the matcher; a stale
         // alwaysSend=true on them (e.g. clobbered by an old bundle import)
         // must not drop a legitimately triggered entry here.
-        if (e.alwaysSend && !isVariableBoundEntry(e)) return false;
+        if ((e.alwaysSend || isStandbyOn(e, toggledEntries, world.loreUiBindings)) && !isVariableBoundEntry(e)) return false;
         if (e.section === "chat-history" || e.section === "post-history") return false;
         if (e.role === "example" || e.role === "greeting") return false;
         return true;
@@ -853,7 +853,7 @@ export class PromptBuilder {
     const alwaysSend = world.entries.filter(
       (e) =>
         isEnabled(e) &&
-        e.alwaysSend &&
+        (e.alwaysSend || isStandbyOn(e, toggledEntries, world.loreUiBindings)) &&
         // Variable-bound entries are gated by their conditions (evaluated in
         // the lorebook matcher) and reach the prompt via matchedEntries only.
         // Without this guard an entry whose alwaysSend was clobbered to true

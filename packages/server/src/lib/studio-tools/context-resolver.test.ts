@@ -179,3 +179,28 @@ test("buildInventory says nothing about notes when there are none", () => {
   assert.ok(!inv.includes("CANVAS NOTES"));
   assert.ok(!inv.includes("📌"));
 });
+
+test("buildInventory names a custom AI slot and whether code implements it", () => {
+  const world = blackboardWorld();
+  const book = world.worldbooks![0]! as { id: string; station?: unknown };
+  book.station = { kind: "custom" };
+  let inv = buildInventory(world, []);
+  assert.match(inv, /CUSTOM SLOTS/);
+  assert.match(inv, /CUSTOM AI \(自定义\).*NOT IMPLEMENTED YET/);
+  (world as { rootComponent?: unknown }).rootComponent = {
+    id: "r", name: "x", entryFile: "index.tsx", updatedAt: "",
+    files: { "index.tsx": `await api.ai.complete({ messages, worldbookIds: ["${book.id}"] });` },
+  };
+  inv = buildInventory(world, []);
+  assert.match(inv, /implemented by index\.tsx:1 \(api\.ai\.complete\)/);
+});
+
+test("buildInventory names a custom behaviour and what fires it", () => {
+  const world = blackboardWorld();
+  (world as { reactions?: unknown[] }).reactions = [{ id: "rx-1", name: "结算", when: { eventType: "ui:action" }, conditions: [], conditionLogic: "all", then: [], priority: 0, enabled: true, custom: true }];
+  let inv = buildInventory(world, []);
+  assert.match(inv, /rx-1: "结算".*CUSTOM \(自定义\).*NOT IMPLEMENTED YET/);
+  (world as { rootComponent?: unknown }).rootComponent = { id: "r", name: "x", entryFile: "index.tsx", updatedAt: "", files: { "index.tsx": "x\napi.executeAction('rx-1')" } };
+  inv = buildInventory(world, []);
+  assert.match(inv, /implemented by interface code at index\.tsx:2/);
+});

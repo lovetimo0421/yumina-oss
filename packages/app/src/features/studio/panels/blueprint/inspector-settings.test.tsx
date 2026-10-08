@@ -284,7 +284,7 @@ test("an AI runs whenever its creator picks, and one going behind the scenes sto
   await withInspector(world({ worldbooks: [dock, fresh] }), "module:new", {}, async ({ container, change }) => {
     const runWhen = () => container.querySelector<HTMLSelectElement>("[data-ai-run-when]")!;
     // Turn-based first: inside the type, only its own ways to run.
-    assert.deepEqual([...container.querySelectorAll("[data-ai-type-option]")].map(b => `${b.getAttribute("data-ai-type-option")}${b.getAttribute("aria-checked") === "true" ? "*" : ""}`), ["turn*", "ui", "code"]);
+    assert.deepEqual([...container.querySelectorAll("[data-ai-type-option]")].map(b => `${b.getAttribute("data-ai-type-option")}${b.getAttribute("aria-checked") === "true" ? "*" : ""}`), ["turn*", "ui", "code", "custom"]);
     assert.deepEqual([...runWhen().options].map(o => o.value), ["reply", "turns", "after"]);
     await change(runWhen(), "after");
     const after = useEditorStore.getState().worldDraft.worldbooks?.[1];
@@ -294,6 +294,18 @@ test("an AI runs whenever its creator picks, and one going behind the scenes sto
     assert.deepEqual(after?.activation, { mode: "always" }, "no longer waiting for words nobody wrote");
     await change(runWhen(), "turns");
     assert.deepEqual(useEditorStore.getState().worldDraft.worldbooks?.[1]?.station?.trigger, { on: "turns", every: 3 });
+  });
+});
+
+test("an AI a button calls offers no wires: they never reach it, and it gets none when picked", async () => {
+  const fresh = { id: "new", name: "New AI", order: 0, activation: { mode: "always" as const }, station: { kind: "narrator" as const, onClose: "keep" as const } };
+  await withInspector(world({ worldbooks: [fresh] }), "module:new", {}, async ({ container, click }) => {
+    assert.ok(container.querySelector("[data-testid='station-inputs-entry']"), "one that answers the player reads wires");
+    await click(container.querySelector<HTMLButtonElement>("[data-ai-type-option='ui']")!);
+    const ui = useEditorStore.getState().worldDraft.worldbooks?.[0]?.station;
+    assert.deepEqual(ui?.trigger, { on: "ui" });
+    assert.equal(ui?.inputs, undefined, "no conversation wired in behind the creator's back");
+    assert.equal(container.querySelector("[data-testid='station-inputs-entry']"), null, "no wires offered");
   });
 });
 

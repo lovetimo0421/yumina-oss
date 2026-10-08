@@ -14,6 +14,7 @@ import {
   type ModuleStation,
   type WorldDefinition,
   type Worldbook,
+  sendsEveryTurn,
 } from "@yumina/engine";
 import { db } from "../db/index.js";
 import { messages, playSessions } from "../db/schema.js";
@@ -86,7 +87,7 @@ export function buildAiCallPrompt(args: {
     .filter((e) => e.worldbookId === book.id && e.enabled !== false && e.role !== "greeting")
     .map((e) => e.content).filter(Boolean).join("\n\n").slice(0, 6000);
   const lore = (world.entries ?? [])
-    .filter((e) => !e.worldbookId && e.enabled !== false && e.alwaysSend && e.role !== "greeting")
+    .filter((e) => !e.worldbookId && e.role !== "greeting" && sendsEveryTurn(e, state.ruleState?.toggledEntries, world.loreUiBindings))
     .map((e) => e.content).filter(Boolean).join("\n\n").slice(0, 4000);
   const vars = (station.sees?.variables ?? [])
     .map((id) => {
