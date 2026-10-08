@@ -56,9 +56,17 @@ export function ListEditor({
     setNaming(null);
   };
   const rows = isStatic ? (source.items ?? []).map(asRecord) : [];
+  // Which fields a row's title and text live in: the list's own display
+  // decides. The map and collection templates write name/note rows and show
+  // {{item.name}}; editing them as title/body left the boxes blank and wrote
+  // where nothing reads.
+  const shown = JSON.stringify([el.item, el.card]);
+  const only = (field: string, other: string) => rows.some((r) => field in r) && !rows.some((r) => other in r);
+  const titleKey = shown.includes("item.name") || only("name", "title") ? "name" : "title";
+  const bodyKey = shown.includes("item.note") || only("note", "body") ? "note" : "body";
   const rowTokens: InsertToken[] = [
-    { token: "item.title", label: t("studio.parts.list.tokenTitle") },
-    { token: "item.body", label: t("studio.parts.list.tokenBody") },
+    { token: `item.${titleKey}`, label: t("studio.parts.list.tokenTitle") },
+    { token: `item.${bodyKey}`, label: t("studio.parts.list.tokenBody") },
     { token: "item", label: t("studio.parts.list.tokenRow") },
     { token: "index", label: t("studio.parts.list.tokenIndex") },
   ];
@@ -69,7 +77,7 @@ export function ListEditor({
   const setRows = (next: Row[]) => onPatch((l) => ({
     ...l,
     source: { kind: "static", items: next },
-    item: !l.item?.template || l.item.template.trim() === "{{item}}" ? { template: "{{item.title}}" } : l.item,
+    item: !l.item?.template || l.item.template.trim() === "{{item}}" ? { template: `{{item.${titleKey}}}` } : l.item,
   }));
   const patchRow = (i: number, patch: Row) => setRows(rows.map((r, j) => {
     if (j !== i) return r;
@@ -164,10 +172,10 @@ export function ListEditor({
                 <div className="flex items-center gap-1">
                   <ImageField compact worldId={worldId} value={row.image} onChange={(ref) => patchRow(i, { image: ref ?? "" })} />
                   <input
-                    value={row.title ?? ""}
+                    value={row[titleKey] ?? ""}
                     aria-label={t("studio.parts.list.rowTitle")}
                     placeholder={t("studio.parts.list.rowTitle")}
-                    onChange={(e) => patchRow(i, { title: e.target.value })}
+                    onChange={(e) => patchRow(i, { [titleKey]: e.target.value })}
                     className={`${smallCls} min-w-0 flex-1`}
                   />
                   <button type="button" onClick={() => setRows(moveItem(rows, i, -1))} disabled={i === 0} title={t("studio.parts.moveUp")} aria-label={t("studio.parts.moveUp")} className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-30">
@@ -181,10 +189,10 @@ export function ListEditor({
                   </button>
                 </div>
                 <input
-                  value={row.body ?? ""}
+                  value={row[bodyKey] ?? ""}
                   aria-label={t("studio.parts.list.rowBody")}
                   placeholder={t("studio.parts.list.rowBody")}
-                  onChange={(e) => patchRow(i, { body: e.target.value })}
+                  onChange={(e) => patchRow(i, { [bodyKey]: e.target.value })}
                   className={`${smallCls} ml-9 w-[calc(100%-2.25rem)]`}
                 />
               </li>
@@ -192,7 +200,7 @@ export function ListEditor({
           </ol>
           <button
             type="button"
-            onClick={() => setRows([...rows, { title: t("studio.parts.list.newRow", { n: rows.length + 1 }) }])}
+            onClick={() => setRows([...rows, { [titleKey]: t("studio.parts.list.newRow", { n: rows.length + 1 }) }])}
             className="mt-2 flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border px-2 py-1.5 text-[11px] text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground"
           >
             <Plus className="h-3 w-3" />
@@ -208,8 +216,8 @@ export function ListEditor({
           onChange={(on) => {
             if (!on) return setCard(null);
             setCard({
-              title: { template: isStatic ? "{{item.title}}" : el.item?.template || "{{item}}" },
-              ...(isStatic ? { subtitle: { template: "{{item.body}}" }, imageField: "image" } : {}),
+              title: { template: isStatic ? `{{item.${titleKey}}}` : el.item?.template || "{{item}}" },
+              ...(isStatic ? { subtitle: { template: `{{item.${bodyKey}}}` }, imageField: "image" } : {}),
             });
           }}
         />
@@ -314,7 +322,7 @@ export function ListEditor({
 
       <ActionListEditor
         label={t("studio.parts.list.rowActions")}
-        hint={t("studio.parts.list.rowActionsHint", { token: "{{item.title}}" })}
+        hint={t("studio.parts.list.rowActionsHint", { token: `{{item.${titleKey}}}` })}
         actions={el.rowActions ?? []}
         ctx={ctx}
         onChange={(rowActions) => onPatch((l) => {

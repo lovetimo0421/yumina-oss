@@ -1,10 +1,10 @@
 # The Creation Assistant and Your Own AI
 
-You don't have to build a card by clicking through every box yourself. The canvas has a built-in **Creation assistant**, and you can also hook up the Claude, ChatGPT or Cursor you already use to edit your card.
+The canvas has a built-in **Creation assistant**, and you can also hook up the Claude, ChatGPT or Cursor you already use to edit your card.
 
 ## The Creation assistant
 
-Click **Creation assistant** in the top right of the canvas and its chat opens on the right. Just tell it what you want. Casual is fine:
+Click **Creation assistant** in the top right of the canvas and its chat opens on the right. Tell it what you want in everyday words:
 
 > "Add a sly merchant called Vex who talks in riddles and has trust issues"
 
@@ -14,7 +14,7 @@ Click **Creation assistant** in the top right of the canvas and its chat opens o
 
 > "Combat's too easy. Make enemies hit harder and add a wound system"
 
-It can write lore and openings, add variables and behaviours, open scenarios, add AIs, build the player interface, check where things are wired wrong, and search the whole card. Its changes show up live on the canvas.
+It can write lore and openings, add variables and behaviors, open scenarios, add AIs, build the player interface, check where things are wired wrong, and search the whole card. Its changes show up live on the canvas.
 
 ![The Creation assistant](./images/canvas/assistant.webp)
 
@@ -33,17 +33,17 @@ Each part also has **Write this one for me**. One click asks the assistant to wr
 
 ### Sticky notes
 
-The assistant reads every [sticky note](/creator/canvas) on the canvas and knows what each one is stuck to. Too many ideas to explain at once? Stick them on as notes first, then tell it "go through the sticky notes and do all of these".
+The assistant reads every [sticky note](/creator/canvas) on the canvas and knows what each one is stuck to. If you have too many ideas to explain at once, stick them on as notes first, then tell it "go through the sticky notes and do all of these".
 
 ### If it breaks something
 
-After each round of changes, a little strip called **The assistant's last turn** appears at the bottom of the canvas, saying how many things were added, changed and removed. Not happy? Click **Undo this turn** and the whole round is undone.
+After each round of changes, a little strip called **The assistant's last turn** appears at the bottom of the canvas, saying how many things were added, changed and removed. Click **Undo this turn** to undo the whole round.
 
 ### Tips
 
 - **One layer at a time.** Get the characters and lore right first, then add mechanics, then polish the interface last. Don't try to describe your whole world in one message
 - **Ask it to check.** After a few rounds of changes, tell it "check whether anything is wired wrong right now"
-- **It keeps working in the background.** Once you've sent a request, you can leave the Studio and do something else. It lets you know when it's done or when it needs you to confirm something
+- **It keeps working in the background.** Once you've sent a request, you can leave Studio or go work on another card. When it's done, needs a decision from you, or stops, a notice pops up in the app. Click it to jump back
 - Using the assistant costs credits. Before starting a big job, it tells you roughly how long it'll take and how much it'll cost
 
 ## Connect your own AI
@@ -60,12 +60,12 @@ Click **Connect your AI** in the top bar (a new card needs to be saved once firs
 
 Claude Code and Codex CLI are added in the terminal. The dialog gives you a command you can copy straight in.
 
-Once connected, it can do about as much as the Creation assistant: read the card, write lore and variables, add behaviours and scenarios, change the player interface, generate pictures and playtest. Its changes show up live on the canvas you have open. It reads your sticky notes, too.
+Once connected, it can do about as much as the Creation assistant: read the card, write lore and variables, add behaviors and scenarios, change the player interface, generate pictures and playtest. Its changes show up live on the canvas you have open. It reads your sticky notes, too.
 
 A few things to know:
 
 - **It can't publish.** Publishing is always a click you make yourself
-- **It saves a checkpoint before every change to your card.** In **⋮ → Change History** you'll see "Before: (the AI's name)". Not happy? Roll back to that moment
+- **It saves a checkpoint before every change to your card.** In **⋮ → Change History** you'll see "Before: (the AI's name)". You can roll back to that point
 - **Playtests and image generation still cost your mushies**, same as if you clicked them on the canvas yourself
 - There are a few limits to catch slip-ups: at most 30 playtest turns and 20 generated pictures an hour, and at most 20 new cards a day
 - **Connected AIs** in the dialog lists everything that's connected. Click **Disconnect** to take the access back

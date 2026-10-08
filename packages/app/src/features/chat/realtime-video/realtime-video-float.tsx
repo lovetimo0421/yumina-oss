@@ -2,15 +2,17 @@
  * Floating realtime-video player: available on every card, never reflows the card. The player
  * opens it from the host menu or a small launcher, drags and resizes it (docked to the top on phones), and picks
  * every setting: engine, look, director model, first frame, pacing. Toolbar: start/stop, new take,
- * rewrite the shot, sound, scene list (intercut A → B → A), process log.
+ * rewrite the shot, sound, scene list (intercut A → B → A), process log. With short films
+ * (engine "shorts") it plays each reply's film and shows how the next one is coming along;
+ * the toolbar is start/stop, film again, back a film, forward, sound.
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Clapperboard, Film, Minus, Pencil, RotateCcw, ScrollText, Settings2, Square, Volume2, VolumeX, X, Play, Layers } from "lucide-react";
+import { Clapperboard, Film, Minus, Pencil, RotateCcw, ScrollText, Settings2, Square, Volume2, VolumeX, X, Play, Layers, SkipBack, SkipForward } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useUserProfileStore } from "@/stores/user-profile";
-import { DEFAULT_ENGINE, DIRECTOR_MODELS, FILM_SETTINGS_KEY, getVideoController, type VideoEngine, type VideoStartOptions, type VideoStep } from "./controller";
+import { DEFAULT_ENGINE, DIRECTOR_MODELS, FILM_SETTINGS_KEY, getVideoController, type VideoEngine, type VideoStartOptions, type VideoState, type VideoStep } from "./controller";
 
 type Rect = { x: number; y: number; w: number; h: number };
 type Panel = "none" | "settings" | "log" | "scenes" | "edit";
@@ -54,8 +56,9 @@ export function RealtimeVideoFloat({ sessionId, defaultOpen = false, suppressIdl
   openRequest?: RealtimeVideoOpenRequest | null;
 }) {
   const { t } = useTranslation("chat");
-  // Scene video is experimental: nothing shows unless this server offers it.
-  const offered = useUserProfileStore((s) => s.profile?.filmOffered === true);
+  // Scene video is experimental: nothing shows unless this server offers it and the player
+  // turned it on in Settings (the first-use question still opens the window when a card asks).
+  const offered = useUserProfileStore((s) => s.profile?.filmOffered === true && s.profile?.preferences?.experimentalFilm === true);
   const isAdmin = useUserProfileStore((s) => s.profile?.role === "admin");
   const controller = getVideoController(sessionId);
   const state = useSyncExternalStore((cb) => controller.subscribe(cb), () => controller.getState());
@@ -75,6 +78,7 @@ export function RealtimeVideoFloat({ sessionId, defaultOpen = false, suppressIdl
   const logRef = useRef<HTMLDivElement>(null);
 
   const running = state.status === "live" || state.status === "starting";
+  const shorts = (running ? state.engine : settings.engine) === "shorts";
   // Consume each menu command once; unrelated renders must not reopen a closed panel.
   if (openRequest?.sessionId === sessionId && (
     openRequest.nonce !== handledOpenRequest?.nonce || openRequest.sessionId !== handledOpenRequest?.sessionId
@@ -152,7 +156,7 @@ export function RealtimeVideoFloat({ sessionId, defaultOpen = false, suppressIdl
     : e === "FILM_UNAVAILABLE" ? t("film.unavailable")
     : t("film.failed", { error: e ?? "" });
 
-  if (!offered) return null;
+  if (!offered && !state.consent) return null;
   if (!open) {
     if (suppressIdleLauncher && !running) return null;
     return (
@@ -164,7 +168,7 @@ export function RealtimeVideoFloat({ sessionId, defaultOpen = false, suppressIdl
         title={t("film.launcherTitle")}
       >
         <Clapperboard className="h-4 w-4" />
-        {running ? <span className="tabular-nums text-rose-300">● {Math.floor(state.elapsed)}s</span> : t("film.name")}
+        {running ? <span className="tabular-nums text-rose-300">● {state.engine === "shorts" ? t("film.name") : `${Math.floor(state.elapsed)}s`}</span> : t("film.name")}
       </button>
     );
   }
@@ -179,12 +183,17 @@ export function RealtimeVideoFloat({ sessionId, defaultOpen = false, suppressIdl
       <div className="flex h-11 shrink-0 cursor-move select-none items-center gap-2 border-b border-white/10 bg-neutral-900 px-2" onPointerDown={(e) => drag(e, "move")}>
         <Film className="h-4 w-4 text-white/60" />
         <span className={`text-xs tabular-nums ${running ? "text-rose-300" : "text-white/50"}`}>{state.status === "starting" ? t("film.statusStarting") : running ? t("film.statusLive") : t("film.statusIdle")}</span>
-        {running && <span className="text-xs tabular-nums text-white/70">{Math.floor(state.elapsed / 60)}:{String(Math.floor(state.elapsed % 60)).padStart(2, "0")}</span>}
-        {(running || state.credits > 0) && <span className="text-xs tabular-nums text-amber-300">{t("film.credits", { n: Math.round(state.credits) })}</span>}
+        {running && !shorts && <span className="text-xs tabular-nums text-white/70">{Math.floor(state.elapsed / 60)}:{String(Math.floor(state.elapsed % 60)).padStart(2, "0")}</span>}
+        {((running && !shorts) || state.credits > 0) && <span className="text-xs tabular-nums text-amber-300">{t("film.credits", { n: Math.round(state.credits) })}</span>}
         {state.currentScene && <span className="truncate rounded bg-white/10 px-1.5 text-[11px] text-white/70">{state.currentScene}</span>}
         <div className="flex-1" />
         <IconBtn title={t("film.minimize")} onClick={() => setMini((m) => !m)}><Minus className="h-4 w-4" /></IconBtn>
-        <IconBtn title={t("film.closeWindow")} onClick={() => { if (state.consent) void controller.answerConsent(false); setOpen(false); }}><X className="h-4 w-4" /></IconBtn>
+        {/* Short films: closing turns them off (nothing new is filmed; films being made still finish). */}
+        <IconBtn title={shorts && running ? t("film.shortClose") : t("film.closeWindow")} onClick={() => {
+          if (state.consent) void controller.answerConsent(false);
+          if (shorts && running) controller.stop();
+          setOpen(false);
+        }}><X className="h-4 w-4" /></IconBtn>
       </div>
 
       {!mini && (
@@ -200,29 +209,42 @@ export function RealtimeVideoFloat({ sessionId, defaultOpen = false, suppressIdl
                 </div>
               </div>
             ) : !running && (
-              <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 px-4 text-center text-white/80">
-                <div className="text-sm">{state.status === "error" ? errorText(state.error) : state.status === "ended" ? t("film.ended") : t("film.intro")}</div>
+              <div className="absolute inset-0 z-[1] flex flex-col items-center justify-center gap-3 bg-black/70 px-4 text-center text-white/80">
+                <div className="text-sm">{state.status === "error" ? errorText(state.error) : state.status === "ended" ? (state.engine === "shorts" ? t("film.shortPaused") : t("film.ended")) : t("film.intro")}</div>
                 <div className="flex gap-2">
                   <button type="button" onClick={start} className="flex items-center gap-1.5 rounded bg-rose-600 px-4 py-1.5 text-white hover:bg-rose-500"><Play className="h-4 w-4" />{t("film.start")}</button>
                   <button type="button" onClick={() => togglePanel("settings")} className="flex items-center gap-1.5 rounded border border-white/20 px-3 py-1.5 hover:bg-white/10"><Settings2 className="h-4 w-4" />{t("film.settings")}</button>
                 </div>
-                <div className="text-[11px] text-white/45">{engineLabel(t, settings.engine)} · {styleLabel(t, settings.style)}</div>
+                <div className="text-[11px] text-white/45">{`${engineLabel(t, settings.engine)} · ${styleLabel(t, settings.style)}`}</div>
               </div>
             )}
-            {running && state.engine !== "fal" && state.waiting && <div className="absolute bottom-2 left-2 z-[1] rounded bg-black/60 px-2 py-0.5 text-xs">{t("film.nextClip")}</div>}
+            {running && state.engine !== "fal" && state.engine !== "shorts" && state.waiting && <div className="absolute bottom-2 left-2 z-[1] rounded bg-black/60 px-2 py-0.5 text-xs">{t("film.nextClip")}</div>}
+            {running && state.engine === "shorts" && <ShortEmpty t={t} state={state} />}
             {flash && <div key={flash.at} className="pointer-events-none absolute inset-0 z-[2] flex items-end justify-start bg-black/0 p-3 animate-[rtvcut_2.2s_ease-out_forwards]"><span className="rounded bg-black/70 px-2 py-1 text-sm">{flash.text}</span></div>}
             <style>{"@keyframes rtvcut{0%{background:rgba(0,0,0,.9)}25%{background:rgba(0,0,0,0)}85%{opacity:1}100%{opacity:0}}"}</style>
           </div>
 
+          {running && state.engine === "shorts" && <ShortStrip t={t} state={state} onJump={(clip) => controller.jumpShort(clip)} onRetry={() => controller.regenerate()} />}
+
           {/* Toolbar */}
           <div className="flex h-10 shrink-0 items-center gap-0.5 border-t border-white/10 bg-neutral-900 px-1.5">
             {running
-              ? <IconBtn title={t("film.stop")} onClick={() => controller.stop()}><Square className="h-4 w-4" /></IconBtn>
+              ? <IconBtn title={shorts ? t("film.shortPause") : t("film.stop")} onClick={() => controller.stop()}><Square className="h-4 w-4" /></IconBtn>
               : <IconBtn title={t("film.start")} onClick={start}><Play className="h-4 w-4" /></IconBtn>}
-            <IconBtn title={t("film.retake")} disabled={!running || !controller.lastShot} onClick={() => controller.regenerate()}><RotateCcw className="h-4 w-4" /></IconBtn>
-            <IconBtn title={t("film.rewrite")} disabled={!running} active={panel === "edit"} onClick={() => { setDraft(controller.lastShot); togglePanel("edit"); }}><Pencil className="h-4 w-4" /></IconBtn>
+            {shorts ? (
+              <>
+                <IconBtn title={t("film.shortRetake")} disabled={!running || state.short?.status === "writing" || state.short?.status === "shooting"} onClick={() => controller.regenerate()}><RotateCcw className="h-4 w-4" /></IconBtn>
+                <IconBtn title={t("film.shortBack")} disabled={!running || !state.rewindable} onClick={() => controller.rewind()}><SkipBack className="h-4 w-4" /></IconBtn>
+                <IconBtn title={t("film.shortForward")} disabled={!running || !state.skippable} onClick={() => controller.skip()}><SkipForward className="h-4 w-4" /></IconBtn>
+              </>
+            ) : (
+              <>
+                <IconBtn title={t("film.retake")} disabled={!running || !controller.lastShot} onClick={() => controller.regenerate()}><RotateCcw className="h-4 w-4" /></IconBtn>
+                <IconBtn title={t("film.rewrite")} disabled={!running} active={panel === "edit"} onClick={() => { setDraft(controller.lastShot); togglePanel("edit"); }}><Pencil className="h-4 w-4" /></IconBtn>
+              </>
+            )}
             <IconBtn title={muted ? t("film.soundOn") : t("film.soundOff")} onClick={() => { setMuted(!muted); controller.setMuted(!muted); }}>{muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}</IconBtn>
-            <IconBtn title={t("film.scenes")} active={panel === "scenes"} onClick={() => togglePanel("scenes")}><Layers className="h-4 w-4" /></IconBtn>
+            {!shorts && <IconBtn title={t("film.scenes")} active={panel === "scenes"} onClick={() => togglePanel("scenes")}><Layers className="h-4 w-4" /></IconBtn>}
             <div className="min-w-0 flex-1 truncate px-1 text-[11px] text-white/50">{isAdmin && state.currentStatus && running ? state.currentStatus : ""}</div>
             {isAdmin && <IconBtn title={t("film.log")} active={panel === "log"} onClick={() => togglePanel("log")}><ScrollText className="h-4 w-4" /></IconBtn>}
             <IconBtn title={t("film.settings")} active={panel === "settings"} onClick={() => togglePanel("settings")}><Settings2 className="h-4 w-4" /></IconBtn>
@@ -279,7 +301,79 @@ function IconBtn({ title, onClick, disabled, active, children }: { title: string
 }
 
 function engineLabel(t: TFunction<"chat">, engine: VideoEngine): string {
-  return engine === "fal" ? t("film.engineFal") : engine === "comfy-h3" ? t("film.engineComfy") : t("film.engineCausal");
+  return engine === "fal" ? t("film.engineFal") : engine === "shorts" ? t("film.engineShorts") : engine === "comfy-h3" ? t("film.engineComfy") : t("film.engineCausal");
+}
+
+const SHORT_REASONS: Record<string, string> = { busy: "film.shortBusy", credits: "film.noCredits", timeout: "film.shortTimeout", unavailable: "film.unavailable" };
+type ShortCells = NonNullable<VideoState["shortNow"]>["cells"];
+
+/** Short films: nothing filmed yet, over the empty picture. */
+function ShortEmpty({ t, state }: { t: TFunction<"chat">; state: VideoState }) {
+  if (state.shortNow || !state.waiting || state.rewindable) return null;
+  return <div className="absolute inset-0 z-[1] flex items-center justify-center px-4 text-center text-xs text-white/60">{t("film.shortNone")}</div>;
+}
+
+/** One segment per shot: on screen (rose), finished (white), being made (pulsing amber), waiting
+ *  or left out (dim); a finished shot of the film on screen can be clicked to jump to it. */
+function ShotCells({ cells, at, onJump }: { cells: ShortCells; at?: number; onJump?: (clip: number) => void }) {
+  let playable = 0;
+  let open = true;
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      {cells.map((c, i) => {
+        const clip = c === "done" && open ? playable++ : -1;
+        if (c !== "done" && c !== "failed") open = false;
+        const tone = i === at ? "bg-rose-400" : c === "done" ? "bg-white/75" : c === "rendering" ? "animate-pulse bg-amber-300/80" : c === "failed" ? "bg-red-500/30" : "bg-white/15";
+        const jump = onJump && clip >= 0 ? () => onJump(clip) : undefined;
+        return <button key={i} type="button" disabled={!jump} onClick={jump} onPointerDown={(e) => e.stopPropagation()}
+          className={`h-1.5 w-5 rounded-full ${tone} ${jump ? "cursor-pointer hover:bg-white" : "cursor-default"}`} />;
+      })}
+    </span>
+  );
+}
+
+function replyName(t: TFunction<"chat">, r: { opening: boolean; reply: number }): string {
+  return r.opening ? t("film.shortOpening") : t("film.shortReply", { n: r.reply });
+}
+
+/** Short films, under the picture: what is on screen (which reply, which shot, the words it
+ *  films) and how the next films are coming along. */
+function ShortStrip({ t, state, onJump, onRetry }: { t: TFunction<"chat">; state: VideoState; onJump: (clip: number) => void; onRetry: () => void }) {
+  const now = state.shortNow;
+  const queue = state.shortQueue ?? [];
+  const newest = queue[queue.length - 1];
+  if (!now && !queue.length) return null;
+  return (
+    <div className="max-h-[40%] shrink-0 overflow-y-auto border-t border-white/10 bg-neutral-900/95 px-3 py-2 text-xs">
+      {now && (
+        <div className="grid gap-1">
+          <div className="flex items-center gap-2">
+            <span className={`shrink-0 ${state.waiting ? "text-white/45" : "text-rose-300"}`}>{state.waiting ? "❚❚" : "▶"}</span>
+            <span className="min-w-0 truncate text-white/85">{replyName(t, now)} · {t("film.shortShot", { n: now.shot, total: now.total })}{now.making ? ` · ${t("film.shortStillMaking")}` : ""}</span>
+            <span className="flex-1" />
+            <ShotCells cells={now.cells} at={now.at} onJump={onJump} />
+          </div>
+          {now.text && <p className="line-clamp-2 leading-relaxed text-white/60">{now.text}</p>}
+        </div>
+      )}
+      {queue.map((q) => (
+        <div key={q.messageId} className={`flex items-center gap-2 ${now ? "mt-1.5 border-t border-white/5 pt-1.5" : ""}`}>
+          <span className="shrink-0 text-white/40">{t("film.shortNextLabel")}</span>
+          <span className="min-w-0 truncate text-white/70">{replyName(t, q)}</span>
+          {q.status === "failed"
+            ? <span className="min-w-0 truncate text-red-300">{t("film.shortFailed", { reason: t((SHORT_REASONS[q.reason ?? ""] ?? "film.unavailable") as "film.unavailable") })}</span>
+            : q.status === "writing"
+              ? <span className="flex min-w-0 items-center gap-1.5 truncate text-white/55"><span className="h-1.5 w-1.5 shrink-0 animate-pulse rounded-full bg-rose-400" />{t("film.shortDirector")}</span>
+              : <span className="shrink-0 text-white/55">{t("film.shortDoneOf", { done: q.cells.filter((c) => c === "done").length, total: q.cells.filter((c) => c !== "failed").length })}</span>}
+          <span className="flex-1" />
+          {q.status === "shooting" && <ShotCells cells={q.cells} />}
+          {q.status === "failed" && q === newest && q.reason !== "credits" && (
+            <button type="button" onClick={onRetry} className="shrink-0 rounded bg-white/15 px-2 py-0.5 hover:bg-white/25">{t("film.shortRetry")}</button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 const STYLE_KEYS: Record<string, string> = { source: "film.styleSource", live: "film.styleLive", anime: "film.styleAnime", painted: "film.stylePainted" };
 function styleLabel(t: TFunction<"chat">, style: string): string {
@@ -289,7 +383,6 @@ function styleLabel(t: TFunction<"chat">, style: string): string {
 function SettingsForm({ value, onChange, running, uploaded, onUpload }: { value: Settings; onChange: (s: Settings) => void; running: boolean; uploaded: string; onUpload: (d: string) => void }) {
   const { t } = useTranslation("chat");
   const falOffered = useUserProfileStore((s) => s.profile?.filmFalOffered === true);
-  const isAdmin = useUserProfileStore((s) => s.profile?.role === "admin");
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => onChange({ ...value, [k]: v });
   const field = "grid gap-1";
   const input = "w-full rounded border border-white/15 bg-white/5 px-2 py-1 text-xs";
@@ -299,13 +392,15 @@ function SettingsForm({ value, onChange, running, uploaded, onUpload }: { value:
       <label className={field}><span className="text-[11px] text-white/50">{t("film.engine")}</span>
         <select className={input} value={value.engine} onChange={(e) => set("engine", e.target.value as VideoEngine)}>
           {falOffered && <option value="fal">{engineLabel(t, "fal")}</option>}
-          {isAdmin && <option value="comfy-h3">{engineLabel(t, "comfy-h3")}</option>}
-          {isAdmin && <option value="comfy-causal">{engineLabel(t, "comfy-causal")}</option>}
+          <option value="shorts">{engineLabel(t, "shorts")}</option>
         </select></label>
       <label className={field}><span className="text-[11px] text-white/50">{t("film.style")}</span>
         <select className={input} value={value.style} onChange={(e) => set("style", e.target.value)}>
           {Object.keys(STYLE_KEYS).map((k) => <option key={k} value={k}>{styleLabel(t, k)}</option>)}
         </select></label>
+      {value.engine === "shorts" ? (
+        <div className="text-[11px] leading-relaxed text-white/55 sm:col-span-2">{t("film.shortsHint")}</div>
+      ) : (<>
       <label className={field}><span className="text-[11px] text-white/50">{t("film.director")}</span>
         <select className={input} value={value.directorModel} onChange={(e) => set("directorModel", e.target.value)}>
           {DIRECTOR_MODELS.map((m, i) => <option key={m.id} value={m.id}>{i === 0 ? `${m.label} (${t("film.defaultTag")})` : m.label}</option>)}
@@ -337,6 +432,7 @@ function SettingsForm({ value, onChange, running, uploaded, onUpload }: { value:
         <input type="number" min={30} max={1800} className={input} value={value.idleSeconds} onChange={(e) => set("idleSeconds", clamp(Number(e.target.value) || 120, 30, 1800))} /></label>
       <label className={field}><span className="text-[11px] text-white/50">{t("film.limitSeconds")}</span>
         <input type="number" min={60} max={3600} className={input} value={value.limitSeconds} onChange={(e) => set("limitSeconds", clamp(Number(e.target.value) || 600, 60, 3600))} /></label>
+      </>)}
       <button type="button" className="justify-self-start rounded border border-white/15 px-2 py-1 text-[11px] text-white/60 sm:col-span-2" onClick={() => onChange(DEFAULT_SETTINGS)}>{t("film.reset")}</button>
     </div>
   );

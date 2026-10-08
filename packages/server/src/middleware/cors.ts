@@ -18,11 +18,21 @@ const ALLOWED_ORIGINS = new Set(
   ].filter(Boolean) as string[],
 );
 
+/** Voice upgrades and mutations require a browser Origin, even in development.
+ * Never infer authority from Host/forwarded headers or CORS's fallback value. */
+export function strictVoiceOrigin(origin: string | null | undefined, allowed: ReadonlySet<string> = ALLOWED_ORIGINS): boolean {
+  if (!origin || !allowed.has(origin)) return false;
+  try {
+    const url = new URL(origin);
+    return (url.protocol === "https:" || url.protocol === "http:") && url.origin === origin;
+  } catch { return false; }
+}
+
 export const corsMiddleware = cors({
   origin: isDev
     ? (origin) => origin
     : (origin) => (origin && ALLOWED_ORIGINS.has(origin) ? origin : env.APP_URL),
-  allowHeaders: ["Content-Type", "Authorization", "X-Yumina-Wallet-Version", "X-Discovery-Account", "X-Voice-Connection-Id"],
+  allowHeaders: ["Content-Type", "Authorization", "X-Yumina-Wallet-Version", "X-Discovery-Account", "X-Voice-Connection-Id", "X-Yumina-State-Acknowledgement"],
   exposeHeaders: ["X-Agent-Run-Id", "Date"],
   allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   credentials: true,

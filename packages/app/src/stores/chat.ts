@@ -12,7 +12,7 @@ import { drawTurnImage } from "@/features/chat/turn-image-drawing";
 import { refreshMessageWindow } from "@/features/chat/refresh-message-window";
 import { kimiRepetitionOverride } from "@/lib/kimi-repetition";
 import { signalTtsUserStop } from "@/lib/tts-stop-signal";
-import { useAudioStore } from "./audio";
+import { getAudioScope, useAudioStore } from "./audio";
 import {
   queueSessionStateOperation,
   queueSessionStatePatch,
@@ -155,6 +155,8 @@ export interface Message {
   createdAt: string;
   /** Client-only: the per-turn picture is drawing, or why it wasn't drawn. */
   turnImage?: import("@/features/chat/turn-image-drawing").TurnImageStatus;
+  /** Client-only: this reply's short film is being made, or why it wasn't (see turn-video). */
+  turnVideo?: import("@/features/chat/turn-video").TurnVideoStatus;
 }
 
 interface CreditsPayload {
@@ -214,15 +216,6 @@ function resolveErrorToast(errorCode: string, errorMsg: string, balance?: number
 /** Pill copy from the chat namespace, clamped to the pill's one line. */
 function chatPill(key: string, fallback: string, vars?: Record<string, unknown>): string {
   return toPillText(i18n.t(key, { ns: "chat", defaultValue: fallback, ...vars }));
-}
-
-/** The guard could not check this turn, so the reply applied as written. The
- * audit is re-sent on every progress write, so announce each attempt once. */
-const announcedUnverified = new Set<string>();
-function noticeUnverifiedTurn(audit: import("@yumina/shared").StateValidationAudit): void {
-  if (audit.outcome !== "unverified" || announcedUnverified.has(audit.attemptId)) return;
-  announcedUnverified.add(audit.attemptId);
-  feedback.notice(chatPill("stateGuard.unverified", "State check unavailable. Stats updated from the reply as written"));
 }
 
 /** Recipe R7: an unanchored failure the user can ask us to try again. */
@@ -957,6 +950,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (currentSession && currentSession.id !== sessionId) {
         useAudioStore.getState().cleanup();
       }
+      const audioScope = getAudioScope();
 
       const res = await fetch(`${apiBase}/api/sessions/${sessionId}`, {
         credentials: "include",
@@ -1002,11 +996,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // visible. Register tracks before publishing it; the asset-preload import
       // below may yield long enough for the sandbox to mount on a cold load.
       const worldDef = data.world?.schema as Record<string, unknown> | undefined;
-      useAudioStore.getState().setTracks(
-        Array.isArray(worldDef?.audioTracks)
-          ? worldDef.audioTracks as import("@yumina/engine").AudioTrack[]
-          : [],
-      );
+      if (audioScope === getAudioScope()) {
+        useAudioStore.getState().setTracks(
+          Array.isArray(worldDef?.audioTracks)
+            ? worldDef.audioTracks as import("@yumina/engine").AudioTrack[]
+            : [],
+        );
+      }
       set({
         session: data,
         messages: loadedMessages,
@@ -1030,7 +1026,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
 
       // Configure playback after the registry is available to the renderer.
-      if (worldDef?.audioTracks && Array.isArray(worldDef.audioTracks)) {
+      if (!controller.signal.aborted && shouldApply?.() !== false && audioScope === getAudioScope()
+        && worldDef?.audioTracks && Array.isArray(worldDef.audioTracks)) {
         const audioStore = useAudioStore.getState();
 
         // Set playlist and conditional rules
@@ -1258,7 +1255,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
         callbacks: {
           onStateValidation: (audit) => {
-            noticeUnverifiedTurn(audit);
             set((state) => ({ messages: state.messages.map((message, index) =>
               message.id === audit.targetMessageId || (audit.path === "send" && index === state.messages.length - 1 && message.role === "user")
                 ? { ...message, stateValidation: audit } : message) }));
@@ -1695,7 +1691,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
         callbacks: {
           onStateValidation: (audit) => {
-            noticeUnverifiedTurn(audit);
             set((state) => ({ messages: state.messages.map((message, index) =>
               message.id === audit.targetMessageId || (audit.path === "send" && index === state.messages.length - 1 && message.role === "user")
                 ? { ...message, stateValidation: audit } : message) }));
@@ -1936,7 +1931,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
         },
         callbacks: {
           onStateValidation: (audit) => {
-            noticeUnverifiedTurn(audit);
             set((state) => ({ messages: state.messages.map((message, index) =>
               message.id === audit.targetMessageId || (audit.path === "send" && index === state.messages.length - 1 && message.role === "user")
                 ? { ...message, stateValidation: audit } : message) }));

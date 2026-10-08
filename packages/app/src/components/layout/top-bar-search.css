@@ -1,0 +1,59 @@
+/* Discover's search material belongs to the shared control, not a route stylesheet. */
+.topbar-shell--search .topbar-search-glass .topbar-search-input--glass {
+  height: 44px;
+  padding-right: 52px;
+  padding-left: 20px;
+  border-color: #ffffff12;
+  background: #ffffff0d;
+  box-shadow: none;
+  backdrop-filter: blur(16px);
+}
+
+.topbar-shell--search .topbar-search-glass .topbar-search-input--glass:focus {
+  border-color: #c9a25e80;
+  box-shadow: 0 0 0 3px #c9a25e0e;
+}
+
+.topbar-search-submit {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #f0edf4;
+}
+
+.topbar-search-submit:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Mobile blur is sampled by the wrapper so reduced transparency can disable it. */
+html:is([data-mobile-page-scroll], [data-mobile-app-canvas="wallpaper"]) .topbar-shell--search .topbar-search-glass .topbar-search-input--glass {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .topbar-search-submit:hover { background: #ffffff14; }
+}
+
+@media (max-width: 767px) {
+  html[data-mobile-page-scroll] .topbar-shell--search .topbar-search-glass .topbar-search-input--glass {
+    height: 44px;
+    min-height: 44px;
+    padding-left: 16px;
+    padding-right: 48px;
+    font-size: 16px;
+    font-weight: 400;
+  }
+
+  .topbar-search-submit { width: 44px; height: 44px; right: 1px; }
+}

@@ -155,6 +155,7 @@ function mergeById(
 
 interface RootComponentLike {
   entryFile?: string;
+  assetLoading?: "automatic" | "on-demand";
   files?: Record<string, string>;
   compiled?: unknown;
   [k: string]: unknown;
@@ -204,9 +205,15 @@ function mergeRootComponent(
   }
 
   const entryFile = base && local.entryFile === base.entryFile ? server.entryFile : local.entryFile;
+  const localLoadingChanged = local.assetLoading !== base?.assetLoading;
+  const serverLoadingChanged = server.assetLoading !== base?.assetLoading;
+  if (localLoadingChanged && serverLoadingChanged && local.assetLoading !== server.assetLoading) {
+    conflicts.push({ collection: "rootComponent", id: "assetLoading", reason: "both-edited" });
+  }
+  const assetLoading = localLoadingChanged ? local.assetLoading : server.assetLoading;
   // Drop the cached compile output — files changed, so it must be recompiled on
   // save (the editor recompiles rootComponent before persisting).
-  return { ...server, ...local, entryFile, files: mergedFiles, compiled: undefined };
+  return { ...server, ...local, entryFile, assetLoading, files: mergedFiles, compiled: undefined };
 }
 
 /** Collections merged by entity `id`. */

@@ -24,15 +24,28 @@ export const H3_OVERLAP = 22;
 /** Every render is ~10 s: per job Comfy Cloud adds 3-4 s of queue and transfer, so longer clips
  *  keep up with playback better than 5 s ones (2026-10-06 speed lab). */
 const H3_LENGTH = 243;
-const H3_NEW = H3_LENGTH - H3_OVERLAP;
-/** 832x480 with the lightx2v 4-step LoRA at its 4 steps: a guided 10 s clip renders in ~43 s on the
- *  film deployment (~50 s on the shared pool), so COMFY_LANES in the client controller keeps up.
- *  640x352 at 2 steps (2026-10-06) rendered in ~14 s but played visibly soft and smeared once the
- *  player scaled it up; 2 steps at 832x480 (~28 s) is the middle ground if speed matters more. */
-const H3_W = 832;
-const H3_H = 480;
-const H3_STEPS = 4;
-const H3_LORA = "minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors";
+/** The base H3 model at 6 steps, no turbo LoRA (2026-10-07 quality lab, same cover/prompt/seed):
+ *  every turbo LoRA (lightx2v 4-step v0.1, 8-step v1.0, the 768p v1.2 4-step and 8-step) pulled a
+ *  painted cover toward generic flat anime, shifted its palette or added lens-flare/bokeh junk, and
+ *  the 768p 8-step one broke at 6 steps; the base model at 6 steps kept the cover's look and was as
+ *  fast as a LoRA at 6. Both sides must be multiples of 32 (1088x624 fails).
+ *
+ *  - stream: the floating film player, which needs clips back quickly: 1024x576 at 6 steps, ~90 s
+ *    per clip on the film deployment, close to 1344x768 in sharpness; 832x480 played soft.
+ *  - shot: one ~5 s shot of a message's film, where the picture matters most (owner,
+ *    2026-10-07): the model's native 1344x768 at 10 steps. On real turns it kept details the shot
+ *    asks for that 1024 or 6 steps dropped (a wrist screen lighting up, a pipe across someone's
+ *    knees), and beat 1024 upscaled to 1080p by SeedVR2, which sharpens but keeps the smaller
+ *    picture's composition and mistakes. Five seconds because render time grows faster than
+ *    length (measured: 5 s in ~93 s, 10 s in ~320 s, 15 s in ~640 s), so a long film is many
+ *    short shots, rendered side by side.
+ *  - warm: a tiny clip that only wakes a deployment worker (loads the models). */
+export const H3_PRESETS = {
+  stream: { w: 1024, h: 576, steps: 6, length: H3_LENGTH },
+  shot: { w: 1344, h: 768, steps: 10, length: 124 },
+  warm: { w: 256, h: 160, steps: 1, length: 22 },
+} as const;
+export type H3Preset = keyof typeof H3_PRESETS;
 
 /**
  * MiniMax H3 clip that continues the previous one the way Civitai long-video workflows do:
@@ -40,13 +53,13 @@ const H3_LORA = "minimax_h3_fl2v_lightx2v_turbo_4step_v0.1_comfy.safetensors";
  * output path) are anchored at frame 0, and those 22 frames are cut from the result.
  * With reference images it switches to the REF2VA model; the prompt names them <Picture i>.
  */
-export function buildH3Graph(o: { prompt: string; seed: number; frame?: string; guide?: string; refs?: string[] }): Graph {
+export function buildH3Graph(o: { prompt: string; seed: number; frame?: string; guide?: string; refs?: string[]; preset?: H3Preset }): Graph {
   const refs = (o.refs ?? []).slice(0, 4);
   const useRef = refs.length > 0;
-  const length = H3_LENGTH;
+  const { w: H3_W, h: H3_H, steps: H3_STEPS, length } = H3_PRESETS[o.preset ?? "stream"];
+  const H3_NEW = length - H3_OVERLAP;
   const g: Graph = {
     "1": { class_type: "UNETLoader", inputs: { unet_name: useRef ? "minimax_h3_ref2va_pruned_int8_convrot.safetensors" : "minimax_h3_fl2va_pruned_int8_convrot.safetensors", weight_dtype: "default" } },
-    "2": { class_type: "LoraLoaderModelOnly", inputs: { model: ["1", 0], strength_model: 1, lora_name: useRef ? "minimax_h3_ref2v_turbo_4step_v0.1_comfyui_bf16.safetensors" : H3_LORA } },
     "3": { class_type: "CLIPLoader", inputs: { clip_name: "qwen3vl_32b_minimax_h3_nvfp4_awq.safetensors", type: "minimax", device: "default" } },
     "4": { class_type: "VAELoader", inputs: { vae_name: "minimax_h3_video_vae_fp16.safetensors" } },
     "5": { class_type: "VAELoader", inputs: { vae_name: "minimax_h3_audio_vae_fp32.safetensors" } },
@@ -78,9 +91,9 @@ export function buildH3Graph(o: { prompt: string; seed: number; frame?: string; 
   }
   Object.assign(g, {
     "40": { class_type: "RandomNoise", inputs: { noise_seed: o.seed } },
-    "41": { class_type: "BasicGuider", inputs: { model: ["2", 0], conditioning: positive } },
+    "41": { class_type: "BasicGuider", inputs: { model: ["1", 0], conditioning: positive } },
     "42": { class_type: "KSamplerSelect", inputs: { sampler_name: "res_multistep" } },
-    "43": { class_type: "BasicScheduler", inputs: { scheduler: "simple", steps: useRef ? 4 : H3_STEPS, denoise: 1, model: ["2", 0] } },
+    "43": { class_type: "BasicScheduler", inputs: { scheduler: "simple", steps: H3_STEPS, denoise: 1, model: ["1", 0] } },
     "44": { class_type: "SamplerCustomAdvanced", inputs: { noise: ["40", 0], guider: ["41", 0], sampler: ["42", 0], sigmas: ["43", 0], latent_image: ["10", 1] } },
     "45": { class_type: "VAEDecode", inputs: { samples: ["44", 0], vae: ["4", 0] } },
     "46": { class_type: "VAEDecodeAudio", inputs: { samples: ["44", 0], vae: ["5", 0] } },

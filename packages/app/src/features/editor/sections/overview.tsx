@@ -45,7 +45,7 @@ function fetchWithTimeout(input: RequestInfo, init: RequestInit, timeoutMs: numb
 /** `embedded`: inside the canvas inspector, which already scrolls and pads. */
 export function OverviewSection({ embedded = false }: { embedded?: boolean } = {}) {
   const { enabled: discoverPreview } = useDiscoverAccess();
-  const { t } = useTranslation("editor");
+  const { t } = useTranslation(["editor", "coverEditor"]);
   const { t: tLibrary } = useTranslation("library");
   const creator = useSession().data?.user;
   const worldDraft = useEditorStore(s => s.worldDraft);
@@ -74,6 +74,8 @@ export function OverviewSection({ embedded = false }: { embedded?: boolean } = {
   // Successes need nothing — the image itself is the confirmation.
   const [coverError, setCoverError] = useState<string | null>(null);
   const [galleryError, setGalleryError] = useState<string | null>(null);
+  const [cropSaving, setCropSaving] = useState(false);
+  const [cropError, setCropError] = useState<string | null>(null);
   const [cropDialog, setCropDialog] = useState<{
     src?: string;
     landscapeSrc?: string;
@@ -248,22 +250,32 @@ export function OverviewSection({ embedded = false }: { embedded?: boolean } = {
 
   const handleSaveCrop = useCallback(
     async (value: { coverCrop?: CoverCropSettings; landscapeCoverCrop?: CoverCropSettings }) => {
+      if (cropSaving) return;
+      setCropSaving(true);
+      setCropError(null);
       // Both crops are one "save crop" action → one undo step.
       const store = useEditorStore.getState();
-      store.beginBatch();
       try {
-        if (cropDialog?.landscapeSrc) setField("landscapeCover", cropDialog.landscapeSrc);
-        setField("coverCrop", value.coverCrop);
-        setField("landscapeCoverCrop", value.landscapeCoverCrop);
+        store.beginBatch();
+        try {
+          if (cropDialog?.landscapeSrc) setField("landscapeCover", cropDialog.landscapeSrc);
+          setField("coverCrop", value.coverCrop);
+          setField("landscapeCoverCrop", value.landscapeCoverCrop);
+        } finally {
+          store.commitBatch();
+        }
+        if (!await store.saveDraft()) {
+          setCropError(t("coverEditor:extra.crop.saveFailed"));
+          return;
+        }
+        setCropDialog(null);
+      } catch {
+        setCropError(t("coverEditor:extra.crop.saveFailed"));
       } finally {
-        store.commitBatch();
+        setCropSaving(false);
       }
-      setCropDialog(null);
-      // The cover preview above re-renders with the new crop and the header
-      // shows the save — nothing else to announce.
-      await useEditorStore.getState().saveDraft();
     },
-    [setField, cropDialog]
+    [setField, cropDialog, cropSaving, t]
   );
 
   const coverCrop = worldDraft.coverCrop;
@@ -802,7 +814,9 @@ export function OverviewSection({ embedded = false }: { embedded?: boolean } = {
           initialMode={cropDialog.mode}
           initialCoverCrop={cropDialog.coverCrop}
           initialLandscapeCrop={cropDialog.landscapeCoverCrop}
-          onCancel={() => setCropDialog(null)}
+          saving={cropSaving}
+          error={cropError ?? undefined}
+          onCancel={() => { if (!cropSaving) { setCropDialog(null); setCropError(null); } }}
           onSave={handleSaveCrop}
         />
       )}

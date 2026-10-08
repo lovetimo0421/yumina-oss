@@ -50,11 +50,21 @@ test("AI-writable detection matches the engine's internal/aiAccess reading", () 
   assert.equal(worldHasAiWritableVariables(undefined), false);
 });
 
-test("guard is on by default for never-installed players of cards with AI-writable variables", async (t) => {
+test("the guard is opt-in: never-installed players do not get it unless the default is switched on", async () => {
+  registerStateUpdateGuard();
+  for (const value of [undefined, "", "off", "true"]) {
+    await withEnv({ STATE_UPDATE_GUARD_DEFAULT: value, STATE_UPDATE_GUARD_DISABLED: undefined }, async () => {
+      assert.equal(stateGuardDefaultApplies(stateful), false);
+      assert.equal((await resolve({ world: stateful })).activeExtensions.has(key), false);
+    });
+  }
+});
+
+test("with the default switched on, never-installed players of cards with AI-writable variables get it", async (t) => {
   const info = edition.info();
   t.mock.method(edition, "info", () => ({ ...info, features: { ...info.features, officialModels: true } }));
   registerStateUpdateGuard();
-  await withEnv({ STATE_UPDATE_GUARD_DEFAULT: undefined, STATE_UPDATE_GUARD_DISABLED: undefined }, async () => {
+  await withEnv({ STATE_UPDATE_GUARD_DEFAULT: "on", STATE_UPDATE_GUARD_DISABLED: undefined }, async () => {
     const dispatch = await resolve({ world: stateful, session: { stateGuardEnabled: true, stateGuardModel: "official::paid/model" } });
     assert.ok(dispatch.activeExtensions.has(key));
     assert.ok(dispatch.defaultActivated?.has(key));
@@ -67,7 +77,7 @@ test("guard is on by default for never-installed players of cards with AI-writab
 
 test("default stays off for opt-outs, stateless cards, missing world and the kill switches", async () => {
   registerStateUpdateGuard();
-  await withEnv({ STATE_UPDATE_GUARD_DEFAULT: undefined, STATE_UPDATE_GUARD_DISABLED: undefined }, async () => {
+  await withEnv({ STATE_UPDATE_GUARD_DEFAULT: "on", STATE_UPDATE_GUARD_DISABLED: undefined }, async () => {
     assert.equal((await resolve({ world: stateful, uninstalled: true })).activeExtensions.has(key), false, "explicit uninstall opts out");
     assert.equal((await resolve({ world: stateful, session: { stateGuardEnabled: false } })).activeExtensions.has(key), false, "per-chat switch opts out");
     assert.equal((await resolve({ world: readOnly })).activeExtensions.has(key), false);
@@ -80,7 +90,7 @@ test("default stays off for opt-outs, stateless cards, missing world and the kil
       assert.equal((await resolve({ world: stateful })).activeExtensions.has(key), false);
     });
   }
-  await withEnv({ STATE_UPDATE_GUARD_DISABLED: "true" }, async () => {
+  await withEnv({ STATE_UPDATE_GUARD_DEFAULT: "on", STATE_UPDATE_GUARD_DISABLED: "true" }, async () => {
     assert.equal((await resolve({ world: stateful })).activeExtensions.has(key), false, "emergency switch must not fail default players' turns");
   });
 });
@@ -89,7 +99,9 @@ test("default needs a platform key: editions without official models keep it off
   registerStateUpdateGuard();
   const info = edition.info();
   t.mock.method(edition, "info", () => ({ ...info, features: { ...info.features, officialModels: false } }));
-  assert.equal((await resolve({ world: stateful })).activeExtensions.has(key), false);
+  await withEnv({ STATE_UPDATE_GUARD_DEFAULT: "on" }, async () => {
+    assert.equal((await resolve({ world: stateful })).activeExtensions.has(key), false);
+  });
 });
 
 test("installed players are unchanged by the default and its kill switch", async () => {
@@ -119,7 +131,7 @@ test("mayCorrect re-check follows the same rule against real install rows", asyn
     { userId: removed, extensionKey: key, status: "uninstalled", uninstalledAt: new Date() },
   ]);
   try {
-    await withEnv({ STATE_UPDATE_GUARD_DEFAULT: undefined, STATE_UPDATE_GUARD_DISABLED: undefined }, async () => {
+    await withEnv({ STATE_UPDATE_GUARD_DEFAULT: "on", STATE_UPDATE_GUARD_DISABLED: undefined }, async () => {
       assert.equal(await isStateGuardActive(fresh, stateful), true);
       assert.equal(await isStateGuardActive(fresh, readOnly), false);
       assert.equal(await isStateGuardActive(removed, stateful), false, "uninstall row is an opt-out");
@@ -129,7 +141,7 @@ test("mayCorrect re-check follows the same rule against real install rows", asyn
       assert.equal(await isStateGuardActive(fresh, stateful), false);
       assert.equal(await isStateGuardActive(installed, stateful), true);
     });
-    await withEnv({ STATE_UPDATE_GUARD_DISABLED: "true" }, async () => {
+    await withEnv({ STATE_UPDATE_GUARD_DEFAULT: "on", STATE_UPDATE_GUARD_DISABLED: "true" }, async () => {
       assert.equal(await isStateGuardActive(installed, stateful), false, "existing emergency behaviour preserved");
       assert.equal(await isStateGuardActive(fresh, stateful), false);
     });

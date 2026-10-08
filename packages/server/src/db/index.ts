@@ -1600,7 +1600,15 @@ export async function ensureTables() {
   await ensureWorldsSchemaDerived();
   await db.execute(sql.raw(NATIVE_PLAYTIME_HISTORY_SNAPSHOT));
   await ensureMessagesSwipeCount();
+  await ensureVoiceBillingSchema();
   console.log("[DEV] PGlite tables + indexes created");
+}
+
+/** Production preparation owns DDL; local self-heal uses the identical script. */
+export async function ensureVoiceBillingSchema() {
+  if(process.env.NODE_ENV==='production')return;
+  const {installVoiceBilling}=await import('./voice-billing.js');
+  await installVoiceBilling(db);
 }
 
 export async function ensureCreativeUploadSchema() {
@@ -1828,6 +1836,7 @@ export async function ensureRecentAdditiveSchema() {
   for (const ddl of COLUMN_ALTERS) {
     await db.execute(sql.raw(ddl));
   }
+  await ensureVoiceBillingSchema();
 }
 
 /**

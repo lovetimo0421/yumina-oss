@@ -446,7 +446,7 @@
     "blank": "空のプロジェクト",
     "blankDesc": "空のワールド。既定のナレーションだけが入っています。",
     "importWorld": "ワールドをインポート",
-    "importWorldDesc": "ワールドまたはキャラクターカード（PNG / JSON）をインポートします。",
+    "importWorldDesc": "Yumina カードをアップロード。",
     "characterChat": "キャラクターチャット",
     "characterChatDesc": "ペルソナをデザインして、没入感のある 1 対 1 の対話を楽しめます。",
     "worldSimulation": "ワールドシミュレーション",
@@ -508,10 +508,10 @@
     "referenceEmpty": "ライブラリに画像がありません。先にアップロードまたは生成してください",
     "folderLabel": "保存先フォルダ",
     "noFolder": "すべての素材（フォルダなし）",
-    "price": "{{count}} Mushie",
+    "price": "{{count}} マッシー",
     "eta": "約{{count}}分",
-    "balance": "残高：{{count}} Mushie",
-    "submit": "生成（{{count}} Mushie）",
+    "balance": "残高：{{count}} マッシー",
+    "submit": "生成（{{count}} マッシー）",
     "submitPlain": "生成",
     "recentTitle": "最近の生成",
     "status": {
@@ -524,15 +524,15 @@
     "refunded": "返金済み",
     "uploadingReference": "参照画像をアップロード中…",
     "partialDelivery": "{{requested}} 枚中 {{delivered}} 枚を生成しました",
-    "refundCompleteAmount": "{{amount}} Mushie を返金しました",
-    "refundPendingAmount": "{{amount}} Mushie の返金処理中",
+    "refundCompleteAmount": "{{amount}} マッシーを返金しました",
+    "refundPendingAmount": "{{amount}} マッシーの返金処理中",
     "refundPending": "返金処理中",
     "cancel": "キャンセル",
     "doneToast": "生成が完了し、ライブラリに保存されました",
     "failedToast": "生成に失敗しました",
-    "cancelledToast": "キャンセルしました。Mushieは返金されました",
+    "cancelledToast": "キャンセルしました。マッシーは返金されました",
     "cancelFailed": "生成をキャンセルできませんでした",
-    "errorNoCredits": "Mushieが不足しています",
+    "errorNoCredits": "マッシーが不足しています",
     "errorBlocked": "このプロンプトは許可されていません",
     "errorTooMany": "現在の生成が完了するまでお待ちください",
     "errorDisabled": "生成機能は現在利用できません",
@@ -563,7 +563,7 @@
       "negativePlaceholder": "避けたい要素",
       "checkpoint": "ベースモデル",
       "checkpointDefault": "プラットフォーム標準（Animagine XL）",
-      "checkpointSurcharge": "カスタムベースモデルは1枚につき60 Mushie追加（モデル全体の読み込みにGPU時間がかかります）。",
+      "checkpointSurcharge": "カスタムベースモデルは1枚につき60 マッシー追加（モデル全体の読み込みにGPU時間がかかります）。",
       "loras": "LoRA",
       "addLora": "LoRAを追加…",
       "duration": "長さ",
@@ -701,11 +701,15 @@
       "western": {
         "name": "洋風"
       },
-      "surchargeChip": "+{{count}} Mushie",
+      "surchargeChip": "+{{count}} マッシー",
       "version": "バージョン",
       "anime-new": {
         "name": "アニメ · 新作",
         "variant": "新作"
+      },
+      "anime-story": {
+        "name": "アニメ · ストーリー",
+        "variant": "ストーリー"
       }
     },
     "videoStyleFromReference": "動画は参照画像の画風をそのまま引き継ぎます。",
@@ -1035,7 +1039,7 @@
       "4k": {
         "name": "4K"
       },
-      "redo": "4K版 · {{count}} Mushie",
+      "redo": "4K版 · {{count}} マッシー",
       "redoNote": "右の生成済みの画像は「4K版」で同じ構図のまま4Kにできます。"
     }
   },

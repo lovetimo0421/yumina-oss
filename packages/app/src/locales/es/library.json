@@ -463,7 +463,7 @@
     "blank": "Proyecto en blanco",
     "blankDesc": "Un mundo vacío, solo con la narración por defecto.",
     "importWorld": "Importar mundo",
-    "importWorldDesc": "Importa un mundo o una tarjeta de personaje (PNG o JSON).",
+    "importWorldDesc": "Sube una tarjeta de Yumina.",
     "characterChat": "Chat con personaje",
     "characterChatDesc": "Diseña un personaje y conversa en un diálogo inmersivo uno a uno.",
     "worldSimulation": "Simulación de mundo",
@@ -726,6 +726,10 @@
       "anime-new": {
         "name": "Anime · Nueva",
         "variant": "Nueva"
+      },
+      "anime-story": {
+        "name": "Anime · Historia",
+        "variant": "Historia"
       }
     },
     "videoStyleFromReference": "El vídeo conserva el estilo artístico de la imagen de referencia.",

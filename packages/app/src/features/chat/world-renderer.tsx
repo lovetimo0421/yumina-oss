@@ -28,7 +28,8 @@ import { GameRoomConnection } from "./game-room-connection";
 import { VoiceChat } from "@/lib/voice-chat";
 import { useWorldVoice } from "./use-world-voice";
 import { VoiceConsent } from "./voice-consent";
-import type { VoiceEvent } from "../../../sandbox/voice-types";
+import { VoiceHostStatus } from './voice-host-status';
+import { isVoiceAttempt, type VoiceEvent } from "../../../sandbox/voice-types";
 import { slimMessages } from "./slim-messages";
 import { scopeStorageKey, writeWorldStorage } from "./world-storage";
 import { createSideCallStreamReader } from "./side-call-stream";
@@ -360,9 +361,31 @@ export function WorldRenderer({
   const [videoSlot, setVideoSlot] = useState<{ x: number; y: number; width: number; height: number; radius?: number } | null>(null);
   const videoAllowedRef = useRef(false);
   const storeReadOnly = useChatStore(state => state.readOnly);
+  // Acknowledged snapshots only; optimistic card variables cannot authorize a receipt.
+  const confirmedSceneRef = useRef({ sessionId, variables });
+  if (confirmedSceneRef.current.sessionId !== sessionId) confirmedSceneRef.current = { sessionId, variables };
+  const confirmedVoiceAttempt = (activeOnly = false) => {
+    const snapshot = confirmedSceneRef.current;
+    if (snapshot.sessionId !== sessionIdRef.current) return null;
+    const journey = snapshot.variables.journey as { id?: unknown; epoch?: unknown; hatVoice?: { active?: unknown; attemptId?: unknown } } | undefined;
+    if (activeOnly && journey?.hatVoice?.active !== true) return null;
+    const value = { sessionId: snapshot.sessionId, worldId, journeyId: journey?.id, journeyEpoch: journey?.epoch, cardAttemptId: journey?.hatVoice?.attemptId };
+    return isVoiceAttempt(value) ? value : null;
+  };
   const realtimeVoice = useWorldVoice({
     sessionId,
-    enabled: isActive && mode === "session" && capabilities.canUseSessionApis && !!api.currentUser && !storeReadOnly && !(api as YuminaAPI & { readOnly?: boolean }).readOnly,
+    accountId: api.currentUser?.id,
+    currentPreparationScope: () => {
+      const snapshot = confirmedSceneRef.current;
+      if (snapshot.sessionId !== sessionIdRef.current) return null;
+      const journey = snapshot.variables.journey as { id?: unknown; epoch?: unknown } | undefined;
+      const value = { sessionId: snapshot.sessionId, worldId, journeyId: journey?.id, journeyEpoch: journey?.epoch, cardAttemptId: 'prepared' };
+      if (!isVoiceAttempt(value)) return null;
+      return { sessionId: value.sessionId, worldId: value.worldId, journeyId: value.journeyId, journeyEpoch: value.journeyEpoch };
+    },
+    currentAttempt: () => confirmedVoiceAttempt(),
+    currentPreparationAttempt: () => confirmedVoiceAttempt(true),
+    enabled: isActive && mode === "session" && sessionId === useChatStore.getState().session?.id && capabilities.canUseSessionApis && !!api.currentUser && !storeReadOnly && !(api as YuminaAPI & { readOnly?: boolean }).readOnly,
     onEvent: event => {
       if (sendVoiceEventRef.current) sendVoiceEventRef.current(event);
       else if (event.type === "video-frame") event.frame.close();
@@ -372,8 +395,6 @@ export function WorldRenderer({
   const voiceEntriesRef = useRef(entries); voiceEntriesRef.current = entries;
   // `gameState` also carries optimistic setVariable writes. Notices may only
   // cite the loaded snapshot or a state acknowledgement returned by the server.
-  const confirmedSceneRef = useRef({ sessionId, variables });
-  if (confirmedSceneRef.current.sessionId !== sessionId) confirmedSceneRef.current = { sessionId, variables };
 
   // ── API call handler (reuse same pattern as SandboxedRenderer) ──
   const handleApiCall = useCallback(
@@ -408,7 +429,8 @@ export function WorldRenderer({
           fetch: (...request) => fetch(...request), apiBase,
         });
         case "realtimeVideo.start": case "realtimeVideo.stop": case "realtimeVideo.setSlot":
-        case "realtimeVideo.direct": case "realtimeVideo.setMuted": case "realtimeVideo.release": case "realtimeVideo.skip": case "realtimeVideo.rewind": {
+        case "realtimeVideo.direct": case "realtimeVideo.setMuted": case "realtimeVideo.release": case "realtimeVideo.skip": case "realtimeVideo.rewind":
+        case "realtimeVideo.retake": case "realtimeVideo.openWindow": {
           const sid = sessionIdRef.current;
           if (method === "realtimeVideo.setSlot") {
             const r = args[0] as { x?: unknown; y?: unknown; width?: unknown; height?: unknown; radius?: unknown } | null;
@@ -423,10 +445,13 @@ export function WorldRenderer({
           else if (method === "realtimeVideo.release") controller.release();
           else if (method === "realtimeVideo.skip") controller.skip();
           else if (method === "realtimeVideo.rewind") controller.rewind();
+          else if (method === "realtimeVideo.retake") controller.regenerate();
+          else if (method === "realtimeVideo.openWindow") controller.openWindow();
           else if (method === "realtimeVideo.direct") controller.direct(String(args[0] ?? ""));
           else controller.setMuted(!!args[0]);
           return undefined;
         }
+        case 'realtimeVoice.getConfig': case 'realtimeVoice.finish':
         case "realtimeVoice.prepare": case "realtimeVoice.start": case "realtimeVoice.stop": case "realtimeVoice.interrupt": case "realtimeVoice.setMuted":
         case "realtimeVoice.updateContext": case "realtimeVoice.updateInstructions": case "realtimeVoice.cancelSceneReaction": case "realtimeVoice.reactToScene": case "realtimeVoice.resolveTool": case "realtimeVoice.setSpatial": case "realtimeVoice.ackVideoFrame": {
           // The existing generic bridge resolves results; contain rejections here
@@ -516,7 +541,7 @@ export function WorldRenderer({
             if (sessionIdRef.current !== sid || useChatStore.getState().session?.id !== sid) throw new Error("Session changed");
             const before = useChatStore.getState();
             const response = await fetch(`${apiBase}/api/sessions/${encodeURIComponent(sid)}/state`, {
-              method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
+              method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json", "X-Yumina-State-Acknowledgement": "required" },
               body: JSON.stringify({ state: { variables: values } }), signal,
             });
             const result = await response.json();
@@ -2401,10 +2426,11 @@ export function WorldRenderer({
         />
       )}
       <VoiceConsent request={realtimeVoice.consent} />
+      <VoiceHostStatus key={`${sessionId}:${api.currentUser?.id ?? ''}`} event={realtimeVoice.detail} stop={realtimeVoice.stop} finish={realtimeVoice.finish} />
       {videoSlot && sessionId && videoSlot.width > 0 && videoSlot.height > 0 && (
         <VideoSlotOverlay controller={getVideoController(sessionId)} rect={videoSlot} />
       )}
-      {realtimeVoice.status === "connected" && (
+      {realtimeVoice.status === "connected" && !realtimeVoice.detail?.phase && (
         <button type="button" onClick={realtimeVoice.stop} className="absolute right-3 top-3 z-20 rounded-full border border-border bg-background/95 px-3 py-2 text-xs text-foreground shadow-md">
           Live voice · Stop
         </button>

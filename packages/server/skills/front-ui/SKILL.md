@@ -212,7 +212,7 @@ Keep the entry small and out of the way — a corner of a title/pause screen, ne
 
 ### Audio: prefer `api.playAudio()` over `<audio>` / `<video muted={false}>`
 
-`api.playAudio(trackId, opts)` runs in the **parent window**, not your sandboxed iframe. It survives component re-mounts, won't leak on navigation, handles fade/chain/ducking, and is unaffected by browser autoplay policy nuances. Use it for BGM and SFX.
+`api.playAudio(trackId, opts)` runs in the **parent window**, not your sandboxed iframe. It survives component re-mounts and handles fade/chain/ducking. Browser autoplay rules still apply: blocked playback retries on a later user gesture. Leaving the world stops its audio, and audio commands from its hidden interface are ignored. Use it for BGM and SFX.
 
 ```js
 React.useEffect(function() {

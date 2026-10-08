@@ -30,6 +30,7 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
     playerPrompts: null as null | { boundPromptName: string | null; prompts: unknown[] },
     getModels: async () => ({ models: [] }), selectedModel: "google/gemini-2.5-flash", preferredProvider: "official", mixMode: false, modelPool: [],
     isStreaming: false, pendingChoices: [], readOnly: false, language: "en",
+    realtimeVideo: { onEvent: () => () => {}, openWindow: () => {} },
     composerSendKey: "enter", sendFailureNonce: 0, error: null as string | null,
     sendMessage: (content: string, images: unknown[] = []) => { sent.push(content); sentImages.push(images); },
     stopGeneration: noop, continueLastMessage: noop, restartChat: noop,
@@ -41,7 +42,7 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
   };
   const require = createRequire(import.meta.url);
   const mocks: Record<string, unknown> = {
-    "../sandbox-context": { useYumina: () => api, COMPOSER_DRAFT_EVENT: "synthetic-composer-draft" },
+    "../sandbox-context": { useYumina: () => api, COMPOSER_DRAFT_EVENT: "synthetic-composer-draft", currentVideoState: () => null },
     "./model-picker-modal": {
       ModelPickerModal: ({ open }: { open: boolean }) => open ? createElement("div", { "data-legacy-picker": true }) : null,
       ModelTrigger: ({ onClick }: { onClick: () => void }) => createElement("button", { onClick, "data-model-trigger": true }, "Model"),

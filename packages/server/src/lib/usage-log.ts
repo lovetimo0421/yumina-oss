@@ -62,8 +62,8 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   "state-update-guard": "billed",
   // State Update Guard on by platform default (player never installed it):
   // the one correction runs on the default guard model with the platform key
-  // and is never charged. Owner-approved 2026-09-26; kill switch
-  // STATE_UPDATE_GUARD_DEFAULT=off.
+  // and is never charged. Owner-approved 2026-09-26; off since 2026-10-08
+  // unless STATE_UPDATE_GUARD_DEFAULT=on.
   "state-update-guard-default": "free-by-design",
   "studio-agent": "billed",
   "studio-playtest": "billed",
@@ -119,12 +119,19 @@ export const USAGE_ENDPOINT_BILLING_POLICY: Record<string, "billed" | "free-by-d
   // (2026-09-28), always on the platform key; ~$0.002 per minute of speech,
   // bounded by the per-user clip rate limit in routes/voice-input.ts.
   "voice-input": "free-by-design",
+  // Native public balance transport: provider modality cost × declared1.20;
+  // undelivered output exemptions retain real spend, no elapsed-time billing.
+  voice: "billed",
+  "voice-transcription": "billed",
   // Owner-authorized private Hat candidate test, 2026-10-06: exact creator/world
   // gate, two durable starts per rolling24h, server300s deadline. No public grant.
   "voice-pilot": "free-by-design",
   "voice-pilot-transcription": "free-by-design",
   // Zero-token durable start/cleanup reservation; never presented as measured AI.
   "voice-pilot-reservation": "free-by-design",
+  // Zero-token ownership and hard-expiry receipts, never completed accounting.
+  "voice-pilot-cleanup-ownership": "free-by-design",
+  "voice-pilot-hard-expiry-accounting-incomplete": "free-by-design",
   // Jev emotion cues for voice readout: platform-funded, never charged. The
   // readout itself bills the player on the text alone (see routes/tts.ts).
   "tts-emotion": "free-by-design",

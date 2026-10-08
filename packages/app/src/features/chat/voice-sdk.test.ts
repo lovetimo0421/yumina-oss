@@ -226,7 +226,7 @@ test("assembled SDK keeps transcription/TTS independent and awaits only confirme
   const calls: { method: string; args: unknown[]; callId?: string }[] = [];
   let actionResponse: unknown = { error: "Action failed" };
   const modules: Record<string, unknown> = {
-    "./protocol": { wrapMessage: (message: unknown) => message, postToParentWindow: (message: { method: string; args: unknown[]; callId: string }) => { calls.push(message); if (["executeActionAndWait", "ai.context", "realtimeVoice.prepare", "realtimeVoice.start"].includes(message.method)) module.exports.resolveApiCall(message.callId, actionResponse); } },
+    "./protocol": { wrapMessage: (message: unknown) => message, postToParentWindow: (message: { method: string; args: unknown[]; callId: string }) => { calls.push(message); if (["executeActionAndWait", "ai.context", "realtimeVoice.prepare", "realtimeVoice.start", 'realtimeVoice.getConfig', 'realtimeVoice.finish'].includes(message.method)) module.exports.resolveApiCall(message.callId, actionResponse); } },
     "./voice-api": { createVoiceAPI, VOICE_EVENT },
     "./chat/markdown": { renderMarkdown: (text: string) => text },
     // sandbox-context resolves its own relative imports here; the oncin gallery hook is unrelated to voice.
@@ -241,7 +241,7 @@ test("assembled SDK keeps transcription/TTS independent and awaits only confirme
   try {
     const api = module.exports.buildAPI({ sessionId: "session", mode: "session", readOnly: false, capabilities: { canUseSessionApis: true } } as SandboxState);
     assert.deepEqual(Object.keys(api.voice).sort(), ["cancel", "prepare", "record", "setPrefs", "stop"]);
-    assert.deepEqual(Object.keys(api.realtimeVoice).sort(), ["cancelSceneReaction", "interrupt", "onEvent", "prepare", "reactToScene", "resolveTool", "setMuted", "setSpatial", "start", "stop", "updateContext", "updateInstructions"]);
+    assert.deepEqual(Object.keys(api.realtimeVoice).sort(), ["cancelSceneReaction", 'finish', 'getConfig', "interrupt", "onEvent", "prepare", "reactToScene", "resolveTool", "setMuted", "setSpatial", "start", "stop", "updateContext", "updateInstructions"]);
     assert.deepEqual(Object.keys(api.tts).sort(), ["onPlaybackFrame", "preview", "setPrefs", "speak", "stop"]);
     api.voice.stop(); api.voice.cancel(); api.voice.setPrefs({ enabled: false }); api.tts.stop(); api.realtimeVoice.stop();
     assert.deepEqual(calls.map(call => call.method), ["voice.stop", "voice.cancel", "voice.setPrefs", "tts.stop", "realtimeVoice.stop"]);
@@ -251,6 +251,10 @@ test("assembled SDK keeps transcription/TTS independent and awaits only confirme
     actionResponse = { status: "connected" };
     await api.realtimeVoice.start({ instructions: "Actor direction.", tools: [], interruptionMode: "manual" });
     assert.deepEqual(calls.at(-1)?.args, [{ instructions: "Actor direction.", tools: [], interruptionMode: "manual" }]);
+    actionResponse = { available: true, funding: 'balance', transport: 'server-ws-v1', turnControl: 'server-v1', maxDurationSeconds: 300, finishAcknowledged: true, reservationCredits: 100 };
+    assert.deepEqual(await api.realtimeVoice.getConfig(), actionResponse); assert.deepEqual(calls.at(-1)?.args, []);
+    actionResponse = { status: 'unsupported', reason: 'transport-lacks-durable-finish', providerState: 'unconfirmed', accounting: 'unknown' };
+    assert.deepEqual(await api.realtimeVoice.finish(), actionResponse); assert.deepEqual(calls.at(-1)?.args, []);
     actionResponse = { error: "Action failed" };
     await assert.rejects(api.executeActionAndWait("entry"), /Action failed/);
     actionResponse = undefined; await assert.rejects(api.executeActionAndWait("entry"), /confirm/i);

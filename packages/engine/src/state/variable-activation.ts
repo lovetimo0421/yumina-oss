@@ -109,7 +109,7 @@ export function isSceneImageJudgeOn(world: Pick<WorldDefinition, "continuity">):
  *  that fits the option cap, strings need a value list, booleans need nothing,
  *  json is never eligible. */
 export function isContinuityEligible(variable: Variable): boolean {
-  if (variable.internal || variable.aiAccess === "none") return false;
+  if (variable.internal || variable.formula || (variable.aiAccess ?? "write") !== "write") return false;
   switch (variable.type) {
     case "number": {
       const down = Math.max(0, Math.floor(variable.deltaDown ?? 0));
@@ -150,7 +150,7 @@ export function suggestedContinuityDelta(variable: Pick<Variable, "min" | "max">
  */
 export function withPreciseTrackingDefault<V extends Variable>(variable: V): V {
   if (variable.precise !== undefined) return variable;
-  if (variable.internal || variable.aiAccess === "none" || variable.aiAccess === "read") return variable;
+  if (variable.internal || variable.formula || variable.aiAccess === "none" || variable.aiAccess === "read") return variable;
   if (variable.scope === "setup") return variable;
   switch (variable.type) {
     case "number": {
@@ -172,6 +172,22 @@ export function withPreciseTrackingDefault<V extends Variable>(variable: V): V {
  *  directives for them are dropped — one variable, one writer. */
 export function isContinuityOwned(world: Pick<WorldDefinition, "continuity">, variable: Variable): boolean {
   return isContinuityEnabled(world) && variable.precise === true && isContinuityEligible(variable);
+}
+
+/** Match GameStateManager's actual write target: nested paths use IDs only;
+ * top-level writes use ID first, then the last variable with that display name.
+ * Permission checks must resolve the same target as the eventual write. */
+export function resolveEffectVariable(world: Pick<WorldDefinition, "variables">, variableId: string): Variable | undefined {
+  if (variableId.includes(".") || /\[\d+\]/.test(variableId)) {
+    const root = variableId.replace(/\[(\d+)\]/g, ".$1").split(".")[0];
+    return world.variables.find((v) => v.id === root);
+  }
+  const byId = world.variables.find((v) => v.id === variableId);
+  if (byId) return byId;
+  for (let i = world.variables.length - 1; i >= 0; i--) {
+    if (world.variables[i]!.name === variableId) return world.variables[i];
+  }
+  return undefined;
 }
 
 /**
@@ -198,8 +214,7 @@ export function filterAiEffects(
   const kept: Effect[] = [];
   const dropped: Effect[] = [];
   for (const effect of effects) {
-    const rootId = effect.variableId.split(".")[0]!;
-    const variable = world.variables.find((v) => v.id === rootId);
+    const variable = resolveEffectVariable(world, effect.variableId);
     if (!variable || (isAiWritable(variable, state, world.worldbooks) && !(judgeOwns && isContinuityOwned(world, variable)))) {
       kept.push(effect);
     } else {
@@ -214,8 +229,7 @@ export function filterAiEffects(
 export type AiDropReason = "internal" | "read-only" | "inactive" | "judge";
 
 export function aiDropReason(world: WorldDefinition, state: GameState, effect: Effect): AiDropReason | null {
-  const rootId = effect.variableId.split(".")[0]!;
-  const variable = world.variables.find((v) => v.id === rootId);
+  const variable = resolveEffectVariable(world, effect.variableId);
   if (!variable) return null;
   if (variable.internal) return "internal";
   if (!isVariableActive(variable, state, world.worldbooks)) return "inactive";

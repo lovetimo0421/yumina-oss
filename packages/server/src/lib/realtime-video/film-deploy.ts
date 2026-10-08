@@ -13,7 +13,7 @@ type Graph = Record<string, { class_type: string; inputs: Record<string, unknown
 interface V2Job {
   id: string;
   status: "queued" | "running" | "succeeded" | "canceling" | "canceled" | "failed" | "expired";
-  outputs?: { url: string; name?: string; content_type?: string }[];
+  outputs?: { url: string; name?: string; content_type?: string; node_id?: string }[];
   error?: { code?: string; message?: string } | null;
 }
 
@@ -75,7 +75,8 @@ export async function renderFilmClip(graph: Graph, deadlineMs = 240_000, keep = 
   let status: V2Job = job;
   while (Date.now() - t0 < deadlineMs) {
     await new Promise((r) => setTimeout(r, 400));
-    status = await request<V2Job>(`/api/v2/jobs/${job.id}`);
+    // A poll can hit a passing 503 (seen 2026-10-07); the job runs on, so poll again.
+    status = await request<V2Job>(`/api/v2/jobs/${job.id}`).catch(() => status);
     if (status.status === "running" && !startedAt) startedAt = Date.now();
     if (["succeeded", "failed", "expired", "canceled"].includes(status.status)) break;
   }
@@ -86,7 +87,9 @@ export async function renderFilmClip(graph: Graph, deadlineMs = 240_000, keep = 
     }
     throw new Error(status.error?.message || status.error?.code || `clip ${status.status === "queued" || status.status === "running" ? "timed out" : status.status}`);
   }
-  const out = (status.outputs ?? []).find((o) => o.content_type?.startsWith("video/") || /\.mp4$/i.test(o.name ?? o.url));
+  // A LoadVideo guide is listed among the outputs too, ahead of the clip: take the SaveVideo's.
+  const saved = new Set(Object.entries(graph).filter(([, n]) => n.class_type === "SaveVideo").map(([id]) => id));
+  const out = (status.outputs ?? []).find((o) => saved.has(String(o.node_id)) && (o.content_type?.startsWith("video/") || /\.mp4$/i.test(o.name ?? o.url)));
   if (!out) throw new Error("the film deployment returned no clip");
   // The content URL answers only with the key; it redirects to signed storage.
   const file = await fetch(out.url, { headers: { Authorization: `Bearer ${env.COMFY_CLOUD_API_KEY}` }, signal: AbortSignal.timeout(60_000) });
@@ -134,9 +137,14 @@ export function poolClipEnded(queueMs: number | null): void {
 
 /** Wake a deployment worker when the shared pool is getting busy (one warm-up at a time). */
 export function maybeWakeFilmDeploy(warmupGraph: () => Graph): void {
-  if (!filmDeployEnabled() || waking || filmDeployWarm()) return;
   if (poolInFlight < WAKE_AT_POOL_IN_FLIGHT && poolQueueMs < WAKE_AT_POOL_QUEUE_MS) return;
-  console.log(`[Film] waking the film deployment (pool: ${poolInFlight} in flight, ~${Math.round(poolQueueMs)} ms queue)`);
+  wakeFilmDeploy(warmupGraph, `pool: ${poolInFlight} in flight, ~${Math.round(poolQueueMs)} ms queue`);
+}
+
+/** Wake a deployment worker now (one warm-up at a time): a cold one boots for 2-3 min. */
+export function wakeFilmDeploy(warmupGraph: () => Graph, why: string): void {
+  if (!filmDeployEnabled() || waking || filmDeployWarm()) return;
+  console.log(`[Film] waking the film deployment (${why})`);
   waking = renderFilmClip(warmupGraph(), 600_000, false)
     .then(() => { noteFilmDeployDone(); console.log("[Film] film deployment warm"); })
     .catch((e) => console.warn("[Film] film deployment warm-up failed:", e instanceof Error ? e.message : e))

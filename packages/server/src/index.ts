@@ -762,6 +762,8 @@ async function start() {
     }
   );
 
+  edition.attachHttpServer?.(server as import("node:http").Server);
+
   // Real Postgres: heal the schema in the background now that the port is
   // bound and the healthcheck can pass.
   if (env.DATABASE_URL) {

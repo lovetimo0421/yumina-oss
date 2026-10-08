@@ -4,8 +4,10 @@
  *
  * Engines:
  *  - fal: one H3 Max Director WebRTC stream steered by text ($0.08/s, refuses nudity)
+ *  - shorts: a short film per reply, made on the server a few minutes after the reply is written
+ *    (turn-video.ts); the films play here one after another and the last frame holds between them
  *  - comfy-h3 / comfy-causal: a chain of ~5 s Comfy Cloud clips, each starting on the previous
- *    clip's last frame (≈$0.03 per clip, no content filter)
+ *    clip's last frame (≈$0.03 per clip, no content filter); no longer offered
  *
  * The card's opening plays shot by shot, then every finished assistant reply becomes the next
  * shot: a `<shot>…</shot>` the card's AI wrote itself is used as-is, otherwise a small director
@@ -16,19 +18,24 @@ import { wma, type WmaRealtimeSession } from "@fal-ai/client/realtime";
 import { useChatStore } from "@/stores/chat";
 import { useAudioStore } from "@/stores/audio";
 import { useUserProfileStore } from "@/stores/user-profile";
+import { filmTurn, turnFilmNotes, turnVideoClips, type TurnShotState } from "@/features/chat/turn-video";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 /** fal bills a session's first minute up front (the server meters the rest). */
 const FAL_MIN_BILLED_SEC = 60;
 /** H3 clips render this many at once; each continues the latest finished clip of its scene.
- *  A guided 832x480 / 4-step clip takes ~43 s for ~9 s of film, so three lanes run a little behind
- *  playback; the film shows "next clip" while it catches up (owner's call 2026-10-07: more lanes
- *  would crowd out other players). */
+ *  A guided 1024x576 / 6-step clip takes ~87 s for ~9 s of film (a fresh one ~80-115 s), so three
+ *  lanes run well behind playback; the film shows "next clip" while it catches up (owner's call
+ *  2026-10-07: picture quality first, speed after; more lanes would crowd out other players). */
 const COMFY_LANES = 3;
 /** A clip still rendering this long is skipped when a later one is ready (Comfy Cloud queue tails). */
-const COMFY_STUCK_MS = 80_000;
+const COMFY_STUCK_MS = 170_000;
 /** A clip of a scene whose first clip is still rendering waits this long for it before starting cold. */
-const COMFY_SCENE_WAIT_MS = 45_000;
+const COMFY_SCENE_WAIT_MS = 100_000;
+/** Continuations in a row before the next clip starts fresh: every continuation inherits the last
+ *  frames of the one before, and by the fourth the drift shows (flatter shading, junk shapes); a
+ *  fresh shot (the style sentence and portraits, no guide) resets it, like a cut to a new angle. */
+const COMFY_MAX_CHAIN = 3;
 /** Seconds one H3 clip plays. */
 const COMFY_CLIP_SEC = 9.2;
 /** With less than this many seconds of film left to play and no story to shoot, the shot is held longer. */
@@ -40,8 +47,8 @@ const HOLD_SHOTS = [
   " Then a slow close-up on the faces of the people present, one after another: small expressions, breathing, eyes moving, quiet ambient sound. Nothing new happens and no one new arrives.",
 ];
 
-export type VideoEngine = "fal" | "comfy-h3" | "comfy-causal";
-const COMFY_MODEL: Record<Exclude<VideoEngine, "fal">, string> = { "comfy-h3": "h3-turbo", "comfy-causal": "causal-forcing" };
+export type VideoEngine = "fal" | "shorts" | "comfy-h3" | "comfy-causal";
+const COMFY_MODEL: Record<Exclude<VideoEngine, "fal" | "shorts">, string> = { "comfy-h3": "h3-turbo", "comfy-causal": "causal-forcing" };
 
 export type VideoStepKind = "opening" | "user" | "reply" | "shot" | "info" | "error";
 export interface VideoStep {
@@ -116,8 +123,18 @@ export interface VideoState {
   /** Engines a card may offer the player here (start with { engine, playerChoice: true }). */
   engines?: VideoEngine[];
   clips: number;
-  /** Comfy chain: the next clip is still rendering and the player holds the last frame. */
+  /** Comfy chain: the next clip is still rendering and the player holds the last frame.
+   *  Shorts: no film is playing right now (the last frame holds). */
   waiting: boolean;
+  /** Shorts: the newest reply's film while it is being made (writing the shots, then shooting
+   *  them), or why it was not made; null once it has landed. */
+  short?: { status: "writing" | "shooting" | "failed"; shots: number; done: number; reason?: string } | null;
+  /** Shorts: the film on screen: which reply (the opening or the n-th reply), shot `shot` of
+   *  `total`, the passage it films, and every shot's state (`at` is the one on screen; a film
+   *  still being made plays its finished shots while the rest render). */
+  shortNow?: { messageId: string; reply: number; opening: boolean; shot: number; total: number; text: string; cells: TurnShotState[]; at: number; making: boolean } | null;
+  /** Shorts: the other films being made (or that failed), oldest first. */
+  shortQueue?: { messageId: string; reply: number; opening: boolean; status: "writing" | "shooting" | "failed"; cells: TurnShotState[]; reason?: string }[];
   /** The latest shot sent, and what happened to it. */
   currentShot: string;
   currentStatus: string;
@@ -180,12 +197,11 @@ async function post<T>(path: string, body: unknown): Promise<T> {
 /** Engine the player picked in the floating player's settings; a card cannot override it. */
 export const FILM_SETTINGS_KEY = "yumina:rtv-settings";
 export const DEFAULT_ENGINE: VideoEngine = "fal";
-/** Engines this player can use here: fal where the server holds a fal key. The Comfy clip chains
- *  (H3 and the low quality fast clips) are admin-only until H3's picture is good enough to open
- *  again (owner, 2026-10-07). */
+/** Engines this player can use here: fal where the server holds a fal key, and short films.
+ *  The Comfy clip chains are closed: their picture was not good enough (owner, 2026-10-07). */
 function enginesOffered(): VideoEngine[] {
   const profile = useUserProfileStore.getState().profile;
-  return [...(profile?.filmFalOffered === true ? ["fal" as const] : []), ...(profile?.role === "admin" ? ["comfy-h3" as const, "comfy-causal" as const] : [])];
+  return [...(profile?.filmFalOffered === true ? ["fal" as const] : []), "shorts"];
 }
 function engineAllowed(e: unknown): e is VideoEngine {
   return (enginesOffered() as unknown[]).includes(e);
@@ -267,6 +283,26 @@ interface ResumePoint {
   opening: { beats: { text: string; shot: string; scene?: string }[]; at: number } | null;
 }
 const resumeKey = (sessionId: string) => `yumina:rtv-resume:${sessionId}`;
+/** Short films were on for this session and not paused by the player: coming back carries on
+ *  (with the look they were filmed in). */
+const shortsKey = (sessionId: string) => `yumina:rtv-shorts:${sessionId}`;
+function shortsStyle(sessionId: string): string {
+  try {
+    const v = localStorage.getItem(shortsKey(sessionId));
+    return v && v !== "1" ? v : "source";
+  } catch {
+    return "source";
+  }
+}
+function shortsOn(sessionId: string, on?: boolean, style?: string): boolean {
+  try {
+    if (on === true) localStorage.setItem(shortsKey(sessionId), style || "1");
+    else if (on === false) localStorage.removeItem(shortsKey(sessionId));
+    return !!localStorage.getItem(shortsKey(sessionId));
+  } catch {
+    return false;
+  }
+}
 function loadResume(sessionId: string): ResumePoint | null {
   try {
     const raw = localStorage.getItem(resumeKey(sessionId));
@@ -293,6 +329,8 @@ export class RealtimeVideoController {
   private sentAt = new Map<number, number>();
   private prevShot = "";
   private cast: CastMember[] = [];
+  /** The cover's art style in words (style "source"): every shot and clip opens with it. */
+  private look = "";
   private openingDone = false;
   /** fal opening beats go out one by one; a player action speeds up the rest, never skips it. */
   private openingTimer: ReturnType<typeof setTimeout> | null = null;
@@ -321,6 +359,7 @@ export class RealtimeVideoController {
   private skipNow: (() => void) | null = null;
   /** Fast-forward: stop waiting for the current shot to play out and send the next one. */
   skip() {
+    if (this.running && this.state.engine === "shorts") return this.skipShort();
     const go = this.skipNow;
     if (!go || !this.running || this.state.held) return;
     this.addStep({ kind: "info", text: "玩家快进：直接拍下一镜" });
@@ -358,6 +397,7 @@ export class RealtimeVideoController {
 
   /** Rewind: film the previous shot again, then replay the reel back up to the latest shot. */
   rewind() {
+    if (this.running && this.state.engine === "shorts") return this.rewindShort();
     if (!this.running || this.state.held || this.state.engine !== "fal" || this.cursor <= 0) return;
     const token = ++this.replayToken;
     this.replay = { token };
@@ -415,6 +455,8 @@ export class RealtimeVideoController {
   /** H3: Comfy output path of the last clip, and of the last clip in each scene, to continue from. */
   private lastRef = "";
   private sceneRefs = new Map<string, string>();
+  /** How many continuations deep each clip is (a fresh shot is 0). */
+  private chainDepth = new Map<string, number>();
   private queuedScene: string | null = null;
   private seenScenes = new Set<string>();
   private lastFrame = "";
@@ -425,14 +467,19 @@ export class RealtimeVideoController {
     this.video.playsInline = true;
     this.video.muted = true;
     this.video.style.cssText = "width:100%;height:100%;object-fit:cover;display:block;background:#000";
-    this.video.addEventListener("ended", () => { if (this.state.engine !== "fal") this.playNext(); });
+    this.video.addEventListener("ended", () => {
+      if (this.state.engine === "shorts") this.shortEnded();
+      else if (this.state.engine !== "fal") this.playNext();
+    });
     this.state.resumable = !!loadResume(sessionId);
     // Cards see whether scene video is offered and which engines they may offer the player.
     const syncOffer = () => {
       const profile = useUserProfileStore.getState().profile;
       const offered = profile?.filmOffered === true;
       const optedIn = profile?.preferences?.experimentalFilm === true;
-      const engines = offered ? enginesOffered() : [];
+      // Scene video is experimental and off by default: cards offer it only to players who
+      // turned it on (owner, 2026-10-08).
+      const engines = offered && optedIn ? enginesOffered() : [];
       if (offered !== this.state.offered || optedIn !== this.state.optedIn || engines.join() !== (this.state.engines ?? []).join()) this.set({ offered, optedIn, engines });
     };
     syncOffer();
@@ -484,7 +531,7 @@ export class RealtimeVideoController {
   private set(patch: Partial<VideoState>) {
     this.state = { ...this.state, ...patch };
     // While the film plays with sound, the world's music, effects and voice readout stay silent.
-    const filming = (this.state.status === "live" || this.state.status === "starting") && !this.state.muted;
+    const filming = (this.state.status === "live" || this.state.status === "starting") && !this.state.muted && !(this.state.engine === "shorts" && this.state.waiting);
     if (useAudioStore.getState().filmHold !== filming) useAudioStore.getState().setFilmHold(filming);
     for (const fn of this.listeners) fn(this.state);
   }
@@ -604,14 +651,46 @@ export class RealtimeVideoController {
     // Taking the video off the page pauses it (a card hides it under its map or settings), and
     // putting it back does not restart it: the picture froze while the sound, which goes
     // through WebAudio, played on.
-    if (this.running && (this.video.srcObject || this.video.src) && this.video.paused && !this.state.held) this.play();
+    // (A short film that played to its end holds its last frame: it does not start over.)
+    if (this.running && (this.video.srcObject || this.video.src) && this.video.paused && !this.video.ended && !this.state.held) this.play();
+    // Short films: the film waiting for a screen plays now (from its start).
+    if (this.running && this.state.engine === "shorts") {
+      const unseen = this.shortUnseen;
+      this.shortUnseen = null;
+      if (unseen) this.playShort(unseen, 0);
+      else if (this.state.waiting) this.syncShorts();
+    }
   }
   detach(el: HTMLElement) {
     this.holders = this.holders.filter((h) => h !== el);
     const prev = this.holders[this.holders.length - 1];
     if (prev) prev.appendChild(this.video);
     else if (this.video.parentElement === el) this.video.remove();
-    if (!this.video.paused || this.video.srcObject) this.play();
+    if ((!this.video.paused && !this.video.ended) || this.video.srcObject) this.play();
+  }
+
+  /** The player left with short films on (not paused): carry on, and follow the films still
+   *  being made. Shows the film window unless a card's stage takes the picture. */
+  async resumeShorts() {
+    if (this.running || this.startPending || this.state.status === "starting" || !shortsOn(this.sessionId)) return;
+    // The session's messages may still be loading.
+    for (let i = 0; i < 30 && !useChatStore.getState().messages.some((m) => m.role === "assistant"); i++) await new Promise((r) => setTimeout(r, 500));
+    if (this.running || !useChatStore.getState().messages.some((m) => m.role === "assistant")) return;
+    // Only for a player who still has scene video on (no first-use question here).
+    const flags = await filmFlags();
+    if (!flags.offered || !flags.optedIn || !engineAllowed("shorts")) return;
+    const r = await this.start({ engine: "shorts", playerChoice: true, style: shortsStyle(this.sessionId) });
+    if ("ok" in r) setTimeout(() => { if (this.running && !this.holders.length) this.openWindow(); }, 1500);
+  }
+
+  // The host's film window listens (chat-view); the chat's own menu asks it to open.
+  private windowOpeners = new Set<() => void>();
+  onOpenWindow(fn: () => void): () => void {
+    this.windowOpeners.add(fn);
+    return () => this.windowOpeners.delete(fn);
+  }
+  openWindow() {
+    for (const fn of this.windowOpeners) fn();
   }
 
   // ── lifecycle ──
@@ -636,6 +715,9 @@ export class RealtimeVideoController {
 
   private startPending = false;
   async start(options: VideoStartOptions = {}): Promise<{ ok: true } | { error: string }> {
+    // Short films already carrying on (resumed when the player came back): a card that asks to
+    // film them again is answered yes.
+    if (this.running && options.engine === "shorts" && this.state.engine === "shorts") return { ok: true };
     if (this.running || this.state.status === "starting" || this.startPending) return { error: "already running" };
     this.startPending = true;
     try {
@@ -680,7 +762,8 @@ export class RealtimeVideoController {
     this.deferred = [];
     this.earlyWork = null;
     this.pendingReply = false;
-    this.set({ status: "starting", engine, elapsed: 0, cost: 0, credits: 0, clips: 0, waiting: false, currentShot: "", currentStatus: "", error: undefined, steps: [], scenes: [], currentScene: null, cut: null });
+    this.set({ status: "starting", engine, elapsed: 0, cost: 0, credits: 0, clips: 0, waiting: false, currentShot: "", currentStatus: "", error: undefined, steps: [], scenes: [], currentScene: null, cut: null, short: null });
+    if (engine === "shorts") return this.startShorts();
     try {
       const msgs = useChatStore.getState().messages;
       const greeting = msgs.find((m) => m.role === "assistant");
@@ -692,7 +775,7 @@ export class RealtimeVideoController {
       // The story moved past the greeting with no film running: film from the latest reply.
       const late = engine === "fal" && !saved && options.resume !== false && !!latest && latest.id !== greeting.id;
       const t0 = performance.now();
-      let op: { cast: CastMember[]; scenes?: VideoScene[]; beats: { text: string; shot: string; scene?: string }[]; coverUrl?: string | null; credits?: number };
+      let op: { cast: CastMember[]; scenes?: VideoScene[]; beats: { text: string; shot: string; scene?: string }[]; coverUrl?: string | null; look?: string | null; credits?: number };
       if (saved) {
         this.opts.style = options.style ?? saved.style;
         op = { cast: saved.cast, scenes: saved.scenes, beats: saved.opening?.beats ?? [] };
@@ -707,6 +790,7 @@ export class RealtimeVideoController {
         this.addStep({ kind: "info", text: `拆成 ${op.beats.length} 镜，认出 ${op.cast.length} 个角色（${((performance.now() - t0) / 1000).toFixed(1)}s）：${op.cast.map((c) => c.name).join("、")}` });
       }
       this.cast = op.cast;
+      this.look = op.look ?? "";
       this.set({ scenes: (op.scenes ?? []).filter((x) => x && x.id && x.sheet).map((x) => ({ id: String(x.id), sheet: String(x.sheet) })) });
       this.subscribeChat();
 
@@ -867,6 +951,8 @@ export class RealtimeVideoController {
     if (this.state.engine === "fal") this.meterFal(elapsed);
     // The live stream must never sit paused on the page (the browser can pause it on its own).
     if (this.state.engine === "fal" && this.video.srcObject && this.video.paused && this.video.isConnected) this.play();
+    // Short films cost nothing while they hold a frame: no time limit.
+    if (this.state.engine === "shorts") return;
     if (this.state.engine !== "fal" && !this.state.held) {
       if (this.idle()) this.playNext();
       this.pump();
@@ -885,6 +971,9 @@ export class RealtimeVideoController {
     if (this.consentAnswer) void this.answerConsent(false);
     this.falRun = "";
     if (byPlayer) this.clearResume();
+    // The player paused short films: coming back does not start them again. (Films being made
+    // still finish on the server and land in their replies.)
+    if (byPlayer && this.state.engine === "shorts") shortsOn(this.sessionId, false);
     if (this.leaveTimer) clearTimeout(this.leaveTimer);
     this.leaveTimer = null;
     this.skipNow = null;
@@ -896,6 +985,7 @@ export class RealtimeVideoController {
     this.running = false;
     this.queue = [];
     this.resetClips();
+    this.resetShorts();
     if (this.timer) clearInterval(this.timer);
     if (this.openingTimer) clearTimeout(this.openingTimer);
     this.openingTimer = null;
@@ -953,8 +1043,9 @@ export class RealtimeVideoController {
     this.sendShot(prompt.trim(), label, "shot");
   }
 
-  /** Shoot the latest shot again (a new take). */
+  /** Shoot the latest shot again (a new take). Shorts: film the newest reply again. */
   regenerate() {
+    if (this.running && this.state.engine === "shorts") return this.shootShort(true);
     if (!this.running || !this.prevShot) return;
     this.sendShot(this.prevShot, "重新生成这一镜", "shot");
   }
@@ -1080,6 +1171,7 @@ export class RealtimeVideoController {
     this.droppedClips.clear();
     this.refVersion.clear();
     this.lastRefVersion = 0;
+    this.chainDepth.clear();
     this.holds = 0;
     this.failStreak = 0;
     this.pauseUntil = 0;
@@ -1152,7 +1244,7 @@ export class RealtimeVideoController {
   /** Start every clip that can start; when the story has nothing to film, hold the last shot longer. */
   private pump() {
     if (!this.running || performance.now() < this.pauseUntil) return;
-    const lanes = COMFY_MODEL[this.state.engine as Exclude<VideoEngine, "fal">] === "h3-turbo" ? COMFY_LANES : 1;
+    const lanes = COMFY_MODEL[this.state.engine as Exclude<VideoEngine, "fal" | "shorts">] === "h3-turbo" ? COMFY_LANES : 1;
     while (this.rendering.size < lanes) {
       const item = this.queue.find((q) => this.canStart(q));
       if (!item) break;
@@ -1172,7 +1264,7 @@ export class RealtimeVideoController {
 
   /** A clip continues its scene's latest finished clip; it waits briefly while that scene's first clip renders. */
   private canStart(item: ClipItem) {
-    if (COMFY_MODEL[this.state.engine as Exclude<VideoEngine, "fal">] !== "h3-turbo") return true;
+    if (COMFY_MODEL[this.state.engine as Exclude<VideoEngine, "fal" | "shorts">] !== "h3-turbo") return true;
     if (item.from === "fresh") return true;
     if (this.sourceFor(item) || (!this.lastRef && this.lastFrame)) return !this.firstClipRendering();
     const sceneRendering = [...this.rendering.values()].some((q) => q.scene === item.scene);
@@ -1188,17 +1280,18 @@ export class RealtimeVideoController {
 
   private sourceFor(item: ClipItem): string {
     if (item.from === "fresh") return "";
-    return (item.scene ? this.sceneRefs.get(item.scene) : "") || (item.from === "prev" ? this.lastRef : "") || "";
+    const ref = (item.scene ? this.sceneRefs.get(item.scene) : "") || (item.from === "prev" ? this.lastRef : "") || "";
+    return ref && (this.chainDepth.get(ref) ?? 0) < COMFY_MAX_CHAIN ? ref : "";
   }
 
   private clipRequest(item: ClipItem) {
-    const model = COMFY_MODEL[this.state.engine as Exclude<VideoEngine, "fal">];
+    const model = COMFY_MODEL[this.state.engine as Exclude<VideoEngine, "fal" | "shorts">];
     if (model !== "h3-turbo") return { model, prompt: item.prompt, frame: this.lastFrame };
     const guide = this.sourceFor(item);
     // Only the very first clip can start on a still (the cover or an uploaded image).
     const frame = !guide && item.from === "prev" && !this.lastRef ? this.lastFrame : "";
     // Character portraits are drawn art: they help drawn styles and drag live-action toward anime.
-    return { model, prompt: item.prompt, sessionId: this.sessionId, refs: this.opts.style !== "live", ...(guide ? { guide } : {}), ...(frame ? { frame } : {}) };
+    return { model, prompt: item.prompt, sessionId: this.sessionId, style: this.opts.style, look: this.look || undefined, refs: this.opts.style !== "live", ...(guide ? { guide } : {}), ...(frame ? { frame } : {}) };
   }
 
   private clipFailed(v: number, why: string) {
@@ -1248,6 +1341,7 @@ export class RealtimeVideoController {
       // Later clips continue from the newest footage of their scene, even footage that was skipped.
       const ref = res.headers.get("X-Clip-Ref");
       if (ref) {
+        this.chainDepth.set(ref, "guide" in body && body.guide ? (this.chainDepth.get(body.guide) ?? 0) + 1 : 0);
         if (item.v > this.lastRefVersion) { this.lastRef = ref; this.lastRefVersion = item.v; }
         if (item.scene && item.v > (this.refVersion.get(item.scene) ?? 0)) { this.sceneRefs.set(item.scene, ref); this.refVersion.set(item.scene, item.v); }
       }
@@ -1314,7 +1408,7 @@ export class RealtimeVideoController {
 
   private directorBody(aiText: string, userText: string | undefined, part?: "start" | "rest") {
     return {
-      sessionId: this.sessionId, style: this.opts.style, cast: this.cast, userText, aiText, prevShot: this.prevShot,
+      sessionId: this.sessionId, style: this.opts.style, look: this.look || undefined, cast: this.cast, userText, aiText, prevShot: this.prevShot,
       recent: this.recentStory(), model: this.opts.directorModel,
       scenes: this.state.scenes.map(({ id, sheet }) => ({ id, sheet })), currentScene: this.state.currentScene,
       ...(part ? { part } : {}),
@@ -1379,6 +1473,290 @@ export class RealtimeVideoController {
       .catch(() => { /* the full reply still gets its shots */ });
   }
 
+  // ── shorts: a film per reply ──
+  // The server films a reply in a few minutes (turn-video.ts): the shots render side by side and
+  // land in the reply as video embeds, which the chat hides. They play here, film after film in
+  // story order, and the front of a film plays while its later shots are still being made.
+  // Between films the last frame holds. Rewind goes back a film and plays on from there.
+  /** The film on screen (by its reply) and which of its playable shots. */
+  private shortAt: { messageId: string; clip: number; reply: number } | null = null;
+  /** The newest film, held until something shows the video. */
+  private shortUnseen: string | null = null;
+  /** Bumped on every shot change, so a slow fetch never puts back an older shot. */
+  private shortToken = 0;
+  /** When the shot on screen was asked for (a rewind right after one goes back another film). */
+  private shortSince = 0;
+  /** Shots fetched ahead, so the next one starts without a gap. */
+  private shortCache = new Map<string, string>();
+  private shortFetching = new Map<string, Promise<string | null>>();
+  /** The passage each shot of a landed film films, by message (read once from the film's notes). */
+  private shortNotes = new Map<string, string[]>();
+
+  private startShorts(): { ok: true } | { error: string } {
+    const latest = this.latestReply();
+    if (!latest) {
+      this.set({ status: "error", error: "no opening message yet" });
+      return { error: "no opening message yet" };
+    }
+    this.begin();
+    shortsOn(this.sessionId, true, this.opts.style);
+    this.unsubs.push(useChatStore.subscribe((state, prev) => {
+      if (!this.running) return;
+      if (state.messages.length > prev.messages.length) {
+        const added = state.messages[state.messages.length - 1];
+        if (added?.role === "user") this.addStep({ kind: "user", text: added.content.slice(0, 120) });
+      }
+      if (state.messages !== prev.messages) this.syncShorts();
+      // A reply (or a new swipe of one) is written: film it.
+      if (prev.isStreaming && !state.isStreaming) this.shootShort();
+    }));
+    const films = this.shortFilms();
+    const newest = films[films.length - 1];
+    // Back in a filmed story: the newest film plays again, once something shows the video (a card
+    // places its stage after the film starts). When the newest reply has none yet, the film before
+    // it holds its last frame while the newest is made.
+    if (newest && newest.messageId === latest.id && !this.holders.length) this.shortUnseen = newest.messageId;
+    if (newest) this.playShort(newest.messageId, 0, newest.messageId !== latest.id || !this.holders.length);
+    else this.set({ waiting: true });
+    this.addStep({ kind: "info", text: `短片：这一局已有 ${films.length} 部` });
+    this.shootShort();
+    this.syncShorts();
+    return { ok: true };
+  }
+
+  private latestReply() {
+    return [...useChatStore.getState().messages].reverse().find((m) => m.role === "assistant");
+  }
+
+  /** Every reply's film so far, in story order: landed films, and the playable front of films
+   *  still being made (their finished shots up to the first one not done yet). */
+  private shortFilms(): ShortFilm[] {
+    const films: ShortFilm[] = [];
+    let reply = 0;
+    let userSeen = false;
+    for (const m of useChatStore.getState().messages) {
+      if (m.role === "user") userSeen = true;
+      if (m.role !== "assistant") continue;
+      reply++;
+      const base = { messageId: m.id, reply, opening: !userSeen };
+      const landed = turnVideoClips(m.content);
+      if (landed.length) {
+        const notes = this.shortNotes.get(m.id);
+        if (!notes) this.loadNotes(m.id, m.content);
+        films.push({ ...base, clips: landed, texts: landed.map((_, i) => notes?.[i] ?? ""), cells: landed.map(() => "done"), cellOf: landed.map((_, i) => i), making: false });
+        continue;
+      }
+      const tv = m.turnVideo;
+      if (tv?.status !== "rendering" || !tv.cells || !tv.clips) continue;
+      const clips: string[] = [], texts: string[] = [], cellOf: number[] = [];
+      for (let i = 0; i < tv.cells.length; i++) {
+        if (tv.cells[i] === "failed") continue;
+        if (tv.cells[i] !== "done" || !tv.clips[i]) break;
+        clips.push(tv.clips[i]!);
+        texts.push(tv.texts?.[i] ?? "");
+        cellOf.push(i);
+      }
+      if (clips.length) films.push({ ...base, clips, texts, cells: tv.cells, cellOf, making: true });
+    }
+    return films;
+  }
+
+  private loadNotes(messageId: string, content: string) {
+    this.shortNotes.set(messageId, []);
+    void turnFilmNotes(content).then((texts) => {
+      if (!texts?.length || !this.running) return;
+      this.shortNotes.set(messageId, texts);
+      this.syncShorts();
+    });
+  }
+
+  /** Film the newest reply, unless it has a film, is being filmed, or failed (`again`: film it anyway). */
+  private shootShort(again = false) {
+    const latest = this.latestReply();
+    if (!latest || !latest.content.trim() || latest.turnVideo?.status === "rendering") return;
+    if (latest.swipes?.[latest.activeSwipeIndex ?? 0]?.refusal) return;
+    if (!again && (turnVideoClips(latest.content).length || latest.turnVideo?.status === "failed")) return;
+    this.addStep({ kind: "reply", text: latest.content.replace(/\s+/g, " ").slice(0, 120) });
+    void filmTurn(latest.id, this.opts.style || "source").then((credits) => {
+      this.addCredits(credits);
+      const now = useChatStore.getState().messages.find((m) => m.id === latest.id)?.turnVideo;
+      if (now?.status === "failed" && now.reason === "credits" && this.running) this.failHard("INSUFFICIENT_CREDITS", "蘑菇币不足，停止拍摄");
+    });
+  }
+
+  /** Follow the chat: what is on screen, films being made, and shots that just finished. */
+  private syncShorts() {
+    const films = this.shortFilms();
+    const msgs = useChatStore.getState().messages;
+    // Films being made (or that failed), oldest first, apart from the one on screen.
+    const queue: NonNullable<VideoState["shortQueue"]> = [];
+    let reply = 0;
+    let userSeen = false;
+    for (const m of msgs) {
+      if (m.role === "user") userSeen = true;
+      if (m.role !== "assistant") continue;
+      reply++;
+      const tv = m.turnVideo;
+      if (!tv || m.id === this.shortAt?.messageId) continue;
+      queue.push(tv.status === "failed"
+        ? { messageId: m.id, reply, opening: !userSeen, status: "failed", cells: [], reason: tv.reason }
+        : { messageId: m.id, reply, opening: !userSeen, status: tv.cells?.length ? "shooting" : "writing", cells: tv.cells ?? [] });
+    }
+    const tv = this.latestReply()?.turnVideo;
+    const short: VideoState["short"] = !tv ? null
+      : tv.status === "failed" ? { status: "failed", shots: 0, done: 0, reason: tv.reason }
+      : { status: tv.shots ? "shooting" : "writing", shots: tv.shots ?? 0, done: tv.done ?? 0 };
+    const film = this.shortAt ? films.find((f) => f.messageId === this.shortAt!.messageId) : undefined;
+    const shortNow: VideoState["shortNow"] = film && this.shortAt ? {
+      messageId: film.messageId, reply: film.reply, opening: film.opening, shot: this.shortAt.clip + 1, total: film.cells.filter((c) => c !== "failed").length,
+      text: film.texts[this.shortAt.clip] ?? "", cells: film.cells, at: film.cellOf[this.shortAt.clip] ?? 0, making: film.making,
+    } : null;
+    const patch: Partial<VideoState> = {};
+    if (JSON.stringify(short) !== JSON.stringify(this.state.short ?? null)) {
+      patch.short = short;
+      if (this.state.waiting) patch.currentStatus = !short ? "" : short.status === "failed" ? `没拍成：${short.reason}` : short.status === "writing" ? "导演在写分镜…" : `正在拍：已拍好 ${short.done}/${short.shots} 个镜头`;
+    }
+    if (JSON.stringify(queue) !== JSON.stringify(this.state.shortQueue ?? [])) patch.shortQueue = queue;
+    if (JSON.stringify(shortNow) !== JSON.stringify(this.state.shortNow ?? null)) patch.shortNow = shortNow;
+    if (Object.keys(patch).length) this.set(patch);
+    // Nothing playing: the next shot of this film once it is done, else the next film (once
+    // something shows the video, so a film never plays unseen).
+    if (this.state.waiting && this.holders.length) {
+      if (film && this.shortAt && this.shortAt.clip + 1 < film.clips.length) this.playShort(film.messageId, this.shortAt.clip + 1);
+      else {
+        // (The film on screen may be gone: a film being made that failed.)
+        const next = films.find((f) => f.reply > (this.shortAt?.reply ?? 0));
+        if (next) this.playShort(next.messageId, 0);
+      }
+    }
+    this.markShorts();
+  }
+
+  private shortIndex(films: { messageId: string }[]) {
+    return this.shortAt ? films.findIndex((f) => f.messageId === this.shortAt!.messageId) : -1;
+  }
+
+  /** Play shot `clip` of a reply's film (`hold`: show the last finished shot's last frame instead). */
+  private playShort(messageId: string, clip: number, hold = false) {
+    const films = this.shortFilms();
+    const i = films.findIndex((f) => f.messageId === messageId);
+    const film = films[i];
+    if (!film) return;
+    if (hold) clip = film.clips.length - 1;
+    const url = film.clips[clip];
+    if (!url) return;
+    this.shortAt = { messageId, clip, reply: film.reply };
+    this.shortSince = performance.now();
+    const token = ++this.shortToken;
+    // Played from a fetched copy: the next shot starts without a gap, and the sound reaches the
+    // film's sound chain whichever host serves the file.
+    void this.fetchShort(url).then((blob) => {
+      if (token !== this.shortToken || !this.running) return;
+      this.video.srcObject = null;
+      this.video.src = blob ?? url;
+      if (hold) {
+        this.video.autoplay = false;
+        this.video.addEventListener("loadedmetadata", () => {
+          this.video.currentTime = Math.max(0, this.video.duration - 0.05);
+          this.video.autoplay = true;
+        }, { once: true });
+      } else {
+        this.play();
+      }
+      // Keep this shot and the next (of this film, or the first of the next), fetched now.
+      const ahead = film.clips[clip + 1] ?? films[i + 1]?.clips[0];
+      for (const [k, cached] of this.shortCache) {
+        if (k !== url && k !== ahead) { URL.revokeObjectURL(cached); this.shortCache.delete(k); }
+      }
+      if (ahead) void this.fetchShort(ahead);
+    });
+    if (hold) {
+      this.set({ waiting: true, progress: null });
+    } else {
+      this.version++;
+      const total = film.cells.filter((c) => c !== "failed").length;
+      this.set({ waiting: false, clips: this.state.clips + 1, progress: { phase: "turn", shot: clip + 1, total, excerpt: film.texts[clip] ?? "" }, currentStatus: `第 ${film.reply} 条回复 · 第 ${clip + 1}/${total} 镜` });
+      this.addStep({ kind: "shot", text: `短片 ${i + 1}/${films.length} · 第 ${clip + 1}/${total} 镜`, excerpt: film.texts[clip] || undefined, version: this.version, status: "画面已出", shownAt: this.now() });
+    }
+    this.syncShorts();
+  }
+
+  private fetchShort(url: string): Promise<string | null> {
+    const cached = this.shortCache.get(url);
+    if (cached) return Promise.resolve(cached);
+    let p = this.shortFetching.get(url);
+    if (!p) {
+      p = fetch(url)
+        .then(async (r) => (r.ok ? URL.createObjectURL(await r.blob()) : null))
+        .then((blob) => {
+          if (blob && this.running) this.shortCache.set(url, blob);
+          else if (blob) URL.revokeObjectURL(blob);
+          return blob;
+        })
+        .catch(() => null)
+        .finally(() => this.shortFetching.delete(url));
+      this.shortFetching.set(url, p);
+    }
+    return p;
+  }
+
+  /** A shot played out: the next shot, the next film, or hold the last frame (until the film's
+   *  next shot is done, or the next film is here). */
+  private shortEnded() {
+    if (!this.running || !this.shortAt) return;
+    const films = this.shortFilms();
+    const i = this.shortIndex(films);
+    const film = films[i];
+    if (film && this.shortAt.clip + 1 < film.clips.length) return this.playShort(film.messageId, this.shortAt.clip + 1);
+    if (!film?.making && films[i + 1]) return this.playShort(films[i + 1].messageId, 0);
+    this.set({ waiting: true, progress: null });
+    this.syncShorts();
+  }
+
+  /** Jump to shot `clip` of the film on screen (a finished one). */
+  jumpShort(clip: number) {
+    if (!this.running || this.state.engine !== "shorts" || !this.shortAt) return;
+    this.playShort(this.shortAt.messageId, clip);
+  }
+
+  /** Back to the start of this film, or (already at its start) of the film before. */
+  private rewindShort() {
+    const films = this.shortFilms();
+    if (!films.length) return;
+    const i = this.shortIndex(films);
+    // At a film's start (or just sent there): the film before.
+    const atStart = !this.state.waiting && this.shortAt?.clip === 0 && (this.video.currentTime < 2 || performance.now() - this.shortSince < 2500);
+    const to = films[i < 0 ? films.length - 1 : Math.max(0, atStart ? i - 1 : i)];
+    this.addStep({ kind: "info", text: "玩家回退：从头放一部" });
+    this.playShort(to.messageId, 0);
+  }
+
+  /** Forward to the next film; on the newest, to its last frame. */
+  private skipShort() {
+    const films = this.shortFilms();
+    const i = this.shortIndex(films);
+    if (films[i + 1]) return this.playShort(films[i + 1].messageId, 0);
+    if (films[i] && !this.state.waiting) this.playShort(films[i].messageId, 0, true);
+  }
+
+  /** Rewind and forward are offered when there is somewhere to go. */
+  private markShorts() {
+    const films = this.shortFilms();
+    const i = this.shortIndex(films);
+    const rewindable = films.length > 0;
+    const skippable = i >= 0 && (i + 1 < films.length || !this.state.waiting);
+    if (rewindable !== this.state.rewindable || skippable !== this.state.skippable) this.set({ rewindable, skippable });
+  }
+
+  private resetShorts() {
+    this.shortAt = null;
+    this.shortUnseen = null;
+    this.shortToken++;
+    for (const blob of this.shortCache.values()) URL.revokeObjectURL(blob);
+    this.shortCache.clear();
+    this.shortFetching.clear();
+  }
+
   /** Turn the latest finished reply into its shots. */
   private handleReply() {
     if (!this.running) return;
@@ -1435,6 +1813,13 @@ export class RealtimeVideoController {
       });
   }
 }
+
+/** A reply's film as the shorts engine plays it: its playable shots (and the passage each films),
+ *  every shot's state, and which shot each playable one is. */
+type ShortFilm = {
+  messageId: string; reply: number; opening: boolean; clips: string[]; texts: string[];
+  cells: TurnShotState[]; cellOf: number[]; making: boolean;
+};
 
 type ClipItem = {
   v: number; prompt: string; turn: boolean; turnNo: number; scene: string | null; from: "prev" | "fresh" | "scene";

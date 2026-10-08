@@ -9,6 +9,22 @@ const sdp = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\nm=audio 9 UDP/TL
 const input = { sdp, instructions: "Run the fictional inspection." };
 const responseCode = async (response: Response) => (await response.json() as { code: string }).code;
 
+test("enabled balance Hat policy takes precedence without resolving BYOK, testing or pilot keys", async () => {
+  for (const available of [true, false]) {
+    const config = { available, funding: "balance", transport: "server-ws-v1", turnControl: "server-v1", maxDurationSeconds: 300, finishAcknowledged: true };
+    const f = setup({
+      balanceConfig: async () => config,
+      getOpenAiKey: async () => { assert.fail("balance cannot fall through to a key"); },
+      getTestingKey: () => { assert.fail("balance cannot use sponsorship"); },
+      getPilotKey: async () => { assert.fail("balance cannot use private pilot"); },
+    } as Partial<VoiceRouteServices>);
+    assert.deepEqual(await (await f.app.request(`/api/voice/${sessionId}/config`)).json(), config);
+    const denied = await f.post(input);
+    assert.equal(denied.status, 409);
+    assert.equal(await responseCode(denied), "VOICE_BALANCE_REQUIRED");
+  }
+});
+
 test("private pilot funding stays in its owned native lifecycle and never overrides BYOK", async () => {
   let pilotCalls = 0;
   const f = setup({ getOpenAiKey: async () => null, getPilotKey: async (user, session) => { assert.equal(user, "owner"); assert.equal(session, sessionId); return "platform-secret"; },
@@ -47,6 +63,21 @@ test("pilot cancellation requires a valid actual connection identity before its 
   assert.equal((await f.app.request(url, { method: "POST" })).status, 200); assert.equal(stops, 0);
   await f.app.request(url, { method: "POST", headers: { "X-Voice-Connection-Id": "invalid/id" } }); assert.equal(stops, 0);
   await f.app.request(url, { method: "POST", headers: { "X-Voice-Connection-Id": "actual-attempt" } }); assert.equal(stops, 1);
+});
+
+test('retained owned pilot cleanup survives chat deletion/restriction with truthful outcomes only',async()=>{
+ for(const status of['pending','hard-expired-accounting-incomplete','closed'] as const){
+  let sponsored=0;const f=setup({authenticate:async()=>({id:'owner',isSuspended:true}),ownsSession:async()=>false,
+   stopPilot:async(owner,session,connection)=>{assert.deepEqual([owner,session,connection],['owner',sessionId,'attempt']);return {status};},stopSponsored:async()=>{sponsored++;}});
+  const res=await f.app.request(`/api/voice/${sessionId}/stop`,{method:'POST',headers:{'X-Voice-Connection-Id':'attempt'}});
+  assert.equal(res.status,status==='pending'?202:200);assert.deepEqual(await res.json(),{stopped:status==='closed',cleanup:status});assert.equal(sponsored,0);
+  assert.equal((await f.app.request(`/api/voice/${sessionId}/config`)).status,403);assert.equal((await f.post(input)).status,403);
+ }
+ const foreign=setup({ownsSession:async()=>false,stopPilot:async()=>null});assert.equal((await foreign.app.request(`/api/voice/${sessionId}/stop`,{method:'POST',headers:{'X-Voice-Connection-Id':'attempt'}})).status,404);
+});
+test('pilot cleanup is not skipped when unrelated sponsored stop would fail',async()=>{
+ let pilot=0;const f=setup({stopSponsored:async()=>{throw Error('unrelated failure');},stopPilot:async()=>{pilot++;return {status:'pending'};}});
+ const res=await f.app.request(`/api/voice/${sessionId}/stop`,{method:'POST',headers:{'X-Voice-Connection-Id':'attempt'}});assert.equal(res.status,202);assert.equal(pilot,1);assert.deepEqual(await res.json(),{stopped:false,cleanup:'pending'});
 });
 
 test("Live is explicitly enabled by the host and never silently routed to Realtime", async () => {

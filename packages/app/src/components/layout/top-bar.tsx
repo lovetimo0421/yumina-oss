@@ -6,7 +6,6 @@ import {
   User,
   Settings,
   LogOut,
-  Search,
   CircleHelp,
   Menu,
 } from "lucide-react";
@@ -34,6 +33,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { signOut, clearSessionCache } from "@/lib/auth-client";
 import { getAvatarInitials } from "@/lib/avatar-initials";
 import { DOCS_URLS } from "@/lib/docs-urls";
+import { TopBarSearch } from "./top-bar-search";
 
 export function TopBarAccountControls() {
   const { t } = useTranslation();
@@ -233,30 +233,11 @@ export function TopBar() {
     return installScrollAwayHeader(window, header, setScrollHidden);
   }, [location.pathname, isDiscoverPage, isCommunityPage, isLibraryPage, isMessagesPage, isCreatePicker]);
 
-  const handleDiscoverSearchConfirm = () => {
-    if (discoverPreview) headerRef.current?.querySelector<HTMLInputElement>("input[type=search]")?.blur();
-    const hubScroller = document.querySelector(".hub-layout-scroll") as HTMLElement | null;
-    scrollPageTo(hubScroller, 0);
-  };
-
-  const searchValue = isLibraryPage ? libraryQuery : hubQuery;
-  const searchPlaceholder = isLibraryPage ? t("search.library") : t("search.hub");
-  const setSearchValueRaw = isLibraryPage ? setLibraryQuery : setHubQuery;
-
-  // Chromium ignores autocomplete="off" on everything but password fields, so
-  // signing in could leave the address the browser had just seen sitting in
-  // this box — and because the input is controlled, that silent fill fires
-  // onChange and runs a real search. A new player's first Discover opened on
-  // their own email and a "no players matched" block.
-  //
-  // A fill that happens without the field ever being touched is not the user
-  // typing, so ignore it. Chromium's silent autofill never focuses the input;
-  // picking a suggestion from the dropdown does, and so does typing or
-  // pasting, which all keep working.
-  const searchTouched = useRef(false);
-  const setSearchValue = (value: string) => {
-    if (!searchTouched.current) return;
-    setSearchValueRaw(value);
+  const handleSearchConfirm = () => {
+    const scroller = document.querySelector<HTMLElement>(
+      isLibraryPage ? ".library-page-shell" : ".hub-layout-scroll",
+    );
+    scrollPageTo(scroller, 0);
   };
 
   if (isEditPage || (isCreatePage && !isCreatePicker) || isPlayPage || isAdminWorldInspect) return null;
@@ -299,30 +280,22 @@ export function TopBar() {
           </div>
 
           <div className="topbar-center topbar-search-region">
-            {showSearch ? (
-              <div className="topbar-search-glass group relative w-full">
-                <Search className="topbar-search-icon pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
-                <input
-                  type="search"
-                  name="q"
-                  autoComplete="off"
-                  placeholder={searchPlaceholder}
-                  value={searchValue}
-                  onFocus={() => { searchTouched.current = true; }}
-                  onChange={(e) => setSearchValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                    if (e.key === "Enter" && isDiscoverPage) {
-                      handleDiscoverSearchConfirm();
-                      e.currentTarget.blur();
-                    }
-                  }}
-                  aria-label={searchPlaceholder}
-                  className="topbar-search-input topbar-search-input--glass w-full rounded-full border border-white/5 bg-white/5 pl-11 pr-4 text-sm text-foreground placeholder:text-muted-foreground/60 transition-all focus:border-white/10 focus:bg-white/10 focus:outline-none"
-                />
-                {isDiscoverPage && discoverPreview && <button type="button" className="discover-search-submit" aria-label={searchPlaceholder}
-                  onClick={handleDiscoverSearchConfirm}><Search size={15} aria-hidden="true" /></button>}
-              </div>
+            {isDiscoverPage ? (
+              <TopBarSearch
+                key="discover"
+                value={hubQuery}
+                onValueChange={setHubQuery}
+                placeholder={t("search.hub")}
+                onConfirm={handleSearchConfirm}
+              />
+            ) : isLibraryPage ? (
+              <TopBarSearch
+                key="library"
+                value={libraryQuery}
+                onValueChange={setLibraryQuery}
+                placeholder={t("search.library")}
+                onConfirm={handleSearchConfirm}
+              />
             ) : null}
           </div>
 

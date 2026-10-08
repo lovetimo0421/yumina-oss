@@ -5,6 +5,7 @@ import type { SandboxMessage } from "./types";
 import type { makeChatT } from "./i18n";
 import { resolveSandboxImageSrc } from "./markdown";
 import { splitTurnImages } from "./turn-image-embeds";
+import { TurnImageDrawingLabel } from "./turn-image-state";
 import { useTurnImageSettings } from "./turn-images";
 
 type T = ReturnType<typeof makeChatT>;
@@ -80,10 +81,8 @@ export function TurnImageCard({ embed, message, api, t }: { embed: string; messa
         <img src={src} alt="" loading="lazy" className={`block h-auto w-full transition ${drawing ? "scale-[1.02] blur-sm brightness-50" : ""}`} />
       </button>
       {drawing && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-xs text-foreground" role="status" aria-live="polite">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
-          {t("turnImageDrawing")}
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-foreground" role="status" aria-live="polite">
+          <TurnImageDrawingLabel t={t} />
         </div>
       )}
 

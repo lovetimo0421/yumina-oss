@@ -212,6 +212,25 @@ test("a list can show the card's characters or one of its folders, and make a ch
   await m.unmount();
 });
 
+test("rows a template wrote as name/note show and save as name/note, not title/body", async () => {
+  // The map and collection templates write rows like this and show {{item.name}}.
+  const el: Extract<UiElement, { type: "list" }> = {
+    id: "map", type: "list", x: 0, y: 0, w: 300, h: 300,
+    source: { kind: "static", items: [{ id: "tavern", name: "Tavern", note: "Warm and loud" }] },
+    item: { template: "{{item.name}}" },
+  };
+  const m = await mountEditor(el, (cur, onPatch) => createElement(ListEditor, { el: cur, onPatch, variables, ctx }));
+  const title = m.host.querySelector<HTMLInputElement>('[aria-label="studio.parts.list.rowTitle"]')!;
+  const body = m.host.querySelector<HTMLInputElement>('[aria-label="studio.parts.list.rowBody"]')!;
+  assert.equal(title.value, "Tavern", "the place's name is in the title box, not blank");
+  assert.equal(body.value, "Warm and loud");
+  await change(title, "Old Tavern");
+  const src = m.latest().source;
+  assert.deepEqual(src.kind === "static" && src.items, [{ id: "tavern", name: "Old Tavern", note: "Warm and loud" }], "the edit lands where the list reads");
+  assert.equal(m.latest().item.template, "{{item.name}}");
+  await m.unmount();
+});
+
 test("the list editor keeps authored rows as records and turns on cards, locks and row steps", async () => {
   const el: Extract<UiElement, { type: "list" }> = {
     id: "l", type: "list", x: 0, y: 0, w: 300, h: 300, source: { kind: "static", items: ["Ring", "Map"] }, item: { template: "{{item}}" },

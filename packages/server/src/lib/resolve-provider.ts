@@ -8,6 +8,7 @@ import type { LLMProvider } from "./llm/types.js";
 import type { ApiKeyMetadata } from "@yumina/shared";
 import { RETIRED_PLAY_MODEL_IDS } from "@yumina/shared";
 import { isOfficialModel } from "./model-price-cache.js";
+import { isNativeVoiceModel } from "./voice-native-models.js";
 import { ensureWallet } from "./credit-service.js";
 import { resolveEffectivePlanWithEventEntitlements } from "./event-plan-entitlements.js";
 import { env } from "./env.js";
@@ -169,6 +170,7 @@ export async function resolveProviderForModel(
     allowOfficialFallback?: boolean;
   }
 ): Promise<ResolvedProvider | null> {
+  if (isNativeVoiceModel(modelId)) return null;
   const providerName = inferProvider(modelId);
   const meta = await getUserMeta(userId);
   const { plan } = meta;

@@ -6,14 +6,17 @@ export const STATE_GUARD_KEY = "state-update-guard";
 
 /**
  * Whether the platform default (guard on without an install) may run at all.
- * `STATE_UPDATE_GUARD_DEFAULT=off` is its kill switch. The emergency
+ * The guard is an extension players install, so the default is off unless
+ * `STATE_UPDATE_GUARD_DEFAULT=on`. Default-on (2026-10-06 to 10-08) failed a
+ * fifth of turns visibly, and the missed-update repair already fills in what a
+ * reply forgot for every player. The emergency
  * `STATE_UPDATE_GUARD_DISABLED` fails installed players' turns closed; it must
  * not start failing every default player's turns too, so it also turns the
  * default off. Editions without official models have no platform key to pay
  * for default corrections.
  */
 export function stateGuardDefaultEnabled(): boolean {
-  if (process.env.STATE_UPDATE_GUARD_DEFAULT?.trim().toLowerCase() === "off") return false;
+  if (process.env.STATE_UPDATE_GUARD_DEFAULT?.trim().toLowerCase() !== "on") return false;
   if (process.env.STATE_UPDATE_GUARD_DISABLED === "true") return false;
   return edition.info().features.officialModels;
 }

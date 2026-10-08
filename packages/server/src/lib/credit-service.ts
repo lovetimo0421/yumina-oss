@@ -27,7 +27,7 @@ import {
 import { bonusCompatibilityEnabled, cyclePlanConfig, expireWalletBonus, prepareWalletSpend, recordSpendAllocation, recordCyclePolicy } from "./free-credit-policy.js";
 import { isV2Signup, shouldMigrateToV2 } from "./plan-config-v2.js";
 import { hasDropWork, initialDropAmount, releaseDueDrops, settleUndeliveredDrops, startDropCycle } from "./plan-drops.js";
-import { getAvailableCredits, heldCreditsForWallet, studioCreditReservationsEnabled } from "./credit-reservations.js";
+import { getAvailableCredits, heldCreditsForWallet, creditHoldProtectionEnabled, protectedCreditsForWallet } from "./credit-reservations.js";
 import { FREE_CREDIT_CYCLE_MS, globalCreditResetAtOrAfter, isFreeCreditCycle } from "./credit-reset-time.js";
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -454,7 +454,7 @@ export async function checkBalance(userId: string): Promise<{
         .where(eq(creditWallets.userId, userId));
       wallet = await syncPlan(userId, "free");
       const effectiveWallet = await withEffectiveEventPlan(wallet);
-      const balance = studioCreditReservationsEnabled() ? (await getAvailableCredits(userId)).availableCredits : effectiveWallet.balance;
+      const balance = creditHoldProtectionEnabled() ? (await getAvailableCredits(userId)).availableCredits : effectiveWallet.balance;
       return { ok: balance > 0, balance, wallet: effectiveWallet };
     }
   }
@@ -494,7 +494,7 @@ export async function checkBalance(userId: string): Promise<{
   // After a long absence the current cycle can already be past a later drop.
   if (await hasDropWork(refreshed) && (await releaseDueDrops(userId)).length > 0) refreshed = await ensureWallet(userId);
   const effectiveWallet = await withEffectiveEventPlan(refreshed);
-  const balance = studioCreditReservationsEnabled() ? (await getAvailableCredits(userId)).availableCredits : effectiveWallet.balance;
+  const balance = creditHoldProtectionEnabled() ? (await getAvailableCredits(userId)).availableCredits : effectiveWallet.balance;
   return { ok: balance > 0, balance, wallet: effectiveWallet };
 }
 
@@ -504,8 +504,11 @@ export async function checkBalance(userId: string): Promise<{
 export async function validateModelAccess(
   plan: PlanId,
   modelId: string,
+  admissionPrice?: import("./model-price-cache.js").ModelPriceEntry,
 ): Promise<{ allowed: boolean; reason?: string }> {
-  const price = await getModelPrice(modelId);
+  // Native admission supplies the exact locked catalog row, avoiding stale
+  // cache fallback and a global query escaping its owning transaction.
+  const price = admissionPrice?.modelId === modelId ? admissionPrice : await getModelPrice(modelId);
   if (!price) {
     return {
       allowed: false,
@@ -684,7 +687,7 @@ export async function deductCredits(
     if (!locked) throw new Error("INSUFFICIENT_CREDITS");
     const [prior] = await tx.select().from(creditTransactions).where(and(eq(creditTransactions.walletId,locked.id),eq(creditTransactions.referenceId,referenceId),eq(creditTransactions.type,transactionType))).limit(1);
     if (prior) return { creditsDeducted: -prior.amount, newBalance: locked.balance, newAddonBalance: locked.addonBalance, transactionId: prior.id };
-    const held = studioCreditReservationsEnabled() ? await heldCreditsForWallet(locked.id, tx) : 0;
+    const held = creditHoldProtectionEnabled() ? await protectedCreditsForWallet(locked.id, tx) : 0;
     if (locked.balance - held < credits) throw Object.assign(new Error("INSUFFICIENT_CREDITS"), {
       userId, credits, referenceId, balance: Math.max(0, locked.balance - held),
     });

@@ -57,7 +57,8 @@ import { setPendingCodeJump } from "@/lib/code-jump";
 import { StageTree } from "./stage-tree";
 import { LEARNING_CANVAS_EVENT, LEARNING_PANEL_EVENT, lessonById } from "./learn/learning-catalog";
 import { useLearningWorkspace } from "./learn/learning-workspace";
-import { StudioLearningButton } from "./learn/learning-button";
+import { StudioDocsButton, StudioLearningButton } from "./learn/learning-button";
+import { LoreTokenMeter } from "./lore-token-meter";
 import { DockWorkspace, type DockTool } from "./dock-tools";
 import { AiPresenceLayer } from "./ai-presence";
 import { useAgentPresence } from "./lib/agent-presence";
@@ -671,6 +672,7 @@ export function BlueprintStage({
 
           <div className="flex min-w-0 items-center justify-end gap-1 overflow-hidden">
             <StudioLearningButton />
+            <StudioDocsButton />
             <button type="button" onClick={toggleAi} aria-pressed={aiShown} title={t("studio.panels.aiAssistant")} className={cn(pageTab(aiShown), "flex shrink-0 items-center gap-1.5 whitespace-nowrap")}><MessageSquare className="h-3.5 w-3.5" /><span className="@max-[46rem]:hidden">{t("studio.panels.aiAssistant")}</span></button>
           </div>
         </div>
@@ -700,6 +702,11 @@ export function BlueprintStage({
         />
 
         </div>
+        {/* What the card's lore costs, in the board's top-right corner; it
+            steps left of an inspector that floats over the board. */}
+        {!frontendShown && !generationShown && !detailShown && !isPlaytest && (
+          <LoreTokenMeter right={inspectorOverlay ? inspectorLayout.width + STAGE_INSPECTOR_OVERLAY_INSET + 12 : 12} />
+        )}
 
         {/* The card's own screen. Overlays rather than replaces, so the
             blueprint keeps its layout, selection and undo history. */}

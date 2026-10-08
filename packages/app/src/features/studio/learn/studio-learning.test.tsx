@@ -142,7 +142,7 @@ test("one tutorial: three required lessons stage the canvas a block at a time, t
     assert.deepEqual(seen.stage, ["opening", "lore", "frontend", "state"], "a later lesson brings its block onto the three");
     assert.deepEqual(seen.focus, ["state"]);
     assert.ok(document.body.textContent?.includes("Tutorial · Variables"));
-    assert.ok(document.querySelector('[data-learning="strip"]')?.textContent?.includes("Behaviours"), "the card names the lesson after this one");
+    assert.ok(document.querySelector('[data-learning="strip"]')?.textContent?.includes("Behaviors"), "the card names the lesson after this one");
     const variable = store.getState().worldDraft.variables[0]!;
     assert.equal(variable.name, "Affection");
     assert.equal(variable.precise, true, "the sample is a whole variable: tracked by the judge");
@@ -154,7 +154,7 @@ test("one tutorial: three required lessons stage the canvas a block at a time, t
     for (const beat of ["state:range", "state:precise", "state:rules", "state:add"]) { await next(); assert.equal(step(), beat); }
     await click("Done");
     assert.ok(document.body.textContent?.includes("Variables: done"));
-    assert.ok(document.querySelector('[data-learning="start"]')?.textContent?.includes("Behaviours"));
+    assert.ok(document.querySelector('[data-learning="start"]')?.textContent?.includes("Behaviors"));
     await start();
     assert.equal(step(), "behavior");
     assert.deepEqual(seen.stage, ["opening", "lore", "frontend", "state", "behavior"]);

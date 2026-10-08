@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { RealtimeVideoFloat, type RealtimeVideoOpenRequest } from "./realtime-video/realtime-video-float";
+import { getVideoController } from "./realtime-video/controller";
 import { StateGuardHost, StateGuardHostButton } from "./state-guard-host";
 import { guardLabels } from "../../../sandbox/extensions/state-update-guard/details";
 import { useTranslation } from "react-i18next";
@@ -193,7 +194,7 @@ export function ChatView({
       store.clearPendingChoices();
       store.clearError();
     }
-    if (!hasLoadedSession) {
+    if (!hasLoadedSession && isActive) {
       store.loadSession(sessionId);
     }
   }, [sessionId]);
@@ -205,7 +206,9 @@ export function ChatView({
   const prevActiveRef = useRef(isActive);
   useEffect(() => {
     // Refresh session when reactivated (user navigated back from library/hub)
-    if (isActive && !prevActiveRef.current && session?.id === sessionId) {
+    // Also reload when the initial request has not returned yet. Leaving
+    // invalidates its audio scope, so returning needs a fresh request.
+    if (isActive && !prevActiveRef.current) {
       useChatStore.getState().loadSession(sessionId);
     }
     prevActiveRef.current = isActive;
@@ -541,6 +544,15 @@ export function ChatView({
   const openSceneVideo = useCallback(() => {
     setRealtimeVideoOpenRequest((previous) => ({ sessionId, nonce: (previous?.nonce ?? 0) + 1 }));
   }, [sessionId]);
+  // The chat's "+" menu opens it too (api.realtimeVideo.openWindow).
+  useEffect(() => {
+    if (embedded || !sessionId) return;
+    const controller = getVideoController(sessionId);
+    const off = controller.onOpenWindow(openSceneVideo);
+    // Back in a story filmed as short films: they carry on (see resumeShorts).
+    const t = setTimeout(() => { void controller.resumeShorts(); }, 800);
+    return () => { clearTimeout(t); off(); };
+  }, [embedded, sessionId, openSceneVideo]);
 
   // Resolve {{user}} / {{char}} for display. Fallback chain:
   //   1. personaName from state.metadata (server-populated: active persona OR
@@ -1223,7 +1235,8 @@ function FullscreenFloatingBar({
   const { toggle } = useImmersiveMode();
   const reviewGroupKey = moderationGroupKey;
   const guardInstalled = useExtensionsStore((s) => s.installState["state-update-guard"] === "installed");
-  const filmOffered = useUserProfileStore((s) => s.profile?.filmOffered === true);
+  // Scene video stays out of the menu until the player turns it on in Settings.
+  const filmOffered = useUserProfileStore((s) => s.profile?.filmOffered === true && s.profile?.preferences?.experimentalFilm === true);
   const isTouch = useTouchDevice();
   const [visible, setVisible] = useState(false);
   const [modelBrowserOpen, setModelBrowserOpen] = useState(false);

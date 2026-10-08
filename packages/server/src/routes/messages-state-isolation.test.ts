@@ -67,6 +67,9 @@ test("send, regenerate, swipe, and continue preserve independent reply outcomes 
   const reply = (await db.select().from(messages).where(eq(messages.sessionId, session!.id))).find(message => message.role === "assistant");
   assert.ok(reply, "the send route persists the original reply");
   assert.deepEqual(reply.swipes![0]!.generationState!.variables, before.variables);
+  const sendAudit = reply.swipes![0]!.variableAudit!;
+  assert.equal(sendAudit.segments[0]!.path, "send");
+  assert.equal(sendAudit.segments[0]!.changes.find(c => c.variableId === "affection")!.newValue.value, 13);
   const [sentSession] = await db.select().from(playSessions).where(eq(playSessions.id, session!.id));
   assert.equal((sentSession!.state.variables as Record<string, unknown>).affection, 13);
   assert.deepEqual((sentSession!.state.variables as Record<string, unknown>).character, { hp: 100, panel: true }, "ordinary send retains concurrent UI writes without adopting them into the baseline");
@@ -101,6 +104,9 @@ test("send, regenerate, swipe, and continue preserve independent reply outcomes 
   const [savedReply] = await db.select().from(messages).where(eq(messages.id, reply!.id));
   assert.deepEqual(savedReply!.swipes!.map(s => (s.stateSnapshot!.variables as Record<string, unknown>).affection), outcomes);
   for (const swipe of savedReply!.swipes!) assert.deepEqual(swipe.generationState!.variables, before.variables);
+  assert.deepEqual(savedReply!.swipes!.map(s => s.variableAudit!.segments.map(a => a.path)),
+    [["send"], ["regenerate"], ["regenerate"], ["regenerate"], ["regenerate"]]);
+  assert.deepEqual(savedReply!.swipes![0]!.variableAudit, sendAudit);
 
   // Continue the selected +8 alternative, retaining the original message's
   // pre-reply variables rather than making its outcome the reroll baseline.
@@ -109,6 +115,9 @@ test("send, regenerate, swipe, and continue preserve independent reply outcomes 
   assert.equal(continuedReply!.activeSwipeIndex, 3);
   assert.equal((continuedReply!.swipes![3]!.stateSnapshot!.variables as Record<string, unknown>).affection, 23);
   assert.deepEqual(continuedReply!.swipes![3]!.generationState!.variables, before.variables);
+  const continuationAudit = continuedReply!.swipes![3]!.variableAudit!;
+  assert.deepEqual(continuationAudit.segments.map(s => s.path), ["regenerate", "continue"]);
+  assert.equal(continuationAudit.segments[1]!.committed.find(c => c.variableId === "affection")!.value.value, 23);
   assert.deepEqual(continuedReply!.swipes!.filter((_, index) => index !== 3), savedReply!.swipes!.filter((_, index) => index !== 3));
 
   // The replacement also ends at 23. A concurrent patch must not win merely
@@ -130,6 +139,7 @@ test("send, regenerate, swipe, and continue preserve independent reply outcomes 
   assert.deepEqual((finalSession!.state.variables as Record<string, unknown>).character, before.variables.character);
   assert.deepEqual(finalReply!.swipes!.slice(0, 5), continuedReply!.swipes);
   assert.deepEqual(finalReply!.swipes![5]!.generationState!.variables, before.variables);
+  assert.deepEqual(finalReply!.swipes![5]!.variableAudit!.segments.map(s => s.path), ["regenerate"]);
   assert.equal(finalSession!.state.turnCount, 1);
   assert.equal(attempt, directives.length);
 });

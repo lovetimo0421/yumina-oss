@@ -1,7 +1,7 @@
 /** Bounded voice surface. The host owns consent, capture, playback and provider traffic. */
 export type VoiceEvent =
-  | { type: "status"; status: "connecting" | "connected" | "stopped" | "error"; message?: string }
-  | { type: "transcript"; role: "user" | "assistant"; id: string; text: string; final: boolean }
+  | { type: "status"; status: "connecting" | "connected" | "stopped" | "error"; message?: string; phase?: "consent" | "permission" | "negotiation" | "live" | "cleanup"; code?: string; reason?: 'wall' | 'configuration' | 'playback' | 'client-write' | 'input-age' }
+  | { type: "transcript"; role: "user" | "assistant"; id: string; text: string; final: boolean; native?: VoiceFinalIdentity }
   | { type: "input"; status: "speaking" | "transcribing" | "discarded"; id: string }
   | { type: "input-hint"; message: string }
   | { type: "capture-settings"; echoCancellation: boolean | "all" | "remote-only" | "unknown" }
@@ -11,6 +11,7 @@ export type VoiceEvent =
   | { type: "video-frame"; id: number; frame: ImageBitmap }
   | { type: "video-status"; status: "connecting" | "live" | "stopped"; message?: string }
   | { type: "activity"; status: "listening" | "speaking" | "thinking" }
+  | { type: 'context-status'; revision: number; status: 'pending' | 'configuring' | 'applied' }
   | { type: "tool"; callId: string; name: "request_inspection_focus"; arguments: { focus: "desk" | "door" | "bed"; reason: string } };
 
 export type VoiceSceneReaction =
@@ -94,6 +95,10 @@ export { type VoiceContext, type VoiceContextSnapshot } from './voice-context.ts
 import { isVoiceContext, voiceContextText, type VoiceContext } from './voice-context.ts';
 
 export interface VoiceAPI {
+  /** No-spend query for the current bound session. Object existence is not availability. */
+  getConfig(): Promise<VoiceCapability>;
+  /** Silence locally, then recover/drain the exact saved attempt's durable receipt. */
+  finish(): Promise<VoiceFinishResult>;
   /** Call from the user action, before asynchronous context/save work. */
   prepare(options?: { avatar?: boolean }): Promise<{ intent: string }>;
   start(options: { intent?: string; instructions: string; context?: VoiceContext; voice?: "marin" | "cedar"; avatar?: boolean; tools?: VoiceToolName[]; interruptionMode?: "automatic" | "manual" }): Promise<{ status: "connected" }>;
@@ -112,6 +117,57 @@ export interface VoiceAPI {
   resolveTool(callId: string, result: { accepted: boolean; focus?: string; reason?: string }): void;
   setSpatial(pose: { x: number; z: number; yaw: number; sourceX: number; sourceZ: number }): void;
   onEvent(callback: (event: VoiceEvent) => void): () => void;
+}
+
+export interface VoiceAttempt {
+  sessionId: string; worldId: string; journeyId: string; journeyEpoch: number; cardAttemptId: string;
+}
+export interface VoiceFinalIdentity {
+  attempt: VoiceAttempt; callId: string; connectionId: string; epoch: number;
+  finalSeq: number; itemId: string; contentIndex: number; groupIndex: number; groupSize: number;
+  delivery: 'generated' | 'input';
+}
+export type VoiceCapability =
+  | { available: boolean; funding: 'balance'; transport: 'server-ws-v1'; turnControl: 'server-v1'; maxDurationSeconds: 300; finishAcknowledged: true; reservationCredits: number; code?: string }
+  | { available: boolean; funding: 'byok' | 'testing' | 'private-pilot' | null; transport: 'webrtc-v1' | null; maxDurationSeconds: number; finishAcknowledged: false; code?: string };
+export type VoiceProviderState = 'open' | 'unconfirmed' | 'close-confirmed' | 'hard-expired' | 'not-created';
+export type VoiceAccountingState = 'pending' | 'complete' | 'incomplete' | 'not-applicable';
+interface VoiceReceiptIdentity { callId: string; connectionId: string | null; epoch: number; attempt: VoiceAttempt; terminalReason?: string }
+export type VoiceFinishResult =
+  | { status: 'unsupported'; reason: 'transport-lacks-durable-finish' | 'no-scoped-relay-call'; providerState: 'unconfirmed'; accounting: 'unknown'; lastFinalSeq?: never }
+  | (VoiceReceiptIdentity & { status: 'pending'; providerState: VoiceProviderState; accounting: VoiceAccountingState; lastFinalSeq?: never })
+  | (VoiceReceiptIdentity & { status: 'finished'; connectionId: string; providerState: 'close-confirmed'; accounting: 'complete'; lastFinalSeq: number })
+  | (VoiceReceiptIdentity & { status: 'incomplete'; providerState: VoiceProviderState; accounting: VoiceAccountingState; lastFinalSeq?: number })
+  | (VoiceReceiptIdentity & { status: 'not-started'; providerState: 'not-created'; accounting: VoiceAccountingState; lastFinalSeq?: never })
+  | (VoiceReceiptIdentity & { status: 'unavailable'; providerState: VoiceProviderState; accounting: VoiceAccountingState; lastFinalSeq?: never });
+
+const voiceObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const voiceUint = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+const voiceId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= 200 && !/[\u0000-\u001f\u007f]/.test(v);
+export function isVoiceAttempt(v: unknown): v is VoiceAttempt {
+  return voiceObject(v) && Reflect.ownKeys(v).length === 5 && voiceId(v.sessionId) && voiceId(v.worldId) && voiceId(v.journeyId) && voiceUint(v.journeyEpoch) && voiceId(v.cardAttemptId);
+}
+export function sameVoiceAttempt(a: VoiceAttempt, b: VoiceAttempt): boolean {
+  return a.sessionId === b.sessionId && a.worldId === b.worldId && a.journeyId === b.journeyId && a.journeyEpoch === b.journeyEpoch && a.cardAttemptId === b.cardAttemptId;
+}
+export function isVoiceCapability(v: unknown): v is VoiceCapability {
+  if (!voiceObject(v) || typeof v.available !== 'boolean' || !voiceUint(v.maxDurationSeconds) || (v.code !== undefined && (!voiceId(v.code) || v.code.length > 80))) return false;
+  if (v.funding === 'balance') return Reflect.ownKeys(v).every(k => typeof k === 'string' && ['available','funding','transport','turnControl','maxDurationSeconds','finishAcknowledged','reservationCredits','code'].includes(k))
+    && v.transport === 'server-ws-v1' && v.turnControl === 'server-v1' && v.maxDurationSeconds === 300 && v.finishAcknowledged === true && typeof v.reservationCredits === 'number' && Number.isFinite(v.reservationCredits) && v.reservationCredits >= 20 && v.reservationCredits <= 1000;
+  return Reflect.ownKeys(v).every(k => typeof k === 'string' && ['available','funding','transport','maxDurationSeconds','finishAcknowledged','code'].includes(k))
+    && ['byok','testing','private-pilot',null].includes(v.funding as never) && ['webrtc-v1',null].includes(v.transport as never) && v.finishAcknowledged === false;
+}
+export function isVoiceFinishResult(v: unknown): v is VoiceFinishResult {
+  if (!voiceObject(v)) return false;
+  const keys = Reflect.ownKeys(v);
+  if (v.status === 'unsupported') return keys.length === 4 && keys.every(k => ['status','reason','providerState','accounting'].includes(k as string)) && ['transport-lacks-durable-finish','no-scoped-relay-call'].includes(v.reason as string) && v.providerState === 'unconfirmed' && v.accounting === 'unknown';
+  if (!keys.every(k => typeof k === 'string' && ['status','callId','connectionId','epoch','attempt','providerState','accounting','lastFinalSeq','terminalReason'].includes(k)) || !voiceId(v.callId) || !(v.connectionId === null || voiceId(v.connectionId)) || !voiceUint(v.epoch) || !isVoiceAttempt(v.attempt)) return false;
+  if (!['open','unconfirmed','close-confirmed','hard-expired','not-created'].includes(v.providerState as string) || !['pending','complete','incomplete','not-applicable'].includes(v.accounting as string)) return false;
+  if (v.terminalReason !== undefined && (!voiceId(v.terminalReason) || v.terminalReason.length > 240)) return false;
+  if (v.status === 'finished') return voiceId(v.connectionId) && v.providerState === 'close-confirmed' && v.accounting === 'complete' && voiceUint(v.lastFinalSeq);
+  if (v.status === 'incomplete') return v.lastFinalSeq === undefined || voiceUint(v.lastFinalSeq);
+  if (!['pending','not-started','unavailable'].includes(v.status as string) || keys.includes('lastFinalSeq')) return false;
+  return v.status !== 'not-started' || v.providerState === 'not-created';
 }
 
 export type VoicePose = Parameters<VoiceAPI["setSpatial"]>[0];

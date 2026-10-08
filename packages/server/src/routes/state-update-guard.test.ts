@@ -92,6 +92,8 @@ test("never-installed players of a default-guarded card may only switch it per c
   const saved = process.env.STATE_UPDATE_GUARD_DEFAULT;
   delete process.env.STATE_UPDATE_GUARD_DEFAULT;
   try {
+    assert.equal((await app.request(url)).status, 403, "the guard is opt-in: no default settings unless switched on");
+    process.env.STATE_UPDATE_GUARD_DEFAULT = "on";
     const read = await app.request(url);
     assert.equal(read.status, 200);
     assert.deepEqual((await read.json() as { data: unknown }).data, { enabled: true, model: null, byDefault: true });
@@ -104,7 +106,7 @@ test("never-installed players of a default-guarded card may only switch it per c
     assert.equal(resolutions.length, 0);
     process.env.STATE_UPDATE_GUARD_DEFAULT = "off";
     assert.equal((await app.request(url)).status, 403, "kill switch removes the default settings too");
-    delete process.env.STATE_UPDATE_GUARD_DEFAULT;
+    process.env.STATE_UPDATE_GUARD_DEFAULT = "on";
     await db.insert(userExtensions).values({ userId: owner, extensionKey: "state-update-guard", status: "uninstalled", uninstalledAt: new Date() });
     assert.equal((await app.request(url)).status, 403, "an explicit uninstall is already an opt-out");
     assert.equal((await patch({ enabled: true })).status, 403);

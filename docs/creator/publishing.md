@@ -1,14 +1,14 @@
 # Publishing
 
-When your world is ready, publish it to the Hub so players can find it and play.
+Once your card is done, publish it and players can find it on Discover.
 
 ## Before You Publish
 
-- **Playtest your world.** Send 10-20 messages. Check that variables update properly, entries kick in at the right moments, and that it's actually fun to play.
-- **Write a good blurb.** It's the first thing players see on Discover. Be clear about what the experience is: genre, tone, premise.
-- **Add a cover image.** Worlds with a cover get noticeably more clicks.
-- **Set the content mode.** Label it honestly: **Limited** for standard content boundaries, **Limitless** for expanded content boundaries. Mislabelling breaks the community guidelines.
-- **Tag your world.** Tags help players find your world through search and filters.
+- **Playtest.** Send 10 to 20 messages. Check that variables update properly, lore is sent when it should be, and how it plays.
+- **Write the blurb.** It's the first thing players see on Discover. Say clearly what the card is about.
+- **Upload a cover.** Cards with a cover get noticeably more clicks.
+- **Pick the content mode.** **Limited** for regular content, **Limitless** for adult content. Mislabelling breaks the community guidelines.
+- **Add tags.** Players find your card through them when searching and filtering.
 
 ## How to Publish
 
@@ -19,7 +19,7 @@ When your world is ready, publish it to the Hub so players can find it and play.
 
 ![The Publish to Discover dialog, with tags, play time, visibility and content mode](./images/publish.png)
 
-Once it passes review, everyone gets to see it ( •̀ ω •́ )✧
+Once it passes review, players can see it on Discover.
 
 ### Lore Shift
 
@@ -31,7 +31,7 @@ The publish dialog also has a **Lore Shift** section. Players with the Lore Shif
 - **Allow new session lore**: lets players add new lore to their own game. It ranks below the lore you wrote
 - Then tick **Players may edit this lore in a session** on the lore you want to open up, and **Players may edit this value in a session** on the variables you want to open up
 
-Everything is off by default. If there's nothing you want players to touch, you don't have to do anything.
+Everything is off by default.
 
 ## Updating a Published World
 
@@ -58,8 +58,8 @@ Each variant is its own separate content: lore, openings and variables all need 
 
 ## Gallery Images
 
-Add up to 8 gallery images to show off your world, like gameplay screenshots, custom UI or promo art. They appear on your world's details page.
+Add up to 8 gallery images to show off your world, like gameplay screenshots, custom UI or promo art. They appear on the card's details page.
 
 ## Announcements
 
-Pin an announcement to your world's details page to tell players about updates, events or other important news. Up to 5,000 characters.
+Pin an announcement to the card's details page to tell players about updates, events or other important news. Up to 5,000 characters.

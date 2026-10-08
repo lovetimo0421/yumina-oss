@@ -38,11 +38,13 @@ export async function resolveGuardModel(userId: string, modelId: string, forceOf
 /**
  * The platform default: the default guard model on Yumina's official key.
  * Platform-paid, so no plan gate and no mushie charge; the player's saved
- * correction model (an installed-extension setting) is not consulted.
+ * correction model (an installed-extension setting) is not consulted. Players
+ * in private-key mode get it too: nothing is charged to them, and without the
+ * fallback every one of their corrections failed as correction_model_unavailable.
  */
 export async function resolveDefaultGuardModel(userId: string) {
   const model = applyModelRedirect(parseStateGuardModel(DEFAULT_STATE_GUARD_MODEL).model!);
-  const resolved = await resolveProviderForModel(userId, model, { forceOfficial: true, allowOfficialFallback: false });
+  const resolved = await resolveProviderForModel(userId, model, { forceOfficial: true, allowOfficialFallback: true });
   if (!resolved || resolved.isByok) throw new Error("The platform correction model is unavailable.");
   return { provider: resolved.provider, apiKeyTier: resolved.apiKeyTier, model, maxContext: Math.min(28_608, getModelContextWindow(model)) };
 }

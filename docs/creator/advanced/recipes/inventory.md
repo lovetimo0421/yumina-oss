@@ -2,558 +2,333 @@
 
 # Inventory & Equipment
 
-> Build an inventory grid — show every item the player has collected, with icons and quantities. Consumables can be used (disappear when depleted), equipment can be worn. This recipe shows you how to combine a JSON variable, Root Component logic, and behaviors to build a full inventory system.
+> An inventory the player can open and use: items the story hands out appear in a bag, potions can be drunk (health goes up, the count goes down), and a weapon can be equipped so the AI knows what the player is holding. The bag, the potion and the weapon can all be built without code; a full item grid with per-item buttons is the custom code route at the end.
 
 ---
 
 ## What you'll build
 
-An inventory panel embedded in the chat interface. The player sees all their items, each displaying an icon, name, and quantity. Below each item is an action button:
+- **A bag** the player opens from the chat: everything they've picked up, each with a line of description, and a popup when the story hands them something new
+- **A potion button**: Health +20, one potion fewer, and "No potions left!" when there are none
+- **An equip button**: the weapon slot reads "Iron Sword", and the AI writes the player holding it
+- **The AI keeps the bag up to date** as the story goes: loot, rewards, things lost or broken
 
-- **Consumables** (e.g. potions) — click "Use" → HP restores by 20 → potion count decreases by 1 → removed from inventory when count hits 0 → popup says "Used a potion! HP +20"
-- **Equipment** (e.g. iron sword) — click "Equip" → weapon slot shows "Iron Sword" → AI knows the player is wielding an iron sword → popup says "Equipped Iron Sword!"
+### How the pieces split
 
-```
-Player clicks the "Use" button on a potion
-  → renderer checks: does inventory contain a potion?
-    → yes: update inventory array, hp +20, success toast
-    → no: warning toast "No potions left!"
-
-Player clicks the "Equip" button on Iron Sword
-  → renderer checks: already equipped?
-    → no: triggers "equip-sword" behavior
-    → behavior sets equipped_weapon, tells AI, shows notification
-    → yes: info toast "Already equipped!"
-```
-
----
-
-## How it works
-
-The inventory is stored as a **JSON variable** — a single variable holding an entire array of item objects. The Root Component reads this array to display the grid, and directly manipulates it using `api.setVariable()` when the player uses or acquires items.
-
-**Why handle logic in the Root Component?** The behavior system's condition operators (`eq`, `neq`, `gt`, `lt`, `contains`, etc.) work on simple values — numbers, strings, booleans. They can't search inside JSON arrays (e.g., "does the array contain an object with name = Potion?"). For complex data structures like inventories, the Root Component is the right place to handle logic using JavaScript.
-
-Behaviors are still used for things they're good at: setting simple variables (`equipped_weapon`), injecting AI instructions ("Tell AI"), and showing notifications.
-
-**The split:**
-
-| What | Where | Why |
-|------|-------|-----|
-| Display inventory grid | Root Component | Reads the JSON array and renders UI |
-| Use a consumable | Root Component | Needs to find, update, and remove array elements |
-| Equip a weapon | Behavior | Sets a string variable + tells the AI |
-| Tell AI about changes | Behavior | Only behaviors can inject AI instructions |
+| What | Who handles it | Why |
+|------|----------------|-----|
+| The list of items picked up in the story | The AI, through the bag variable's Behavior Rules | Only the AI knows when the story hands something over |
+| Counting potions and healing | A behavior | Arithmetic should be exact |
+| The equipped weapon | A button or a behavior | One value, set when the player chooses |
+| Showing all of it | The player interface | Templates and parts, no code |
 
 ---
 
 ## Step by step
 
-### Step 1: Create the variables
+### Step 1: Add the Inventory template
 
-We need 3 variables — inventory (JSON array), hit points (number), and currently equipped weapon (string).
+Click **Player interface** in the middle of the top bar, then **Templates**, and add **Inventory** (under **While playing · opened from the chat page's Menu**): "Tap an item to use it; a popup when the story hands you something."
 
-Editor → left sidebar → **Variables** tab → click "Add Variable" for each
+It adds a bag page, a popup on the chat page, and two variables:
 
-#### Variable 1: Inventory
+| Variable | What it is |
+|----------|-----------|
+| **Inventory** (List / table) | One row per item, each with a name and a one-line note |
+| **Just received** (Text) | What the player just got; the popup shows it and clears it when closed |
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Display Name | Inventory | Human-readable label for you |
-| ID | `inventory` | The ID used in code and behaviors to read/write this variable |
-| Type | JSON | The inventory is an array — needs the JSON type to store it |
-| Default Value | `[{"name":"Potion","icon":"🧪","count":2},{"name":"Iron Sword","icon":"⚔️","count":1}]` | New sessions start with 2 potions and 1 iron sword |
-| Category | Inventory | Groups it under the Inventory category |
-| Behavior Rules | `Inventory buttons handle use and equip actions automatically. You may also add items during the story (player finds loot, receives a reward) or remove items (broken, lost, stolen).` | Tells the AI the inventory can change during the narrative too |
+Both come with Behavior Rules that tell the AI how to use them. Inventory's reads, in part:
 
-> **The default value of a JSON variable must be valid JSON.** Use double quotes around field names and string values. Each item object has three fields: `name` (for matching and display), `icon` (for the UI), `count` (to track quantity for consumables).
+> When the player gets something, push one, and in the same turn set new_item to "item — one line". When used up or lost, delete its index (from 0). Don't hand out items every turn.
 
-#### Variable 2: Hit Points
+The AI follows them in the story, so loot, gifts and rewards land in the bag without you doing anything.
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Display Name | Hit Points | Human-readable label |
-| ID | `hp` | Used when potions restore HP |
-| Type | Number | HP is numeric — needs add/subtract |
-| Default Value | `80` | Starting below max gives the player a reason to use a potion |
-| Min Value | `0` | Prevents HP from going negative |
-| Max Value | `100` | HP cap of 100, prevents infinite stacking |
-| Category | Stats | Character stat variable |
-| Behavior Rules | `Current value represents the player's remaining hit points (0-100). Decrease in combat or dangerous situations, increase when using potions or resting.` | Tells the AI when to change HP |
+Tapping an item on the bag page sends a line for the player ("(I take out the Old pocket watch)") and goes back to the chat, so the AI plays out using it.
 
-#### Variable 3: Equipped Weapon
+Starting items go into the Inventory variable's **Starts at**, for example:
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Display Name | Equipped Weapon | Human-readable label |
-| ID | `equipped_weapon` | Records the name of the player's equipped weapon |
-| Type | String | Stores the weapon name as text |
-| Default Value | *(leave empty)* | Empty string = no weapon equipped |
-| Category | Custom | Equipment state variable |
-| Behavior Rules | `Current value is the name of the player's equipped weapon. Empty string means nothing equipped. The equip button sets this automatically, but you may also change it during the story — e.g. weapon breaks, gets stolen, or player finds a new one.` | Tells the AI that equipment state can change narratively too |
+```json
+[{"name": "Iron Sword", "note": "Plain, but well balanced."}]
+```
 
-> **Why use a string for equipped_weapon instead of JSON?** Because the player can only wield one weapon at a time. A simple string is enough — empty means unequipped, `"Iron Sword"` means equipped. If you want a multi-slot equipment system (weapon + armor + accessory), you could use a JSON object instead.
+### Step 2: Potions that count
 
----
+The bag is a list the AI writes. For things that need exact numbers, like how many potions are left, use a Number variable and a behavior.
 
-### Step 2: Create the behaviors
+**Variables** (in the **Add** row, **＋ Variable**):
 
-We need 2 behaviors — equip iron sword (success and already equipped). Potion usage is handled entirely in the Root Component.
+| Name | Type | Starts at | Range | Notes |
+|------|------|-----------|-------|-------|
+| Health | Number | `80` | `0` to `100` | Behavior Rules: `Drops when the player is hurt; recovers slowly with rest.` |
+| Potions | Number | `2` | `0` to (empty) | Behavior Rules: `How many healing potions the player carries. Add when they find or buy one.` |
 
-Editor → **Behaviors** tab → click "Add Behavior"
+Starting Health below the maximum gives the player a reason to try a potion.
 
-#### Behavior 1: Equip Iron Sword (success)
+**Behavior** (**＋ Behavior**): "Drink a potion"
 
-**WHEN (trigger):**
+| Part | Setting |
+|------|---------|
+| When it fires | **The player presses a button**, Button `drink-potion` |
+| ONLY IF | Potions is more than `0` |
+| Effects | **Change variable**: Potions minus `1` |
+| | **Change variable**: Health plus `20` |
+| | **Show notification**: `You drink a potion. Health +20`, style **Success** |
+| | **Tell the AI**: `The player just drank a healing potion.` |
+| If the conditions don't hold, say | `No potions left!` |
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Trigger Type | Action button pressed | Fires when the Root Component calls `executeAction("equip-sword")` |
-| Action ID | `equip-sword` | Matches the `executeAction("equip-sword")` call in the Root Component |
+Health can't go over 100: the variable's range caps it.
 
-**ONLY IF (conditions):**
+**Button**: in **Player interface**, on the conversation page or the bag page, add a **Button** labelled "Drink a potion ({Potions} left)" (use **Insert a variable's value…** for the count). Under **When pressed, do in order**, add **Set off a behavior** → Drink a potion.
 
-| Variable | Operator | Value | Why |
-|----------|----------|-------|-----|
-| `equipped_weapon` | neq | `Iron Sword` | Not already equipped — prevents overlap with Behavior 2 |
+### Step 3: Equip a weapon
 
-**DO (effects):**
+**Variable**: Equipped weapon, Text, starting empty. Behavior Rules:
 
-Add these effects in order:
+```
+The weapon the player is holding; empty means bare hands. Describe fights with it. If it breaks or is taken in the story, set it back to empty.
+```
 
-| Effect Type | Settings | What it does |
-|-------------|----------|-------------|
-| Modify Variable | Variable `equipped_weapon`, operation `set`, value `Iron Sword` | Set current weapon to Iron Sword |
-| Tell AI | Content: `The player equipped an Iron Sword. From now on, the player is wielding an iron longsword. Reflect the weapon's presence in combat descriptions and interactions.` | Injects an instruction so the AI knows about the weapon |
-| Show Notification | Message `Equipped Iron Sword!`, style `achievement` | Gold success popup |
+**Button**: "Equip Iron Sword", with two steps:
 
-> **What does "Tell AI" do?** It injects a temporary instruction into the AI's context. This way, when the AI writes its next response, it knows the player just equipped a sword and can reflect it in the narrative (e.g., "You tighten your grip on the iron sword. Its cold edge glints in the firelight.").
+1. **Change a variable**: Equipped weapon, **Set to**, `Iron Sword`
+2. **Show a notice**: `Equipped Iron Sword`
 
-#### Behavior 2: Equip Iron Sword (already equipped)
+Give it **When to show** → **When a variable matches**: Equipped weapon **is not** `Iron Sword`, so the button disappears once it's equipped. Next to it, a **Text** part reading `Weapon: {Equipped weapon}` shows the slot.
 
-**WHEN:**
+The AI sees Equipped weapon in its prompt every turn, so its next reply has the player holding the sword. If you want it acknowledged straight away, make the button **Set off a behavior** that changes the variable and adds **Tell the AI** `The player just equipped the Iron Sword.`
 
-| Field | Value |
-|-------|-------|
-| Trigger Type | Action button pressed |
-| Action ID | `equip-sword` |
+### Step 4: Playtest
 
-**ONLY IF:**
+Click **Play** in the top bar.
 
-| Variable | Operator | Value | Why |
-|----------|----------|-------|-----|
-| `equipped_weapon` | eq | `Iron Sword` | Already equipped — no need to equip again |
+1. Health reads 80, Potions 2, weapon slot empty
+2. Tap **Drink a potion**: Health 100, Potions 1, a notice appears
+3. Tap it twice more: the second time "No potions left!" appears and nothing changes
+4. Tap **Equip Iron Sword**: the slot reads Iron Sword and the button disappears. Start a fight; the AI writes the sword into it
+5. Play until the story hands you something: the popup shows it, and it's in the bag (**Menu** → Bag)
 
-**DO:**
+**If something goes wrong:**
 
-| Effect Type | Settings | What it does |
-|-------------|----------|-------------|
-| Show Notification | Message `Iron Sword is already equipped!`, style `info` | Blue info popup |
-
-> **Why split this into two behaviors?** Same pattern as the shop recipe — a single behavior can only have one set of conditions. If the conditions pass, it executes; if they don't, nothing happens. So we use two behaviors to cover both cases. They listen on the same action ID, but their conditions are mutually exclusive — only one ever fires.
-
-> **Why no "use-potion" behavior?** Because checking whether a JSON array contains a specific item requires JavaScript — the behavior system's `contains` operator only works on strings, not arrays. So potion logic lives in the Root Component where we have full JavaScript access. The Root Component updates the `inventory` and `hp` variables directly via `api.setVariable()`.
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| The potion button does nothing | The button's behavior and the behavior's Button name don't match | **Set off a behavior** must point at Drink a potion |
+| Potions go negative | The **ONLY IF** condition is missing | Add Potions is more than `0` |
+| Health goes over 100 | No maximum on Health | Set its **Range** to `0` to `100` |
+| Items never show up in the bag | The AI isn't writing to Inventory | Check the Inventory variable still has its Behavior Rules and **AI access** is **AI can read & write** |
+| The popup never shows | The AI updates Inventory but not Just received | Keep Just received's Behavior Rules; they ask for both in the same turn |
 
 ---
 
-### Step 3: Add the inventory panel in the Root Component
+## Why behaviors can't do everything here
 
-This is the step that makes the inventory UI appear in the chat. We'll display three sections below the latest message: an HP bar, an equipment slot, and an inventory grid (each item with an action button).
+Behavior effects change numbers and text (set, add, subtract, multiply, toggle, append text). They can't add a row to a list, find "the potion" inside one, or remove it. Conditions can check whether a list **contains** a plain value, but not look inside rows. That's why this recipe keeps the item list with the AI and counts things that need exact numbers in their own Number variables.
 
-Editor → **Custom UI** section → open `index.tsx` → paste the following (replacing the default `return <Chat />`):
+A behavior's **Code** effect can add to a list if you write a line of JavaScript, for example `ctx.push("Inventory", { name: "Potion", note: "Heals a little." })`. See [Behaviors · Code behaviors](/creator/automation#code-behaviors).
+
+When you want both in one place (a real item grid where every item has a count and its own Use or Equip button), write it in the interface code.
+
+---
+
+## Custom code route: an item grid with use and equip
+
+This version keeps the whole inventory in one List / table variable named `inventory`, with a count per item, and handles using and equipping in the interface code. It also uses Number variable `hp` (0 to 100, starting at 80) and Text variable `equipped_weapon`.
+
+`inventory` starts as:
+
+```json
+[{"name":"Potion","icon":"🧪","count":2},{"name":"Iron Sword","icon":"⚔️","count":1}]
+```
+
+Its Behavior Rules:
+
+```
+The player's items. Each is {"name", "icon", "count"}. When the player finds something, push a new item. Leave counts to the inventory buttons.
+```
+
+**Panels → Front End Code** → open `index.tsx` and replace the default `return <Chat />`:
 
 ```tsx
 export default function MyWorld() {
-  var api = useYumina();
-  var msgs = api.messages || [];
+  const api = useYumina();
+  const msgs = api.messages || [];
 
-  // Read variables
-  var hp = Number(api.variables.hp ?? 80);
-  var equippedWeapon = String(api.variables.equipped_weapon || "");
-  var inventory = Array.isArray(api.variables.inventory)
-    ? api.variables.inventory
-    : [];
+  const hp = Number(api.variables.hp ?? 80);
+  const equippedWeapon = String(api.variables.equipped_weapon || "");
+  const inventory = Array.isArray(api.variables.inventory) ? api.variables.inventory : [];
 
-  // ── Inventory logic (runs in the Root Component) ──
-
+  // Use one of an item: count down, remove at zero, apply its effect
   function useItem(itemName) {
-    var inv = Array.isArray(api.variables.inventory)
-      ? api.variables.inventory
-      : [];
-    var idx = -1;
-    for (var i = 0; i < inv.length; i++) {
-      if (inv[i] && inv[i].name === itemName) { idx = i; break; }
-    }
+    const inv = Array.isArray(api.variables.inventory) ? api.variables.inventory : [];
+    const idx = inv.findIndex((it) => it && it.name === itemName);
     if (idx === -1) {
       api.showToast("No " + itemName + " left!", "error");
       return;
     }
-    var item = inv[idx];
-    var newInv = inv.slice(); // copy the array
-    if (Number(item.count) <= 1) {
-      newInv.splice(idx, 1); // remove entirely
-    } else {
-      newInv[idx] = { name: item.name, icon: item.icon, count: Number(item.count) - 1 };
-    }
-    api.setVariable("inventory", newInv);
+    const item = inv[idx];
+    const next = inv.slice();
+    if (Number(item.count) <= 1) next.splice(idx, 1);
+    else next[idx] = { ...item, count: Number(item.count) - 1 };
+    api.setVariable("inventory", next);
 
-    // Potion-specific: restore HP
     if (itemName === "Potion") {
-      var currentHp = Number(api.variables.hp ?? 0);
-      api.setVariable("hp", Math.min(currentHp + 20, 100));
+      api.setVariable("hp", Math.min(Number(api.variables.hp ?? 0) + 20, 100));
       api.showToast("Used a potion! HP +20", "success");
+      api.injectContext("The player just drank a healing potion.");
     }
   }
 
-  function equipItem(itemName, actionId) {
+  function equipItem(itemName) {
     if (equippedWeapon === itemName) {
       api.showToast(itemName + " is already equipped!", "info");
       return;
     }
-    api.executeAction(actionId); // triggers the behavior for set + Tell AI
+    api.setVariable("equipped_weapon", itemName);
+    api.showToast("Equipped " + itemName + "!", "success");
+    api.injectContext("The player just equipped the " + itemName + ".");
   }
 
-  // Item type map: decides what action each item gets
-  var itemActions = {
-    "Potion": { type: "consumable", handler: function() { useItem("Potion"); }, label: "Use" },
-    "Iron Sword": { type: "equipment", handler: function() { equipItem("Iron Sword", "equip-sword"); }, label: "Equip" },
+  // Which button each item gets
+  const itemActions = {
+    "Potion": { type: "consumable", label: "Use", run: () => useItem("Potion") },
+    "Iron Sword": { type: "equipment", label: "Equip", run: () => equipItem("Iron Sword") },
   };
 
   return (
     <Chat renderBubble={(msg) => {
-      var isLastMsg = msg.messageIndex === msgs.length - 1;
+      const isLastMsg = msg.messageIndex === msgs.length - 1;
       return (
-    <div>
-      {/* Render message text normally (platform already rendered HTML, use contentHtml directly) */}
-      <div
-        style={{ color: "#e2e8f0", lineHeight: 1.7 }}
-        dangerouslySetInnerHTML={{ __html: msg.contentHtml }}
-      />
+        <div>
+          <div
+            style={{ color: "#e2e8f0", lineHeight: 1.7 }}
+            dangerouslySetInnerHTML={{ __html: msg.contentHtml }}
+          />
 
-      {/* Show inventory panel only below the last message */}
-      {isLastMsg && (
-        <div style={{
-          marginTop: "16px",
-          padding: "16px",
-          background: "rgba(15, 23, 42, 0.6)",
-          borderRadius: "12px",
-          border: "1px solid #334155",
-        }}>
+          {isLastMsg && (
+            <div style={{
+              marginTop: "16px",
+              padding: "16px",
+              background: "rgba(15, 23, 42, 0.6)",
+              borderRadius: "12px",
+              border: "1px solid #334155",
+            }}>
+              {/* HP bar */}
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "14px" }}>
+                <span style={{ fontSize: "16px" }}>❤️</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
+                    <span style={{ color: "#94a3b8", fontSize: "12px" }}>HP</span>
+                    <span style={{ color: "#e2e8f0", fontSize: "12px", fontWeight: "bold" }}>{hp} / 100</span>
+                  </div>
+                  <div style={{ height: "8px", background: "#1e293b", borderRadius: "4px", overflow: "hidden" }}>
+                    <div style={{
+                      height: "100%",
+                      width: Math.min(hp, 100) + "%",
+                      background: hp > 50
+                        ? "linear-gradient(90deg, #22c55e, #4ade80)"
+                        : hp > 20
+                          ? "linear-gradient(90deg, #eab308, #facc15)"
+                          : "linear-gradient(90deg, #ef4444, #f87171)",
+                      borderRadius: "4px",
+                      transition: "width 0.3s ease",
+                    }} />
+                  </div>
+                </div>
+              </div>
 
-          {/* ====== HP Bar ====== */}
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "10px",
-            marginBottom: "14px",
-          }}>
-            <span style={{ fontSize: "16px" }}>❤️</span>
-            <div style={{ flex: 1 }}>
+              {/* Weapon slot */}
               <div style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginBottom: "4px",
+                display: "flex", alignItems: "center", gap: "8px", marginBottom: "14px",
+                padding: "10px 14px", background: "rgba(30, 41, 59, 0.8)",
+                borderRadius: "8px", border: "1px solid #475569",
               }}>
-                <span style={{ color: "#94a3b8", fontSize: "12px" }}>HP</span>
-                <span style={{ color: "#e2e8f0", fontSize: "12px", fontWeight: "bold" }}>
-                  {hp} / 100
+                <span style={{ fontSize: "16px" }}>⚔️</span>
+                <span style={{ color: "#94a3b8", fontSize: "13px" }}>Weapon:</span>
+                <span style={{
+                  color: equippedWeapon ? "#e2e8f0" : "#475569",
+                  fontSize: "13px",
+                  fontWeight: equippedWeapon ? "600" : "normal",
+                  fontStyle: equippedWeapon ? "normal" : "italic",
+                }}>
+                  {equippedWeapon || "None"}
                 </span>
               </div>
-              <div style={{
-                height: "8px",
-                background: "#1e293b",
-                borderRadius: "4px",
-                overflow: "hidden",
-              }}>
+
+              {/* Item grid */}
+              {inventory.length === 0 ? (
                 <div style={{
-                  height: "100%",
-                  width: Math.min(hp, 100) + "%",
-                  background: hp > 50
-                    ? "linear-gradient(90deg, #22c55e, #4ade80)"
-                    : hp > 20
-                      ? "linear-gradient(90deg, #eab308, #facc15)"
-                      : "linear-gradient(90deg, #ef4444, #f87171)",
-                  borderRadius: "4px",
-                  transition: "width 0.3s ease",
-                }} />
-              </div>
-            </div>
-          </div>
-
-          {/* ====== Equipment Slot ====== */}
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            marginBottom: "14px",
-            padding: "10px 14px",
-            background: "rgba(30, 41, 59, 0.8)",
-            borderRadius: "8px",
-            border: "1px solid #475569",
-          }}>
-            <span style={{ fontSize: "16px" }}>⚔️</span>
-            <span style={{ color: "#94a3b8", fontSize: "13px" }}>Weapon:</span>
-            <span style={{
-              color: equippedWeapon ? "#e2e8f0" : "#475569",
-              fontSize: "13px",
-              fontWeight: equippedWeapon ? "600" : "normal",
-              fontStyle: equippedWeapon ? "normal" : "italic",
-            }}>
-              {equippedWeapon || "None"}
-            </span>
-          </div>
-
-          {/* ====== Inventory Header ====== */}
-          <div style={{
-            fontSize: "14px",
-            fontWeight: "bold",
-            color: "#94a3b8",
-            marginBottom: "10px",
-            textTransform: "uppercase",
-            letterSpacing: "1px",
-          }}>
-            Inventory
-          </div>
-
-          {/* ====== Inventory Grid ====== */}
-          {inventory.length === 0 ? (
-            <div style={{
-              padding: "24px",
-              textAlign: "center",
-              color: "#475569",
-              fontSize: "13px",
-              background: "rgba(30, 41, 59, 0.4)",
-              borderRadius: "8px",
-              border: "1px dashed #334155",
-            }}>
-              Inventory is empty
-            </div>
-          ) : (
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))",
-              gap: "8px",
-            }}>
-              {inventory.map(function(item, idx) {
-                var name = String(item?.name || item);
-                var icon = String(item?.icon || "📦");
-                var count = Number(item?.count ?? 1);
-                var action = itemActions[name];
-
-                return (
-                  <div
-                    key={idx}
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      padding: "12px 8px 8px",
-                      background: "rgba(30, 41, 59, 0.8)",
-                      borderRadius: "8px",
-                      border: equippedWeapon === name
-                        ? "1px solid #22d3ee"
-                        : "1px solid #475569",
-                      gap: "6px",
-                    }}
-                  >
-                    <span style={{ fontSize: "28px" }}>{icon}</span>
-                    <span style={{
-                      color: "#e2e8f0",
-                      fontSize: "12px",
-                      fontWeight: "600",
-                      textAlign: "center",
-                    }}>
-                      {name}
-                    </span>
-                    <span style={{
-                      color: "#64748b",
-                      fontSize: "11px",
-                    }}>
-                      x{count}
-                    </span>
-
-                    {/* Action button */}
-                    {action && (
-                      <button
-                        onClick={action.handler}
-                        style={{
-                          marginTop: "4px",
-                          padding: "4px 14px",
-                          background: action.type === "consumable"
-                            ? "linear-gradient(135deg, #065f46, #047857)"
-                            : equippedWeapon === name
-                              ? "linear-gradient(135deg, #374151, #4b5563)"
-                              : "linear-gradient(135deg, #1e3a5f, #1e40af)",
-                          border: action.type === "consumable"
-                            ? "1px solid #10b981"
-                            : equippedWeapon === name
-                              ? "1px solid #6b7280"
-                              : "1px solid #3b82f6",
-                          borderRadius: "6px",
-                          color: action.type === "consumable"
-                            ? "#a7f3d0"
-                            : equippedWeapon === name
-                              ? "#9ca3af"
-                              : "#bfdbfe",
-                          fontSize: "12px",
-                          fontWeight: "600",
-                          cursor: "pointer",
-                          width: "100%",
-                        }}
-                      >
-                        {equippedWeapon === name ? "Equipped" : action.label}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+                  padding: "24px", textAlign: "center", color: "#475569", fontSize: "13px",
+                  background: "rgba(30, 41, 59, 0.4)", borderRadius: "8px", border: "1px dashed #334155",
+                }}>
+                  Inventory is empty
+                </div>
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "8px" }}>
+                  {inventory.map((item, idx) => {
+                    const name = String(item?.name || item);
+                    const action = itemActions[name];
+                    const isEquipped = equippedWeapon === name;
+                    return (
+                      <div key={idx} style={{
+                        display: "flex", flexDirection: "column", alignItems: "center", gap: "6px",
+                        padding: "12px 8px 8px", background: "rgba(30, 41, 59, 0.8)", borderRadius: "8px",
+                        border: isEquipped ? "1px solid #22d3ee" : "1px solid #475569",
+                      }}>
+                        <span style={{ fontSize: "28px" }}>{String(item?.icon || "📦")}</span>
+                        <span style={{ color: "#e2e8f0", fontSize: "12px", fontWeight: "600", textAlign: "center" }}>{name}</span>
+                        <span style={{ color: "#64748b", fontSize: "11px" }}>x{Number(item?.count ?? 1)}</span>
+                        {action && (
+                          <button
+                            onClick={action.run}
+                            style={{
+                              marginTop: "4px", padding: "4px 14px", width: "100%",
+                              borderRadius: "6px", fontSize: "12px", fontWeight: "600", cursor: "pointer",
+                              background: action.type === "consumable" ? "#047857" : isEquipped ? "#4b5563" : "#1e40af",
+                              border: "1px solid " + (action.type === "consumable" ? "#10b981" : isEquipped ? "#6b7280" : "#3b82f6"),
+                              color: action.type === "consumable" ? "#a7f3d0" : isEquipped ? "#9ca3af" : "#bfdbfe",
+                            }}
+                          >
+                            {isEquipped ? "Equipped" : action.label}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
-      )}
-    </div>
       );
     }} />
   );
 }
 ```
 
----
+**What the code does:**
 
-### Code walkthrough
+- `<Chat renderBubble={...} />` keeps the platform's message list, input box and scrolling; you draw each bubble, and the panel goes under the last one
+- `api.variables.inventory`, `.hp` and `.equipped_weapon` read the variables by name
+- `useItem` finds the item by name, counts it down (or removes it at zero) and writes the whole list back with `api.setVariable("inventory", next)`. A potion also raises `hp`
+- `equipItem` sets `equipped_weapon` and tells the player
+- `api.injectContext(text)` slips the AI a line for its next reply, like a behavior's **Tell the AI**
+- `api.showToast(text, type)` shows a notice; the type is `"success"`, `"error"` or `"info"`
+- `itemActions` decides which items get a button. Add a line for each new usable item
 
-Don't be intimidated by the length — what it does is very straightforward. Let's go section by section:
+The status next to the file in **Panels → Front End Code** should read a green **OK**.
 
-#### Basic setup
-
-```tsx
-var api = useYumina();
-var msgs = api.messages || [];
-// ...
-<Chat renderBubble={(msg) => {
-  var isLastMsg = msg.messageIndex === msgs.length - 1;
-  // ...
-}} />
-```
-
-- The Root Component `MyWorld()` is the entry for the world's UI. `<Chat renderBubble={...} />` lets the platform handle the message list, input box, and scrolling — you only take over the look of each bubble
-- `useYumina()` — grabs the Yumina API so you can read variables and trigger actions
-- `msg.messageIndex` — the current bubble's index in the message list. The inventory panel only renders below the last message, so it doesn't repeat on every single one
-- `msg.contentHtml` — the HTML the platform already rendered from Markdown, can be passed directly to `dangerouslySetInnerHTML`
-
-#### Reading variables
-
-```tsx
-var hp = Number(api.variables.hp ?? 80);
-var equippedWeapon = String(api.variables.equipped_weapon || "");
-var inventory = Array.isArray(api.variables.inventory)
-  ? api.variables.inventory
-  : [];
-```
-
-- `api.variables.hp` — reads the hit points. `?? 80` is a fallback in case the variable hasn't loaded yet
-- `api.variables.equipped_weapon` — reads the current weapon. Empty string means nothing equipped
-- `api.variables.inventory` — reads the inventory. `Array.isArray()` guards against unexpected types
-
-#### Inventory logic functions
-
-```tsx
-function useItem(itemName) {
-  var inv = Array.isArray(api.variables.inventory)
-    ? api.variables.inventory : [];
-  var idx = -1;
-  for (var i = 0; i < inv.length; i++) {
-    if (inv[i] && inv[i].name === itemName) { idx = i; break; }
-  }
-  if (idx === -1) {
-    api.showToast("No " + itemName + " left!", "error");
-    return;
-  }
-  // ... update array and call api.setVariable()
-}
-```
-
-This is the key pattern. Since the behavior system's condition operators can't search inside JSON arrays, we handle the logic right here in the Root Component:
-
-1. **Find the item** — loop through the array and match by `name`
-2. **Check if it exists** — if not found, show an error toast
-3. **Update the array** — decrease count or remove entirely
-4. **Write it back** — call `api.setVariable("inventory", newInv)` to persist the change
-
-For equipment, `equipItem()` delegates to `api.executeAction()` because the behavior handles setting the variable and injecting an AI instruction:
-
-```tsx
-function equipItem(itemName, actionId) {
-  if (equippedWeapon === itemName) {
-    api.showToast(itemName + " is already equipped!", "info");
-    return;
-  }
-  api.executeAction(actionId);
-}
-```
-
-#### Item type map
-
-```tsx
-var itemActions = {
-  "Potion": { type: "consumable", handler: function() { useItem("Potion"); }, label: "Use" },
-  "Iron Sword": { type: "equipment", handler: function() { equipItem("Iron Sword", "equip-sword"); }, label: "Equip" },
-};
-```
-
-A lookup table. Given an item's name, it tells you the button label and the handler function to call. The `type` field controls button color — consumables get green, equipment gets blue. Want to add a new item? Add a line here. For consumables, add logic to `useItem`. For equipment, create a matching behavior in the editor.
-
-#### Action button
-
-```tsx
-<button onClick={action.handler}>
-  {equippedWeapon === name ? "Equipped" : action.label}
-</button>
-```
-
-Clicking the button calls the handler function directly. For consumables, the handler manages the array in JavaScript. For equipment, the handler calls `api.executeAction()` which triggers the corresponding behavior.
-
-::: tip Don't want to write code yourself? Use Studio AI
-Editor top bar → click "Enter Studio" → AI Assistant panel → describe what you want in plain language, e.g. "Build an inventory grid with an HP bar, equipment slot, and items that can be used or equipped" — the AI will generate the code for you.
+::: tip Don't want to write code yourself?
+Click **Creation assistant** at the top right of the canvas and describe it, for example "an item grid with an HP bar, a weapon slot, and Use/Equip buttons".
 :::
 
----
+### How the AI can change the list
 
-### Step 4: Save and test
-
-1. Click **Save** at the top of the editor
-2. Click **Start Game** or go back to the home page and start a new session
-3. You'll see the inventory panel below the AI's response: HP 80/100, weapon slot empty, 2 potions and 1 iron sword
-4. Click "Use" on a potion — HP goes from 80 to 100, the potion disappears, toast says "Used a potion! HP +20"
-5. Click "Equip" on Iron Sword — weapon slot shows "Iron Sword", button turns gray and says "Equipped", popup says "Equipped Iron Sword!"
-6. Click the "Equipped" button on Iron Sword again — toast says "Iron Sword is already equipped!"
-7. Keep chatting with the AI — if you added the "Tell AI" effect, the AI's response will reflect the player wielding an iron sword
-
-**If something isn't working:**
-
-| Symptom | Likely cause | Fix |
-|---------|-------------|-----|
-| Inventory panel doesn't appear | Root Component code wasn't saved or has a syntax error | Check the compile status at the bottom of the Custom UI section — it should show a green "OK" |
-| Inventory shows no items | JSON variable default value has bad formatting | Make sure the default is a valid JSON array with double-quoted field names |
-| Button does nothing when clicked | Behavior action ID doesn't match the code | Confirm the behavior's action ID is exactly `equip-sword`, matching the `executeAction()` argument in the code |
-| Potion was used but didn't disappear | `useItem` function can't find the item name | Make sure the item's `name` field in the JSON matches exactly what `useItem()` looks for, including capitalization |
-| HP didn't change | `api.setVariable` call isn't reaching the right variable | Check the variable ID is exactly `hp` — must match the variable definition |
-| Equipped but AI doesn't know | Missing "Tell AI" effect | Add a "Tell AI" effect inside the equip behavior's DO section |
-
----
-
-## How the AI can modify inventory
-
-The AI can also add or remove items during the story using directives. Since the inventory is a JSON variable, the AI can use the `push` directive to add items:
+The AI writes list changes as directives at the end of its reply; the engine teaches it the format. Adding works well:
 
 ```
-You defeated the goblin and found a health potion among its belongings.
-[inventory: push {"name":"Potion","icon":"🧪","count":1}]
+You search the goblin and find a small vial. [inventory: push {"name":"Potion","icon":"🧪","count":1}]
 ```
 
-::: warning Limitations of AI directives on arrays
-The `push` directive works well for adding items. However, `delete` on arrays only works with a numeric index (e.g., `[inventory: delete 0]` removes the first element), and `merge` only works on plain objects, not arrays. For complex inventory operations (removing a specific item by name, updating item counts), use the Root Component's JavaScript logic or design your system so the AI communicates intent through other variables that behaviors can act on.
-:::
+The AI can also remove by position (`[inventory: delete 0]` removes the first item), but it can't look up "the potion" by name or change one item's count reliably. Keep counting in the buttons, and tell the AI in the Behavior Rules to only add items.
 
 ---
 
@@ -561,40 +336,20 @@ The `push` directive works well for adding items. However, `delete` on arrays on
 
 | What you want | How to do it |
 |---------------|-------------|
-| Store a list of items | Create a JSON variable with a default value of `[{...}, ...]` |
-| Display an inventory grid | In the Root Component, use CSS Grid + `inventory.map()` |
-| Use a consumable | Root Component: find item → update array → `api.setVariable()` → show toast |
-| Equip an item | Root Component: call `api.executeAction()` → Behavior: set variable + Tell AI |
-| Check if player owns an item | Root Component: `inventory.find(i => i.name === "ItemName")` |
-| Add an item (AI) | AI directive: `[inventory: push {"name":"Item","icon":"📦","count":1}]` |
-| Track current equipment | Create a string variable — empty string = nothing equipped |
-| Button triggers use/equip | In the Root Component, call handler functions or `api.executeAction("actionId")` |
-| Let the AI know about changes | Add a "Tell AI" effect in the behavior |
-
----
-
-## Try it yourself — importable demo world
-
-Download this JSON and import it as a new world to see everything in action:
-
-<a href="/recipe-7-demo.json" download>recipe-7-demo.json</a>
-
-**How to import:**
-1. Go to Yumina → **My Worlds** → **Create New World**
-2. In the editor, click **More Actions** → **Import Package**
-3. Select the downloaded `.json` file
-4. The world is created with all variables, behaviors, and Root Component pre-configured
-5. Start a new session and try it out
-
-**What's included:**
-- 3 variables (`inventory` + `hp` hit points + `equipped_weapon` current weapon)
-- 2 behaviors (equip iron sword success + already equipped)
-- A Root Component (HP bar + equipment slot + inventory grid + action buttons + use/equip logic)
+| A bag the AI fills during the story | **Player interface** → **Inventory** template |
+| Starting items | The Inventory variable's **Starts at** |
+| Exact counts (potions, arrows) | A Number variable per item |
+| Use an item with a check | A behavior: **The player presses a button**, **ONLY IF** count is more than 0, **If the conditions don't hold, say** … |
+| A button that runs it | Button step **Set off a behavior** |
+| Equip something | Button step **Change a variable** on a Text variable |
+| Hide a button once it's done | **When to show** → **When a variable matches** |
+| Tell the AI about it right away | **Tell the AI** in a behavior, or `api.injectContext()` in code |
+| A grid with per-item buttons and counts | Interface code (custom code route above) |
 
 ---
 
 ::: tip This is Recipe #7
-Earlier recipes covered scene jumping, combat systems, shop interfaces, and character creation. This recipe teaches you how to manage a JSON array inventory using Root Component JavaScript logic combined with behaviors for simple state changes. The same pattern works for quest logs, skill trees, crafting recipes — anything that needs "manage a list, perform operations on its elements."
+The inventory pairs with the [shop](./shop.md) (gold in, items out) and the [quest tracker](./quest-tracker.md) (items as rewards). The same split works for other lists: let the AI keep the story's list, and give anything that needs exact numbers its own variable.
 :::
 
 </div>

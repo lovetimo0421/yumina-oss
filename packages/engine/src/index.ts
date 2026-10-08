@@ -267,6 +267,7 @@ export {
   isAiWritable,
   resolveActiveVariableIds,
   filterAiEffects,
+  resolveEffectVariable,
   aiDropReason,
   isContinuityEnabled,
   isContinuityEligible,

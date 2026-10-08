@@ -1,41 +1,43 @@
 # Lazy Tutorial: Let AI Build Your Whole World
 
-> The previous tutorial had you fill in every field by hand. This one shows you that you don't actually have to — just let Yumina's AI assistant handle it (￣▽￣)ノ
+> The previous tutorial had you fill in every field by hand. This one hands the same work to the Creation assistant.
 
-We're building the same game: **"The Imposters"** — post-apocalyptic horror survival, judging whether the person at the door is human or monster, surviving 14 nights. But this time, we're doing it entirely through Studio's AI Agent.
+We're building the same game: **"The Imposters"** — post-apocalyptic horror survival, judging whether the person at the door is human or monster, surviving 14 nights. This time, the Creation assistant does the building.
 
 ---
 
-## What is the Studio AI Agent?
+## What is the Creation assistant?
 
-The AI Assistant in Studio isn't just a chatbot — it's an AI assistant that can **directly modify your world**. Tell it "add a health variable for me" in plain language, and it actually creates it.
+The **Creation assistant** is the AI built into the canvas. It **edits your card directly**: tell it "add a health variable for me" in plain language, and the variable appears on the canvas.
 
 Here's how it works:
 1. You describe what you need
-2. The AI analyzes and proposes changes (it tells you what it's about to do)
-3. You click **Approve** → changes take effect
-4. Not happy? Click **Reject** and the AI adjusts its approach
+2. The assistant makes the changes, and they show up live on the canvas
+3. After each round, a strip called **The assistant's last turn** appears at the bottom of the canvas, saying how many things were added, changed and removed
+4. Not happy? Click **Undo this turn** to take back the whole round, or just tell it what to fix
 
-Every modification is snapshot-backed, so you can roll back at any time — no fear of breaking anything ∠( ᐛ 」∠)＿
+It also saves a checkpoint before it changes your card, so you can roll back from **⋮ → Change History** ∠( ᐛ 」∠)＿
 
 ---
 
-## Step 1: Create world + enter Studio
+## Step 1: Create world + open the assistant
 
 This part you still do yourself:
 
-1. Click the **Create** button in the left navigation
-2. Select **Blank Project**
-3. Type a name in the top left: `The Imposters`
-4. Click **Enter Studio** at the top of the editor
+1. Click **Create** on the left
+2. Select **Blank Project** and pick **Canvas**
+3. Type a name in the name field at the top left: `The Imposters`
+4. Click **Creation assistant** on the right of the second row of the top bar
 
-Once in Studio, you'll see the **AI Assistant** panel on the left. That's your main workspace from here on.
+The assistant's chat opens on the right. That's your main workspace from here on.
 
 ---
 
 ## Step 2: Tell the AI what you want
 
-In the AI Assistant's input box, give it your full game concept in one go. The more detail you provide, the better the output.
+Under the input box, switch the mode to **Build** so it edits the card straight away. (**Plan** is for talking an idea through first. It writes a creative brief without touching the card, and **Build it** then builds from the brief.)
+
+Give it your full game concept in one go. The more detail you provide, the better the output.
 
 Copy and paste this to get started:
 
@@ -75,84 +77,83 @@ Also build me a CRT monitor-style root component (`index.tsx`) that keeps the ou
 
 ---
 
-## Step 3: Review the AI's plan
+## Step 3: Watch it work
 
-The AI gets to work. You'll watch it think through the changes, then propose a plan. Every time it wants to modify your world, it shows an **approval card** listing what it's about to do.
+The assistant gets to work. You'll see what it's doing in the chat, and the lore, variables and behaviors it writes appear on the canvas as it goes.
 
-For example:
-- `create_variable` — create the health variable
-- `create_entry` — create the system setup entry
-- `write_root_component` — write the root component code (`index.tsx`)
+For a big job, it first tells you roughly how long it will take and how much it will cost, and waits for you to start it. Using the assistant costs credits.
 
-Scan the list of operations, and if everything looks right, click **Approve**. The AI continues to the next step.
-
-::: tip You won't finish in one round
-The AI may need several approval rounds to complete everything. Each round it does a batch of changes; you approve and it continues. The whole process might have 3–5 rounds — be patient and let it finish (•̀ᴗ•́)و
+::: tip It keeps working in the background
+Once you've sent the request, you can leave the editor or work on another card. When it's done, needs a decision from you, or stops, a notice pops up in the app. Click it to jump back.
 :::
 
 ::: tip What if you're not happy?
-If something looks off (like a variable's default value is wrong), click **Reject**, then tell the AI what to fix: "health's default should be 100 not 50." It'll adjust and resubmit.
+If something looks off (like a variable's default value is wrong), tell the assistant what to fix: "health's default should be 100 not 50." To throw away a whole round, click **Undo this turn**.
 :::
 
 ---
 
 ## Step 4: Review and tweak
 
-Once the AI is done, exit Studio and go back to the editor to see what it built. Check each section:
+Once the assistant is done, look over what it built on the canvas:
 
-- **Lorebook** — is the system setup right? Are there enough lorebook entries?
-- **Variables** — are the types, default values, and behavior rules reasonable?
-- **First Message** — does the opening message have the right atmosphere?
-- **Custom UI** — does the `index.tsx` preview look the way you wanted?
+- **Character and world** and **Keyword lore** — is the setup right? Are there enough keyword entries?
+- **Variables** — are the types, starting values, ranges and Behavior Rules reasonable?
+- **Opening** — does the opening message have the right atmosphere?
+- **Player interface** (middle of the top bar) — does the interface look the way you wanted?
+
+**Panels → Full-page lists** shows lore, variables and behaviors as tables on one page, which is quicker for checking a lot at once.
 
 If anything needs adjusting, you have two options:
-1. **Go back to Studio and keep chatting** — tell the AI "make the opening message shorter" or "change the health bar color to dark red"
-2. **Edit directly** — change fields in the editor yourself, just like in the manual tutorial
+1. **Keep chatting** — tell the assistant "make the opening message shorter" or "change the health bar color to dark red"
+2. **Edit directly** — click a row on the canvas and change it yourself, just like in the manual tutorial
 
-Don't forget to go to **Overview** and fill in the publish info: cover image, description, tags, and language.
+To change only certain parts, select them on the canvas first (Ctrl + click to pick several), then talk to the assistant. It focuses on what you selected.
+
+Then click **Cover & blurb** on the right of the canvas and fill in the cover, description and language in **Card settings**.
 
 ---
 
 ## Step 5: Test and publish
 
-Click **Save**, then open a new session to test. Same checklist as the manual tutorial:
+Click **Play** on the right of the top bar. Same checklist as the manual tutorial:
 
 | Check item | How to verify |
 |-----------|---------------|
 | Opening message appears | First message shows automatically on entry |
-| Status panel | Health bar, energy bar, and day count visible above messages |
-| Directives working | Variables change after interactions |
-| Lorebook triggers | Mentioning "peephole" makes AI follow the rules |
+| Status panel | HUD with energy, HP and armed status visible |
+| Values change | Variables change after interactions; **This turn → Each value** says why |
+| Keyword lore triggers | Mentioning "peephole" makes AI follow the rules |
 
-Found an issue during testing? Go back to Studio and tell the AI: "During testing I noticed the AI isn't deducting health — can you check the health variable's behavior rules?" The AI will diagnose and fix it.
+Found an issue during testing? Tell the assistant: "During testing I noticed health never drops — can you check the health variable's behavior rules?" It can also run playtests itself and read what happened.
 
-Once testing passes, click **Publish** in the editor's top bar (next to **Save**), set the content mode (**Limited** or **Limitless**) and visibility in the dialog, and publish!
+Once testing passes, click **Not live** in the top right, go through the checklist, and click **Publish**. In the dialog, add tags, set the content mode (**Limited** or **Limitless**) and visibility, and publish.
 
 ---
 
-## Tips for chatting with the Agent
+## Tips for working with the assistant
 
 ### 1. Make your first message as detailed as possible
 
-The more context the AI has, the fewer revisions you'll need. Try to include in your first message:
+The more context the assistant has, the fewer revisions you'll need. Try to include in your first message:
 - Game type and core mechanics
 - Which variables you need and what each one means
 - Style and atmosphere description
 - What kind of UI you want
 
-### 2. Iterating step by step beats trying to nail it in one shot
+### 2. Iterate step by step instead of trying to nail it in one shot
 
 If your world is complex, don't try to cram everything into one message. Break it up:
 
 ```
 Round 1: "Build me a horror survival game — start with the system setup, variables, and opening message"
-→ Review, approve
+→ Review
 
 Round 2: "Now add lorebook entries: knocking event, peephole observation, and room search"
-→ Review, approve
+→ Review
 
 Round 3: "Finally, rewrite the root component with a dark horror-style UI showing health and day count"
-→ Review, approve
+→ Review
 ```
 
 ### 3. Give specific feedback
@@ -160,34 +161,34 @@ Round 3: "Finally, rewrite the root component with a dark horror-style UI showin
 ❌ "The UI doesn't look good" — the AI doesn't know what's wrong
 ✅ "The health bar is too thin, double the height. The background is too bright, change it to pure black #000" — the AI knows exactly what to fix
 
-### 4. Use the Canvas preview
+### 4. Check the interface as you go
 
-The Canvas panel on the right side of Studio gives a live preview of your root component. After the AI modifies `index.tsx`, check Canvas to see the effect. If it's not right, keep talking.
+After the assistant changes `index.tsx`, click **Player interface** in the middle of the top bar to see the result. If it's not right, keep talking.
+
+### 5. Leave sticky notes
+
+If you have too many ideas to explain at once, stick them on the canvas as sticky notes, then tell the assistant "go through the sticky notes and do all of these". It reads every note and knows what each one is stuck to.
 
 ---
 
-## Manual vs. Agent: the comparison
+## Manual vs. assistant: the comparison
 
-| | Manual tutorial | Agent tutorial |
+| | Manual tutorial | Assistant tutorial |
 |--|-----------------|---------------|
 | Time required | 30–60 minutes | 5–15 minutes |
-| What you learn | What every field means and how to use it | How to collaborate effectively with AI |
+| What you learn | What every field means and how to use it | How to work with the AI effectively |
 | Best for | People who want deep engine understanding | People who want to ship fast |
 | Control | Full control over every detail | AI does most of it, you fine-tune |
-| Recommendation | Do manual first, the first time | Use Agent for speed once you're comfortable |
 
 ::: tip Best practice
-Do the manual tutorial once first to understand the engine's core concepts. Then use the Agent — knowing "what it's doing" lets you give better instructions and catch mistakes more easily.
+Do the manual tutorial once first to understand the engine's core concepts. Then use the assistant — knowing what it's doing lets you give better instructions and catch mistakes more easily.
 :::
 
 ---
 
 ## Next steps
 
-You now know two ways to build a world. From here:
-
-- Want to go deep on a specific feature? Check the [Feature Reference](./#feature-reference) section
-- Want to see how recipes combine features? Browse the [recipe pages](./recipes/scene-jumping.md) for worked examples
+- Want to go deep on a specific feature? Start with [Writing Great Entries](./entries-deep.md), [Designing Game State](./variables-deep.md) or [Behaviors](./rules-deep.md)
+- Want to see how features combine? Browse the [recipe pages](./recipes/scene-jumping.md) for worked examples
 - Want to make your world look better? See the [Custom UI Guide](./custom-ui-deep.md)
-
-Now go build something of your own ᕕ( ᐛ )ᕗ
+- Prefer your own Claude, ChatGPT or Cursor? See [Connect your own AI](/creator/studio-ai#connect-your-own-ai)

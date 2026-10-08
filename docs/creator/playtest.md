@@ -1,8 +1,6 @@
 # Playtest
 
-Playtesting after every chunk of writing beats everything else. A playtest on the canvas doesn't just play a game with you. It also tells you what happened behind every turn: what the AI got, why a number changed, why a behaviour didn't run.
-
-Click **Play** in the top bar. A new card needs to be saved once first. A playtest really starts a game with the model you picked, so it **uses up credits**.
+Click **Play** in the top bar (a new card needs to be saved once first). A playtest really starts a game with the model you picked, so it **uses up credits**. The right side writes out what happened behind every turn: what the AI got, why a number changed, why a behavior didn't run.
 
 ## Starting a game
 
@@ -14,7 +12,7 @@ If you change the card's settings mid-playtest, you'll see "Settings changed —
 
 ### Playtest start
 
-Playing from the opening to turn twenty every single time just to test one scene is exhausting. When you reach a spot, you can save the current state as a **Playtest start** and begin from there next time. Each card can keep up to 30.
+So you don't have to replay from the opening every time you test one scene, you can save the current state as a **Playtest start** when you reach a spot, and begin from there next time. Each card can keep up to 30.
 
 ## This turn
 
@@ -44,7 +42,7 @@ Which scenarios are open right now, which one was **just entered** and which one
 
 Whether each variable **Changed** or stayed **Unchanged** this turn, and why:
 
-![Values that changed, and behaviour progress](./images/canvas/pt-why-values.webp)
+![Values that changed, and behavior progress](./images/canvas/pt-why-values.webp)
 
 - Changed: **AI changed it**, **Precise tracking** (with how confident it was), **Behavior**, **Button**, **Follow-on** (a formula variable recalculated from other numbers)
 - Unchanged: **Blocked** (the AI tried to change it, but it's set so the AI can only read it, or Precise tracking is in charge of it), **Malformed** (the AI's directive was written wrong, so the old value stays), **AI left it**, **Behaviors only**
@@ -53,7 +51,7 @@ Precise tracking only changes a value when it's at least 80% sure. Below that, y
 
 Under each variable you'll also see the "when it changes" you wrote for it, so you can compare: did the AI not follow it, or was it never clear in the first place?
 
-### Each behaviour
+### Each behavior
 
 **Fired** or **Didn't fire**. For the ones that didn't, it tells you what's missing:
 
@@ -71,7 +69,7 @@ Close the playtest and go back to the canvas, and the turn you just played leave
 
 - Lore that was really sent to the AI this turn gets a **used** tag
 - Scenarios are marked **Active** or **Dormant**
-- Variables show their **Live** values, and behaviours show how far they are from firing
+- Variables show their **Live** values, and behaviors show how far they are from firing
 
 Change whatever you want right there, then hit Play again to keep going.
 

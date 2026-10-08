@@ -415,15 +415,16 @@ function normalizeEntryRoles(raw: WorldDefinition): WorldDefinition {
       role = "system";
     }
 
-    // `keywords` and `enabled` are schema-defaulted, but migration runs BEFORE
+    // Entry trigger fields are schema-defaulted, but migration runs BEFORE
     // any Zod parse — an imported/hand-authored card whose entries omit them
     // would otherwise reach render code (e.g. `entry.keywords.length`) and the
     // lorebook matcher with `undefined`, crashing the editor. Fill them here so
     // every load path (import, play, editor) sees well-formed entries.
     const needsKeywords = !Array.isArray(entry.keywords);
     const needsEnabled = typeof entry.enabled !== "boolean";
+    const needsConditions = entry.conditions == null;
 
-    if (role === entry.role && !needsKeywords && !needsEnabled) return entry;
+    if (role === entry.role && !needsKeywords && !needsEnabled && !needsConditions) return entry;
 
     changed = true;
     return {
@@ -431,6 +432,7 @@ function normalizeEntryRoles(raw: WorldDefinition): WorldDefinition {
       role,
       ...(needsKeywords ? { keywords: [] } : {}),
       ...(needsEnabled ? { enabled: true } : {}),
+      ...(needsConditions ? { conditions: [] } : {}),
     };
   });
 

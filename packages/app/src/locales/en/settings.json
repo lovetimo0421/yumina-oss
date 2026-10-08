@@ -360,7 +360,7 @@
     },
     "sceneVideo": {
       "title": "Scene video (experimental)",
-      "description": "Films the story as it happens, with sound. Costs about 5,800 mushies a minute while it runs."
+      "description": "Shows Scene video in the play menu, and in cards with a film stage. Two ways to watch: a live stream that follows the story (about 5,800 mushies a minute), or a short film with voices for every reply, ready a few minutes after it (about 100–1,400 mushies a reply)."
     }
   },
   "wallpaper": {

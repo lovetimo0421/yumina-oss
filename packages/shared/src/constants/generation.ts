@@ -316,6 +316,9 @@ export interface PlatformStyleInfo {
   sourceUri?: string;
   /** Civitai model id (license audit trail). */
   civitaiModelId?: number;
+  /** Offered only when the server lists it (IMAGE_OPT_IN_STYLES): its file
+   *  ships in a newer deployment build than the one serving traffic. */
+  optIn?: boolean;
 }
 
 export const PLATFORM_STYLES: PlatformStyleInfo[] = [
@@ -340,6 +343,22 @@ export const PLATFORM_STYLES: PlatformStyleInfo[] = [
     recommended: { steps: 28, cfg: 6, sampler: "euler_ancestral" },
     sourceUri: "https://civitai.com/api/download/models/3141506",
     civitaiModelId: 846917, // Raehoshi illust XL v11.0
+  },
+  {
+    // 动漫 · 剧情: Z-Anime (a Z-Image finetune, Apache-2.0). Reads plain
+    // sentences: actions, several people, signs and scenery come out as
+    // written, where the SDXL styles drop them (bench 2026-10-07). Explicit
+    // content comes out toned down; NSFW 动漫 stays the explicit style.
+    slug: "anime-story",
+    family: "anime",
+    checkpointFilename: "z-anime-distill-8step-fp8.safetensors",
+    arch: "zimage",
+    dialect: "prose",
+    surchargeMushies: 10,
+    defaultNegative: "",
+    recommended: { steps: 8, cfg: 1, sampler: "euler_ancestral", scheduler: "beta" },
+    sourceUri: "https://huggingface.co/SeeSee21/Z-Anime/resolve/main/diffusion_models/z-anime-distill-8step-fp8.safetensors",
+    optIn: true,
   },
   {
     slug: "nsfw-anime",

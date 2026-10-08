@@ -2,651 +2,443 @@
 
 # Audio Design Guide
 
-> This isn't a single recipe — it's a collection of techniques for using Yumina's audio system to craft a complete soundscape: BGM that follows scene changes, keyword-triggered sound effects, looping ambient sounds, silky crossfades, and every way to control music from custom UI and AI narration.
+> A set of patterns for sound in a card: background music that starts on its own, music that follows the scene, sound effects on keywords, ambient loops, music the AI picks to fit the story, and a jukebox in your own interface code. Pick the ones you need; they combine.
 
 ---
 
 ## Overview
 
-Yumina's audio system has multiple entry points for controlling sound at different levels:
+There are several places to control sound:
 
-| Control Method | Where to Set It | Characteristics |
+| Control method | Where to set it | What it's like |
 |---------------|----------------|-----------------|
-| Playlist autoplay | **Audio** tab | Simplest — background music starts as soon as the player enters the world |
-| Conditional BGM | **Audio** tab | Automatically switches tracks when variable/keyword/turn-count conditions are met, no behaviors needed |
-| Behavior + Play Audio action | **Behaviors** tab | Crossfade on scene transitions, combine with variable changes and entry toggling |
-| AI audio directives | AI writes `[audio: ...]` in its reply | AI decides what to play and when — most flexible, also least predictable |
-| Root Component audio API | **Custom UI** section | Trigger from custom buttons, great for jukebox-style interactive UI |
+| Default playlist | **Audio** page → **BGM Configuration** | Music starts when the player enters and rotates through your tracks |
+| Conditional BGM | **Audio** page → **BGM Configuration** → **Conditional BGM** | Switches track when a variable, keyword, turn count or session start says so. No behaviors needed |
+| Let the AI pick | A track's **Let the AI play this track** / **Let the AI play this sound** | You write one line saying when it fits; the AI plays it when the story matches |
+| Behaviors | **Play music**, **Play sound effect**, **Stop audio** effects | Sound as one step among others (change a variable, open lore, play a sting) |
+| Player interface buttons | **Play audio** / **Stop audio** steps | A button that plays or stops a track, no code |
+| Interface code | `api.playAudio()` / `api.stopAudio()` | Full control, for things like a jukebox |
 
-This guide covers 7 patterns one by one. Pick what you need, or combine them.
+The **Audio** page opens from the audio block on the canvas (click **＋ Audio** in the **Add** row if the card doesn't have one yet), or from **Panels → Audio**.
 
 ---
 
-## Pattern 1: Basic BGM Setup
+## Pattern 1: Background music that starts on its own
 
-### What you'll build
+### Step 1: Add tracks
 
-Background music that starts playing the moment a player enters your world — looping, no extra setup required.
-
-### Step by step
-
-#### Step 1: Upload audio tracks
-
-Editor → **Audio** tab → click "Add Track"
+On the **Audio** page, click **Add Track** and fill in:
 
 | Field | Value | Why |
 |-------|-------|-----|
-| Display Name | Main Theme | For your own reference |
-| ID | `main_theme` | All references use this ID |
-| Type | BGM | Background music |
-| Audio File | Upload your `.mp3` or `.ogg` file | Common audio formats supported |
-| Loop | On | BGM usually needs to loop |
-| Volume | `0.7` | Don't go too loud — leave room for SFX and ambient |
-| Fade In | `2` seconds | Gradually fades in so it's not jarring |
+| Title | Main Theme | For your own reference |
+| Audio Source | Upload an `.mp3` or `.ogg`, or **Browse Assets** | |
+| Track Type | BGM | Background music |
+| Loop Audio | On | BGM usually loops |
+| Default Volume | `0.7` | Leaves room for sound effects and ambient |
+| Fade In (s) | `2` | Comes in gradually instead of starting abruptly |
 
-> Want more than one track? Repeat the steps above to create additional tracks — e.g. `explore_bgm` (exploration), `battle_bgm` (combat), `town_bgm` (town).
+Each track gets a **Track ID** that you can't edit; it stays the same when you rename the track. You only need it for interface code (**Copy ID** sits next to it).
 
-#### Step 2: Set up the playlist
+For more than one piece, add more tracks: exploration, battle, town.
 
-Still in the **Audio** tab, find the "BGM Playlist" section:
+### Step 2: Set up the default playlist
+
+Click **BGM Configuration** (Playlist + trigger rules):
 
 | Field | Value | Why |
 |-------|-------|-----|
-| Track List | Select `main_theme` (select all if you have multiple) | Tracks in the list play in order |
-| Play Mode | `loop` or `shuffle` | `loop` = play in order, repeat; `shuffle` = randomize |
-| Autoplay | On | Music starts when the player enters the world |
-| Wait for First Message | Off (or On, depending on your preference) | If On, music waits until the player sends their first message |
-| Gap Seconds | `0` (or `2`) | Pause between tracks; `0` = seamless transition |
+| Default Playlist | Pick Main Theme (and any other BGM tracks) | Tracks in the list play one after another |
+| Play Mode | **Loop**, **Shuffle** or **Sequential** | Loop repeats the list in order; Shuffle randomises it |
+| Auto-play | On | Music starts when the player enters the card |
+| Wait for first message | Off (or on) | On: music waits until the player sends their first message |
+| Gap between tracks (s) | `0` (or `2`) | `0` runs one track straight into the next |
 
-#### Result
+### Result
 
-Player enters the world → music starts automatically (with a 2-second fade-in) → when one track ends, the next one starts → after the last track, it loops back to the beginning.
+The player opens the card → music fades in over 2 seconds → when a track ends, the next one starts → after the last, the list starts again.
 
-::: tip Only have one BGM track?
-If you've only got one song, just turn on `loop` for that track and put it alone in the playlist. You can even skip the playlist entirely and control it via Conditional BGM or AI directives instead.
+::: tip Only one track?
+Turn **Loop Audio** on and put it alone in the playlist.
 :::
 
 ---
 
-## Pattern 2: Crossfading BGM on Scene Transitions
+## Pattern 2: Music that follows a variable
 
 ### What you'll build
 
-When the player moves from "Village" to "Dungeon", the village's gentle music gradually fades out while the dungeon's ominous music fades in — both tracks play simultaneously for a brief overlap, making the transition smooth and cinematic.
+When the player moves from the village to the dungeon, the village music fades out and the dungeon music fades in. When Health drops below 20, tense music takes over; when it recovers, the normal music comes back. None of this needs a behavior.
 
 ### How it works
 
-```
-Player clicks "Go to Dungeon" button
-  → Behavior fires: sets variable location = "dungeon"
-  → Same behavior's Play Audio action: crossfade to dungeon_bgm
-  → Old track fades out + new track fades in, transition duration 2 seconds
-```
+A **Conditional BGM** rule with the trigger **Variable condition** is checked after every change. When its conditions hold, it plays its track. When they stop holding, **On end** decides what plays next: **Return to default playlist**, **Return to previous track**, or a specific track.
 
 ### Step by step
 
-#### Step 1: Prepare audio tracks
-
-In the **Audio** tab, create two (or more) BGM tracks:
-
-- `village_bgm` — village music, type BGM, loop on
-- `dungeon_bgm` — dungeon music, type BGM, loop on
-
-Put `village_bgm` in the playlist as the default track, with autoplay on.
-
-#### Step 2: Create a variable
-
-Editor → **Variables** tab → Add Variable
-
-| Field | Value |
-|-------|-------|
-| Display Name | Current Location |
-| ID | `location` |
-| Type | String |
-| Default Value | `village` |
-
-#### Step 3: Create a behavior
-
-Editor → **Behaviors** tab → Add Behavior
-
-**Behavior name:** Go to Dungeon
-
-**Trigger:** Action → Action ID: `go-dungeon`
-
-**Actions (in order):**
-
-| # | Action Type | Setting | Purpose |
-|---|-------------|---------|---------|
-| 1 | Set Variable | `location` set to `dungeon` | Record that the player went to the dungeon |
-| 2 | Play Audio | Track `dungeon_bgm`, operation: `crossfade`, fade duration `2` seconds | Silky-smooth track switch |
-| 3 | Enable Entry | Dungeon Atmosphere | Turn on the dungeon lore |
-| 4 | Disable Entry | Village Atmosphere | Turn off the village lore |
-
-Create a matching "Return to Village" behavior with action ID `go-village` that does the reverse (crossfade to `village_bgm`, swap entry toggles).
-
-#### Step 4: Trigger from the Root Component
-
-In the Root Component `index.tsx` (inside the `<Chat renderBubble>` callback or on any custom button), call `executeAction`:
-
-```tsx
-<button onClick={() => api.executeAction("go-dungeon")}>
-  Go to Dungeon
-</button>
-```
-
-The behavior executes all its actions in sequence — changes the variable, switches the music, toggles entries — all from one button click.
-
-> **What is crossfade?** Cross-fade — the old track gradually gets quieter while the new track gradually gets louder. Both tracks play simultaneously for a brief period, sounding like a cinematic scene transition instead of an abrupt cut. A fade duration of 2-3 seconds works well.
-
----
-
-## Pattern 3: Keyword-Triggered Sound Effects
-
-### What you'll build
-
-An explosion sound plays automatically when the AI writes "explosion". A creaky door sound plays when the player says "open the door". No behaviors needed — you configure this directly in the **Audio** tab's Conditional BGM section.
-
-### How it works
-
-Conditional BGM has trigger types called `ai-keyword` (AI keyword) and `keyword` (player keyword). The engine scans each message's text and plays the corresponding track when a keyword matches. Despite the name "Conditional BGM", it can point to any track type — including SFX.
-
-### Step by step
-
-#### Step 1: Create SFX tracks
-
-In the **Audio** tab, create sound effect tracks:
-
-**Explosion SFX:**
-
-| Field | Value |
-|-------|-------|
-| Display Name | Explosion |
-| ID | `explosion_sfx` |
-| Type | SFX |
-| Loop | Off (sound effects usually play once) |
-| Volume | `0.9` |
-
-**Door Open SFX:**
-
-| Field | Value |
-|-------|-------|
-| Display Name | Door Open |
-| ID | `door_open_sfx` |
-| Type | SFX |
-| Loop | Off |
-| Volume | `0.8` |
-
-#### Step 2: Create Conditional BGM rules
-
-Still in the **Audio** tab, find the "Conditional BGM" section → click "Add Rule"
-
-**Rule 1: Play SFX when AI says "explosion"**
+Make sure you have a Text variable **Location** (starts at `village`) and the tracks Village and Dungeon. Then **BGM Configuration** → **Conditional BGM** → **Add Conditional Rule**:
 
 | Field | Value | Why |
 |-------|-------|-----|
-| Name | AI Explosion SFX | For your own reference |
-| Trigger Type | AI Keyword (`ai-keyword`) | Fires when the AI's reply contains the specified keyword |
-| Keywords | `explosion`, `blast`, `detonate` | You can add multiple synonyms — matching any one triggers it |
-| Target Track | `explosion_sfx` | Play the explosion sound |
-| Stop Current BGM | Off | SFX layers on top of the BGM — don't stop the music |
+| WHEN | **Variable condition** | Decided by a variable's value |
+| Condition | Location is `dungeon` | |
+| Play | Dungeon | |
+| Priority | `10` | When several rules match at once, the higher number wins |
+| Fade In (s) | `2` | The new track fades in |
+| Fade Out (s) | `2` | The old track fades out |
+| Stop previous BGM | On | The village music stops instead of playing underneath |
+| On end | **Return to default playlist** | Back to the village music when the player leaves the dungeon |
 
-**Rule 2: Play SFX when player says "open the door"**
+A second rule for low health:
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Name | Player Door SFX | For your own reference |
-| Trigger Type | Player Keyword (`keyword`) | Fires when the player's message contains the specified keyword |
-| Keywords | `open the door`, `push the door`, `open door` | Multiple synonyms |
-| Target Track | `door_open_sfx` | Play the door sound |
-| Stop Current BGM | Off | Same as above |
-
-#### Result
+| Field | Value |
+|-------|-------|
+| WHEN | **Variable condition** |
+| Condition | Health is less than `20` |
+| Play | Crisis |
+| Priority | `20` (higher than the location rule, so it wins in the dungeon too) |
+| Stop previous BGM | On |
+| On end | **Return to previous track** |
 
 ```
-AI writes: "BOOM — a deafening explosion rocks the hillside, fire lighting up the entire sky."
-  → Engine scans and matches "explosion" → auto-plays explosion_sfx
-  → Player hears the explosion sound while BGM keeps playing
-
-Player types: "I walk to the door and open it."
-  → Engine scans and matches "open the door" → auto-plays door_open_sfx
+The player is exploring, the playlist is playing
+  → Health drops from 30 to 15
+  → The crisis rule matches; the playlist fades out and Crisis fades in
+The player drinks a potion, Health goes back to 35
+  → The rule no longer matches; On end brings back what was playing before
 ```
 
-::: info SFX vs BGM
-SFX (sound effects) play once and stop. BGM (background music) loops or continues per the playlist. When a Conditional BGM rule targets an SFX-type track, it plays once and doesn't replace the current background music. But if `stopPreviousBGM` is set to `true`, it stops the current BGM first before playing the track — SFX usually doesn't need this.
+::: tip Several conditions
+A rule can have more than one condition. Choose **ALL conditions met** for "Health below 20 **and** Location is dungeon", or **ANY condition met** for either.
+:::
+
+::: info Who sets Location?
+Anything that changes the variable: the AI (through the variable's Behavior Rules), a button in the player interface (**Change a variable**), or a behavior. The music rule doesn't care how it changed. [Map & Scene Navigation](./map-navigation.md) builds the buttons.
 :::
 
 ---
 
-## Pattern 4: Conditional BGM — Variable-Driven Auto-Switching
+## Pattern 3: Sound effects on keywords
 
 ### What you'll build
 
-No behaviors needed — configure a rule directly in the **Audio** tab: when `hp` drops below 20, automatically switch to tense crisis music; when `hp` returns above 20, switch back to the default track.
+An explosion when the AI writes "explosion", a creaking door when the player says "open the door". Set up on the **Audio** page, no behaviors.
+
+### Step 1: Add SFX tracks
+
+| Field | Explosion | Door |
+|-------|-----------|------|
+| Title | Explosion | Door Open |
+| Track Type | SFX | SFX |
+| Loop Audio | Off | Off |
+| Default Volume | `0.9` | `0.8` |
+
+### Step 2: Add Conditional BGM rules
+
+Despite the name, a Conditional BGM rule can play any track type, including SFX.
+
+**Rule: the AI says "explosion"**
+
+| Field | Value |
+|-------|-------|
+| WHEN | **AI keyword** |
+| Keywords | `explosion`, `blast`, `detonate` (type each one and press Enter; any one of them triggers it) |
+| Play | Explosion |
+| Stop previous BGM | Off, so the music keeps playing under the effect |
+
+**Rule: the player says "open the door"**
+
+| Field | Value |
+|-------|-------|
+| WHEN | **Player keyword** |
+| Keywords | `open the door`, `push the door` |
+| Play | Door Open |
+| Stop previous BGM | Off |
+
+**Match whole words only** stops "blast" from matching inside "blasted"; leave it off if you want both.
+
+---
+
+## Pattern 4: Ambient loops
+
+### What you'll build
+
+Rain, wind or tavern chatter playing quietly under the music.
 
 ### How it works
 
-Conditional BGM's `variable` trigger type checks automatically after every variable change. Condition met → switch to the target track; condition no longer met → fall back based on the `fallback` setting (return to the playlist's default track, or to the previously playing track).
+**Ambient** is the third track type. It plays alongside BGM, so you can have one BGM track and one ambient track at the same time. Keep it looping and quiet.
 
-### Step by step
+### Step 1: Add an ambient track
 
-#### Step 1: Prepare audio tracks
+| Field | Value |
+|-------|-------|
+| Title | Forest |
+| Track Type | Ambient |
+| Loop Audio | On |
+| Default Volume | `0.3` (quieter than the music) |
+| Fade In (s) | `3` |
+| Fade Out (s) | `3` |
 
-Make sure the **Audio** tab has:
+### Step 2: Play it where it belongs
 
-- `explore_bgm` — default exploration music (in the playlist)
-- `crisis_bgm` — crisis music (only plays when the condition triggers; doesn't need to be in the playlist)
+Use a Conditional BGM rule like Pattern 2: **Variable condition** Location is `forest`, Play Forest, **On end** **Return to default playlist**.
 
-#### Step 2: Create a Conditional BGM rule
+> **Stop previous BGM must be off** for ambient rules. Ambient sits on top of the music; with the switch on, starting the rain would stop the music.
 
-**Audio** tab → Conditional BGM → Add Rule
+You can also do it in a behavior that already handles a scene change: add **Play sound effect** or **Play music** for the ambient track, and **Stop audio** for the old one.
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Name | Low HP Crisis Music | For your own reference |
-| Trigger Type | Variable (`variable`) | Decides based on variable values |
-| Condition | `hp` < `20` | Triggers when HP is below 20 |
-| Condition Logic | All (`all`) | Only one condition here, so `all` and `any` work the same |
-| Target Track | `crisis_bgm` | Switch to crisis music |
-| Priority | `10` | If multiple rules match simultaneously, higher priority wins |
-| Fade In Duration | `1` second | New track gradually fades in |
-| Fade Out Duration | `1` second | Old track gradually fades out |
-| Stop Current BGM | On | Stop the exploration music before playing crisis music |
-| Fallback | `default` | When the condition is no longer met (HP goes back above 20), automatically return to the playlist's default track |
-
-#### Result
-
-```
-Player is exploring, BGM is explore_bgm
-  → AI replies: [hp: -15] (hp drops from 30 to 15)
-  → Engine detects hp < 20, condition met
-  → explore_bgm fades out over 1 second, crisis_bgm fades in over 1 second
-  → Atmosphere instantly gets tense
-
-Player uses a healing potion
-  → AI replies: [hp: +20] (hp goes from 15 back to 35)
-  → Engine detects hp is no longer < 20, condition not met
-  → fallback: "default" → automatically switches back to explore_bgm
-```
-
-::: tip Multi-condition combos
-You can add multiple conditions to a single rule. For example: `hp < 20` **AND** `location == "dungeon"` → crisis music only plays when you're in the dungeon with low HP. Set the condition logic to `all` (all must match).
+::: tip Volume levels
+BGM around 0.5 to 0.7, ambient 0.2 to 0.4, sound effects 0.7 to 1.0. At different levels the three layers don't drown each other out.
 :::
 
 ---
 
-## Pattern 5: Ambient Sound Loops
+## Pattern 5: Let the AI pick the music
 
 ### What you'll build
 
-Continuously playing ambient sounds in the scene background — rain, wind, tavern chatter — layered on top of the BGM to deepen immersion.
+Lively tavern music when the story walks into a tavern, battle music when a fight breaks out, a sword clash when someone draws a blade, without you writing a rule for each case.
 
 ### How it works
 
-Ambient is the third track type. It plays independently of BGM — you can have a BGM track + an ambient track playing simultaneously. Ambient is usually set to loop at low volume, serving as a constant atmospheric backdrop.
+Open a track and fill in **Let the AI play this track** (on a BGM track) or **Let the AI play this sound** (on an SFX track). Ambient tracks aren't picked this way; drive them with rules (Pattern 4).
 
-### Step by step
+| Track | Field | What to write |
+|-------|-------|---------------|
+| Tavern (BGM) | **When to play** | `lively and cheerful: taverns, markets, festivals` |
+| Battle (BGM) | **When to play** | `a fight breaks out or a chase starts` |
+| Sword Clash (SFX) | **Play once when this happens** | `someone draws a blade or swords meet` |
 
-#### Step 1: Create Ambient tracks
+Once a track has a cue, it reads **On: the AI plays this when the story matches**. After each reply, the card checks the story against the cues and switches music or plays the sound. This runs as part of **Smart tracking** (in **Card settings**), so it works the same whichever model the player uses. Leave a cue empty and that track only follows the playlist and your rules.
 
-**Audio** tab → Add Track
+When at least one track has a cue, the **BGM Configuration** area asks you a few questions about how AI picks and your rules get along. Each appears only when it can actually come up:
 
-| Field | Value |
-|-------|-------|
-| Display Name | Rain |
-| ID | `rain_ambient` |
-| Type | Ambient |
-| Loop | On |
-| Volume | `0.3` (ambient should be quieter than BGM — it's the backdrop) |
-| Fade In | `3` seconds (appears gradually, not jarring) |
-| Fade Out | `3` seconds |
+- **When the AI wants to switch but a conditional rule is playing its own track**: **Rules first** (the rule keeps playing, the AI waits) or **AI first**
+- **After an AI-picked track**: keep looping until the AI switches or hands back, or play it once and return to the default playlist
+- **Dip the background music while an AI-picked sound plays, then restore it**
 
-Create more as needed: `wind_ambient` (wind), `tavern_ambient` (tavern chatter), `forest_ambient` (birdsong and insects).
+### Keeping a track away from the AI
 
-#### Step 2: Control ambient via Conditional BGM
+Turn off **Allow AI control** on a track and the AI can't play, stop or change it. Your playlist, rules, behaviors and interface code still can. Use it for a menu theme or a track your code manages.
 
-Same as Pattern 4 — use a Conditional BGM rule to control when ambient plays.
+### Audio directives
 
-**Rule: Play forest ambient when in the forest**
+The story AI can also write audio directives straight into its reply. The engine gives the AI the list of tracks it's allowed to control (ID, type and title) and the directive format on its own, so you don't need a lore entry listing them. Directives are taken out of the text before the player sees it:
 
-| Field | Value |
-|-------|-------|
-| Name | Forest Ambient |
-| Trigger Type | Variable (`variable`) |
-| Condition | `location` == `forest` |
-| Target Track | `forest_ambient` |
-| Stop Current BGM | **Off** |
-| Fallback | `default` |
+```
+You push open the tavern's heavy door, and warm air hits your face. [audio: <tavern track ID> crossfade 2]
+```
 
-> **Key: `stopPreviousBGM` must be Off.** Ambient layers on top of BGM — it shouldn't stop the background music. If you turn it on, switching ambient tracks will also kill whatever BGM is currently playing.
+| Directive | Effect |
+|-----------|--------|
+| `[audio: trackId play]` | Play (with the track's own **Fade In**) |
+| `[audio: trackId stop]` | Stop (with the track's own **Fade Out**) |
+| `[audio: trackId crossfade 2]` | Stop the other BGM the AI controls and fade this one in over 2 seconds |
+| `[audio: trackId volume 0.5]` | Change the volume |
+| `[audio: trackId play chain:nextTrackId]` | When this track ends, start the next one |
 
-#### You can also control ambient via behaviors
+`chain` is good for an intro: a war-horn sound that leads into the battle music once it finishes.
 
-If you already have scene-switching behaviors (like Pattern 2), just add a "Play Audio" action to the behavior's action list, targeting the ambient track:
-
-| # | Action Type | Setting | Purpose |
-|---|-------------|---------|---------|
-| 1 | Set Variable | `location` set to `forest` | Record the location |
-| 2 | Play Audio | `forest_bgm`, operation: crossfade, fade 2s | Switch the BGM |
-| 3 | Play Audio | `forest_ambient`, operation: play, fade in 3s | Layer in the ambient sound |
-| 4 | Play Audio | `tavern_ambient`, operation: stop, fade out 3s | Stop the old ambient sound |
-
-This way, a single behavior handles both the BGM switch and the ambient swap.
-
-::: tip Volume recommendations
-BGM: typically 0.5-0.7. Ambient: 0.2-0.4. SFX: 0.7-1.0. With these three layers at different levels, they won't fight each other.
-:::
+The AI doesn't always remember to write directives, especially in long chats. The cues above (**When to play**) and Conditional BGM rules are the reliable routes; directives are an extra.
 
 ---
 
-## Pattern 6: Controlling Audio from the Root Component
+## Pattern 6: Buttons that play sound
 
-### What you'll build
+### No code: player interface buttons
 
-A "jukebox" in the Root Component — a few buttons that each play a different track, plus a "Stop" button. This is pure UI control — no behaviors or conditional rules needed.
+In **Player interface**, select a **Button** and under **When pressed, do in order** add **Play audio** (pick the track) or **Stop audio** (one track, or **Stop everything**). A behavior's **Play music**, **Play sound effect** and **Stop audio** effects do the same from the canvas, and a button can run that behavior with **Set off a behavior**.
 
-### How it works
+### Custom code route: a jukebox
 
-`useYumina()` provides these audio APIs (all durations in **seconds**):
+`useYumina()` gives your interface code these audio calls (all durations in **seconds**):
 
-- `api.playAudio?.(trackId, opts)` — play the specified track. `opts` includes `volume`, `fadeDuration`, `chainTo`, `maxDuration`, `duckBgm`, and `loop` (override the track's loop for this playback)
-- `api.stopAudio?.(trackId?)` — stop the specified track (omit the ID to stop everything). Destroys the element — use `pauseAudio` to resume later
-- `api.pauseAudio?.(trackId)` / `api.resumeAudio?.(trackId)` — real pause/resume in place
-- `api.onAudioEnded?.(cb)` — run `cb(trackId)` when a non-looping track finishes; returns an unsubscribe function. Use it to auto-advance a playlist:
+- `api.playAudio(trackId, opts)`: play a track. `opts` can include `volume` (0 to 1), `fadeDuration`, `chainTo`, `maxDuration`, `duckBgm` and `loop` (overrides the track's own loop setting for this play)
+- `api.stopAudio(trackId?, fadeDuration?)`: stop one track, or everything if you leave out the ID. It discards the track's position; use `pauseAudio` if you want to resume
+- `api.pauseAudio(trackId)` / `api.resumeAudio(trackId)`: pause and resume in place
+- `api.onAudioEnded(cb)`: calls `cb(trackId)` when a non-looping track finishes, and returns an unsubscribe function
 
-```tsx
-React.useEffect(() => api.onAudioEnded?.((endedId) => {
-  if (endedId === currentTrackId && mode !== "single") playNext();
-}), [currentTrackId, mode]);
-```
+`playAudio` doesn't stop other music by itself. To switch between BGM tracks, stop the others first.
 
-Both methods can be called directly in the Root Component `index.tsx` (inside `<Chat renderBubble>` callbacks, or on any button you add).
-
-### Step by step
-
-#### Step 1: Prepare audio tracks
-
-Make sure the **Audio** tab has the tracks you want to play (create them as in Pattern 1). Let's say you have:
-
-- `jazz_bgm` — jazz
-- `rock_bgm` — rock
-- `classical_bgm` — classical
-
-#### Step 2: Write the Root Component code
-
-Editor → **Custom UI** section → open `index.tsx` → paste the following (replace the default `return <Chat />`):
+Copy each track's **Track ID** from the **Audio** page, then in **Panels → Front End Code** → `index.tsx`, replace the default `return <Chat />`:
 
 ```tsx
 export default function MyWorld() {
   const api = useYumina();
   const msgs = api.messages || [];
 
+  // Paste the Track IDs from the Audio page
   const tracks = [
-    { id: "jazz_bgm", label: "Jazz", color: "#7c3aed" },
-    { id: "rock_bgm", label: "Rock", color: "#dc2626" },
-    { id: "classical_bgm", label: "Classical", color: "#0891b2" },
+    { id: "PASTE-JAZZ-TRACK-ID", label: "Jazz", color: "#7c3aed" },
+    { id: "PASTE-ROCK-TRACK-ID", label: "Rock", color: "#dc2626" },
+    { id: "PASTE-CLASSICAL-TRACK-ID", label: "Classical", color: "#0891b2" },
   ];
+  const [nowPlaying, setNowPlaying] = React.useState("");
+
+  const play = (t) => {
+    // Fade out the other jukebox tracks, then fade this one in
+    tracks.forEach((other) => {
+      if (other.id !== t.id) api.stopAudio(other.id, 1.5);
+    });
+    api.playAudio(t.id, { fadeDuration: 1.5 });
+    setNowPlaying(t.id);
+  };
+
+  const stop = () => {
+    api.stopAudio();
+    setNowPlaying("");
+  };
 
   return (
     <Chat renderBubble={(msg) => {
       const isLastMsg = msg.messageIndex === msgs.length - 1;
       return (
-    <div>
-      <div
-        style={{ color: "#e2e8f0", lineHeight: 1.7 }}
-        dangerouslySetInnerHTML={{ __html: msg.contentHtml }}
-      />
+        <div>
+          <div
+            style={{ color: "#e2e8f0", lineHeight: 1.7 }}
+            dangerouslySetInnerHTML={{ __html: msg.contentHtml }}
+          />
 
-      {isLastMsg && (
-        <div style={{
-          marginTop: "12px",
-          padding: "12px",
-          background: "rgba(30,41,59,0.5)",
-          borderRadius: "8px",
-          border: "1px solid #334155",
-        }}>
-          <div style={{ fontSize: "12px", color: "#94a3b8", marginBottom: "8px" }}>
-            Jukebox
-          </div>
-          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-            {tracks.map((t) => (
-              <button
-                key={t.id}
-                onClick={() => api.playAudio?.(t.id, { fadeDuration: 1.5 })}
-                style={{
-                  padding: "8px 16px",
-                  background: t.color,
-                  border: "none",
-                  borderRadius: "6px",
-                  color: "#fff",
-                  fontSize: "13px",
-                  cursor: "pointer",
-                }}
-              >
-                {t.label}
-              </button>
-            ))}
-            <button
-              onClick={() => api.stopAudio?.()}
-              style={{
-                padding: "8px 16px",
-                background: "#475569",
-                border: "none",
-                borderRadius: "6px",
-                color: "#e2e8f0",
-                fontSize: "13px",
-                cursor: "pointer",
-              }}
-            >
-              Stop
-            </button>
-          </div>
+          {isLastMsg && (
+            <div style={{
+              marginTop: "12px",
+              padding: "12px",
+              background: "rgba(30,41,59,0.5)",
+              borderRadius: "8px",
+              border: "1px solid #334155",
+            }}>
+              <div style={{ fontSize: "12px", color: "#94a3b8", marginBottom: "8px" }}>
+                Jukebox
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                {tracks.map((t) => (
+                  <button
+                    key={t.id}
+                    onClick={() => play(t)}
+                    style={{
+                      padding: "8px 16px",
+                      background: t.color,
+                      border: "none",
+                      borderRadius: "6px",
+                      color: "#fff",
+                      fontSize: "13px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {nowPlaying === t.id ? "♪ " + t.label : t.label}
+                  </button>
+                ))}
+                <button
+                  onClick={stop}
+                  style={{
+                    padding: "8px 16px",
+                    background: "#475569",
+                    border: "none",
+                    borderRadius: "6px",
+                    color: "#e2e8f0",
+                    fontSize: "13px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Stop
+                </button>
+              </div>
+            </div>
+          )}
         </div>
-      )}
-    </div>
       );
     }} />
   );
 }
 ```
 
-**Line-by-line breakdown:**
+**What the code does:**
 
-- `MyWorld()` is the Root Component — the world's UI entry point. `<Chat renderBubble={...} />` keeps the platform in charge of the message list, input, and scrolling; we only customize the per-bubble layout
-- `api.playAudio?.(t.id, { fadeDuration: 1.5 })` — plays the specified track with a 1.5-second fade-in. If another track is currently playing, it automatically stops it first
-- `api.stopAudio?.()` — called with no arguments = stops all currently playing audio
-- `msg.messageIndex === msgs.length - 1` — only shows the jukebox on the last message, so it doesn't repeat on every message
+- `<Chat renderBubble={...} />` keeps the platform's message list, input box and scrolling; you only draw each bubble
+- `play()` fades out the other jukebox tracks over 1.5 seconds and fades the chosen one in
+- `api.stopAudio()` with no arguments stops everything that's playing
+- `nowPlaying` is local to the interface, so it resets when the page reloads. To remember the choice in the save, store it in a variable with `api.setVariable("Now playing", t.id)` and read it back from `api.variables["Now playing"]`
+- The jukebox only shows under the last message
 
-::: tip More advanced usage
-You can read variables to control UI state. For example, use a `now_playing` variable to track the current track ID, then show a "Now Playing" indicator on the button:
+To move through a playlist of your own, listen for the end of each track:
 
 ```tsx
-const nowPlaying = String(api.variables.now_playing || "");
-
-// Update the variable alongside playback
-onClick={() => {
-  api.playAudio?.(t.id, { fadeDuration: 1.5 });
-  api.setVariable("now_playing", t.id);
-}}
-
-// Show status on the button
-{nowPlaying === t.id ? "♪ " + t.label : t.label}
+React.useEffect(() => api.onAudioEnded((endedId) => {
+  if (endedId === nowPlaying) playNext();
+}), [nowPlaying]);
 ```
-:::
+
+(This only fires for tracks that don't loop.)
 
 ---
 
-## Pattern 7: AI-Driven Audio Control
-
-### What you'll build
-
-Let the AI naturally control music during narration — play a lively accordion tune when describing entering a tavern, switch to intense battle BGM when a fight breaks out, play a pain sound effect when a character gets hurt.
-
-### How it works
-
-The AI can embed `[audio: trackId action]` directives in its replies. The engine automatically recognizes and executes these directives while stripping them from the text the player sees — like stage directions in a screenplay that the audience never reads, but the crew follows.
-
-### Step by step
-
-#### Step 1: Register all tracks the AI might use
-
-In the **Audio** tab, create all the tracks you want the AI to control:
-
-- `tavern_bgm` — tavern music
-- `battle_bgm` — battle music
-- `sword_clash_sfx` — sword clash sound effect
-- `pain_sfx` — pain/injury sound effect
-- `rain_ambient` — rain ambient
-
-#### Step 2: Tell the AI what tracks are available via the system prompt
-
-The AI won't automatically know which tracks you've registered. You need to create an entry in the **Entries** tab listing the available tracks and usage rules:
-
-**Entry name:** Audio Directive Reference
-
-**Section:** System Presets
-
-**Content:**
-
-```
-[Audio Control System]
-You can use the following audio directives in your replies to control music and sound effects. Directives are automatically executed and stripped from the text the player sees.
-
-Available directive formats:
-- [audio: trackId play] — play
-- [audio: trackId play 2.0] — play with a 2-second fade-in
-- [audio: trackId stop] — stop
-- [audio: trackId stop 1.5] — stop with a 1.5-second fade-out
-- [audio: trackId crossfade 2.0] — crossfade transition, 2-second overlap
-- [audio: trackId volume 0.5] — adjust volume to 0.5
-- [audio: trackId play chain:nextTrackId] — after this track finishes, automatically start the next one
-
-Available tracks:
-- tavern_bgm — lively tavern accordion music (good for social scenes, shopping)
-- battle_bgm — intense battle music (good for combat, chase scenes)
-- sword_clash_sfx — sword clash sound effect (good for melee action descriptions)
-- pain_sfx — pain/injury sound effect (good for when a character gets hurt)
-- rain_ambient — rain ambient sound (good for rainy scenes)
-
-Usage guidelines:
-- Insert audio directives at natural narrative points
-- Use crossfade for scene transitions, with a duration of 1.5-2.5 seconds
-- Pair sound effects with action descriptions, placing them near the corresponding text
-- Don't overdo it — 2-3 audio directives per response at most
-```
-
-#### Step 3: Example AI response
-
-After telling the AI these rules, its replies might look like this:
-
-```
-You push open the tavern's heavy wooden door, and a rush of warm air hits your face. [audio: tavern_bgm crossfade 2.0]
-
-The tavern is buzzing — someone's playing accordion in the corner, and a dwarf at the bar is shouting over a dice game. You've barely found a seat when a masked figure suddenly draws a blade and lunges at you!
-
-[audio: battle_bgm crossfade 0.5] [audio: sword_clash_sfx play]
-
-You throw yourself sideways on instinct. The table splits in two behind you.
-```
-
-The player sees clean narrative text while hearing: tavern music fading in → abrupt switch to battle music + sword clash sound effect.
-
-#### The `chain` directive — special usage
-
-`chain` lets one track automatically start another when it finishes:
-
-```
-The sound of war horns echoes through the valley — the battle is about to begin! [audio: war_horn_sfx play chain:battle_bgm]
-```
-
-After the `war_horn_sfx` horn blast finishes playing, `battle_bgm` starts automatically — an intro into the main track, more ceremonial than a direct switch.
-
-::: warning The AI might forget to use directives
-The AI won't always remember to insert audio directives, especially in long conversations. For critical scene BGM changes (like entering a combat zone), set up Conditional BGM rules (Pattern 4) as a fallback. AI directives are the icing on the cake; Conditional BGM is the safety net.
-:::
-
----
-
-## Comprehensive Quick Reference
+## Quick reference
 
 ### Track types
 
-| Type | Purpose | Typical Settings |
+| Type | Purpose | Typical settings |
 |------|---------|-----------------|
-| BGM | Background music | Loop on, volume 0.5-0.7 |
-| SFX | One-shot sound effects | Loop off, volume 0.7-1.0 |
-| Ambient | Looping ambient sounds | Loop on, volume 0.2-0.4 |
+| BGM | Background music | Loop on, volume 0.5 to 0.7 |
+| SFX | One-shot sound effects | Loop off, volume 0.7 to 1.0 |
+| Ambient | Environmental loops under the music | Loop on, volume 0.2 to 0.4 |
 
-### 5 ways to control audio
+### Which method for what
 
-| What you want to do | Which method | Where to set it up |
+| What you want | Method | Where |
 |--------------------|-------------|-------------------|
-| Auto-play BGM when entering the world | Playlist + autoplay | **Audio** tab → BGM Playlist |
-| Auto-switch track when variable conditions are met | Conditional BGM (variable trigger) | **Audio** tab → Conditional BGM |
-| Play SFX when AI reply contains a keyword | Conditional BGM (ai-keyword trigger) | **Audio** tab → Conditional BGM |
-| Play SFX when player message contains a keyword | Conditional BGM (keyword trigger) | **Audio** tab → Conditional BGM |
-| Switch track at a specific turn number | Conditional BGM (turn-count trigger) | **Audio** tab → Conditional BGM |
-| Crossfade on scene transition | Behavior + Play Audio action | **Behaviors** tab |
-| Play/stop from a button click | Root Component `api.playAudio?.()` / `api.stopAudio?.()` | **Custom UI** section |
-| AI triggers audio during narration | AI audio directives `[audio: trackId action]` | **Entries** tab (tell the AI the rules) |
+| Music when the player enters | Default playlist + **Auto-play** | **Audio** → **BGM Configuration** |
+| Switch track on a variable | Conditional BGM, **Variable condition** | **Audio** → **Conditional BGM** |
+| SFX when the AI writes a word | Conditional BGM, **AI keyword** | **Audio** → **Conditional BGM** |
+| SFX when the player writes a word | Conditional BGM, **Player keyword** | **Audio** → **Conditional BGM** |
+| Switch track at a given turn | Conditional BGM, **Turn count** (**At turn** or **Every N turns**) | **Audio** → **Conditional BGM** |
+| A fixed track at the start of every game | Conditional BGM, **Session start** | **Audio** → **Conditional BGM** |
+| Let the story decide | **When to play** / **Play once when this happens** on the track | Track settings |
+| Keep the AI off a track | Turn off **Allow AI control** | Track settings |
+| Sound as part of a behavior | **Play music**, **Play sound effect**, **Stop audio** | Behavior effects |
+| A button that plays a track | **Play audio** / **Stop audio** step | **Player interface** |
+| Full control from code | `api.playAudio()` / `api.stopAudio()` | **Panels → Front End Code** |
 
-### AI audio directive reference
+### Conditional BGM fields
 
-| Directive | Effect |
-|-----------|--------|
-| `[audio: trackId play]` | Play |
-| `[audio: trackId play 2.0]` | Play with 2-second fade-in |
-| `[audio: trackId stop]` | Stop |
-| `[audio: trackId stop 1.5]` | Stop with 1.5-second fade-out |
-| `[audio: trackId crossfade 2.0]` | Crossfade transition, 2-second overlap |
-| `[audio: trackId volume 0.5]` | Adjust volume |
-| `[audio: trackId play chain:nextId]` | After finishing, automatically start next track |
+| Field | What it does |
+|-------|-------------|
+| WHEN | **Variable condition**, **AI keyword**, **Player keyword**, **Turn count**, **Session start** |
+| Play | The track to play |
+| Priority | Higher wins when several rules match |
+| Fade In (s) / Fade Out (s) | Fades for this rule's switch |
+| Stop previous BGM | On for music that replaces music; off for SFX and ambient |
+| On end | What plays when the condition stops holding: **Return to default playlist**, **Return to previous track**, or a specific track |
 
-### Conditional BGM trigger types
-
-| Trigger Type | When It Fires | Typical Use |
-|-------------|--------------|-------------|
-| `variable` | When variable conditions are met | hp < 20 plays crisis music |
-| `ai-keyword` | When AI reply contains keyword | AI writes "explosion" plays explosion SFX |
-| `keyword` | When player message contains keyword | Player says "perform" plays music |
-| `turn-count` | When a specific turn is reached | Turn 10 plays countdown music |
-| `session-start` | When the session starts | Fixed opening track |
-
-### Behavior play-audio action parameters
-
-| Parameter | Description |
-|-----------|-------------|
-| Track ID (`trackId`) | Matches the track ID registered in the Audio tab |
-| Operation (`action`) | `play` (play), `stop` (stop), `crossfade` (crossfade switch), `volume` (adjust volume) |
-| Volume (`volume`) | 0-1, optional |
-| Fade Duration (`fadeDuration`) | Seconds, optional; 1.5-3 seconds recommended for crossfade |
-
-### Root Component audio API
+### Interface code audio API
 
 | Method | Description |
 |--------|-------------|
-| `api.playAudio?.(trackId, opts)` | Play a track. opts can include `fadeDuration` (seconds), `loop`, etc. |
-| `api.stopAudio?.(trackId?)` | Stop a track. Omit the ID to stop everything |
-| `api.pauseAudio?.(trackId)` / `api.resumeAudio?.(trackId)` | Pause/resume a track in place (keeps position) |
-| `api.onAudioEnded?.(cb)` | Subscribe to track-finished events; returns an unsubscribe function. Use to auto-advance a playlist |
+| `api.playAudio(trackId, opts)` | Play a track. `opts`: `volume`, `fadeDuration` (seconds), `chainTo`, `maxDuration`, `duckBgm`, `loop` |
+| `api.stopAudio(trackId?, fadeDuration?)` | Stop a track, or everything without an ID |
+| `api.pauseAudio(trackId)` / `api.resumeAudio(trackId)` | Pause and resume in place |
+| `api.onAudioEnded(cb)` | Run `cb(trackId)` when a non-looping track ends; returns an unsubscribe function |
+| `api.setAudioVolume("bgm" \| "sfx", v)` / `api.getAudioVolume(...)` | The player's volume for music or sound effects |
 
 ---
 
-## Common Issues
+## Common issues
 
-| Symptom | Likely Cause | Fix |
+| Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| No sound at all | Browser blocks autoplay | Modern browsers require user interaction (click, type) before allowing audio playback. Have the player send a message first, or turn on "Wait for First Message" in the playlist |
-| BGM transition sounds choppy | Not using crossfade | Make sure the behavior's "Play Audio" operation is set to `crossfade` with a fade duration of at least 1.5 seconds |
-| SFX and BGM interrupt each other | `stopPreviousBGM` is set to `true` | SFX-type Conditional BGM rules should have "Stop Current BGM" turned off |
-| AI doesn't use audio directives | Entry not telling the AI about them | Create a System Presets entry listing all available track IDs and directive formats (see Pattern 7) |
-| Ambient too loud | Volume too high | Ambient should be 0.2-0.4, with BGM at 0.5-0.7 to maintain separation |
-| Conditional BGM not triggering | Variable value type mismatch | Make sure the condition's value type matches the variable type (e.g. numeric variables need numeric comparisons, not string comparisons) |
-| Multiple rules conflicting | Same priority | Give different Conditional BGM rules different priority values — higher numbers take precedence |
+| No sound at all | The browser blocks audio until the player interacts with the page | Turn on **Wait for first message**, or let the first click start the music |
+| Two pieces of music at once | A rule or behavior started a BGM track without stopping the old one | Turn on **Stop previous BGM** on music rules; in behaviors add **Stop audio** for the old track; in code, stop the others before `playAudio` |
+| Sound effects cut the music | **Stop previous BGM** is on for an SFX rule | Turn it off for SFX and ambient rules |
+| The AI never picks a track | The track has no cue, or **Smart tracking** is off | Fill in **When to play**, and check **Smart tracking** in **Card settings** |
+| The AI plays a track it shouldn't | **Allow AI control** is on | Turn it off for that track |
+| Ambient is too loud | Volume too high | Ambient 0.2 to 0.4, music 0.5 to 0.7 |
+| A variable rule never triggers | The condition compares the wrong kind of value | Numbers need number comparisons; text must match exactly |
+| Rules fight each other | Same priority | Give rules different **Priority** values; higher wins |
 
 ---
 
 ::: tip This is Recipe #14: Audio Design Guide
-The audio system's design philosophy is: simple things just work (playlist + autoplay), and complexity unlocks in layers (Conditional BGM → behavior control → AI directives → custom API). You don't need to learn every pattern at once — start with Pattern 1, and come back for more when you need finer control.
+Start with a playlist. Add Conditional BGM rules when the music should follow the game, cues when you want the story to choose, and code only for things like a jukebox. For a deeper look at how the audio system decides what plays, see [Advanced: Audio Design](/creator/advanced/audio-deep).
 :::
 
 </div>

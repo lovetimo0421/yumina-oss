@@ -41,6 +41,16 @@ export interface SystemEffectLabels {
   varOff?: string;
   /** Scenario names, for 「启用 阁楼」 — a behaviour switching a scenario. */
   scenarioNames?: Map<string, string>;
+  /** 「播放」「音效」「停止」 and the track's name. */
+  music?: string;
+  sfx?: string;
+  stopAudio?: string;
+  trackNames?: Map<string, string>;
+  /** 「通知「…」」 and 「时刻「…」」. */
+  notify?: string;
+  moment?: string;
+  /** Behaviour names, for 「停用 好感到 80」 (varOn / varOff are the words). */
+  behaviorNames?: Map<string, string>;
 }
 
 /** Prose with its macros read: `{{hp}}` as the variable's name, an expression
@@ -56,7 +66,19 @@ function prose(value: unknown, variables: Map<string, Variable>, max = 24): stri
 }
 
 function systemEffectLabel(effect: ReactionEffect, variables: Map<string, Variable>, labels: SystemEffectLabels): string | null {
-  if (effect.type === "emit" || !effect.path.startsWith("@")) return null;
+  if (effect.type === "emit") {
+    const event = (effect.event ?? {}) as { type?: unknown; message?: unknown; title?: unknown };
+    if (event.type === "ui:notification" && labels.notify) {
+      const said = prose(event.message, variables);
+      return said ? `${labels.notify}「${said}」` : labels.notify;
+    }
+    if (event.type === "ui:moment" && labels.moment) {
+      const title = prose(event.title, variables) || prose(event.message, variables);
+      return title ? `${labels.moment}「${title}」` : labels.moment;
+    }
+    return null;
+  }
+  if (!effect.path.startsWith("@")) return null;
   const path = effect.path;
   if ((path === "@prompt.context" || path.startsWith("@prompt.directive.")) && labels.tellAi) {
     if (path.startsWith("@prompt.directive.") && effect.value === false) return null;
@@ -69,6 +91,20 @@ function systemEffectLabel(effect: ReactionEffect, variables: Map<string, Variab
   if (path.startsWith("@vars.enabled.") && labels.varOn && labels.varOff) {
     const id = path.slice("@vars.enabled.".length);
     return `${effect.value ? labels.varOn : labels.varOff} ${variables.get(id)?.name ?? id}`;
+  }
+  const track = (word: string | undefined) => {
+    if (!word) return null;
+    const id = typeof effect.value === "string" ? effect.value : "";
+    const name = id ? labels.trackNames?.get(id) ?? id : "";
+    return name ? `${word} ${name}` : word;
+  };
+  if (path === "@audio.bgm") return track(labels.music);
+  if (path === "@audio.sfx") return track(labels.sfx);
+  if (path === "@audio.stop") return track(labels.stopAudio);
+  if (path.startsWith("@rules.disabled.") && labels.varOn && labels.varOff) {
+    const id = path.slice("@rules.disabled.".length);
+    // The path says "disabled": true switches the behaviour off.
+    return `${effect.value === true ? labels.varOff : labels.varOn} ${labels.behaviorNames?.get(id) ?? id}`;
   }
   if (path.startsWith("@worldbooks.on.") && labels.varOn && labels.varOff) {
     const id = path.slice("@worldbooks.on.".length);

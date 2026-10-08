@@ -12,19 +12,30 @@ export function hasPublishableCover(thumbnailUrl: string | null | undefined): bo
   return typeof thumbnailUrl === "string" && thumbnailUrl.trim().length > 0;
 }
 
-/** New publications need explicitly composed artwork for both Discover frames. */
-export function hasDiscoverCoverArt(world: {
+export type DiscoverCoverArtIssue = "portraitImage" | "portraitCrop" | "landscapeImage" | "landscapeCrop";
+
+/** Only failed requirements are returned; an absent image takes priority over its crop. */
+export function getDiscoverCoverArtIssues(world: {
   thumbnailUrl?: string | null;
   landscapeCoverUrl?: string | null;
   coverCrop?: unknown;
   landscapeCoverCrop?: unknown;
-}): boolean {
+}): DiscoverCoverArtIssue[] {
   const confirmed = (value: unknown) => {
     if (!value || typeof value !== "object") return false;
     const crop = value as { x?: unknown; y?: unknown; zoom?: unknown; fit?: unknown };
     return crop.fit !== "contain" && [crop.x, crop.y, crop.zoom].every(v => typeof v === "number" && Number.isFinite(v))
       && typeof crop.zoom === "number" && crop.zoom >= .25 && crop.zoom <= 1;
   };
-  return hasPublishableCover(world.thumbnailUrl) && hasPublishableCover(world.landscapeCoverUrl)
-    && confirmed(world.coverCrop) && confirmed(world.landscapeCoverCrop);
+  const issues: DiscoverCoverArtIssue[] = [];
+  if (!hasPublishableCover(world.thumbnailUrl)) issues.push("portraitImage");
+  else if (!confirmed(world.coverCrop)) issues.push("portraitCrop");
+  if (!hasPublishableCover(world.landscapeCoverUrl)) issues.push("landscapeImage");
+  else if (!confirmed(world.landscapeCoverCrop)) issues.push("landscapeCrop");
+  return issues;
+}
+
+/** New publications need explicitly composed artwork for both Discover frames. */
+export function hasDiscoverCoverArt(world: Parameters<typeof getDiscoverCoverArtIssues>[0]): boolean {
+  return getDiscoverCoverArtIssues(world).length === 0;
 }

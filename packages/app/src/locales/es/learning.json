@@ -242,18 +242,18 @@
       }
     },
     "modules": {
-      "title": "Situaciones",
+      "title": "Escenarios",
       "goal": "Contenido que solo se usa en cierta situación.",
-      "body": "Cuando la carta crece, añade una situación: como una carta dentro de la carta, con sus propias entradas, variables y comportamientos. Lo que arrastres dentro solo aplica en esa situación.",
-      "bodyMobile": "El panel Módulos separa capítulos o escenas, cada uno con sus entradas, variables y comportamientos y su elección de con quién comparte la memoria de conversación. Los marcos y el arrastre necesitan una pantalla ancha.",
+      "body": "Cuando la carta crece, añade un escenario: como una carta dentro de la carta, con sus propias entradas, variables y comportamientos. Lo que arrastres dentro solo aplica en esa escenario.",
+      "bodyMobile": "El panel Escenarios separa capítulos o escenas, cada uno con sus entradas, variables y comportamientos y su elección de con quién comparte la memoria de conversación. Los marcos y el arrastre necesitan una pantalla ancha.",
       "beats": {
         "add": {
           "title": "Añadir",
-          "body": "Pulsa aquí para añadir una situación.",
+          "body": "Pulsa aquí para añadir un escenario.",
           "after": {
             "module": {
-              "title": "Situaciones y lo que queda fuera",
-              "body": "Haz clic aquí para añadir una situación. Luego haz clic en su título y elige en «Cuándo se usa» cómo se entra: siempre, una palabra, una condición… Con palabras también puedes poner las que hacen salir. ¿Ahora no? Haz clic en un espacio vacío para cerrar el menú."
+              "title": "Escenarios y lo que queda fuera",
+              "body": "Haz clic aquí para añadir un escenario. Luego haz clic en su título y elige en «Cuándo se usa» cómo se entra: siempre, una palabra, una condición… Con palabras también puedes poner las que hacen salir. ¿Ahora no? Haz clic en un espacio vacío para cerrar el menú."
             }
           }
         }

@@ -1,4 +1,4 @@
-import { voiceStartContextError, isVoiceSceneReaction, isVoiceSceneReference, isVoiceToolAllowlist, type VoiceAPI, type VoiceEvent } from "./voice-types";
+import { voiceStartContextError, isVoiceSceneReaction, isVoiceSceneReference, isVoiceToolAllowlist, isVoiceCapability, isVoiceFinishResult, type VoiceAPI, type VoiceEvent, type VoiceCapability, type VoiceFinishResult } from "./voice-types";
 
 export const VOICE_EVENT = "yumina:voice-event";
 
@@ -31,6 +31,18 @@ export function createVoiceAPI(options: {
   target: Pick<EventTarget, "addEventListener" | "removeEventListener">;
 }): VoiceAPI {
   return {
+    async getConfig() {
+      if (!options.available) return { available: false, funding: null, transport: null, maxDurationSeconds: 0, finishAcknowledged: false };
+      const response = await options.call<VoiceCapability>('realtimeVoice.getConfig', [], 15_000);
+      if (!isVoiceCapability(response)) throw Error('Voice returned an invalid capability.');
+      return response;
+    },
+    async finish() {
+      if (!options.available) return { status: 'unsupported', reason: 'no-scoped-relay-call', providerState: 'unconfirmed', accounting: 'unknown' };
+      const response = await options.call<VoiceFinishResult>('realtimeVoice.finish', [], 60_000);
+      if (!isVoiceFinishResult(response)) throw Error('Voice returned an invalid cleanup result.');
+      return response;
+    },
     async prepare(params = {}) {
       if (!options.available) throw new Error("Voice is unavailable in this view.");
       const response = await options.call<{ intent?: string; error?: string }>("realtimeVoice.prepare", [params], 10_000);

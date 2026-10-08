@@ -62,6 +62,10 @@ export interface Variable {
    * See engine/src/continuity.
    */
   precise?: boolean;
+  /** Boolean fact that, once true, cannot be cleared by normal writes.
+   * Explicit author opt-in; ordinary booleans stay reversible. Restoring an
+   * earlier snapshot still restores that timeline's value. */
+  onceTrue?: boolean;
   /** Largest decrease the judge may apply in one turn (number vars, ≥ 0). */
   deltaDown?: number;
   /** Largest increase the judge may apply in one turn (number vars, ≥ 0). */
@@ -991,6 +995,9 @@ export type StateChannel = "variables" | "messages" | "streaming" | "session" | 
 export interface RootComponent {
   id: string;
   name: string;
+  /** Generic preload/prefetch hints default to automatic. Full custom worlds
+   * can own stage loading, readiness and retry with on-demand. */
+  assetLoading?: "automatic" | "on-demand";
   /** Entry point file name (e.g. "index.tsx") */
   entryFile: string;
   /** Virtual file system: filename → TSX source code */

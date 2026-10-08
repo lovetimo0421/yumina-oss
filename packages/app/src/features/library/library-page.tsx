@@ -14,7 +14,7 @@ import { useEdition } from "@/edition/edition";
 import { LibraryDetailPanel } from "./library-detail-panel";
 import { LibraryFavoritesView } from "./library-favorites-view";
 import { useLibrarySearchStore, type LibraryTab } from "@/stores/library-search";
-import { Gamepad2, Hammer, Image, Package, ScrollText, Search } from "lucide-react";
+import { Gamepad2, Hammer, Image, Package, ScrollText } from "lucide-react";
 import {
   captureStoryReturnContext,
   navigateToStoryReturn,
@@ -234,17 +234,6 @@ export function LibraryPage() {
             <h1 className="library-page-title text-4xl font-black text-foreground drop-shadow-lg">
               {t("page.title")}
             </h1>
-          </div>
-
-          <div className="library-header-search relative w-full md:max-w-[30rem]">
-            <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t("page.searchPlaceholder")}
-              className="w-full rounded-full border border-white/5 bg-white/5 py-3 pl-11 pr-4 text-sm text-foreground placeholder:text-muted-foreground/60 transition-all focus:border-white/10 focus:bg-white/10 focus:outline-none"
-            />
           </div>
         </div>
 

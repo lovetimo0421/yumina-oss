@@ -2,43 +2,55 @@
 
 # Audio Design
 
-Audio is the fastest way to make a world feel real. A survival thriller with rain sounds and a distant heartbeat SFX feels different from one with just text — even if the writing is identical. The system is lightweight: upload a few tracks, configure how they play, and the engine handles the rest.
+A survival thriller with rain sounds and a distant heartbeat SFX feels different from one with just text, even if the writing is identical. Setting it up is light: upload a few tracks, configure how they play, and the engine handles the rest.
 
-For the basics of track types (BGM, SFX, Ambient) and setup, see [Get Started: Visuals & Audio](/creator/visuals-audio).
+For the basics of track types (BGM, SFX, Ambient) and setup, see [Visuals & Audio](/creator/visuals-audio).
 
-To find a track's ID, open **Studio → Audio**, select the track, and copy the read-only **Track ID** using the copy button beside it. Use this value for `playAudio(trackId)` and directives such as `[audio: trackId play]`. The **Asset ID** in Assets identifies the uploaded file and is different from the Track ID. Replace example IDs such as `door-slam` below with your track's actual ID.
+To find a track's ID, open **Panels → Audio**, select the track, and copy the read-only **Track ID** with **Copy ID** beside it. Use this value for `playAudio(trackId)` and directives such as `[audio: trackId play]`. The **Asset ID** in Assets identifies the uploaded file and is different from the Track ID. Replace example IDs such as `door-slam` below with your track's actual ID.
 
 ---
 
 ## How audio gets triggered
 
-There are three ways audio plays in your world, from simplest to most flexible.
+There are four ways audio plays in your world, from simplest to most flexible.
 
 ### 1. Playlists: set it and forget it
 
-The **BGM Playlist** auto-plays a sequence of tracks when the player enters your world. Most worlds only need this.
+The **Default Playlist** auto-plays a sequence of tracks when the player enters your world. Most worlds only need this.
 
-Configure it in the Audio section of the editor:
+Configure it under **BGM Configuration** in **Panels → Audio**:
 
 | Setting | What it does |
 |---------|-------------|
-| **tracks** | Which BGM tracks to play, in order |
-| **playMode** | `loop` (restart from beginning), `shuffle` (random), or `sequential` (play all, then repeat) |
-| **autoPlay** | Start immediately when the world loads |
-| **waitForFirstMessage** | Don't start until the player sends their first message — useful for worlds with character creation or an opening cutscene |
-| **gapSeconds** (0-30) | Silence between tracks, for a "changing records" feel |
+| **Tracks** | Which BGM tracks to play, in order |
+| **Play Mode** | **Loop** (restart from beginning), **Shuffle** (random), or **Sequential** (play all, then repeat) |
+| **Auto-play** | Attempt playback when the world loads |
+| **Wait for first message** | Don't start until the player sends their first message — useful for worlds with character creation or an opening cutscene |
+| **Gap between tracks (s)** (0-30) | Silence between tracks, for a "changing records" feel |
 
-Sakura Season and PRTS Terminal both use the simplest possible setup: one BGM track, loop mode, autoPlay on. That's their entire audio configuration.
+Sakura Season and PRTS Terminal both use the simplest possible setup: one BGM track, loop mode, auto-play on. That's their entire audio configuration.
 
 ::: details The minimal setup
-Upload one audio file. Create a BGM track. Add it to the playlist with `autoPlay: true`. Done — players hear music from the moment they start.
+Upload one audio file. Create a BGM track. Add it to the playlist with **Auto-play** on. If the browser blocks automatic playback, it retries on a later user gesture. Leaving the world stops its audio.
 :::
 
-### 2. AI directives: let the narrator cue the soundtrack
+### 2. Smart tracking: the AI picks from your cues
+
+In **Panels → Audio**, each track has **Let the AI play this track** (for SFX, **Let the AI play this sound**). Write one line in **When to play**, like "lively and cheerful — festivals, markets, chasing around", or for a sound, "someone draws a blade". After each reply, smart tracking checks the scene against these cues: it switches the music when the story matches a track, and plays a sound once when its moment arrives. Leave the line empty and the track only follows the playlist and conditional rules.
+
+This works whatever model the player uses, because the story AI doesn't have to remember to write anything. A few settings decide how it gets along with your other music:
+
+- **When the AI wants to switch but a conditional rule is playing its own track**: **Rules first** (the rule's track keeps playing) or **AI first** (switch to the AI's pick until it ends or the AI hands back)
+- **After an AI-picked track**: keep looping until the AI switches, or play it once and return to the default playlist
+- **Dip the background music while an AI-picked sound plays**, then restore it
+
+Smart tracking is on by default; it's the switch of the same name in **Card settings**.
+
+### 3. AI directives: let the narrator cue the soundtrack
 
 The AI can embed audio commands in its responses using the same bracket syntax as variable directives. The player never sees these — the engine strips them before displaying the text.
 
-Only tracks with **Allow AI control** enabled can be controlled this way. Turn it off in the Audio editor to reserve a track for custom UI, scripts, behaviors, or playlists. Existing tracks default to enabled. Copy the track's **Track ID** with **Copy ID** when writing directives or custom UI calls.
+Only tracks with **Allow AI control** enabled can be controlled this way. It's on by default; turn it off (click the track on the canvas, or in **Panels → Audio**) to reserve a track for custom UI, scripts, behaviors, or playlists. Copy the track's **Track ID** with **Copy ID** when writing directives or custom UI calls.
 
 ```
 The door flies open with a deafening crash. [audio: door-slam play]
@@ -57,7 +69,7 @@ The player reads clean narrative and hears the door slam at the same time.
 | `[audio: trackId volume 0.5]` | Change volume without stopping |
 | `[audio: trackId play chain:nextTrackId]` | Play this track, then automatically play the next one when it finishes |
 
-The `chain` directive is especially useful for transitions: play a war horn SFX, then seamlessly transition to battle BGM when the horn finishes. Smoother than two separate directives.
+The `chain` directive is useful for transitions: play a war horn SFX, then move to battle BGM when the horn finishes, without a second directive.
 
 AI directives can be mixed with state changes in the same response:
 
@@ -67,57 +79,54 @@ Debris falls from the ceiling. [health: -5]
 The ambient sound grows oppressive. [audio: ambient-cave volume 0.3]
 ```
 
-**The catch:** The AI sometimes forgets to include directives, especially in long responses or when it's focused on complex narrative. For audio that absolutely must play at the right moment, use conditional BGM or rules instead.
+**The catch:** The AI sometimes forgets to include directives, especially in long responses or when it's focused on complex narrative. For audio that absolutely must play at the right moment, use conditional BGM or behaviors instead.
 
-### 3. Conditional BGM: music follows the story
+### 4. Conditional BGM: music follows the story
 
-Conditional BGM is the most interesting part of the audio system. You define conditions, and the engine automatically switches tracks when those conditions are met — no AI involvement required.
+You define conditions, and the engine switches tracks when they're met, with no AI involved. Click **Add Conditional Rule** under **Conditional BGM** in **Panels → Audio**.
 
-Think of it as programming a soundtrack that responds to the game state: tavern music when in the tavern, battle music when in combat, exploration music everywhere else.
+The result is a soundtrack that follows the game state: tavern music when in the tavern, battle music when in combat, exploration music everywhere else.
 
-Each conditional BGM entry has:
+Each conditional BGM rule has:
 
 | Setting | What it does |
 |---------|-------------|
-| **triggerType** | What to watch: `variable` (game state), `keyword` / `ai-keyword` (text matching), `turn-count`, or `session-start` |
-| **conditions** | Variable checks (when using `variable` trigger) |
-| **targetTrackId** | Which track to switch to |
-| **priority** | Higher numbers win when multiple conditions match |
-| **fadeInDuration / fadeOutDuration** | Transition speed in seconds |
-| **stopPreviousBGM** | Usually true — unless you want to layer multiple tracks |
-| **fallback** | What plays when the condition stops being true: `"default"` (return to playlist), `"previous"` (return to last track), or a specific trackId |
+| **WHEN** | What to watch: **Variable condition**, **Player keyword** / **AI keyword** (text matching), **Turn count**, or **Session start** |
+| **Conditions** | Variable checks (for **Variable condition**), combined with **ALL conditions met** or **ANY condition met** |
+| **Play** | Which track to switch to |
+| **Priority** | Higher numbers win when multiple conditions match |
+| **Fade In (s) / Fade Out (s)** | Transition speed in seconds |
+| **Stop previous BGM** | Usually on — unless you want to layer multiple tracks |
+| **On end** | What plays when the condition stops being true: **Return to default playlist**, **Return to previous track**, or a specific track |
 
 ::: details Example: combat track switch
-Two BGM tracks: `explore-bgm` and `battle-bgm`. The playlist plays exploration music by default. A conditional BGM entry watches for `location eq "battle_arena"` — when it becomes true, the engine crossfades to battle music over 0.5 seconds. When the player leaves the arena, `fallback: "default"` returns to exploration.
+Two BGM tracks: `explore-bgm` and `battle-bgm`. The playlist plays exploration music by default. A conditional BGM rule watches for `location` is `battle_arena` — when it becomes true, the engine fades to battle music over 0.5 seconds. When the player leaves the arena, **Return to default playlist** brings back exploration.
 
 The player hears a smooth musical transition whenever combat starts and ends, without the AI having to remember anything about audio.
 :::
 
 ---
 
-## Using rules for audio
+## Using behaviors for audio
 
-The Behaviors system has a `play-audio` action that gives you full control over audio without involving the AI at all. This is the most reliable method for audio that must fire at a precise moment.
+Behaviors have three audio effects, **Play music**, **Play sound effect** and **Stop audio**, which control audio without involving the AI at all. This is the most reliable method for audio that must fire at a precise moment.
 
-Battle Royale uses a `death-sfx` track and a `heartbeat-sfx` track as part of its audio toolkit. While its current version relies on AI directives to trigger them, wiring these to rules would guarantee they play at the right moment — a heartbeat SFX when health drops below 20, a death sound when health hits zero.
+Battle Royale uses a `death-sfx` track and a `heartbeat-sfx` track as part of its audio toolkit. While its current version relies on AI directives to trigger them, wiring these to behaviors would guarantee they play at the right moment — a heartbeat SFX when health drops below 20, a death sound when health hits zero.
 
-The `play-audio` action supports the same operations as AI directives:
-
-| Action | What it does |
+| Effect | What it does |
 |--------|-------------|
-| `play` | Start the track |
-| `stop` | Stop the track |
-| `crossfade` | Fade from current BGM to this track |
-| `volume` | Change volume |
+| **Play music** | Play a background track |
+| **Play sound effect** | Play a one-shot sound |
+| **Stop audio** | Stop the track |
 
-Combined with `variable-crossed` triggers, this creates audio cues that are 100% reliable:
+Combined with a **Variable crosses threshold** trigger, this gives you audio cues that always fire:
 
 ```
 WHEN:     health drops below 20
-THEN:     play-audio crisis-bgm crossfade (fadeDuration: 1.5)
+EFFECT:   Play music → crisis-bgm
 ```
 
-No AI involvement. The engine handles it mechanically.
+Fades and volume changes aren't behavior effects. For those, use conditional BGM, AI directives, or `api.playAudio(trackId, { fadeDuration, volume })` from interface code.
 
 ---
 
@@ -133,7 +142,7 @@ Battle Royale has four audio tracks: a character creation BGM, a game playlist B
 
 ### Fade everything
 
-Abrupt audio cuts are jarring. Set `fadeIn: 2` and `fadeOut: 1.5` on BGM tracks so transitions feel smooth. Use `crossfade` instead of stop-then-play when switching between tracks. The default conditional BGM fade (1 second in, 1 second out) is a reasonable starting point.
+Abrupt audio cuts are jarring. Set **Fade In (s)** to 2 and **Fade Out (s)** to 1.5 on BGM tracks so transitions feel smooth. Use `crossfade` instead of stop-then-play when switching between tracks. The default conditional BGM fade (1 second in, 1 second out) is a reasonable starting point.
 
 ### When to let the AI handle it vs. when to automate
 
@@ -141,14 +150,14 @@ Let the AI handle audio when the trigger is *narrative* — a door slamming, a c
 
 Automate audio when the trigger is *mechanical* — entering a location, health crossing a threshold, a specific turn number. These are precise state changes that the engine tracks better than the AI.
 
-Many worlds use both: a playlist for base music, conditional BGM for location-based switches, and AI directives for dramatic SFX moments.
+Many worlds mix them: a playlist for base music, conditional BGM for location-based switches, and "When to play" cues or AI directives for dramatic SFX moments.
 
 ---
 
 ## See also
 
 - [AI Directives & Macros](/creator/advanced/directives-macros) — how audio directives fit into the broader directive system
-- [Behaviors & Automation](/creator/advanced/rules-deep) — the `play-audio` rule action for precise audio triggers
+- [Behaviors & Automation](/creator/advanced/rules-deep) — audio effects in behaviors for precise audio triggers
 - [Custom UI Guide](/creator/advanced/custom-ui-deep) — controlling audio from your custom UI via the bridge API
 
 Complete audio schema and playlist config → [World Spec: Audio](/world-spec/audio)

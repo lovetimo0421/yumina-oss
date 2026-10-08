@@ -19,7 +19,7 @@ const isolation = registerHooks({
     return source === undefined ? nextLoad(url, context) : { format: "module", source, shortCircuit: true };
   },
 });
-const { missedUpdateCandidates, missedUpdateQuestions, repairMissedUpdates, usableEffects, repairJsonText, firstJsonObject, MISSED_THRESHOLD } = await import("./missed-updates.js");
+const { guardRebuiltBatch, missedUpdateCandidates, missedUpdateQuestions, repairMissedUpdates, usableEffects, repairJsonText, firstJsonObject, MISSED_THRESHOLD } = await import("./missed-updates.js");
 const { usageRecords } = await import("../usage-log.js") as unknown as { usageRecords: string[] };
 isolation.deregister();
 
@@ -251,7 +251,39 @@ test("decision failure lets the turn through untouched", async () => {
   const d = deps({}, "{}", { decide: 0, repair: 0 });
   d.decide = async () => { throw new Error("boom"); };
   const out = await repairMissedUpdates(args(), d);
-  assert.deepEqual(out, { effects: [], flagged: {}, ran: false });
+  assert.deepEqual(out.effects, []);
+  assert.equal(out.ran, false);
+  assert.equal(out.audit!.status, "error");
+  assert.equal(out.audit!.errorCode, "judge-error");
+  assert.deepEqual(out.audit!.checked, { body: null, pack: null, fallen: null });
+});
+
+test("repair failure retains flagged and negative decisions without provider error text", async () => {
+  const d = deps({ body: 0.99, pack: 0.1, fallen: 0.2 }, "{}", { decide: 0, repair: 0 });
+  d.resolveModel = async () => { throw new Error("secret provider context"); };
+  const out = await repairMissedUpdates(args(), d);
+  assert.deepEqual(out.effects, []);
+  assert.deepEqual(out.flagged, { body: 0.99 });
+  assert.deepEqual(out.audit!.checked, { body: 0.99, pack: 0.1, fallen: 0.2 });
+  assert.equal(out.audit!.stage, "repair");
+  assert.equal(out.audit!.status, "error");
+  assert.doesNotMatch(JSON.stringify(out), /secret provider context/);
+});
+
+test("bracket writes count as touched and cannot be repaired twice", () => {
+  const w = world();
+  const state = new GameStateManager(w).getSnapshot();
+  const effects = [{ variableId: "pack[0].name", operation: "set" as const, value: "full bottle" }];
+  assert.ok(!missedUpdateCandidates(w, state, effects).some(v => v.id === "pack"));
+});
+
+test("only a correction the guard finished counts as a rebuilt batch", () => {
+  assert.equal(guardRebuiltBatch({ correctionCount: 1, outcome: "valid-updates" }), true);
+  assert.equal(guardRebuiltBatch({ correctionCount: 1, outcome: "explicit-none" }), true);
+  // Gave up: the reply's own commands stand, so the repair still runs.
+  assert.equal(guardRebuiltBatch({ correctionCount: 1, outcome: "unverified" }), false);
+  assert.equal(guardRebuiltBatch({ correctionCount: 1, outcome: "failed-open" }), false);
+  assert.equal(guardRebuiltBatch({ correctionCount: 0, outcome: "valid-updates" }), false);
 });
 
 test("skips when the guard already rebuilt the batch, or nothing to ask", async () => {

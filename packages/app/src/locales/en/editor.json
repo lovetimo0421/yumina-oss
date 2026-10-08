@@ -210,8 +210,8 @@
       "alwaysSentHint": "Entries marked \"Always Send\". Included in the prompt every turn — this is your predictable per-turn cost floor.",
       "keywordTriggered": "Keyword Triggered",
       "keywordTriggeredHint": "Fires only when the keywords match recent messages, capped by the lorebook token budget. Variable cost from 0 up to this number per turn.",
-      "dormant": "Dormant",
-      "dormantHint": "Enabled but never fires: not set to Always Send AND has no keywords. The matcher silently skips these. Usually a setup mistake — add keywords or enable Always Send.",
+      "dormant": "Standby",
+      "dormantHint": "Not sent every turn and has no keywords or conditions, so it never goes out on its own. That's standby lore: a behavior turns it on with \"Enable lore entry\". If you didn't mean that, give it keywords or a condition.",
       "toggleHint": "Click to expand or collapse the per-bucket breakdown",
       "healthHealthy": "Token count looks healthy.",
       "healthCaution": "Getting big. Worth checking: is the same setting written across several entries? Are you repeating 'don't do X' (which can make the AI fixate on X)? Are you writing things the engine already handles? Pick one spot and trim it.",
@@ -1014,7 +1014,7 @@
     "selectAction": "Select action...",
     "limitsPriority": "Limits & Priority",
     "priority": "Priority",
-    "priorityHint": "When several behaviours fire in the same turn, higher numbers go first. Usually no need to change it.",
+    "priorityHint": "When several behaviors fire in the same turn, higher numbers go first. Usually no need to change it.",
     "cooldown": "Cooldown (turns)",
     "cooldownHint": "Minimum turns between firings",
     "cooldownPlaceholder": "No cooldown",
@@ -1193,7 +1193,7 @@
     "chanceHint": "Only fire this behavior this % of the time it otherwise would. Blank = always.",
     "worldbookLabel": "Scenario",
     "worldbookCore": "Shared (every scenario)",
-    "worldbookHint": "Which scenario this behaviour belongs to. Shared ones can fire at any time; a scenario's own fire only while that scenario is open.",
+    "worldbookHint": "Which scenario this behavior belongs to. Shared ones can fire at any time; a scenario's own fire only while that scenario is open.",
     "onlyIfEmptyHint": "optional -- leave empty for unconditional trigger",
     "customEvent": "Custom: {{event}}",
     "eventBadge": {
@@ -2337,7 +2337,7 @@
           "detailsTitle": "Details",
           "detailsBack": "Back to the conversation",
           "inventoryTitle": "Carrying",
-          "inventoryEmpty": "Nothing yet. Have a behaviour add to this variable and it shows up here.",
+          "inventoryEmpty": "Nothing yet. Have a behavior add to this variable and it shows up here.",
           "rosterTitle": "People you know",
           "rosterEmpty": "Nobody yet.",
           "actionLook": "Look around",
@@ -2396,9 +2396,9 @@
       "unusedVariable": "“{{name}}” is no longer used anywhere",
       "more": "Position, arrangement and style",
       "newVariableCreate": "Add",
-      "behaviorPick": "Pick a behaviour",
-      "behaviorMissing": "“{{id}}” (no such behaviour on this card)",
-      "behaviorNew": "+ New behaviour…",
+      "behaviorPick": "Pick a behavior",
+      "behaviorMissing": "“{{id}}” (no such behavior on this card)",
+      "behaviorNew": "+ New behavior…",
       "behaviorNewName": "e.g. Go upstairs",
       "behaviorOpen": "Open",
       "newVariableName": "Name",
@@ -2406,7 +2406,7 @@
       "missingVariable": "“{{id}}” (not on this card yet)",
       "shows": "It shows",
       "pageData": "What this page uses",
-      "pageBehaviors": "Behaviours",
+      "pageBehaviors": "Behaviors",
       "pageValues": "Values",
       "barColor": "Bar colour",
       "fillColor": "Fill",
@@ -2453,7 +2453,7 @@
         "switch-greeting": "Switch opening",
         "go-page": "Go to page",
         "toast": "Show a notice",
-        "run-behavior": "Set off a behaviour",
+        "run-behavior": "Set off a behavior",
         "play-audio": "Play audio",
         "stop-audio": "Stop audio",
         "regenerate": "Regenerate",
@@ -4481,7 +4481,7 @@
       "jobBehind": "behind the scenes",
       "codeCallName": "Interface code · {{file}}",
       "jobFromCode": "called from the interface code · {{file}} line {{line}}",
-      "jobFromCodeHere": "called from the interface code in this situation",
+      "jobFromCodeHere": "called from the interface code in this scenario",
       "memLoreMatched": "reads entries by keyword",
       "memLoreAll": "reads every entry",
       "memLoreNone": "reads no entries",
@@ -4637,7 +4637,7 @@
       "shelf": {
         "lore": "Lore",
         "state": "Variables",
-        "behavior": "Behaviours",
+        "behavior": "Behaviors",
         "opening": "Openings"
       },
       "shelfAdd": "Add {{what}}",
@@ -4861,8 +4861,8 @@
       "assets": "Assets",
       "frontendReadsShort": "reads {{count}} variable(s)",
       "ruleUnreadable": "Broken",
-      "ruleUnreadableTitle": "This behaviour is missing part of itself",
-      "ruleUnreadableBody": "Something wrote it in a shape this version can't read, so it never runs and the canvas can't draw its wires. Open Behaviours to rewrite or delete it."
+      "ruleUnreadableTitle": "This behavior is missing part of itself",
+      "ruleUnreadableBody": "Something wrote it in a shape this version can't read, so it never runs and the canvas can't draw its wires. Open Behaviors to rewrite or delete it."
     },
     "events": {
       "clockEvery": "Every few seconds",
@@ -4952,7 +4952,7 @@
       "varWhenExposed": "When the AI can see it",
       "varWhenExposedHint": "The value always exists; this decides when it is in the prompt.",
       "varInternal": "Engine only",
-      "varInternalHint": "Hidden from the AI and from the behaviour pickers. For values the card keeps for itself.",
+      "varInternalHint": "Hidden from the AI and from the behavior pickers. For values the card keeps for itself.",
       "liveCanon": "Lore Shift",
       "allowLiveCanon": "Allow session editing",
       "allowLiveCanonHint": "When on, players with the Lore Shift extension can change the entries and variables you marked as allowed, in their own playthrough only. Your card stays the same.",
@@ -5056,7 +5056,7 @@
       "varFieldWriter": "Written by",
       "varFieldWriter_ui": "interface code",
       "varFieldWriter_ai": "AI directives",
-      "varFieldWriter_behavior": "a behaviour",
+      "varFieldWriter_behavior": "a behavior",
       "varFieldWriter_ai-call": "a custom AI call",
       "varFieldWriterAny": "not said",
       "varFieldRemove": "Remove this field"
@@ -5210,7 +5210,7 @@
     "blocks": {
       "card": "Cover & blurb",
       "opening": "Opening",
-      "behavior": "Behaviours",
+      "behavior": "Behaviors",
       "state": "Variables",
       "frontend": "Player interface",
       "audio": "Audio",
@@ -5227,7 +5227,7 @@
       "empty": {
         "image": "No scene images yet",
         "lore": "No entries yet",
-        "behavior": "No behaviours yet",
+        "behavior": "No behaviors yet",
         "state": "No variables yet",
         "audio": "No tracks yet",
         "opening": "No openings yet"
@@ -5235,7 +5235,7 @@
       "add": {
         "opening": "Add an opening",
         "lore": "Add an entry",
-        "behavior": "Add a behaviour",
+        "behavior": "Add a behavior",
         "state": "Add a variable"
       },
       "sub": {
@@ -5243,7 +5243,7 @@
         "always": "{{count}} · ~{{tokens}} every turn",
         "keywords": "{{count}} · only when a keyword hits",
         "conditions": "{{count}} · only when the condition passes",
-        "manual": "{{count}} · switched by behaviours",
+        "manual": "{{count}} · switched by behaviors",
         "state": "{{count}} · ~{{tokens}} injected every turn",
         "behavior": "{{count}}",
         "audio": "{{count}} track(s)",
@@ -5284,7 +5284,12 @@
       "entryOn": "Turn on entry",
       "entryOff": "Turn off entry",
       "varOn": "Enable",
-      "varOff": "Disable"
+      "varOff": "Disable",
+      "music": "Play",
+      "sfx": "SFX",
+      "stopAudio": "Stop",
+      "notify": "Notify",
+      "moment": "Moment"
     },
     "detail": {
       "root": "Canvas"
@@ -5329,7 +5334,7 @@
       "lore": "{{count}} always-on entries",
       "standby": "{{count}} more wait for a keyword or a condition",
       "vars": "{{count}} variables",
-      "behaviors": "{{count}} behaviours",
+      "behaviors": "{{count}} behaviors",
       "nothing": "nothing in it yet",
       "gated": "{{count}} other scenarios are conditional — whether they share a turn with this one depends on the state at the time.",
       "history": "History",
@@ -5341,7 +5346,7 @@
       "lore_one": "{{count}} always-on entry",
       "standby_one": "{{count}} more waits for a keyword or a condition",
       "vars_one": "{{count}} variable",
-      "behaviors_one": "{{count}} behaviour",
+      "behaviors_one": "{{count}} behavior",
       "gated_one": "{{count}} other scenario is conditional — whether it shares a turn with this one depends on the state at the time.",
       "flowJoin": ", ",
       "as": {
@@ -5500,7 +5505,7 @@
       "setting": "An entry for the AI: a character, the world, the rules",
       "opening": "The first words players see",
       "variable": "No numbers yet",
-      "behavior": "No behaviours yet",
+      "behavior": "No behaviors yet",
       "interface": "Change the layout and appearance players see",
       "module": "Organize content into chapters or scenes"
     },
@@ -5675,7 +5680,7 @@
       "cover": "add a cover",
       "opening": "write the opening",
       "setting": "write one piece of setting",
-      "mechanics": "add variables or behaviours"
+      "mechanics": "add variables or behaviors"
     },
     "ask": {
       "openingsEmpty": "Write the first opening for this card — read what is already here and match its tone.",
@@ -5684,8 +5689,8 @@
       "loreMore": "Write two more pieces of setting for this card that the existing ones leave out.",
       "variablesEmpty": "Suggest two or three variables this card should track, with sensible ranges and starting values, and say in each one's rules how the AI should move it.",
       "variablesMore": "Suggest one more variable this card should track that the existing ones do not cover.",
-      "behaviorsEmpty": "Write two or three behaviours that move this card's variables at the right moments.",
-      "behaviorsMore": "Write one more behaviour for this card that the existing ones do not cover.",
+      "behaviorsEmpty": "Write two or three behaviors that move this card's variables at the right moments.",
+      "behaviorsMore": "Write one more behavior for this card that the existing ones do not cover.",
       "sceneImagesEmpty": "Suggest three moments in this card worth a picture, and write the 'when to show it' line for each.",
       "sceneImagesMore": "Suggest two more moments in this card worth a picture.",
       "audioEmpty": "Suggest what music and sound this card needs and when each should play.",
@@ -5754,7 +5759,7 @@
       "none": "Nothing matches"
     },
     "tips": {
-      "audioAi": "When on, the AI decides when to play this track as the story goes, going by its \"when to play\" line. When off, it only plays from the playlist and behaviours.",
+      "audioAi": "When on, the AI decides when to play this track as the story goes, going by its \"when to play\" line. When off, it only plays from the playlist and behaviors.",
       "audioType": "BGM: background music that loops. Sound effect: a short one-off sound, like a door opening. Ambience: a sound that stays in the background, like rain or a crowd.",
       "cooldown": "After it fires, how many turns before it can fire again. 3 means it stays quiet for the next 3 turns. 0 means no limit.",
       "maxFire": "How many times it can fire in one playthrough. 1 means once, good for one-off story events. 0 means no limit.",
@@ -5764,7 +5769,7 @@
       "range": "The lowest and highest value. However the AI changes it, it stays inside this range, like affection 0 to 100.",
       "reaches": "How and when this entry is sent to the AI: every turn, or on keywords or conditions, and where it goes in what the AI reads.",
       "varWhen": "By default the AI can always see it. You can limit it to certain openings or a scenario, so it takes no space the rest of the time.",
-      "whenFires": "When this behaviour checks: every turn by default, or when the player says something, a variable changes or a button is pressed.",
+      "whenFires": "When this behavior checks: every turn by default, or when the player says something, a variable changes or a button is pressed.",
       "onlyIf": "The effects below only happen when these are true. With several conditions, choose whether all must match or any one will do. Empty means it always runs.",
       "alwaysSend": "On: sent to the AI every turn. Off: only sent when a keyword comes up or its conditions match, which saves words and keeps the AI focused.",
       "excludeRecursion": "If another entry's text happens to contain this entry's keywords, it won't pull this one in. Only the player and AI's chat can trigger it.",
@@ -5775,14 +5780,14 @@
       "wholeWord": "When on, only whole words count: \"cat\" won't match \"category\". Rarely needed for Chinese or Japanese.",
       "imageScope": "Only use this picture in chats that started from these openings. All openings means any of them.",
       "imageUrl": "Where the picture comes from: paste an image link, or pick one from your assets.",
-      "aiAccess": "Whether the AI can change it. Can change: the AI changes it as the story goes. Read only: the AI knows it, but only behaviours and the screen change it. Hidden: the AI doesn't know it exists.",
+      "aiAccess": "Whether the AI can change it. Can change: the AI changes it as the story goes. Read only: the AI knows it, but only behaviors and the screen change it. Hidden: the AI doesn't know it exists.",
       "preciseStep": "With precise tracking on, the most it can go up (or down) in one turn; the AI picks a number in between to fit the story.",
       "section": "Where in what the AI reads this entry goes. Near the top it reads like background; placed in the chat, the closer to the newest message, the more the AI weighs it.",
       "situationEnabled": "Off: the whole scenario is out of play, whatever its rule says. Turn it off to set it aside without deleting it."
     },
     "addSituation": {
       "title": "Add a scenario",
-      "what": "A new scenario, like a card inside the card: its own entries, variables, behaviours and memory. Drag things in and they apply in this scenario."
+      "what": "A new scenario, like a card inside the card: its own entries, variables, behaviors and memory. Drag things in and they apply in this scenario."
     },
     "addLoose": {
       "hint": "With a scenario or the card selected, it goes straight in; with nothing selected it starts outside (faded, not in play) until you drag it in:"
@@ -5798,7 +5803,7 @@
       "openingHint": "Players can start from a different scene",
       "variable": "A number that changes",
       "variableHint": "Affection, money, stamina… something the story keeps count of",
-      "behavior": "A behaviour",
+      "behavior": "A behavior",
       "behaviorHint": "If… then…: at 80 affection, she…",
       "module": "A scenario",
       "ai": "An AI call",
@@ -6019,7 +6024,7 @@
         },
         "replyRules": {
           "title": "Answer parsing",
-          "body": "reply rules, or a code behaviour into variables"
+          "body": "reply rules, or a code behavior into variables"
         },
         "ownAi": {
           "title": "Outside AI",
@@ -6028,7 +6033,7 @@
       },
       "behavior": {
         "codeBehavior": {
-          "title": "Code behaviour",
+          "title": "Code behavior",
           "body": "JS; reads all variables, returns changes"
         },
         "fromCode": {
@@ -6042,7 +6047,7 @@
       "mode_custom": "Custom",
       "empty": "Nothing implements this yet.",
       "noteHint": "You can stick a note saying what it should do; the assistant or an outside AI writes it.",
-      "aiIntro": "Implemented by interface code. Below: the AI calls that read this situation.",
+      "aiIntro": "Implemented by interface code. Below: the AI calls that read this scenario.",
       "behaviorIntro": "Implemented by code.",
       "implementedBy": "Implemented in {{count}} places",
       "implementedCode": "Own code · {{count}} lines",
@@ -6058,19 +6063,19 @@
     "newModuleName": "Scenario {{n}}",
     "namePlaceholder": "Scenario name (e.g. Dungeon A)",
     "emptyTitle": "No scenarios yet",
-    "emptyDesc": "A scenario is a world of its own inside the card: its own entries, variables and behaviours, its own rule for when it opens, and optionally its own AI and memory. Anything not in a scenario is shared with every scenario.",
+    "emptyDesc": "A scenario is a world of its own inside the card: its own entries, variables and behaviors, its own rule for when it opens, and optionally its own AI and memory. Anything not in a scenario is shared with every scenario.",
     "noteAdd": "Add a note",
     "whenOpen": "When it opens",
     "contents": "What is inside",
     "contentsEntries": "Entries",
     "contentsVars": "Variables",
-    "contentsBehaviors": "Behaviours",
+    "contentsBehaviors": "Behaviors",
     "contentsInterface": "Player interface",
     "addInto": "Add one to this scenario",
     "nothingYet": "none yet",
     "more": "{{count}} more",
-    "sharedIn": "Shared in from the card: {{lore}} entries · {{vars}} variables · {{behaviors}} behaviours",
-    "sharedInHint": "Entries, variables and behaviours in no scenario reach every scenario. Click a number to see them.",
+    "sharedIn": "Shared in from the card: {{lore}} entries · {{vars}} variables · {{behaviors}} behaviors",
+    "sharedInHint": "Entries, variables and behaviors in no scenario reach every scenario. Click a number to see them.",
     "ai": "This scenario's AI",
     "settings": "Scenario settings",
     "enable": "Enabled",
@@ -6107,6 +6112,7 @@
       "keywords": "When the player mentions “{{words}}”",
       "keywordsNone": "No words yet · click to set",
       "leaveWords": "leaves on “{{words}}”",
+      "wordsJoin": "”, “",
       "conditions": "When {{detail}}",
       "conditionsNone": "No condition yet · click to set"
     }
@@ -6152,14 +6158,14 @@
   },
   "packs": {
     "title": "Mechanic packs",
-    "blurb": "A working set of variables, behaviours and lore, added in one click. Everything it adds is ordinary card content — open it, read it, change it.",
+    "blurb": "A working set of variables, behaviors and lore, added in one click. Everything it adds is ordinary card content — open it, read it, change it.",
     "add": "Add to this card",
     "addedAgain": "Added — add again",
     "installed": "Added {{name}}",
     "countVariables_one": "{{count}} variable",
     "countVariables": "{{count}} variables",
-    "countBehaviors_one": "{{count}} behaviour",
-    "countBehaviors": "{{count}} behaviours",
+    "countBehaviors_one": "{{count}} behavior",
+    "countBehaviors": "{{count}} behaviors",
     "countEntries_one": "{{count}} entry",
     "countEntries": "{{count}} entries",
     "deterministic": "Real variables — the engine applies them, so switching model changes nothing.",

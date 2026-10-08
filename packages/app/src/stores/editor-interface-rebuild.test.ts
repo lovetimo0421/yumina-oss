@@ -26,6 +26,7 @@ const vite = await createServer({
 const editor = await vite.ssrLoadModule("/src/stores/editor.ts") as typeof import("./editor");
 const engine = await vite.ssrLoadModule("@yumina/engine") as typeof import("@yumina/engine");
 const store = editor.useEditorStore;
+const initial = structuredClone(store.getState().worldDraft);
 
 beforeEach(() => {
   globalThis.fetch = async (url: unknown) => { throw new Error(`Unexpected network request: ${url}`); };
@@ -79,4 +80,31 @@ test("a hand-written interface is never rebuilt", async () => {
   await debounce();
   assert.equal(store.getState().worldDraft.rootComponent?.files["index.tsx"], "export default () => null");
   assert.equal(editor.generatedInterfaceUnsaved(store.getState()), false);
+});
+
+for (const kind of ["document", "adopt", "theme", "page", "layout", "clear-layout"] as const) {
+  test(`creating an interface through ${kind} preserves root asset loading`, () => {
+    store.getState().stopAutosave();
+    const draft = structuredClone(initial);
+    draft.rootComponent!.assetLoading = "on-demand";
+    if (kind === "clear-layout") draft.uiDoc = doc;
+    store.setState({ worldDraft: draft, serverWorldId: null, guestMode: false, readOnlyInspect: false, _past: [], _future: [] });
+    if (kind === "document") store.getState().setUiDoc(doc);
+    if (kind === "adopt") store.getState().adoptUiDoc(doc);
+    if (kind === "theme") store.getState().applyUiTheme({ id: "night" });
+    if (kind === "page") store.getState().addPageTemplate("enter-name", { strings: {}, varNames: {}, varRules: {}, openingTitle: (n: number) => `Opening ${n}` } as never);
+    if (kind === "layout" || kind === "clear-layout") store.getState().applyUiTemplate(kind === "layout" ? "portrait-scene" : null, {}, {});
+    assert.ok(store.getState().worldDraft.uiDoc);
+    assert.equal(store.getState().worldDraft.rootComponent?.assetLoading, "on-demand");
+    store.getState().stopAutosave();
+  });
+}
+
+test("opening and recompiling a generated interface preserves its loading policy", async () => {
+  open({ id: "r", name: "Interface", entryFile: "index.tsx", files: { "index.tsx": "// old" }, updatedAt: "2026-10-01", generatedFrom: "uiDoc", assetLoading: "on-demand" });
+  await debounce();
+  assert.equal(store.getState().worldDraft.rootComponent?.assetLoading, "on-demand");
+  store.getState().updateRootComponent({ files: { "index.tsx": "// edited" } });
+  assert.equal(store.getState().worldDraft.rootComponent?.assetLoading, "on-demand");
+  store.getState().stopAutosave();
 });

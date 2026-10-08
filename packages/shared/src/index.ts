@@ -200,7 +200,7 @@ export {
   DEFAULT_WORLD_NAME_BASES,
   isDefaultWorldName,
 } from "./utils/world-name.js";
-export { hasPublishableCover, hasDiscoverCoverArt } from "./utils/world-cover.js";
+export { hasPublishableCover, hasDiscoverCoverArt, getDiscoverCoverArtIssues, type DiscoverCoverArtIssue } from "./utils/world-cover.js";
 export {
   SOCIAL_EVENT_INITIAL_MUSHIES,
   SOCIAL_EVENT_VERIFIED_FINAL_FLOOR_MUSHIES,

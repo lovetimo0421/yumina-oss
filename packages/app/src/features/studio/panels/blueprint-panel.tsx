@@ -861,7 +861,9 @@ function BlueprintCanvas({
     const audio = new Map((worldDraft.audioTracks ?? []).map((track) => [track.id, track]));
     const images = new Map((worldDraft.sceneImages ?? []).map((image) => [image.id, image]));
     const bookNames = new Map((worldDraft.worldbooks ?? []).map((book) => [book.id, book.name]));
-    return { entries, variables, reactions, audio, images, bookNames };
+    const trackNames = new Map((worldDraft.audioTracks ?? []).map((track) => [track.id, track.name]));
+    const behaviorNames = new Map((worldDraft.reactions ?? []).map((r) => [r.id, r.name || r.id]));
+    return { entries, variables, reactions, audio, images, bookNames, trackNames, behaviorNames };
     // The five lists it indexes, not the draft: the draft is a new object on
     // every edit anywhere (the card's name, a sticky note, a frame drag), and
     // this feeds the node build, which then redrew every block for it.
@@ -935,6 +937,13 @@ function BlueprintCanvas({
         varOn: t("blueprint.summary.varOn"),
         varOff: t("blueprint.summary.varOff"),
         scenarioNames: draftById.bookNames,
+        music: t("blueprint.summary.music"),
+        sfx: t("blueprint.summary.sfx"),
+        stopAudio: t("blueprint.summary.stopAudio"),
+        trackNames: draftById.trackNames,
+        notify: t("blueprint.summary.notify"),
+        moment: t("blueprint.summary.moment"),
+        behaviorNames: draftById.behaviorNames,
       });
     }
     if (g.id === "core-entries") return t("blueprint.nodes.coreEntriesHintShort");
@@ -2368,14 +2377,14 @@ function BlueprintCanvas({
           const i = openings.findIndex((e) => e.id === id);
           return i < 0 ? undefined : openings[i]!.name?.trim() || String(t("blueprint.insp.openingN", { n: i + 1 }));
         }).filter(Boolean);
-        return String(names.length ? t("modules.when.greeting", { names: names.join("」「") }) : t("modules.when.greetingNone"));
+        return String(names.length ? t("modules.when.greeting", { names: names.join(String(t("modules.when.wordsJoin"))) }) : t("modules.when.greetingNone"));
       }
       if (a.mode === "keywords") {
         const words = (a.keywords ?? []).filter(Boolean);
         if (!words.length) return String(t("modules.when.keywordsNone"));
-        const enter = String(t("modules.when.keywords", { words: words.slice(0, 3).join("」「") }));
+        const enter = String(t("modules.when.keywords", { words: words.slice(0, 3).join(String(t("modules.when.wordsJoin"))) }));
         const out = (a.leaveKeywords ?? []).filter(Boolean);
-        return out.length ? `${enter} · ${String(t("modules.when.leaveWords", { words: out.slice(0, 2).join("」「") }))}` : enter;
+        return out.length ? `${enter} · ${String(t("modules.when.leaveWords", { words: out.slice(0, 2).join(String(t("modules.when.wordsJoin"))) }))}` : enter;
       }
       if (a.mode === "conditions") {
         const detail = moduleActivationBadge(book, varName).detail;

@@ -98,6 +98,25 @@ test("an oversized save exposes its full measured error and keeps the unsaved dr
   assert.equal(dismissed, 1, "switching editor sessions retires the previous world's error");
 });
 
+test("an ordinary source edit and save retain on-demand asset loading", async () => {
+  const base = world("A");
+  base.rootComponent!.assetLoading = "on-demand";
+  reset(base, structuredClone(base));
+  store.getState().updateRootComponent({ files: { "App.tsx": source("Edited") } });
+  let patches = 0;
+  globalThis.fetch = async (_url, init) => {
+    assert.equal(init?.method, "PATCH");
+    const schema = requestBody(init).schema;
+    assert.equal(schema.rootComponent?.assetLoading, "on-demand");
+    assert.equal(rootSource(schema), source("Edited"));
+    patches++;
+    return Response.json({ data: serverData(schema, time(2)) });
+  };
+  assert.equal(await store.getState().saveDraft(), true);
+  assert.equal(patches, 1);
+  assert.equal(store.getState()._baseSchema?.rootComponent?.assetLoading, "on-demand");
+});
+
 test("a cover upload refreshes the save baseline without losing local edits or reporting agent changes", async () => {
   const base = { ...world("A"), avatar: "/old.jpg" };
   reset(base, { ...base, description: "Unsaved description" });

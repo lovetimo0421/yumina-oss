@@ -2,509 +2,352 @@
 
 # Achievement System
 
-> Build a full achievement system — when players hit specific milestones (gold over 100, 5+ combat wins, discovering a hidden area...), a golden achievement notification pops up on screen. Use boolean variables to track which achievements are unlocked, and the Root Component to display an achievement panel.
+> When the player hits a milestone (more than 100 gold, more than 5 battles won, finding a hidden area), a card pops up with the achievement's name and a line of text. Each achievement unlocks once, goes into a list, and a page in the player interface shows which ones are found and which are still locked. All of it can be built without code.
 
 ---
 
 ## What you'll build
 
-An achievement system embedded right in the chat:
-
-- **Golden popup notifications** — the instant a player hits a milestone, a golden achievement toast appears on screen (using the `achievement` style), e.g. "Achievement Unlocked: Big Spender"
-- **Automatic detection** — the engine monitors variable changes in the background and triggers automatically when conditions are met, no player action required
-- **Fire-once guarantee** — each achievement unlocks exactly once and never pops again. `maxFireCount` and boolean variables provide a double safety net
-- **Achievement panel** — a mini panel below the last message lists all achievements and their unlock status (unlocked = golden icon, locked = grey lock)
+- **A popup the moment a milestone is hit**: a little card with a title, a line of text and an optional picture
+- **Automatic detection**: behaviors watch the numbers and the conversation, so the player doesn't have to do anything
+- **Each achievement unlocks once**: a moment that's already in its list never pops up again
+- **An achievements page**: every achievement is listed; unlocked ones show their text, locked ones show a hint
+- **Optional**: achievements that stay unlocked across new games
 
 ### How it works
 
-The core loop is: **variable changes → engine detects the variable crossing a threshold → behavior fires → notification pops up + boolean variable set to true**.
-
 ```
-Player accumulates 101 gold during the adventure
-  → Engine detects gold crossed above 100
-  → "Big Spender" behavior fires
-  → Actions execute: achievement_rich set to true, golden notification "Achievement Unlocked: Big Spender"
-  → maxFireCount: 1 ensures this behavior never fires again
-  → Root Component reads achievement_rich = true, panel shows golden trophy icon
+The player's gold goes from 95 to 101
+  → The behavior "Big Spender" is watching Gold (Variable crosses threshold, Rises above 100)
+  → Its effect "Unlock a moment" pops up the card "Big Spender"
+  → The title "Big Spender" is added to the list variable Achievements
+  → The achievements page shows Big Spender as unlocked
 ```
 
-There's an important design decision here: **why use `variable-crossed` instead of `state-change`?**
-
-- `state-change` means "check whenever any variable changes" — very broad. If you use `state-change` + condition `gold gt 100`, then every time gold goes from 101 to 102, 102 to 103... the condition gets re-evaluated. While `maxFireCount: 1` prevents re-firing, the engine still does a pointless evaluation each time.
-- `variable-crossed` means "fire only at the instant gold goes from <= 100 to > 100" — precise and efficient. Combined with `maxFireCount: 1`, you get a double safety net.
+The AI moves the numbers as the story goes, but whether an achievement unlocks is decided by the engine, so an achievement can't be forgotten or handed out twice.
 
 ---
 
 ## Step by step
 
-### Step 1: Create variables
+### Step 1: Create the variables
 
-You need 5 variables — 2 number variables to track progress, and 3 boolean variables to track whether each achievement is unlocked.
+In the **Add** row at the bottom of the card, click **＋ Variable** for each of these.
 
-Editor → left sidebar → **Variables** tab → click "Add Variable" for each one
+#### Gold
 
-#### Variable 1: Gold
+| Field | Value |
+|-------|-------|
+| Name | Gold |
+| Type | Number |
+| Starts at | `0` |
+| Range | `0` to (leave empty) |
+| Behavior Rules | `The player's gold. Goes up when they're paid, loot something or sell something; goes down when they spend.` |
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Display Name | Gold | For your own reference in the variable list |
-| ID | `gold` | Behaviors and the Root Component use this ID to read/write |
-| Type | Number | Gold is numeric and needs arithmetic |
-| Default Value | `0` | New sessions start at 0 gold |
-| Category | Stats | Groups it with character attributes |
-| Behavior Rules | `Current gold count. The AI can modify this via directives when the narrative calls for it.` | Tells the AI what this is and how to use it |
+#### Battles won
 
-#### Variable 2: Combat wins
+| Field | Value |
+|-------|-------|
+| Name | Battles won |
+| Type | Number |
+| Starts at | `0` |
+| Behavior Rules | `How many fights the player has won. Add 1 each time the player clearly wins a fight.` |
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Display Name | Combat Wins | Easy to identify |
-| ID | `combat_wins` | Referenced by behaviors |
-| Type | Number | It's a counter |
-| Default Value | `0` | Start from 0 |
-| Category | Stats | Character attribute |
-| Behavior Rules | `Cumulative number of battles the player has won. The AI can +1 this via directive when the player wins a fight.` | Tells the AI when to increment |
+#### Achievements
 
-#### Variable 3: Achievement — Big Spender
+| Field | Value |
+|-------|-------|
+| Name | Achievements |
+| Type | List / table |
+| Starts at | `[]` |
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Display Name | Achievement: Big Spender | Easy to identify |
-| ID | `achievement_rich` | All achievement variables use the `achievement_` prefix |
-| Type | Boolean | Only two states: unlocked or locked |
-| Default Value | `false` | Locked at the start |
-| Category | Achievements | Group all achievement variables under one category for easy management |
-| Behavior Rules | `Do not modify this variable directly — achievements are unlocked automatically by behavior rules when conditions are met, which also triggers a notification. Modifying it manually bypasses the notification system.` | Achievements must fire through behaviors to show the notification correctly |
+Open **What the AI does with it** and set **AI access** to **Engine only (hidden from AI)**. Only behaviors write to this list, and the AI has no use for reading it.
 
-#### Variable 4: Achievement — First Blood
-
-| Field | Value | Why |
-|-------|-------|-----|
-| Display Name | Achievement: First Blood | Easy to identify |
-| ID | `achievement_warrior` | Same prefix convention |
-| Type | Boolean | Same as above |
-| Default Value | `false` | Locked at the start |
-| Category | Achievements | Same as above |
-| Behavior Rules | `Do not modify this variable directly — achievements are unlocked automatically by behavior rules when conditions are met, which also triggers a notification. Modifying it manually bypasses the notification system.` | Same reason |
-
-#### Variable 5: Achievement — Trailblazer
-
-| Field | Value | Why |
-|-------|-------|-----|
-| Display Name | Achievement: Trailblazer | Easy to identify |
-| ID | `achievement_explorer` | Same prefix convention |
-| Type | Boolean | Same as above |
-| Default Value | `false` | Locked at the start |
-| Category | Achievements | Same as above |
-| Behavior Rules | `Do not modify this variable directly — achievements are unlocked automatically by behavior rules when conditions are met, which also triggers a notification. Modifying it manually bypasses the notification system.` | Same reason |
-
-::: info Why use separate boolean variables for achievements?
-Because the Root Component needs to read each achievement's state to display the panel. If you only relied on `maxFireCount` to prevent re-firing, the component would have no way to know "is this achievement unlocked or not?" — it can't see a behavior's fire count. Boolean variables are the public-facing state that the Root Component and other behaviors can read.
+::: tip Achievements that survive a new game
+In the same section, tick **Kept across playthroughs (for this player)**. Now when a player starts over, the list starts from what they already unlocked, and those achievements won't pop up again. This is how CG galleries and "endings found" collections work.
 :::
 
 ---
 
-### Step 2: Create behaviors
+### Step 2: Create a behavior per achievement
 
-You need 3 behaviors — one for each achievement.
+In the **Add** row, click **＋ Behavior**.
 
-Editor → left sidebar → **Behaviors** tab → click "Add Behavior" for each one
+#### Behavior 1: Big Spender
 
-#### Behavior 1: Big Spender (gold > 100)
+| Part | Setting |
+|------|---------|
+| When it fires | **Variable crosses threshold**: Gold, **Rises above**, `100` |
+| Effects | **Unlock a moment** |
 
-**Basic info:**
+Fill in the moment:
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Name | Achievement: Big Spender | For your own reference |
-| Max Fire Count | `1` | Achievements unlock once — after firing, this behavior never runs again |
+| Field | Value |
+|-------|-------|
+| Title | `Big Spender` |
+| Message | `You've saved more than 100 gold.` |
+| Picture (link) | optional: an `https://` link or an asset from **Panels → Assets** |
+| Collected into (a list) | Achievements |
 
-**Trigger (WHEN):**
+"Variable crosses threshold" fires only at the moment the number goes from 100 or less to more than 100. When gold keeps climbing from 101 to 150, nothing fires. If gold drops back under 100 and rises again it would fire again, but the moment is already in Achievements, so nothing pops up.
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Trigger Type | Variable Crossed Threshold (`variable-crossed`) | We want to detect the instant gold crosses 100 |
-| Variable ID | `gold` | Monitor the gold variable |
-| Direction | Rises Above (`rises-above`) | Fire when gold goes from <= 100 to > 100 |
-| Threshold | `100` | The milestone value |
+#### Behavior 2: Seasoned Fighter
 
-**Actions (DO):**
+| Part | Setting |
+|------|---------|
+| When it fires | **Variable crosses threshold**: Battles won, **Rises above**, `5` |
+| Effects | **Unlock a moment**: Title `Seasoned Fighter`, Message `You've won more than 5 battles.`, Collected into Achievements |
 
-| Action Type | Setting | Purpose |
-|-------------|---------|---------|
-| Set Variable | `achievement_rich` set to `true` | Mark the achievement as unlocked, for the Root Component to read |
-| Show Notification | Message `Achievement Unlocked: Big Spender`, style `achievement` | Pop up the golden achievement toast |
+#### Behavior 3: Trailblazer (keyword)
 
-> **About `maxFireCount: 1`.** This field is set on the behavior itself (not the trigger). It means "this behavior may execute at most 1 time ever." Once it's fired, no matter how gold changes afterward, this behavior will never run again. This is the core safeguard of the achievement system — nobody wants to see the same achievement pop twice.
+This one watches the conversation instead of a number. A behavior has one trigger, so to catch both what the player says and what the AI says, make two behaviors.
 
-#### Behavior 2: First Blood (combat wins > 5)
+**3a**
 
-**Basic info:**
+| Part | Setting |
+|------|---------|
+| When it fires | **Player says keyword**: `explore, search the cave` |
+| Effects | **Unlock a moment**: Title `Trailblazer`, Message `You went looking for what's hidden.`, Collected into Achievements |
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Name | Achievement: First Blood | For your own reference |
-| Max Fire Count | `1` | Same as above |
+**3b**
 
-**Trigger (WHEN):**
+| Part | Setting |
+|------|---------|
+| When it fires | **AI says keyword**: `hidden passage, secret room` |
+| Effects | the same **Unlock a moment** as 3a, with the same title |
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Trigger Type | Variable Crossed Threshold (`variable-crossed`) | Detect the instant combat_wins crosses 5 |
-| Variable ID | `combat_wins` | Monitor combat win count |
-| Direction | Rises Above (`rises-above`) | Fire when combat_wins goes from <= 5 to > 5 |
-| Threshold | `5` | The milestone value |
+Commas separate keywords, and any one of them is enough. Both behaviors collect into the same list under the same title, so whichever fires first unlocks the achievement and the other one finds it already there and stays quiet. You don't need extra conditions for this.
 
-**Actions (DO):**
-
-| Action Type | Setting | Purpose |
-|-------------|---------|---------|
-| Set Variable | `achievement_warrior` set to `true` | Mark the achievement as unlocked |
-| Show Notification | Message `Achievement Unlocked: First Blood`, style `achievement` | Pop up the golden achievement toast |
-
-#### Behavior 3: Trailblazer (keyword trigger)
-
-This achievement is different from the first two — instead of monitoring a numeric threshold, it monitors message content. When the player says "explore" or the AI says "discover", and the achievement isn't already unlocked, it fires.
-
-**Basic info:**
-
-| Field | Value | Why |
-|-------|-------|-----|
-| Name | Achievement: Trailblazer | For your own reference |
-| Max Fire Count | `1` | Same as above |
-
-**Trigger (WHEN):**
-
-This achievement needs to monitor two sources — player messages and AI messages. In Yumina, a behavior can only have one trigger, so you need to create **two behaviors** to cover both sources.
-
-The simplest approach is to create two behaviors:
-
-**Behavior 3a: Trailblazer (player keyword)**
-
-| Field | Value | Why |
-|-------|-------|-----|
-| Trigger Type | Player Said Keyword (`keyword`) | Monitor player messages |
-| Keyword | `explore` | Matches when the player says "I want to explore" |
-| Max Fire Count | `1` | Fire once only |
-
-Condition (ONLY IF):
-
-| Variable ID | Operator | Value | Why |
-|-------------|----------|-------|-----|
-| `achievement_explorer` | Equals (`eq`) | `false` | Only fire if the achievement hasn't been unlocked yet |
-
-Actions (DO):
-
-| Action Type | Setting | Purpose |
-|-------------|---------|---------|
-| Set Variable | `achievement_explorer` set to `true` | Mark the achievement as unlocked |
-| Show Notification | Message `Achievement Unlocked: Trailblazer`, style `achievement` | Pop up the golden achievement toast |
-
-**Behavior 3b: Trailblazer (AI keyword)**
-
-| Field | Value | Why |
-|-------|-------|-----|
-| Trigger Type | AI Said Keyword (`ai-keyword`) | Monitor AI replies |
-| Keyword | `discover` | Matches when the AI mentions "discover" |
-| Max Fire Count | `1` | Fire once only |
-
-Conditions and actions are identical to Behavior 3a.
-
-> **Why do we need the condition `achievement_explorer eq false`?** Because two behaviors (3a and 3b) can both unlock the same achievement. Suppose Behavior 3a fires first — it sets `achievement_explorer` to `true` and uses up its own `maxFireCount`. But Behavior 3b's `maxFireCount` is still unused! Without the condition, Behavior 3b would still fire the next time it matches a keyword, and the player would see two notifications. With the condition in place, Behavior 3b checks that `achievement_explorer` is already `true`, the condition fails, and it doesn't fire.
+::: info Moments or a notification?
+**Show notification** (with the **Success** style) also works for a one-line "Achievement unlocked" message, but it doesn't remember anything: you'd need a Switch variable per achievement, a condition so it doesn't fire twice, and **Max fires** set to 1. **Unlock a moment** does the remembering for you.
+:::
 
 ---
 
-### Step 3: Add the achievement panel to the Root Component
+### Step 3: Build the achievements page
 
-This is the key step to get the achievement panel showing up in the chat. The panel only appears below the last message.
+Click **Player interface** in the middle of the top bar. Add a page with **New page** (a **Blank page** is fine), give it a title, and add a **List** part from **Add a part**:
 
-Editor → **Custom UI** section → open `index.tsx` → paste the following (replace the default `return <Chat />`):
+1. Under **Rows come from**, pick **Rows I write** and add one row per achievement: `Big Spender`, `Seasoned Fighter`, `Trailblazer`, each with a line of text
+2. Turn on **Draw each row as a card**
+3. Under **Locked until**, turn on **Show locked rows as locked**. Set **Watch this variable** to Achievements and leave **Match this row field** as `title`. A row unlocks when the list contains its title, which is exactly what **Unlock a moment** puts there
+4. In **Shown while locked**, write the hint the player sees before unlocking, like "Save up a little"
+5. Add a **Button** with **Go to page** back to the conversation, so the page isn't a dead end (the page column warns **No way out** otherwise)
+6. On the conversation page, add a **Button** labelled "Achievements" whose step is **Go to page** → your new page
+
+If your collectibles are handed out by the AI in the story rather than by behaviors, start from the **Collection** template instead: "Things to find start greyed out and light up as the story hands them over." It comes with its own list variable, a popup, and Behavior Rules telling the AI when to add to it.
+
+Turn **Edit** off at the top to click through the page like a player would.
+
+::: tip Count them
+Add a Number variable called "Achievements unlocked" and give it the **Formula (worked out automatically)** `len(Achievements)`. Put `{Achievements unlocked} / 3` in a Text part on the page and the count keeps itself up to date.
+:::
+
+---
+
+### Step 4: Playtest
+
+Click **Play** in the top bar.
+
+1. Click **Achievements**: all three are locked and show their hints
+2. Play until your gold passes 100. The "Big Spender" card pops up, and the page shows it unlocked
+3. Win six fights. "Seasoned Fighter" pops up when Battles won goes from 5 to 6
+4. Send "I want to explore this cave". "Trailblazer" pops up. Later the AI mentions a hidden passage, and nothing pops up again
+
+**This turn** on the right of the playtest shows which behaviors fired, and why one didn't.
+
+**If something goes wrong:**
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| Gold is over 100 but nothing popped up | Gold never crossed the line: it started above 100 | The threshold only fires on the crossing. Check **Starts at** is at or below the threshold |
+| The moment popped up but the page didn't change | **Collected into (a list)** is empty, or the page watches a different variable | Pick Achievements in both places |
+| The page shows it locked even though it popped up | The row's title doesn't match the moment's title exactly | Make them identical, including capitals |
+| An achievement popped up twice | The two behaviors use different titles or different lists | Same title, same list |
+
+---
+
+## Custom code route: an achievements panel under the chat
+
+If you'd rather draw the panel yourself, for example under the last message instead of on a separate page, write it in the interface code. The behaviors above stay exactly as they are; the code only reads the Achievements list.
+
+**Panels → Front End Code** → open `index.tsx` and replace the default `return <Chat />`:
 
 ```tsx
 export default function MyWorld() {
   const api = useYumina();
   const msgs = api.messages || [];
 
-  // Achievement list definition
+  // Titles must match the moment titles in your behaviors
   const achievements = [
-    {
-      id: "achievement_rich",
-      name: "Big Spender",
-      desc: "Accumulate over 100 gold",
-      icon: "💰",
-    },
-    {
-      id: "achievement_warrior",
-      name: "First Blood",
-      desc: "Win more than 5 battles",
-      icon: "⚔️",
-    },
-    {
-      id: "achievement_explorer",
-      name: "Trailblazer",
-      desc: "Discover a hidden area or secret",
-      icon: "🗺️",
-    },
+    { title: "Big Spender", desc: "Save more than 100 gold", icon: "💰" },
+    { title: "Seasoned Fighter", desc: "Win more than 5 battles", icon: "⚔️" },
+    { title: "Trailblazer", desc: "Find a hidden area or secret", icon: "🗺️" },
   ];
 
-  // Count unlocked achievements
-  const unlockedCount = achievements.filter(
-    (a) => api.variables[a.id] === true
-  ).length;
+  // The list the moments are collected into, read by its name
+  const unlockedList = Array.isArray(api.variables["Achievements"])
+    ? api.variables["Achievements"].map(String)
+    : [];
+  const isUnlocked = (a) => unlockedList.includes(a.title);
+  const unlockedCount = achievements.filter(isUnlocked).length;
 
   return (
     <Chat renderBubble={(msg) => {
       const isLastMsg = msg.messageIndex === msgs.length - 1;
       return (
-    <div>
-      {/* Render message text normally (platform already produced HTML — just use contentHtml) */}
-      <div
-        style={{ color: "#e2e8f0", lineHeight: 1.7 }}
-        dangerouslySetInnerHTML={{ __html: msg.contentHtml }}
-      />
-
-      {/* Achievement panel — only below the last message */}
-      {isLastMsg && (
-        <div
-          style={{
-            marginTop: "16px",
-            padding: "12px 16px",
-            background: "linear-gradient(135deg, #1c1917, #292524)",
-            border: "1px solid #44403c",
-            borderRadius: "10px",
-          }}
-        >
-          {/* Panel header */}
+        <div>
           <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: "10px",
-            }}
-          >
-            <span
-              style={{
-                fontSize: "13px",
-                fontWeight: "bold",
-                color: "#fbbf24",
-                letterSpacing: "0.05em",
-              }}
-            >
-              🏆 Achievements
-            </span>
-            <span style={{ fontSize: "12px", color: "#a8a29e" }}>
-              {unlockedCount} / {achievements.length}
-            </span>
-          </div>
+            style={{ color: "#e2e8f0", lineHeight: 1.7 }}
+            dangerouslySetInnerHTML={{ __html: msg.contentHtml }}
+          />
 
-          {/* Achievement list */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            {achievements.map((a) => {
-              const unlocked = api.variables[a.id] === true;
-              return (
-                <div
-                  key={a.id}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "10px",
-                    padding: "6px 8px",
-                    borderRadius: "6px",
-                    background: unlocked
-                      ? "rgba(251, 191, 36, 0.08)"
-                      : "rgba(120, 113, 108, 0.08)",
-                  }}
-                >
-                  {/* Icon */}
-                  <span style={{ fontSize: "18px", opacity: unlocked ? 1 : 0.3 }}>
-                    {unlocked ? a.icon : "🔒"}
-                  </span>
+          {isLastMsg && (
+            <div style={{
+              marginTop: "16px",
+              padding: "12px 16px",
+              background: "linear-gradient(135deg, #1c1917, #292524)",
+              border: "1px solid #44403c",
+              borderRadius: "10px",
+            }}>
+              <div style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "10px",
+              }}>
+                <span style={{ fontSize: "13px", fontWeight: "bold", color: "#fbbf24" }}>
+                  🏆 Achievements
+                </span>
+                <span style={{ fontSize: "12px", color: "#a8a29e" }}>
+                  {unlockedCount} / {achievements.length}
+                </span>
+              </div>
 
-                  {/* Text */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {achievements.map((a) => {
+                  const unlocked = isUnlocked(a);
+                  return (
                     <div
+                      key={a.title}
                       style={{
-                        fontSize: "13px",
-                        fontWeight: "600",
-                        color: unlocked ? "#fbbf24" : "#78716c",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                        padding: "6px 8px",
+                        borderRadius: "6px",
+                        background: unlocked
+                          ? "rgba(251, 191, 36, 0.08)"
+                          : "rgba(120, 113, 108, 0.08)",
                       }}
                     >
-                      {a.name}
+                      <span style={{ fontSize: "18px", opacity: unlocked ? 1 : 0.3 }}>
+                        {unlocked ? a.icon : "🔒"}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontSize: "13px",
+                          fontWeight: "600",
+                          color: unlocked ? "#fbbf24" : "#78716c",
+                        }}>
+                          {a.title}
+                        </div>
+                        <div style={{
+                          fontSize: "11px",
+                          color: unlocked ? "#a8a29e" : "#57534e",
+                          marginTop: "1px",
+                        }}>
+                          {a.desc}
+                        </div>
+                      </div>
+                      {unlocked && (
+                        <span style={{ fontSize: "11px", color: "#fbbf24" }}>✓ Unlocked</span>
+                      )}
                     </div>
-                    <div
-                      style={{
-                        fontSize: "11px",
-                        color: unlocked ? "#a8a29e" : "#57534e",
-                        marginTop: "1px",
-                      }}
-                    >
-                      {a.desc}
-                    </div>
-                  </div>
-
-                  {/* Status badge */}
-                  {unlocked && (
-                    <span style={{ fontSize: "11px", color: "#fbbf24" }}>
-                      ✓ Unlocked
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
-      )}
-    </div>
       );
     }} />
   );
 }
 ```
 
-**Line-by-line breakdown:**
+**What the code does:**
 
-- `MyWorld()` is the Root Component — the world's UI entry point. `<Chat renderBubble={...} />` keeps the platform in charge of the message list, input box, and scrolling; we only customize the per-bubble layout
-- `const api = useYumina()` — get the Yumina API to read variable state
-- `msg.messageIndex === msgs.length - 1` — only show the panel on the last message, so it doesn't repeat on every message
-- `msg.contentHtml` — the platform already rendered the Markdown to HTML; drop it straight into `dangerouslySetInnerHTML`
-- `achievements` array — defines all achievement metadata (ID, name, description, icon) right in the Root Component. Want to add a new achievement? Just add another entry to this array
-- `api.variables[a.id] === true` — reads the boolean variable's value to check if the achievement is unlocked
-- `unlockedCount` — tallies how many are unlocked, displayed in the header (e.g. "2 / 3")
-- Locked achievements show a grey lock icon, unlocked ones show their golden icon plus a "Unlocked" badge
+- `<Chat renderBubble={...} />` keeps the platform's message list, input box and scrolling; you only draw each bubble
+- `msg.messageIndex === msgs.length - 1` puts the panel under the last message only
+- `msg.contentHtml` is the message already rendered to HTML
+- `api.variables["Achievements"]` reads the list by the variable's name. Names with spaces or capitals work with the bracket form
+- An achievement counts as unlocked when its title is in the list, the same rule the moment uses
 
-::: tip Don't want to write code yourself? Use Studio AI
-Editor top bar → click "Enter Studio" → AI Assistant panel → describe what you want in plain English, and the AI will generate the code for you.
+The status next to the file in **Panels → Front End Code** should read a green **OK**. If it says **Error**, the message under it tells you which line.
+
+::: tip Don't want to write code yourself?
+Click **Creation assistant** at the top right of the canvas and describe the panel you want. It writes the interface code for you.
 :::
 
 ---
 
-### Step 4: Save and test
+## `Variable crosses threshold` vs `Variable changes`
 
-1. Click **Save** at the top of the editor
-2. Click **Start Game** or go back to the home page and start a new session
-3. Below the last message you should see the achievement panel — all 3 achievements greyed out with lock icons
-4. **Test the gold achievement**: chat with the AI and have your character earn more than 100 gold. When `gold` goes from <= 100 to > 100, a golden notification pops up: "Achievement Unlocked: Big Spender", and the first achievement on the panel turns golden
-5. **Test the combat achievement**: have your character win 6 battles. When `combat_wins` goes from 5 to 6, the notification pops: "Achievement Unlocked: First Blood"
-6. **Test the exploration achievement**: send a message containing "explore" (e.g. "I want to explore this cave"). If the keyword matches, the notification pops: "Achievement Unlocked: Trailblazer"
+Both triggers watch variables, but they fire at different times.
 
-**If something goes wrong:**
+**Variable crosses threshold** fires at the moment a number crosses a line:
 
-| Symptom | Likely Cause | Fix |
-|---------|-------------|-----|
-| Can't see the achievement panel | Root Component code wasn't saved or has a syntax error | Check the compile status at the bottom of the Custom UI panel — it should show a green "OK" |
-| Gold passed 100 but no notification | The variable didn't "cross" from <= 100 to > 100 — it was set directly to 200 | Make sure gold changes incrementally (AI adds/subtracts via directives), not in a single jump to a large number |
-| Achievement popped twice | The behavior's `maxFireCount` isn't set to 1 | Go back to the editor and check the behavior settings |
-| Exploration achievement popped twice | Both behaviors 3a and 3b fired, and the condition check is missing | Confirm both behaviors have the condition `achievement_explorer eq false` |
-| Panel status didn't update | Variable ID is misspelled in the Root Component code | Confirm `api.variables[a.id]`'s `a.id` matches the variable ID exactly |
+```
+gold: 80 → 95 → 101   ← fires on 95→101 (crossed above 100)
+gold: 101 → 150 → 200  ← doesn't fire (already above)
+gold: 200 → 50 → 120   ← fires on 50→120 (crossed above 100 again)
+```
+
+Use it for milestones, warnings ("health dropped below 20") and death checks.
+
+**Variable changes** fires whenever the variable you pick changes, whatever its value:
+
+```
+gold: 80 → 95   ← fires
+gold: 95 → 101  ← fires
+gold: 101 → 150 ← fires
+```
+
+It needs an **ONLY IF** condition to be useful ("only if Gold ≥ 100"), and it keeps re-checking on every change. For an achievement, the crossing is the event you care about, so **Variable crosses threshold** is the natural fit.
 
 ---
 
-## Deep dive: `variable-crossed` vs `state-change`
+## More achievements
 
-This is the most important conceptual distinction in the achievement system — worth expanding on.
+Each new one is a behavior plus a row on the achievements page:
 
-### `variable-crossed` (Variable Crossed Threshold)
-
-Detects an **instantaneous event**: "the variable crossed from one side of the threshold to the other."
-
-```
-gold: 80 → 95 → 101   ← fires on the 95→101 step (crossed above 100)
-gold: 101 → 150 → 200  ← does NOT fire (already above the threshold)
-gold: 200 → 50 → 120   ← fires on the 50→120 step (crossed above 100 again)
-```
-
-Key characteristics:
-- Only fires at the **instant of crossing**, not "fires continuously while above the threshold"
-- If the value drops below the threshold and rises back, it fires again (unless `maxFireCount` prevents it)
-- Good for: achievement unlocks, milestone notifications, HP-hits-zero death checks
-
-### `state-change` (Variable Changed)
-
-Detects an **ongoing event**: "any variable changed at all."
-
-```
-gold: 80 → 95   ← fires (gold changed)
-gold: 95 → 101  ← fires (gold changed again)
-gold: 101 → 150 ← fires (gold still changing)
-hp: 100 → 90    ← also fires (hp changed)
-```
-
-Key characteristics:
-- Any change to any variable triggers it
-- Needs conditions (ONLY IF) to filter
-- Good for: general state monitoring, switching world context based on current state
-
-### Why `variable-crossed` is right for achievements
-
-Because achievements are **milestones** — you only care about the instant the line is crossed. If you used `state-change` + condition `gold gt 100`:
-
-1. gold goes from 95 to 101 → triggers → condition met → executes (correct)
-2. gold goes from 101 to 102 → triggers → condition met → tries to execute again (wrong! `maxFireCount` blocks it, but the engine still did a pointless evaluation)
-3. gold goes from 102 to 103 → triggers again → checks condition again...
-
-With `variable-crossed`:
-
-1. gold goes from 95 to 101 → crossing detected above 100 → fires → executes (correct)
-2. gold goes from 101 to 102 → no crossing event → doesn't fire at all (efficient)
-
-Bottom line: **precise triggers = fewer wasted evaluations = better performance and cleaner logic**.
-
----
-
-## Extension ideas
-
-Once you've built the basic 3 achievements, you can extend with more using the same pattern:
-
-| Achievement Name | Variable ID | Trigger Method | Condition |
-|-----------------|-------------|---------------|-----------|
-| Chatterbox | `achievement_talkative` | Create a `message_count` variable, +1 each turn, fire when it crosses 50 | `variable-crossed`, `message_count` rises above 50 |
-| Hoarder | `achievement_hoarder` | Fire when gold crosses 500 | `variable-crossed`, `gold` rises above 500 |
-| Socialite | `achievement_social` | AI says keyword "become friends" or "trusts you" | `ai-keyword`, condition `achievement_social eq false` |
-| Back from the Dead | `achievement_survivor` | HP crosses below 10 (near-death), then later crosses above 50 (recovery) | Two linked behaviors |
-
-For each new achievement, you only need to:
-1. Add a boolean variable (`achievement_xxx`, default `false`)
-2. Add a behavior (trigger + actions + `maxFireCount: 1`)
-3. Add an entry to the `achievements` array in the Root Component
+| Achievement | When it fires |
+|-------------|---------------|
+| Chatterbox | **Every N turns**: `50`, with **Max fires** `1` |
+| Hoarder | **Variable crosses threshold**: Gold rises above `500` |
+| Socialite | **AI says keyword**: `trusts you, become friends` |
+| Back from the Brink | **Variable crosses threshold**: Health drops below `10` sets a Switch "Was nearly dead"; a second behavior on Health rises above `50`, **ONLY IF** Was nearly dead is true, unlocks the moment |
 
 ---
 
 ## Quick reference
 
-| What you want to do | How to do it |
-|---------------------|-------------|
-| Unlock achievement when a number hits a target | Behavior trigger: "Variable Crossed Threshold" (`variable-crossed`), direction: rises above, set threshold |
-| Trigger achievement on a keyword | Behavior trigger: "Player Said Keyword" (`keyword`) or "AI Said Keyword" (`ai-keyword`) |
-| Ensure achievement fires only once | Set `maxFireCount: 1` on the behavior; for keyword triggers, also add condition `achievement_xxx eq false` |
-| Pop up a golden achievement notification | Behavior action: Show Notification, style `achievement` |
-| Show an achievement panel in the chat | Root Component reads boolean variables and renders unlocked/locked states |
-| Add a new achievement | Add boolean variable + add behavior + add entry to the Root Component's `achievements` array |
-
----
-
-## Try it yourself — importable demo world
-
-Download this JSON and import it to see everything in action:
-
-<a href="/recipe-13-demo.json" download>recipe-13-demo.json</a>
-
-**How to import:**
-1. Go to Yumina → **My Worlds** → **Create New World**
-2. In the editor, click **More Actions** → **Import Package**
-3. Select the downloaded `.json` file
-4. A new world is created with all variables, behaviors, and the Root Component pre-configured
-5. Start a new session and try it out
-
-**What's included:**
-- 5 variables (`gold`, `combat_wins`, `achievement_rich`, `achievement_warrior`, `achievement_explorer`)
-- 4 behaviors (Big Spender, First Blood, Trailblazer x2)
-- A Root Component with the achievement panel
+| What you want | How to do it |
+|---------------|-------------|
+| Unlock when a number hits a target | **When it fires**: **Variable crosses threshold**, **Rises above** |
+| Unlock on something said | **Player says keyword** or **AI says keyword** |
+| Pop up a card and remember it | Effect: **Unlock a moment**, with **Collected into (a list)** |
+| Make sure it only unlocks once | Same title, same list. The moment won't fire for a title already in the list |
+| Keep achievements across new games | Tick **Kept across playthroughs (for this player)** on the list variable |
+| Show found and locked achievements | **Player interface** → **Collection** template, or a List part with **Locked until** |
+| Count them | A Number variable with the formula `len(Achievements)` |
+| A custom panel | Interface code that reads the list (custom code route above) |
 
 ---
 
 ::: tip This is Recipe #13
-The achievement system combines freely with other recipes — pair it with the combat system to track battle wins, the [shop system](./shop.md) to track gold accumulation, or the [quest tracker](./quest-tracker.md) to track completed quests. Variables are universal, and behaviors don't interfere with each other.
+Achievements combine with the other recipes: count battle wins from a combat system, watch the gold from the [shop](./shop.md), or unlock one when a [quest](./quest-tracker.md) is done. Behaviors don't interfere with each other, so adding achievements doesn't change how the rest of the card works.
 :::
 
 </div>

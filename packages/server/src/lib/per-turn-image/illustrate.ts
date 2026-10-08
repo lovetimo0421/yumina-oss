@@ -25,6 +25,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../../db/index.js";
 import { isExplicitMoment, negativeFor, normalizeTags } from "./age.js";
 import { perTurnImagesEnabled, turnImagePrefs } from "./availability.js";
+import { stripTurnVideos } from "../realtime-video/turn-clip.js";
 import { recordUsageLog } from "../usage-log.js";
 import { redis } from "../redis.js";
 import { markPlayerKeyDenied, playerKeyDenied, sideCallTier, type PlayerSideKey, type SideCallKeySource } from "../side-call-key.js";
@@ -44,6 +45,12 @@ const CAST_HEDGE_MS = 20_000;
 // checkpoint first: 36-47s measured 2026-10-03. At 30s those pictures were
 // abandoned just before they landed, so wait out a cold start.
 const DEPLOY_RENDER_TIMEOUT_MS = 60_000;
+// The edit model (~30 GB with its text encoder) draws in ~11s (one portrait)
+// to ~14s (two) on a machine that has it loaded. The deployment scales out to
+// several machines under load and a job can land on one that hasn't: then it
+// loads first, 70-95s measured in prod (2026-10-08). Shorter waits abandoned
+// those pictures and redrew them cold on the shared pool.
+const DEPLOY_EDIT_TIMEOUT_MS = 150_000;
 const PRIMARY_RENDER_TIMEOUT_MS = 45_000;
 // RunPod scales from zero: a cold worker loads the checkpoint first (~50s measured).
 const FALLBACK_RENDER_TIMEOUT_MS = 90_000;
@@ -461,6 +468,24 @@ function styleImage(ref: string): Promise<{ name: string; jpeg: Buffer }> {
   return image;
 }
 
+const referenceCache = new Map<string, Promise<{ name: string; jpeg: Buffer }>>();
+
+/** A whole portrait for the edit model, which reads face, outfit and art
+ *  style off the full picture: at most ~1 MP, the size it works at. */
+function referenceImage(ref: string): Promise<{ name: string; jpeg: Buffer }> {
+  let image = referenceCache.get(ref);
+  if (!image) {
+    image = (async () => ({
+      name: `yumina_reference_${createHash("sha256").update(ref).digest("hex").slice(0, 16)}.jpg`,
+      jpeg: await sharp(await loadPortrait(ref)).rotate().resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+        .flatten({ background: "#ffffff" }).jpeg({ quality: 92 }).toBuffer(),
+    }))();
+    referenceCache.set(ref, image);
+    image.catch(() => referenceCache.delete(ref));
+  }
+  return image;
+}
+
 /** Body and outfit tags read off a portrait, once per portrait. */
 function portraitTags(name: string, ref: string, ctx: UsageCtx): Promise<{ tags: string; outfit: string } | null> {
   let tags = portraitCache.get(ref);
@@ -561,7 +586,7 @@ const TRAILER_RE = /\n\s*(?:【\s*(?:去向|选项|回合结算|状态|choices|o
 /** The story text of a reply, split into what led up to the end and the end
  *  itself (its last ~450-900 characters, on paragraph or sentence boundaries). */
 export function momentText(reply: string): { before: string; final: string } {
-  let text = stripTurnImages(reply)
+  let text = stripTurnVideos(stripTurnImages(reply))
     .replace(/<options>[\s\S]*?<\/options>/gi, "")
     .replace(/\[[\w一-鿿]+:\s*[{[][\s\S]*?[}\]]\s*\]/g, "")
     .replace(/<speaker\s+id="([^"]*)">/gi, "$1: ")
@@ -704,8 +729,101 @@ export interface TurnPrompt {
   bodies: string[];
   /** Portraits of the drawn characters, uploaded with the job. `slot` is the
    *  character's place in `bodies` (its half of a two-person frame); without
-   *  bodies the one portrait covers the whole frame. */
-  portraits?: { name: string; jpeg: Buffer; slot: number }[];
+   *  bodies the one portrait covers the whole frame. `look` is that
+   *  character's body tags, which tell the edit model who each image is. */
+  portraits?: { name: string; jpeg: Buffer; slot: number; look?: string }[];
+  /** Nudity, sex or suggestive content (age.ts isExplicitMoment). */
+  explicit?: boolean;
+}
+
+/** Which model draws a picture:
+ *   edit  — characters with portraits: Qwen-Image-Edit draws them from the
+ *           portraits (the IP-Adapter path drew the portrait's pose and grey
+ *           background instead of the scene, and dropped people: bench 2026-10-07);
+ *   story — no portraits, nothing explicit: Z-Anime from the caption (actions,
+ *           several people, signs and scenery come out as written);
+ *   sdxl  — everything else, and any host-specific recipe (RunPod). */
+export type TurnRoute = "edit" | "story" | "sdxl";
+
+// A sex act in the picture. The edit model keeps a portrait's face through
+// nudity, a bath or a kiss, but never draws the act itself: a missionary scene
+// came out as the man lying beside her, a cowgirl POV as her kneeling alone
+// (bench 2026-10-08). Those go to SDXL, drawn from the characters' tags.
+const SEX_ACT_RE = /\b(sex|vaginal|anal|fellatio|irrumatio|deepthroat|handjob|footjob|paizuri|titjob|cunnilingus|69|cowgirl position|reverse cowgirl|missionary|doggystyle|mating press|penis|cum|masturbat\w*|fingering|grinding|tribadism|straddling)\b/i;
+
+export function turnRoute(prompt: TurnPrompt | string, recipe?: Recipe): TurnRoute {
+  if (typeof prompt === "string" || recipe) return "sdxl";
+  const portraits = prompt.portraits ?? [];
+  const sexAct = prompt.explicit === true && SEX_ACT_RE.test(prompt.scene);
+  if (portraits.length && env.PER_TURN_IMAGE_EDIT_MODEL && (!sexAct || env.PER_TURN_IMAGE_EDIT_EXPLICIT === "1")) return "edit";
+  if (!portraits.length && env.PER_TURN_IMAGE_STORY_MODEL && !prompt.explicit && prompt.caption) return "story";
+  return "sdxl";
+}
+
+// Qwen-Image-Edit 2511 with its 8-step Lightning LoRA, wired as Comfy's
+// image_qwen_image_edit_2511 template (up to three reference images).
+const EDIT_LORA = "Qwen-Image-Edit-2511-Lightning-8steps-V1.0-bf16.safetensors";
+const EDIT_TEXT_ENCODER = "qwen_2.5_vl_7b_fp8_scaled.safetensors";
+const EDIT_VAE = "qwen_image_vae.safetensors";
+// Z-Anime is a Z-Image finetune: Z-Image's text encoder and VAE.
+const STORY_TEXT_ENCODER = "qwen_3_4b.safetensors";
+const STORY_VAE = "ae.safetensors";
+const ADULTS = "All characters are adults.";
+
+/** The edit model's instruction: the caption, then which image is whom. */
+export function editText(prompt: TurnPrompt): string {
+  const portraits = [...(prompt.portraits ?? [])].sort((a, b) => a.slot - b.slot);
+  const what = prompt.caption || [prompt.scene, ...prompt.bodies].join(", ");
+  const who = portraits.map((p, i) => `image ${i + 1} is ${p.look ? `the character with ${p.look.replace(/^\s*1(girl|boy|other)\s*,\s*/i, "")}` : "one of them"}`).join("; ");
+  return [what,
+    `The characters are the people in the reference images (${who}). Keep each one's face, hair, eyes, body and species features exactly as in their reference image; their clothes and pose follow this description, not the reference.`,
+    "Anime illustration in the same art style as the reference images.", ADULTS].join(" ");
+}
+
+function buildEditWorkflow(prompt: TurnPrompt, seed: number): Record<string, unknown> {
+  const portraits = [...(prompt.portraits ?? [])].sort((a, b) => a.slot - b.slot).slice(0, 3);
+  const g: Record<string, { class_type: string; inputs: Record<string, unknown> }> = {
+    unet: { class_type: "UNETLoader", inputs: { unet_name: env.PER_TURN_IMAGE_EDIT_MODEL, weight_dtype: "default" } },
+    lora: { class_type: "LoraLoaderModelOnly", inputs: { model: ["unet", 0], lora_name: EDIT_LORA, strength_model: 1 } },
+    shift: { class_type: "ModelSamplingAuraFlow", inputs: { model: ["lora", 0], shift: 3.1 } },
+    norm: { class_type: "CFGNorm", inputs: { model: ["shift", 0], strength: 1 } },
+    clip: { class_type: "CLIPLoader", inputs: { clip_name: EDIT_TEXT_ENCODER, type: "qwen_image" } },
+    vae: { class_type: "VAELoader", inputs: { vae_name: EDIT_VAE } },
+  };
+  const images: Record<string, [string, number]> = {};
+  portraits.forEach((p, i) => {
+    g[`refimg${i}`] = { class_type: "LoadImage", inputs: { image: p.name } };
+    images[`image${i + 1}`] = [`refimg${i}`, 0];
+  });
+  Object.assign(g, {
+    posraw: { class_type: "TextEncodeQwenImageEditPlus", inputs: { clip: ["clip", 0], vae: ["vae", 0], prompt: editText(prompt), ...images } },
+    negraw: { class_type: "TextEncodeQwenImageEditPlus", inputs: { clip: ["clip", 0], vae: ["vae", 0], prompt: "", ...images } },
+    pos: { class_type: "FluxKontextMultiReferenceLatentMethod", inputs: { conditioning: ["posraw", 0], reference_latents_method: "index_timestep_zero" } },
+    neg: { class_type: "FluxKontextMultiReferenceLatentMethod", inputs: { conditioning: ["negraw", 0], reference_latents_method: "index_timestep_zero" } },
+    latent: { class_type: "EmptySD3LatentImage", inputs: { width: 832, height: 1216, batch_size: 1 } },
+    ks: { class_type: "KSampler", inputs: { model: ["norm", 0], positive: ["pos", 0], negative: ["neg", 0], latent_image: ["latent", 0],
+      seed, steps: 8, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1 } },
+    dec: { class_type: "VAEDecode", inputs: { samples: ["ks", 0], vae: ["vae", 0] } },
+    save: { class_type: "SaveImage", inputs: { images: ["dec", 0], filename_prefix: "yumina_turn" } },
+  });
+  return g;
+}
+
+function buildStoryWorkflow(prompt: TurnPrompt, seed: number): Record<string, unknown> {
+  return {
+    unet: { class_type: "UNETLoader", inputs: { unet_name: env.PER_TURN_IMAGE_STORY_MODEL, weight_dtype: "default" } },
+    shift: { class_type: "ModelSamplingAuraFlow", inputs: { model: ["unet", 0], shift: 3 } },
+    clip: { class_type: "CLIPLoader", inputs: { clip_name: STORY_TEXT_ENCODER, type: "lumina2" } },
+    vae: { class_type: "VAELoader", inputs: { vae_name: STORY_VAE } },
+    pos: { class_type: "CLIPTextEncode", inputs: { clip: ["clip", 0], text: `${prompt.caption} Anime illustration. ${ADULTS}` } },
+    // A distilled model at cfg 1 never reads the negative.
+    neg: { class_type: "ConditioningZeroOut", inputs: { conditioning: ["pos", 0] } },
+    latent: { class_type: "EmptySD3LatentImage", inputs: { width: 832, height: 1216, batch_size: 1 } },
+    ks: { class_type: "KSampler", inputs: { model: ["shift", 0], positive: ["pos", 0], negative: ["neg", 0], latent_image: ["latent", 0],
+      seed, steps: 8, cfg: 1, sampler_name: "euler_ancestral", scheduler: "beta", denoise: 1 } },
+    dec: { class_type: "VAEDecode", inputs: { samples: ["ks", 0], vae: ["vae", 0] } },
+    save: { class_type: "SaveImage", inputs: { images: ["dec", 0], filename_prefix: "yumina_turn" } },
+  };
 }
 
 // Portrait reference: NoobAI's IP-Adapter (generic SDXL adapters barely move
@@ -718,9 +836,22 @@ const PORTRAIT_CLIP_VISION = "CLIP-ViT-bigG-14-laion2B-39B-b160k.safetensors";
 const PORTRAIT_WEIGHT = 0.8;
 
 export function buildTurnWorkflow(prompt: TurnPrompt | string, seed: number, negative: string, recipe?: Recipe): Record<string, unknown> {
-  const { scene, bodies, portraits = [] } = typeof prompt === "string" ? { scene: prompt, bodies: [], portraits: [] } : prompt;
+  const route = turnRoute(prompt, recipe);
+  if (route === "edit") return buildEditWorkflow(prompt as TurnPrompt, seed);
+  if (route === "story") return buildStoryWorkflow(prompt as TurnPrompt, seed);
+  return buildSdxlWorkflow(prompt, seed, negative, recipe);
+}
+
+function buildSdxlWorkflow(prompt: TurnPrompt | string, seed: number, negative: string, hostRecipe?: Recipe): Record<string, unknown> {
+  const { scene, bodies } = typeof prompt === "string" ? { scene: prompt, bodies: [] } : prompt;
+  // With the edit model configured, portraits are its job: a moment it doesn't
+  // take (explicit, when not allowed) is drawn from the characters' tags.
+  const portraits = typeof prompt === "string" || env.PER_TURN_IMAGE_EDIT_MODEL ? [] : prompt.portraits ?? [];
   const caption = typeof prompt === "string" || env.PER_TURN_IMAGE_CAPTION !== "1" ? "" : prompt.caption ?? "";
-  recipe ??= primaryRecipe(portraits.length === 0, typeof prompt !== "string" && prompt.fine === true);
+  let recipe = hostRecipe ?? primaryRecipe(portraits.length === 0, typeof prompt !== "string" && prompt.fine === true);
+  if (!hostRecipe && typeof prompt !== "string" && prompt.explicit && env.PER_TURN_IMAGE_EXPLICIT_CHECKPOINT) {
+    recipe = { ...recipe, checkpoint: env.PER_TURN_IMAGE_EXPLICIT_CHECKPOINT };
+  }
   const g: Record<string, { class_type: string; inputs: Record<string, unknown> }> = {
     ckpt: { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: recipe.checkpoint } },
   };
@@ -820,7 +951,8 @@ async function render(prompt: TurnPrompt, negative: string): Promise<{ png: Buff
   const seed = Math.floor(Math.random() * 2 ** 31);
   const routes: { provider: GenerationProvider; route: string; recipe?: Recipe; timeoutMs: number; style: boolean }[] = [];
   const deploy = getComfyDeployProvider();
-  if (deploy) routes.push({ provider: deploy, route: "deployment", timeoutMs: DEPLOY_RENDER_TIMEOUT_MS, style: true });
+  const deployTimeout = turnRoute(prompt) === "edit" ? DEPLOY_EDIT_TIMEOUT_MS : DEPLOY_RENDER_TIMEOUT_MS;
+  if (deploy) routes.push({ provider: deploy, route: "deployment", timeoutMs: deployTimeout, style: true });
   // The shared Comfy Cloud pool, not the 自定义生图 deployment: that build
   // carries the platform checkpoints, not this workflow's models.
   const primary = getTurnImagePoolProvider();
@@ -1000,18 +1132,22 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
     nsfw && action ? `(${action}:1.25)` : "",
     drawn.length ? parts.count || parts.inline : pov ? "" : "no humans, scenery", soloMale, pov ? (femalePov ? "pov, female pov" : "pov") : "",
     people ? shot : "", nsfw ? "" : action, str(moment.scene)].filter(Boolean).join(", "));
-  // Each of the first two drawn characters with a portrait is drawn from it
-  // (in their own half of a group frame).
-  const portraits = (await Promise.all(drawn.slice(0, 2).map(async (c, slot) => {
+  // Each drawn character with a portrait is drawn from it: the edit model
+  // takes up to three whole portraits; the IP-Adapter path the first two,
+  // each over its own half of a group frame.
+  const edit = env.PER_TURN_IMAGE_EDIT_MODEL !== "";
+  const portraits = (await Promise.all(drawn.slice(0, edit ? 3 : 2).map(async (c, slot) => {
     if (!c.look.portrait) return null;
-    const image = await styleImage(c.look.portrait).catch((error) => {
+    const image = await (edit ? referenceImage : styleImage)(c.look.portrait).catch((error) => {
       console.warn("[PerTurnImage] portrait unreadable:", error instanceof Error ? error.message : error);
       return null;
     });
-    return image ? { ...image, slot } : null;
+    return image ? { ...image, slot, look: normalizeTags(c.look.tags) } : null;
   }))).filter((p) => p !== null);
   const caption = str(moment.caption).slice(0, 400);
-  const prompt: TurnPrompt = { scene, bodies: parts.bodies, ...(caption ? { caption } : {}), ...(portraits.length ? { portraits } : {}) };
+  const prompt: TurnPrompt = {
+    scene, bodies: parts.bodies, explicit, ...(caption ? { caption } : {}), ...(portraits.length ? { portraits } : {}),
+  };
   const solo = drawn.length === 1 && !playerShown;
   const sex = soloMale || /(^|,\s*)1boy(\s*,|$)/.test(parts.inline) ? "boy" : "girl";
   const negative = negativeFor(!explicit, env.PER_TURN_IMAGE_NEGATIVE || undefined) + (solo ? (pov ? POV_SOLO_NEGATIVE : SOLO_NEGATIVE)[sex] : "");
@@ -1045,7 +1181,8 @@ export async function illustrateTurn(args: IllustrateArgs): Promise<IllustrateRe
     const jpeg = await sharp(png).jpeg({ quality: 86 }).toBuffer();
     const key = `users/${args.userId}/turn-images/${randomUUID()}.jpg`;
     await putObject(key, jpeg, "image/jpeg");
-    console.log(`[PerTurnImage] tags ${tagged - started}ms, render+store ${Date.now() - tagged}ms via ${route}; ` +
+    console.log(`[PerTurnImage] tags ${tagged - started}ms, render+store ${Date.now() - tagged}ms via ${route} ` +
+      `(${route === getFallbackGenerationProvider()?.name ? "sdxl" : turnRoute(prompt)}); ` +
       `shown=${shown.join("/") || "-"} nsfw=${nsfw} pov=${pov} player=${plan.player || "-"} portraits=${prompt.portraits?.length ?? 0} ` +
       `prompt=${[prompt.scene, ...prompt.bodies].join(" | ").slice(0, 500)}`);
     // Same-origin path: the embed parser refuses anything but https / @asset / /cdn.

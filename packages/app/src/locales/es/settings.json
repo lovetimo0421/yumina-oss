@@ -360,7 +360,7 @@
     },
     "sceneVideo": {
       "title": "Vídeo de la escena (experimental)",
-      "description": "Filma la historia mientras ocurre, con sonido. Cuesta unos 5,800 mushies por minuto mientras está activo."
+      "description": "Muestra Vídeo de la escena en el menú de juego y en las tarjetas con pantalla de película. Dos formas de verlo: en directo siguiendo la historia (unos 5.800 hongos por minuto) o un corto con voces por cada respuesta, listo unos minutos después (unos 100–1.400 hongos por respuesta)."
     }
   },
   "wallpaper": {

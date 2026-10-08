@@ -13,6 +13,18 @@ const world = {
 } as unknown as WorldDefinition;
 const state = { variables: { aff: 0, trust: 0, mood: "平静" }, turnCount: 1 } as unknown as GameState;
 
+test("repair and derived formula writes have distinct provenance", () => {
+  const trace = buildChangeTrace({
+    world: { variables: [...world.variables, { id: "total", name: "Total", type: "number", defaultValue: 0, formula: "{aff} * 2" }] },
+    aiAndJudge: [{ variableId: "aff", oldValue: 0, newValue: 3 }, { variableId: "total", oldValue: 0, newValue: 6 }],
+    repairEffects: [{ variableId: "aff", operation: "add", value: 3 }],
+    kept: [{ variableId: "好感度", operation: "add", value: 3 }],
+    judgeEffects: [], rules: { changes: [], changeCauses: [] }, dropped: [], rejected: [], decisions: [],
+  });
+  assert.deepEqual(trace.sources, [{ kind: "ai", via: "repair" }, { kind: "settle", via: "formula" }]);
+  assert.deepEqual(trace.aiWrote, ["aff"]);
+});
+
 test("change trace: each change names its writer, and refused writes their gate", () => {
   const dropped = describeDroppedAiWrites(world, state, [
     { variableId: "trust", operation: "add", value: 5 },

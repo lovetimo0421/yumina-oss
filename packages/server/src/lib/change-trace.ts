@@ -1,4 +1,4 @@
-import { aiDropReason, type AiDropReason, type ContinuityDecision, type Effect, type GameState, type JevQuestion, type WorldDefinition } from "@yumina/engine";
+import { aiDropReason, resolveEffectVariable, type AiDropReason, type ContinuityDecision, type Effect, type GameState, type JevQuestion, type WorldDefinition } from "@yumina/engine";
 
 type Change = { variableId: string; oldValue: unknown; newValue: unknown };
 
@@ -8,7 +8,7 @@ type Change = { variableId: string; oldValue: unknown; newValue: unknown };
 export interface ChangeTrace {
   version: 1;
   /** Parallel to the payload's `stateChanges`. `ids` are the fired rules. */
-  sources: Array<{ kind: "setup" | "ai" | "judge" | "rule" | "settle"; ids?: string[] }>;
+  sources: Array<{ kind: "setup" | "ai" | "judge" | "rule" | "settle"; ids?: string[]; via?: "repair" | "guard" | "formula" }>;
   /** AI writes the write filter refused, with the gate that refused them. */
   dropped: Array<{ variableId: string; reason: AiDropReason }>;
   /** AI writes the engine refused as malformed (the old value was kept). */
@@ -44,6 +44,9 @@ export function describeDroppedAiWrites(world: WorldDefinition, state: GameState
 }
 
 export function buildChangeTrace(args: {
+  world?: Pick<WorldDefinition, "variables">;
+  repairEffects?: Effect[];
+  guardCorrected?: boolean;
   setupCount?: number;
   /** Changes from `applyEffects([...kept, ...judge.effects])`. */
   aiAndJudge: Change[];
@@ -57,10 +60,18 @@ export function buildChangeTrace(args: {
 }): ChangeTrace {
   // The filter drops AI writes to judge-owned variables, so a root id is
   // written by one of the two, never both.
-  const judgeRoots = new Set(args.judgeEffects.map((e) => rootOf(e.variableId)));
+  const resolve = (id: string) => args.world ? resolveEffectVariable(args.world, id)?.id ?? rootOf(id) : rootOf(id);
+  const judgeRoots = new Set(args.judgeEffects.map((e) => resolve(e.variableId)));
+  const repairRoots = new Set((args.repairEffects ?? []).map((e) => resolve(e.variableId)));
+  const formulaRoots = new Set(args.world?.variables.filter(v => v.formula).map(v => v.id));
   const sources: ChangeTrace["sources"] = [
     ...Array.from({ length: args.setupCount ?? 0 }, () => ({ kind: "setup" as const })),
-    ...args.aiAndJudge.map((c) => ({ kind: judgeRoots.has(rootOf(c.variableId)) ? "judge" as const : "ai" as const })),
+    ...args.aiAndJudge.map((c): ChangeTrace["sources"][number] => {
+      const id = resolve(c.variableId);
+      if (formulaRoots.has(id)) return { kind: "settle", via: "formula" };
+      if (judgeRoots.has(id)) return { kind: "judge" };
+      return { kind: "ai", ...(repairRoots.has(id) ? { via: "repair" as const } : args.guardCorrected ? { via: "guard" as const } : {}) };
+    }),
     ...args.rules.changes.map((_, i) => {
       const ids = args.rules.changeCauses[i] ?? [];
       return ids.length > 0 ? { kind: "rule" as const, ids } : { kind: "settle" as const };
@@ -71,7 +82,7 @@ export function buildChangeTrace(args: {
     sources,
     dropped: args.dropped,
     rejected: [...new Set(args.rejected.map((w) => w.variableId))],
-    aiWrote: [...new Set(args.kept.map((e) => rootOf(e.variableId)))],
+    aiWrote: [...new Set(args.kept.map((e) => resolve(e.variableId)))],
     judge: args.decisions
       .filter((d) => d.key.startsWith("var__"))
       .map((d) => ({

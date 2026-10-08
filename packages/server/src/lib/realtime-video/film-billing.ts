@@ -24,8 +24,13 @@ export const COMFY_USD_PER_GPU_SECOND = Number(env.REALTIME_FILM_GPU_USD_PER_SEC
 /** fal minimax/h3-max/director: $0.08 per streamed second, at least 60 s per session. */
 export const FAL_USD_PER_SECOND = 0.08;
 export const FAL_MIN_SECONDS = 60;
-/** What one ~10 s Comfy clip costs at most, for the balance check before it renders. */
-export const CLIP_ESTIMATE_CREDITS = providerCostUsdToCredits(55 * COMFY_USD_PER_GPU_SECOND, FILM_MARKUP);
+/** What one ~10 s Comfy clip costs at most, for the balance check before it renders
+ *  (1024x576 at 6 steps: ~87 s guided, up to ~115 s for a fresh shot with portraits). */
+export const CLIP_ESTIMATE_CREDITS = providerCostUsdToCredits(120 * COMFY_USD_PER_GPU_SECOND, FILM_MARKUP);
+/** One ~5 s shot of a film per message (1344x768 at 10 steps: ~95 s of GPU), checked before each shot. */
+export const TURN_SHOT_ESTIMATE_CREDITS = providerCostUsdToCredits(110 * COMFY_USD_PER_GPU_SECOND, FILM_MARKUP);
+/** What a film per message needs on hand to start: a few shots' worth. */
+export const TURN_CLIP_ESTIMATE_CREDITS = providerCostUsdToCredits(330 * COMFY_USD_PER_GPU_SECOND, FILM_MARKUP);
 
 export function realtimeFilmEnabled(): boolean {
   return env.REALTIME_FILM === "1" && !!env.COMFY_CLOUD_API_KEY && !!env.YUMINA_OPENROUTER_KEY;

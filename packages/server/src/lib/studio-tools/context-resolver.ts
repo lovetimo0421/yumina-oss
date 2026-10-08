@@ -277,8 +277,9 @@ export function buildInventory(world: WorldDefinition, assets: AssetSummary[]): 
         : "";
       const tags = toStringArray(e.tags);
       const tagStr = tags.length ? ` tags=[${tags.join(", ")}]` : "";
-      const condStr = e.conditions.length > 0
-        ? ` conditions=[${e.conditions.map((c) => `${c.variableId} ${c.operator} ${c.value}`).join("; ")}]`
+      const conditions = e.conditions ?? [];
+      const condStr = conditions.length > 0
+        ? ` conditions=[${conditions.map((c) => `${c.variableId} ${c.operator} ${c.value}`).join("; ")}]`
         : "";
       const ivKeys = e.initialVariables ? Object.keys(e.initialVariables) : [];
       const ivStr = ivKeys.length
@@ -650,8 +651,9 @@ function buildPreloadedContent(
       if (e.alwaysSend) parts.push(`  alwaysSend: true`);
       const entryKw = toStringArray(e.keywords);
       if (entryKw.length > 0) parts.push(`  keywords: [${entryKw.join(", ")}]`);
-      if (e.conditions.length > 0) {
-        parts.push(`  conditions (${e.conditionLogic}): ${e.conditions.map((c) => `${c.variableId} ${c.operator} ${c.value}`).join("; ")}`);
+      const conditions = e.conditions ?? [];
+      if (conditions.length > 0) {
+        parts.push(`  conditions (${e.conditionLogic}): ${conditions.map((c) => `${c.variableId} ${c.operator} ${c.value}`).join("; ")}`);
       }
       const entryTags = toStringArray(e.tags);
       if (entryTags.length) parts.push(`  tags: [${entryTags.join(", ")}]`);

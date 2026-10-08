@@ -26,6 +26,7 @@ import { ChangeReviewBody } from "./components/change-review-view";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "@tanstack/react-router";
 import { importWithChunkRecovery } from "@/lib/stale-chunk-reload";
+import { DOCS_URLS } from "@/lib/docs-urls";
 import { useTranslation } from "react-i18next";
 import { navigateBackSafely } from "@/lib/safe-back";
 import type { IDockviewPanelProps } from "dockview-react";
@@ -878,6 +879,14 @@ export function MobileStudioShell() {
               >
                 <GraduationCap className="h-3.5 w-3.5 text-muted-foreground" />
                 {tLearning("help")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => window.open(DOCS_URLS.canvas, "_blank", "noopener,noreferrer")}
+                className="min-h-11 gap-2 text-xs"
+                data-studio-docs=""
+              >
+                <BookOpen className="h-3.5 w-3.5 text-muted-foreground" />
+                {t("shell.creatorGuide")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onClick={() => setShowVersionHistory(true)}

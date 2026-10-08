@@ -2,13 +2,13 @@
 
 # 3D, Panoramas & Binary Assets
 
-> Your card runs inside a locked-down iframe. Images and audio walk straight in; a `.glb` does not. This page is the map: what loads, what silently doesn't, and the one pattern that makes 3D worlds cheap — teleporting between places instead of walking through them.
+> Your card's interface code runs inside a locked-down iframe. Images and audio load normally; a `.glb` model doesn't, and nothing tells you why. Below: what loads, what fails silently, and a cheap way to build 3D worlds by teleporting between places instead of walking through them.
 
 ---
 
 ## What the sandbox can load
 
-Custom UI runs in a sandboxed iframe with its own Content Security Policy. The policy is the reason a card cannot be used to attack the site or phone home with a player's data — and it is also the reason some perfectly normal web code does nothing at all in a published card.
+Custom UI runs in a sandboxed iframe with its own Content Security Policy. The policy stops a card from attacking the site or sending a player's data anywhere. It also means some perfectly normal web code does nothing at all in a published card.
 
 | You write | What happens |
 |---|---|
@@ -26,7 +26,7 @@ Custom UI runs in a sandboxed iframe with its own Content Security Policy. The p
 
 ### Two ways to reference your own assets
 
-Upload art in **Library → Assets**, then use the asset's id:
+Upload art in **My Library → Assets** (or **Panels → Assets** in the editor), then use the asset's id:
 
 ```tsx
 var api = useYumina()
@@ -60,9 +60,9 @@ Each place is a 360° equirectangular panorama mapped onto the inside of a spher
 
 ### Step 1 — the current place is a variable, not React state
 
-This is the part that makes it a Yumina world instead of a web page. Game variables are injected into the model's context every turn, so if the current place lives in a variable, **the AI always knows where the player is standing** — and it can move them itself.
+Game variables are sent to the model every turn, so if the current place lives in a variable, **the AI always knows where the player is standing**, and it can move them itself.
 
-Create a `string` variable called `location` with a default of `atrium`, then:
+Add a **Text** variable on the canvas with the starting value `atrium`, and set its **ID** to `location` (under **Advanced** in its settings; new variables get a random ID, and the code below reads `api.variables.location`). Then:
 
 ```tsx
 export default function World() {
@@ -97,7 +97,7 @@ Use `api.sendMessage` when you want the AI to react to the move immediately, or 
 
 ### Step 2 — one lorebook entry per place
 
-Give every place an entry whose activation depends on `location` being that place. Now only the room the player is standing in spends context, and the AI describes the greenhouse's cracked glass because the greenhouse entry is in front of it — not because it is guessing.
+Give every place an entry that's only sent while `location` is that place: on the canvas, drag `location` onto the entry and set the condition (**Conditional lore**). Now only the room the player is standing in spends context, and the AI describes the greenhouse's cracked glass because the greenhouse entry is in front of it, instead of guessing.
 
 ### Step 3 — let the AI teleport the player
 
@@ -108,6 +108,8 @@ Because `location` is an ordinary variable, the model can write it:
 ```
 
 Your UI is already watching `api.variables.location`, so the scene changes when the story says it changes. A door the player is dragged through by the narrative and a door they clicked are the same code path.
+
+If you give `location` **Allowed values** (one per place), Precise tracking can move the player instead: after each reply it picks the place the story has reached, and directives for `location` are ignored.
 
 ### Step 4 — the sphere
 
@@ -151,7 +153,7 @@ Any equirectangular 2:1 image works — a render out of Blender, a photo from a 
 
 ## Bringing three.js (or any library) into a card
 
-There is no npm inside a card and no CDN script tag. Bundle the library yourself, once, and paste the result in as a card file:
+There is no npm inside a card and no CDN script tag. Bundle the library yourself, once, and add the result as a card file in **Panels → Front End Code**:
 
 ```bash
 # three-entry.js — re-export only what you actually use, so tree-shaking can work
@@ -212,12 +214,12 @@ mesh.material.map = tex
 
 ## Making it survive a phone
 
-Players are on phones, and a 3D card that cooks a phone gets closed, not reported.
+Many players are on phones. A 3D card that overheats a phone just gets closed, and you never hear about it.
 
 - **Cap the pixel ratio.** `renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))` — 1 on a low-end device. An uncapped 3× ratio on a tall phone screen is millions of extra pixels a frame for no visible gain.
 - **No real-time shadows on mobile.** In a shipped card they measured as ~85% of the frame's GPU time, for a soft edge nobody looks at.
 - **Watch real frame intervals and back off.** Sample every couple of seconds; if frames keep coming in slow, drop the pixel ratio a notch, then drop effects. Give players an explicit quality switch too.
-- **Never jitter the camera with per-frame randomness.** `Math.random()` shake reverses direction dozens of times a second, and that is what motion sickness is made of. Use a sum of two slow sines, and hold the canvas height steady when the soft keyboard opens instead of recomputing the field of view.
+- **Never jitter the camera with per-frame randomness.** `Math.random()` shake reverses direction dozens of times a second, which causes motion sickness. Use a sum of two slow sines, and hold the canvas height steady when the soft keyboard opens instead of recomputing the field of view.
 - **Cache and dispose deliberately.** Keep textures you will return to; `dispose()` the ones you won't.
 
 ---

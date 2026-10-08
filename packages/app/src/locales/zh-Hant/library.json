@@ -448,7 +448,7 @@
     "blank": "空白專案",
     "blankDesc": "空白世界，只帶預設敘事設定。",
     "importWorld": "匯入世界",
-    "importWorldDesc": "匯入世界或角色卡（PNG / JSON）。",
+    "importWorldDesc": "上傳 Yumina 卡。",
     "characterChat": "角色聊天",
     "characterChatDesc": "設計角色，沉浸於一對一的對話之中。",
     "worldSimulation": "世界模擬",
@@ -708,6 +708,10 @@
       "anime-new": {
         "name": "動漫 · 新番",
         "variant": "新番"
+      },
+      "anime-story": {
+        "name": "動漫 · 劇情",
+        "variant": "劇情"
       }
     },
     "videoStyleFromReference": "影片會沿用參考圖的畫風。",

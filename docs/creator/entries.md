@@ -1,12 +1,8 @@
 # Openings and Lore
 
-Openings are written for the player. Lore is written for the AI. These two are the bare minimum of any card: the player opens it and reads an opening, and the AI reads your lore and carries the story on from there.
-
-Everything the AI knows about your world comes from lore and [variables](/creator/variables).
-
 ## Openings
 
-The opening is the first thing a player reads after opening your card. The story starts here. On the canvas, click the opening's row to write it.
+The opening is the first thing a player reads after opening your card. On the canvas, click the opening's row to write it.
 
 ![Writing the opening](./images/canvas/w-opening.webp)
 
@@ -37,7 +33,7 @@ On the canvas, lore is split into four blocks by "when it's sent to the AI":
 | **Character and world** | Every turn |
 | **Keyword lore** | Only when a certain word shows up in the recent conversation |
 | **Conditional lore** | Only when a variable meets a condition |
-| **Standby lore** | Never on its own. It waits for a behaviour to open it |
+| **Standby lore** | Never on its own. It waits for a behavior to open it |
 
 Under each block's title you'll see how many entries it has and roughly how much text it costs per turn.
 
@@ -52,8 +48,6 @@ Click a row in this block and it opens up. Name goes on top, content below:
 In a survival horror game, for example, the first entry might be a "Game Master" entry that tells the AI its whole role:
 
 > *You are the GM of a survival horror game. The game lasts 14 nights. Each night, describe a visitor knocking at the door. Give clues fairly but never reveal what they are. End every reply with 3-5 suggested options.*
-
-That one entry sets who the AI is, what it does and how it responds. Everything else builds on it.
 
 One entry per character, one per place. Kept separate, they're harder for the AI to mix up.
 
@@ -71,23 +65,36 @@ Separate keywords with commas. Any one of them showing up triggers it.
 
 For example, "Drunk descriptions" is only sent when `Tipsiness ≥ 5`. The quickest way to set it up is to drag the variable onto the entry on the canvas, then click the line to change the condition.
 
-### Standby lore: waits for a behaviour
+### Standby lore: waits for a behavior
 
-Never sent on its own until some [behaviour](/creator/automation) opens it. "Yumina's Feelings" from the Guide works like this: normally the AI can't see it, but when affection reaches 80 a behaviour opens it, and Yumina starts quietly caring about you. Great for hidden storylines and switching between stages.
+Never sent on its own until some [behavior](/creator/automation) opens it. Say you have an entry called "Yumina's Feelings": normally the AI can't see it, but when affection reaches 80 a behavior opens it, and Yumina starts quietly caring about you. Use it for hidden storylines and switching between stages.
 
 ### Switching how it's sent
 
-Every entry, once opened, has a **When the AI sees this** line at the bottom. Click it to switch between the four kinds above, and the entry moves itself into the matching block.
+Every entry, once opened, has a **When the AI sees this** line. Click it to switch between the four kinds above, and the entry moves itself into the matching block.
 
 ![When the AI sees this](./images/canvas/entry-delivery.webp)
 
 ### More settings
 
-You usually won't need these. Just good to know they exist:
+You usually won't need these:
 
 - **Inject into**: which part of the AI's prompt it goes in. **Always sent to the AI**, **Sent when mentioned**, **Example dialogue**, **At the end**. "At the end" lore comes after the whole conversation, right before the AI replies. The AI pays it the most attention, so it's the place for final reminders like output format and style rules
 - **Send as**: **Instruction** (default), **User** or **AI**. This decides whose voice the entry speaks in within the AI's messages. Every model handles this a bit differently, so it's usually best left alone
 - **Secondary Keywords**, **Scan Depth**: fine-tuning for keyword lore
+
+### See how much it all costs
+
+The more lore you write, the more the AI has to read every turn. That costs more, and the AI gets worse at telling what matters. The canvas keeps a small bar in its top-right corner with the per-turn and total counts and a little dot; click it to open the breakdown. **Panels → Lorebook** shows the same numbers at the bottom left:
+
+![How many tokens your lore takes](./images/canvas/lore-tokens.webp)
+
+- **Per turn**: what gets sent every single turn, meaning the lore that's sent every turn
+- **Total**: all your lore added up
+- Open it to see the breakdown: **First Message** (sent once at the start; ×2 means you have two openings), **Always Sent** (every turn), **Keyword Triggered** (sent when a keyword comes up or a condition is met, so anywhere from 0 to this number per turn), **Standby** (never sent on its own, waits for a behavior to turn it on) and **Disabled**
+- The little dot on the right watches the total: green under 30k, yellow up to 60k, red past that. Once it turns yellow, trim a bit. Is the same thing written in several entries? Are you writing a lot of "don't do this, don't do that"?
+
+On the canvas, click **Context** to see what the AI actually reads this turn. See the Context section on the [AIs](/creator/ais) page.
 
 <div v-pre>
 
@@ -101,9 +108,9 @@ You can write `{{macros}}` in lore and openings. When the AI sees them, they're 
 | `{{char}}` | The character's name |
 | `{{random::a::b::c}}` | One of the options, picked at random |
 | `{{roll::2d6}}` | A dice roll result |
-| `{{variable_name}}` | That variable's current value |
+| `{{variable ID}}` | That variable's current value |
 
-Any variable works this way. For a variable called `location`, just write `{{location}}` in your lore.
+This takes the variable's **ID**, not its name, and the ID can only use English letters, digits and underscores. Variables made on the canvas get a random ID, so to use one in a macro, open its **Advanced**, change the **ID** to a short name like `location`, click **Apply**, then write `{{location}}` in your lore.
 
 </div>
 
@@ -111,6 +118,6 @@ Any variable works this way. For a variable called `location`, just write `{{loc
 
 **Tell the AI what to do, not what not to do.** "Describe fights with rich sensory detail" works. "Don't write boring fights" doesn't.
 
-**Keep it short.** The AI reads every active entry, every turn. Every unnecessary entry makes the one that really matters easier to miss. Don't repeat the same thing across entries.
+**Keep it short.** The AI reads every active entry every turn, so don't repeat the same thing across entries.
 
 **Not all lore needs to be sent every turn.** Move background knowledge and NPC backstories into keyword lore, and the AI will handle them better.

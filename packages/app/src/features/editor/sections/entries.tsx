@@ -46,12 +46,12 @@ import {
 } from "@/lib/entry-constants";
 import { useEditorStore } from "@/stores/editor";
 import { HoverHint } from "../components/hover-hint";
+import { LORE_HEALTH_DOT, summarizeLoreTokens } from "../lib/lore-tokens";
 import { EntryPortraitField } from "../components/entry-portrait-field";
 import { EntryPortraitVideoField } from "../components/entry-portrait-video-field";
 import { VoiceField } from "../components/voice-field";
 import {
   estimateTokens,
-  isTokenizerReady,
   deriveSectionDefaults,
   deriveSectionDefaultsForEntry,
 } from "@yumina/engine";
@@ -159,22 +159,6 @@ function entrySort(a: WorldEntry, b: WorldEntry): number {
   const aPos = a.position ?? Infinity;
   const bPos = b.position ?? Infinity;
   return aPos - bPos;
-}
-
-// PERF: cache token estimates keyed by the entry OBJECT. updateEntry replaces
-// only the edited entry's object (others keep identity), so on each keystroke
-// the token summary recomputes just the one changed entry and reuses cached
-// counts for the rest — turning an O(total-content) re-tokenize per keystroke
-// into O(1). A WeakMap means stale entries are GC'd automatically, no eviction.
-const entryTokenCache = new WeakMap<WorldEntry, number>();
-function getEntryTokens(entry: WorldEntry): number {
-  const cached = entryTokenCache.get(entry);
-  if (cached !== undefined) return cached;
-  const tokens = estimateTokens(entry.content);
-  // A pre-load heuristic must not outlive the tokenizer: the entry object
-  // would keep answering the estimate until it happened to be replaced.
-  if (isTokenizerReady()) entryTokenCache.set(entry, tokens);
-  return tokens;
 }
 
 // ── Main component ──
@@ -440,50 +424,11 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
     return map;
   }, [worldDraft.entryFolders, scopeWorldbookId]);
 
-  // Token estimate split into cost-meaningful buckets. Categorization mirrors
-  // the runtime gating in lorebook-matcher.ts + prompt-builder.ts so each
-  // bucket maps to a distinct cost behavior:
-  //   greeting          — role=greeting; sent once per session (alwaysSend has
-  //                       no effect on greetings, runtime filters them out)
-  //   alwaysSent        — alwaysSend=true; every turn, predictable baseline
-  //   keywordTriggered  — !alwaysSend with keywords; fires when keywords match,
-  //                       capped by `lorebookTokenBudget` setting (variable)
-  //   dormant           — !alwaysSend AND no keywords; matcher's
-  //                       `if (entry.keywords.length === 0) continue;` means
-  //                       these NEVER fire — usually a setup mistake
-  //   disabled          — enabled=false; zero cost until re-enabled
-  // Sums on `worldDraft.entries` directly — tag filtering must not affect totals.
+  // Token estimate split into cost-meaningful buckets — see lore-tokens.ts.
   const tokenizerReady = useTokenizerReady();
-  const tokenSummary = useMemo(() => {
-    const buckets = {
-      greeting: 0,
-      alwaysSent: 0,
-      keywordTriggered: 0,
-      dormant: 0,
-      disabled: 0,
-    };
-    let greetingCount = 0;
-    let total = 0;
-    for (const e of worldDraft.entries) {
-      const tk = getEntryTokens(e);
-      total += tk;
-      if (e.enabled === false) { buckets.disabled += tk; continue; }
-      if (e.role === "greeting") { buckets.greeting += tk; greetingCount++; continue; }
-      if (e.alwaysSend) { buckets.alwaysSent += tk; continue; }
-      if (e.keywords && e.keywords.length > 0) buckets.keywordTriggered += tk;
-      else if (e.conditions && e.conditions.length > 0) buckets.keywordTriggered += tk;
-      else buckets.dormant += tk;
-    }
-    // perTurn = predictable per-turn floor (only alwaysSend fires every turn).
-    // Health bands nudge creators toward concise lorebooks — past ~60k the
-    // model starts losing fidelity on early-prompt details. Kept subtle: the
-    // dot's colour is the signal, the tooltip is the explanation.
-    const health: "healthy" | "caution" | "heavy" =
-      total < 30_000 ? "healthy" : total < 60_000 ? "caution" : "heavy";
-    return { ...buckets, greetingCount, perTurn: buckets.alwaysSent, total, health };
-    // tokenizerReady: recount once exact counts arrive.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [worldDraft.entries, tokenizerReady]);
+  // tokenizerReady: recount once exact counts arrive.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const tokenSummary = useMemo(() => summarizeLoreTokens(worldDraft.entries), [worldDraft.entries, tokenizerReady]);
 
   // Toggle for the token-breakdown footer. Persisted so creators don't have to
   // re-expand on every visit.
@@ -1396,10 +1341,7 @@ export function EntriesSection({ compact, mobileListMode, scopeWorldbookId }: { 
                 >
                   <span
                     className={cn(
-                      "block h-2 w-2 rounded-full transition-colors",
-                      tokenSummary.health === "healthy" && "bg-emerald-400/80 shadow-[0_0_6px_rgba(52,211,153,0.55)]",
-                      tokenSummary.health === "caution" && "bg-amber-400/90 shadow-[0_0_6px_rgba(251,191,36,0.6)]",
-                      tokenSummary.health === "heavy" && "bg-rose-400 shadow-[0_0_8px_rgba(251,113,133,0.7)] animate-pulse"
+                      "block h-2 w-2 rounded-full transition-colors", LORE_HEALTH_DOT[tokenSummary.health]
                     )}
                   />
                 </span>

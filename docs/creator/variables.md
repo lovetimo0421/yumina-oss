@@ -1,6 +1,6 @@
 # Variables
 
-Variables are the things your story needs to remember: affection, health, coins, where you are, what's in your bag. The AI sees them every turn and changes them as the story goes. Behaviours can react when they change. The player interface can show them on screen.
+Variables are the things your story needs to remember: affection, health, coins, where you are, what's in your bag. The AI sees them every turn and changes them as the story goes.
 
 ::: tip Just describe the variable itself, in plain language
 In a variable's Behavior Rules, all you need to say in plain words is **what the variable is and when it should change**. No need to mention syntax like `[health: -1]`. Our engine has already taught the AI that part.
@@ -18,7 +18,7 @@ A **Variables** block appears in the card, with the new variable's settings alre
 
 ![The new variable](./images/canvas/w-var-new.webp)
 
-Change the name, pick a type, fill in the starting value and range, then write the **Behavior Rules**. Want the player to see it on screen? Click **Show on the player screen**.
+Change the name, pick a type, fill in the starting value and range, then write the **Behavior Rules**. To show it to the player, click **Show on the player screen**.
 
 ![Affection, filled in](./images/canvas/w-var-done.webp)
 
@@ -39,11 +39,11 @@ To change it later, click it twice in the Variables block and it opens again. On
 
 Numbers can have a minimum and maximum, and the engine keeps them in range, so you'll never see -30 health. A list / table lets you change just one small piece of it, like the durability of the first weapon in the bag, without rewriting the whole thing.
 
-## Behavior Rules (the most important part)
+## Behavior Rules
 
 This is the **Behavior Rules** box in an open variable: plain words that teach the AI **when and how** to change it. Leave it empty and the AI pretty much won't use the variable properly.
 
-(The editor calls this box "Behavior Rules". It's a different thing from the automation on the canvas called "behaviours". Don't mix them up!)
+This box is a different thing from the automation on the canvas called "behaviors".
 
 ### Good Behavior Rules
 
@@ -64,12 +64,12 @@ Variable: Health
 > Never changes by more than 10 in one turn.
 
 ::: tip
-Two to four sentences is usually enough. If your Behavior Rules run longer than a short paragraph, it's time to trim. The AI is smart. Give it the idea and the limits, not a 500-word essay.
+Two to four sentences is usually enough: give it the idea and the limits. If your Behavior Rules run longer than a short paragraph, trim them.
 :::
 
 ## Precise tracking
 
-Number and text variables can turn on **Precise tracking** (the canvas gives them a little "precise" tag). With it on, the story-writing AI stops changing the variable as it goes. Instead, a dedicated little helper rereads the latest scene every turn and decides whether it should change, and by how much. That's far more accurate and steady than having the story AI change it mid-sentence.
+Number and switch variables, and text variables with allowed values, can turn on **Precise tracking** (the canvas gives them a little "precise" tag). New number and switch variables have it on already. With it on, the story-writing AI stops changing the variable as it goes. Instead, a dedicated little helper rereads the latest scene every turn and decides whether it should change, and by how much. That's far more accurate than having the story AI change it as it writes.
 
 When you turn on Precise tracking for a number, fill in **Most it can rise per turn** and **Most it can fall per turn**. Say you set both to 10: a compliment is +3, a gift is +8, snapping at her is -10, and affection never jumps around wildly. For a text variable, it only ever picks one of the options you give it.
 
@@ -87,7 +87,7 @@ Tick **Kept across playthroughs (for this player)** under **What the AI does wit
 
 ![What the AI does with it](./images/canvas/variable-ai.webp)
 
-Good for: how many times they've finished, endings they've unlocked, CGs they've collected, options that only show up on a second run. Works best paired with [moments](/creator/automation#moments) in behaviours.
+Good for: how many times they've finished, endings they've unlocked, CGs they've collected, options that only show up on a second run. Works best paired with [moments](/creator/automation#moments) in behaviors.
 
 ## What the AI does with it
 
@@ -96,26 +96,24 @@ Open **What the AI does with it**. The **AI access** setting inside decides whet
 | Setting | The AI sees it | The AI can change it | Good for |
 |------|-----------|-----------|------|
 | AI can read & write (default) | ✓ | ✓ | Things only the AI can judge: affection, mood |
-| AI read-only | ✓ | ✗ | Things a behaviour or the interface changes while the AI just plays along: stage, rating |
+| AI read-only | ✓ | ✗ | Things a behavior or the interface changes while the AI just plays along: stage, rating |
 | Engine only (hidden from AI) | ✗ | ✗ | Ledgers, counters and other internal bookkeeping. Costs the AI no text |
 
-A handy rule of thumb: **only let the AI write things that only the AI can judge.** Arithmetic, stage changes and reward bookkeeping belong to behaviours.
+Only let the AI change things that only it can judge. Arithmetic, stage changes and reward bookkeeping belong to behaviors.
 
 ## When the AI can see it
 
 Open **What the AI does with it** and look for **When the AI can see it**:
 
 - **Always** (default)
-- **Manual**: a switch that behaviours turn on and off
+- **Manual**: a switch that behaviors turn on and off
 - **Conditions**: it only shows up when a condition holds, like "Rage only shows when it's above 0"
 - **Openings**: it only shows up in games that started from certain openings
 
-While it's not showing, the variable stays out of the AI's prompt, doesn't appear on the player interface, and the AI can't change it. **But the value is kept the whole time**, and behaviours and the interface can still read it.
+While it's not showing, the variable stays out of the AI's prompt, doesn't appear on the player interface, and the AI can't change it. **But the value is kept the whole time**, and behaviors and the interface can still read it.
 
 You can also put a variable inside a [scenario](/creator/modules). Then it only shows up while that scenario is open.
 
 ## Letting players change it (Lore Shift)
 
 Players with the Lore Shift extension can change lore and values in their own game. For that, you first turn on **Allow session editing** in Card settings, then turn on **Players may edit this value in a session** under **Advanced** for each variable you want to open up. It only affects that player's own game. Your original card doesn't change. Everything is off by default.
-
-**Try not to have too many variables, either.** Every variable takes up a line of the AI's attention every turn. Adding one you won't really use just wastes that attention.

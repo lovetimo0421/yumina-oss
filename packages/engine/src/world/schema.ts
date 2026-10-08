@@ -55,6 +55,7 @@ export const variableSchema = z.object({
   // Precise tracking (continuity judge) — see types/index.ts.
   options: z.array(z.string()).optional(),
   precise: z.boolean().optional(),
+  onceTrue: z.boolean().optional(),
   deltaDown: z.number().min(0).optional(),
   deltaUp: z.number().min(0).optional(),
   behaviorRules: z.string().optional(),
@@ -600,6 +601,7 @@ export const stateChannelSchema = z.enum(["variables", "messages", "streaming", 
 export const rootComponentSchema = z.object({
   id: z.string(),
   name: z.string().min(1),
+  assetLoading: z.enum(["automatic", "on-demand"]).optional(),
   entryFile: z.string().default("index.tsx"),
   files: z.record(z.string(), z.string()),
   updatedAt: z.string(),

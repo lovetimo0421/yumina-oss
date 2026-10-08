@@ -17,6 +17,7 @@ function url(path: string): string {
 export const DOCS_URLS = {
   get home() { return url("/"); },
   get welcome() { return url("/creator/"); },
+  get canvas() { return url("/creator/canvas"); },
   get beginnerGuide() { return url("/creator/advanced/tutorial-basic"); },
   // Shipped with the app: testing must not depend on a production docs release.
   get blueprintStart() { return "/app/learn"; },

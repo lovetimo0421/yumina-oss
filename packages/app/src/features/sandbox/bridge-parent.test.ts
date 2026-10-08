@@ -272,3 +272,22 @@ test("RPC requests from a foreign window or origin cannot execute or obtain a re
   assert.equal(calls, 0);
   assert.deepEqual(h.responses, []);
 });
+
+test("hidden world callbacks cannot start or alter another view's audio", async t => {
+  const calls: string[] = [];
+  const h = harness(t, method => { calls.push(method); });
+  h.request("initial", "playAudio");
+  h.bridge.setMediaSuspended(true);
+  h.request("hidden-play", "playAudio");
+  h.request("hidden-resume", "resumeAudio");
+  h.request("hidden-stop", "stopAudio");
+  h.request("hidden-pause", "pauseAudio");
+  h.request("hidden-volume", "setAudioVolume");
+  h.request("save", "storage.set");
+  await flush();
+  assert.deepEqual(calls, ["playAudio", "storage.set"]);
+  assert.ok(h.responses.some(msg => msg.type === "api-response" && msg.callId === "hidden-play"));
+  h.bridge.setMediaSuspended(false);
+  h.request("returned", "playAudio");
+  assert.deepEqual(calls, ["playAudio", "storage.set", "playAudio"]);
+});

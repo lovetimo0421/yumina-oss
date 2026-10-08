@@ -2,539 +2,292 @@
 
 # Shop & Trading
 
-> Build a shop UI — players browse items, click to buy, gold is deducted automatically, and items go straight into their inventory. This recipe shows you how to combine variables, behaviors, and a Root Component into a complete trading system.
+> A shop the player can buy from: they see their gold and what's for sale, tap "Buy", the gold comes off, and they're told what they got. Not enough gold, and they're told that instead. One behavior runs the whole shop; each button just tells it which item and what price.
 
 ---
 
 ## What you'll build
 
-A shop panel embedded in the chat interface. The player can see how much gold they have, what's for sale, and the price of each item. When they click a "Buy" button:
+- **Gold on screen**
+- **A shop page** with a Buy button per item: Potion (20 gold), Iron Sword (50 gold)
+- **A purchase**: gold goes down by the price, a notice says what was bought, and the AI is told
+- **Not enough gold**: "Not enough gold — Iron Sword costs 50." Nothing is taken
+- **Purchases end up in the player's inventory**
 
-- Gold is automatically reduced by the item's price
-- The item is added to the inventory (a JSON array)
-- A "Purchase successful!" notification pops up
-- If gold is insufficient, a "Not enough gold!" warning appears — no gold is deducted and no item is added
-
-There's also an inventory grid at the bottom that shows all items in the player's bag in real time.
-
-```
-Player clicks "Buy Potion (20 gold)"
-  → Behavior checks: gold >= 20?
-    → Yes: gold minus 20, inventory push "Potion", show success notification
-    → No: show "Not enough gold!" warning
-```
-
----
-
-## How it works
-
-This shop system combines three core mechanisms:
-
-1. **Number variable + condition check** — Gold is a number variable. The behavior checks whether it's enough before executing.
-2. **JSON variable + push operation** — The inventory is a JSON array. Each purchase uses `push` to add an item to it.
-3. **Action trigger** — Each buy button corresponds to an action ID. Buttons in the Root Component call `executeAction()` to trigger behaviors.
-
-The full flow:
+### How it works
 
 ```
-Root Component button UI
-  → Player clicks "Buy Potion"
-  → Calls api.executeAction("buy-potion")
-  → Engine finds the behavior with action ID "buy-potion"
-  → Checks condition: gold >= 20?
-    → Pass → Execute actions: modify variable (gold -20), modify variable (inventory push "Potion"), show notification
-    → Fail → Do nothing (the "not enough gold" message is handled by a separate behavior)
+The player taps "Buy Iron Sword"
+  → The button sets off the behavior "Buy", passing item = Iron Sword, price = 50
+  → The behavior checks: Gold ≥ {param.price}?
+    → Yes: Gold minus {param.price}, notice "You bought an Iron Sword", the AI is told
+    → No: the notice from "If the conditions don't hold, say", and nothing else happens
 ```
+
+`{param.price}` and `{param.item}` stand for whatever the button passed in. That's why one behavior is enough for any number of items.
 
 ---
 
 ## Step by step
 
-### Step 1: Create variables
+### Step 1: Create the variables
 
-We need two variables — one to track gold, one to track what's in the inventory.
+In the **Add** row at the bottom of the card, click **＋ Variable**.
 
-Editor → sidebar → **Variables** tab → click **Add Variable**
+#### Gold
 
-#### Variable 1: Gold
+| Field | Value |
+|-------|-------|
+| Name | Gold |
+| Type | Number |
+| Starts at | `100` |
+| Range | `0` to (empty) |
+| Behavior Rules | `The player's gold. The shop takes its prices off automatically. You may also change it in the story: quest rewards, robbery, a treasure chest.` |
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Name | Gold | For your own reference in the editor |
-| ID | `gold` | Used in code and behaviors to read/write this variable |
-| Type | Number | Gold is numeric — we need arithmetic operations |
-| Default Value | `100` | Player starts with 100 gold in a new session |
-| Min Value | `0` | Prevents gold from going negative — the engine will clamp it |
-| Category | Resources | Gold is a resource-type variable |
-| Behavior Rules | `Gold is automatically deducted when the player buys items from the shop. You may also increase or decrease gold in the story — e.g., quest rewards, getting robbed by thieves, or finding a treasure chest.` | Tells the AI that gold can change during the story, not just in the shop |
+The minimum of `0` is a safety net: the behavior already checks the player can afford it, but with the range set, gold can never show a negative number.
 
-> **Why set a min value of 0?** We already check "can the player afford this?" in the behavior's condition, but adding engine-level protection is safer. If something slips through, gold still won't go negative.
+Click **Show on the player screen** so Gold is always visible in chat.
 
-#### Variable 2: Inventory
+#### Inventory
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Name | Inventory | For your own reference |
-| ID | `inventory` | Used in code and behaviors |
-| Type | JSON | The inventory is an array — needs the JSON type to store it |
-| Default Value | `[]` | Empty array — inventory starts empty in a new session |
-| Category | Inventory | This is an inventory-type variable |
-| Behavior Rules | `Items are automatically added when bought from the shop. You may also add or remove items in the story — e.g., the player picks something up, an item breaks, gets stolen, or is received as a quest reward.` | Tells the AI that inventory can change during the story, not just in the shop |
-
-> **JSON variables can store any JSON data structure.** Here we use an array (`[]`) to hold a list of item names. Each purchase uses `push` to append a string to the end of the array. For example, after buying a potion the value goes from `[]` to `["Potion"]`, and buying an iron sword after that makes it `["Potion", "Iron Sword"]`.
+The easiest inventory comes from **Player interface** → **Templates** → **Inventory**: a bag page, a popup when something new arrives, and an **Inventory** list variable whose Behavior Rules tell the AI to add items as the story hands them over. See the [Inventory & Equipment](./inventory.md) recipe.
 
 ---
 
-### Step 2: Create shop behaviors
+### Step 2: Create one "Buy" behavior
 
-We need multiple behaviors — a "purchase successful" and a "not enough gold" behavior for each item. Here we'll use Potion and Iron Sword as examples.
+In the **Add** row, click **＋ Behavior**.
 
-Editor → **Behaviors** tab → click **Add Behavior**
+| Part | Setting |
+|------|---------|
+| When it fires | **The player presses a button**, Button `buy` |
+| ONLY IF | Gold **≥** `{param.price}` |
+| Effects | **Change variable**: Gold minus `{param.price}` |
+| | **Show notification**: `You bought: {param.item}`, style **Success** |
+| | **Tell the AI**: `The player just bought {param.item} for {param.price} gold. Add it to their Inventory.` |
+| If the conditions don't hold, say | `Not enough gold — {param.item} costs {param.price}.` |
 
-#### Behavior 1: Buy Potion (success)
+Without the last line, a player who can't afford something would tap the button and see nothing happen.
 
-**WHEN (trigger):**
+**Tell the AI** slips the AI one line for its next reply. With the Inventory template's Behavior Rules, the AI adds the item to the bag and pops up the "You got" notice.
 
-| Field | Value | Why |
-|-------|-------|-----|
-| Trigger Type | Action button pressed | Fires when the Root Component calls `executeAction("buy-potion")` |
-| Action ID | `buy-potion` | Must match the `executeAction("buy-potion")` call in the Root Component code |
+::: info Getting the item into the inventory reliably
+Behavior effects can change numbers and text, but they can't add a row to a list. Here the AI adds the item, prompted by **Tell the AI**. If you need it to be exact:
 
-**ONLY IF (conditions):**
-
-| Variable | Operator | Value | Why |
-|----------|----------|-------|-----|
-| `gold` | Greater than or equal (gte) | `20` | Potion costs 20 gold — can only buy if you have enough |
-
-**DO (actions):**
-
-Add the following actions in order:
-
-| Action Type | Settings | Effect |
-|-------------|----------|--------|
-| Modify Variable | Variable `gold`, operation `subtract`, value `20` | Deducts 20 gold |
-| Modify Variable | Variable `inventory`, operation `push`, value `"Potion"` | Adds "Potion" to the inventory array |
-| Show Notification | Message `Purchase successful! You got a Potion.`, style `achievement` | Shows a gold-colored success notification |
-
-> **The push operation is specifically for JSON arrays.** It appends an element to the end of the array without overwriting existing contents. So each time you buy a potion, another `"Potion"` string is added to the inventory.
-
-#### Behavior 2: Buy Potion (not enough gold)
-
-This behavior listens for the same action ID, but the condition is "gold is **not** enough".
-
-**WHEN:**
-
-| Field | Value |
-|-------|-------|
-| Trigger Type | Action button pressed |
-| Action ID | `buy-potion` |
-
-**ONLY IF:**
-
-| Variable | Operator | Value | Why |
-|----------|----------|-------|-----|
-| `gold` | Less than (lt) | `20` | Gold is less than 20 — can't afford it |
-
-**DO:**
-
-| Action Type | Settings | Effect |
-|-------------|----------|--------|
-| Show Notification | Message `Not enough gold! The potion costs 20 gold.`, style `warning` | Shows a yellow warning notification |
-
-> **Why two separate behaviors?** Because a single behavior can only have one set of conditions. If the condition passes, the actions execute; if it fails, nothing happens. So we use two behaviors to cover both cases: enough gold → purchase succeeds; not enough gold → show warning. They listen to the same action ID but have mutually exclusive conditions, so only one ever fires.
-
-#### Behavior 3: Buy Iron Sword (success)
-
-**WHEN:**
-
-| Field | Value |
-|-------|-------|
-| Trigger Type | Action button pressed |
-| Action ID | `buy-sword` |
-
-**ONLY IF:**
-
-| Variable | Operator | Value |
-|----------|----------|-------|
-| `gold` | Greater than or equal (gte) | `50` |
-
-**DO:**
-
-| Action Type | Settings | Effect |
-|-------------|----------|--------|
-| Modify Variable | Variable `gold`, operation `subtract`, value `50` | Deducts 50 gold |
-| Modify Variable | Variable `inventory`, operation `push`, value `"Iron Sword"` | Adds "Iron Sword" to the inventory array |
-| Show Notification | Message `Purchase successful! You got an Iron Sword.`, style `achievement` | Shows a gold-colored success notification |
-
-#### Behavior 4: Buy Iron Sword (not enough gold)
-
-**WHEN:**
-
-| Field | Value |
-|-------|-------|
-| Trigger Type | Action button pressed |
-| Action ID | `buy-sword` |
-
-**ONLY IF:**
-
-| Variable | Operator | Value |
-|----------|----------|-------|
-| `gold` | Less than (lt) | `50` |
-
-**DO:**
-
-| Action Type | Settings | Effect |
-|-------------|----------|--------|
-| Show Notification | Message `Not enough gold! The iron sword costs 50 gold.`, style `warning` | Shows a yellow warning notification |
-
-::: tip Want to add more items?
-Just repeat the pattern — two behaviors per item (success + insufficient), changing the action ID, price, and item name. For example, to add a 30-gold "Shield": action ID `buy-shield`, condition `gold gte 30`, actions `subtract 30` + `push "Shield"`.
+- **Counted items as numbers**: give potions their own Number variable and make a separate "Buy potion" behavior that also does **Change variable** Potions plus `1`
+- **A Code effect**: add **Code** to the behavior's effects with a line like `ctx.push("Inventory", { name: "Potion", note: "Heals a little." })`. See [Behaviors · Code behaviors](/creator/automation#code-behaviors)
+- **Interface code**: the custom code route below writes the list itself
 :::
 
 ---
 
-### Step 3: Add the shop panel in the Root Component
+### Step 3: Build the shop page
 
-This is the key step that makes the shop UI appear in the chat. We'll show three areas below each message: gold balance, item list (with buy buttons), and an inventory grid.
+Click **Player interface** in the middle of the top bar. Add a page with **New page** (a **Blank page**) and call it "Shop".
 
-Editor → **Custom UI** section → open `index.tsx` → paste the following code (replacing the default `return <Chat />`):
+1. Add a **Text** part reading `Gold: {Gold}` (use **Insert a variable's value…**)
+2. For each item, add a **Text** part with its name and description, and a **Button** labelled `Buy · 20 gold`
+3. Under the button's **When pressed, do in order**, add **Set off a behavior** → Buy, then **+ Pass something in** twice: `item` = `Potion` and `price` = `20`. For the sword: `Iron Sword` and `50`
+4. Add a button with **Go to page** back to the conversation, and a "Shop" button on the conversation page that goes to this one
+
+To show which items the player can't afford, duplicate a Buy button, make the copy look greyed out, and use **When to show** → **When a variable matches**: Gold **is less than** `20` on the grey one and Gold **is at least** `20` on the normal one. The grey one can still set off the behavior, so tapping it gives the "Not enough gold" notice.
+
+Turn **Edit** off to click through the page. The preview doesn't call the AI, but you'll see the gold change.
+
+::: tip Prices that change
+A price can come from a variable: in **+ Pass something in**, write `{{Potion price}}` instead of `20`. Change the variable (a behavior during a festival, say) and every button follows.
+:::
+
+---
+
+### Step 4: Playtest
+
+Click **Play** in the top bar.
+
+1. Gold reads 100. Open the **Shop**
+2. Buy a potion: Gold 80, "You bought: Potion". Send a message; the AI acknowledges it and the potion appears in the bag
+3. Buy another: Gold 60
+4. Buy the sword: Gold 10
+5. Try to buy anything: "Not enough gold — Potion costs 20." Gold stays at 10
+
+**This turn** on the right of the playtest shows whether the Buy behavior fired, and why not if it didn't.
+
+**If something goes wrong:**
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| Tapping Buy does nothing | The button's **Set off a behavior** points elsewhere, or the behavior isn't **Enabled** | Check both |
+| Gold doesn't change | The passed value is named differently from the behavior's `{param.…}` | `price` on the button, `{param.price}` in the behavior, spelled the same |
+| No message when gold is short | **If the conditions don't hold, say** is empty | Write the line |
+| Gold goes negative | The condition is missing, or Gold has no minimum | Keep the **ONLY IF**, and set **Range** to start at `0` |
+| The item never shows in the bag | The AI didn't add it | Keep **Tell the AI** in the behavior and the Inventory variable's Behavior Rules, or use one of the exact routes above |
+
+---
+
+## Custom code route: a shop panel under the chat
+
+This version draws the shop in the interface code. It still uses the **Buy** behavior for the gold check, so prices and the "not enough gold" message stay on the canvas, and it adds the item to an `inventory` list itself once the purchase goes through. It assumes a List / table variable named `inventory` starting at `[]`.
+
+**Panels → Front End Code** → open `index.tsx` and replace the default `return <Chat />`:
 
 ```tsx
 export default function MyWorld() {
   const api = useYumina();
   const msgs = api.messages || [];
 
-  // Read variables
-  const gold = Number(api.variables.gold ?? 100);
-  const inventory = Array.isArray(api.variables.inventory)
-    ? api.variables.inventory
-    : [];
+  const gold = Number(api.variables["Gold"] ?? 0);
+  const inventory = Array.isArray(api.variables.inventory) ? api.variables.inventory : [];
 
-  // Shop item definitions
   const shopItems = [
-    { name: "Potion",     price: 20, actionId: "buy-potion", icon: "\u{1F9EA}", desc: "Restores a small amount of health" },
-    { name: "Iron Sword", price: 50, actionId: "buy-sword",  icon: "\u2694\uFE0F", desc: "A plain iron sword" },
+    { name: "Potion",     price: 20, icon: "🧪", desc: "Restores a little health" },
+    { name: "Iron Sword", price: 50, icon: "⚔️", desc: "A plain iron sword" },
   ];
+
+  const buy = async (item) => {
+    // Run the "buy" behavior and wait for it; firedIds is empty if its
+    // condition failed (it shows its own "not enough gold" notice)
+    const result = await api.executeActionAndWait("buy", { item: item.name, price: item.price });
+    if (result.firedIds.length > 0) {
+      const current = Array.isArray(api.variables.inventory) ? api.variables.inventory : [];
+      api.setVariable("inventory", [...current, item.name]);
+    }
+  };
 
   return (
     <Chat renderBubble={(msg) => {
       const isLastMsg = msg.messageIndex === msgs.length - 1;
       return (
-    <div>
-      {/* Render message text normally (the platform already rendered HTML, use contentHtml directly) */}
-      <div
-        style={{ color: "#e2e8f0", lineHeight: 1.7 }}
-        dangerouslySetInnerHTML={{ __html: msg.contentHtml }}
-      />
+        <div>
+          <div
+            style={{ color: "#e2e8f0", lineHeight: 1.7 }}
+            dangerouslySetInnerHTML={{ __html: msg.contentHtml }}
+          />
 
-      {/* Only show the shop below the last message */}
-      {isLastMsg && (
-        <div style={{
-          marginTop: "16px",
-          padding: "16px",
-          background: "rgba(15, 23, 42, 0.6)",
-          borderRadius: "12px",
-          border: "1px solid #334155",
-        }}>
-
-          {/* ====== Gold display ====== */}
-          <div style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            marginBottom: "16px",
-            padding: "10px 14px",
-            background: "linear-gradient(135deg, #78350f, #92400e)",
-            borderRadius: "8px",
-            border: "1px solid #b45309",
-          }}>
-            <span style={{ fontSize: "20px" }}>{"\uD83D\uDCB0"}</span>
-            <span style={{ color: "#fde68a", fontSize: "16px", fontWeight: "bold" }}>
-              {gold} Gold
-            </span>
-          </div>
-
-          {/* ====== Shop heading ====== */}
-          <div style={{
-            fontSize: "14px",
-            fontWeight: "bold",
-            color: "#94a3b8",
-            marginBottom: "10px",
-            textTransform: "uppercase",
-            letterSpacing: "1px",
-          }}>
-            Shop
-          </div>
-
-          {/* ====== Item list ====== */}
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
-            {shopItems.map((item) => (
-              <div
-                key={item.actionId}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  padding: "10px 14px",
-                  background: "rgba(30, 41, 59, 0.8)",
-                  borderRadius: "8px",
-                  border: "1px solid #475569",
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <span style={{ fontSize: "22px" }}>{item.icon}</span>
-                  <div>
-                    <div style={{ color: "#e2e8f0", fontSize: "14px", fontWeight: "600" }}>
-                      {item.name}
-                    </div>
-                    <div style={{ color: "#64748b", fontSize: "12px" }}>
-                      {item.desc}
-                    </div>
-                  </div>
-                </div>
-                <button
-                  onClick={() => api.executeAction(item.actionId)}
-                  style={{
-                    padding: "6px 16px",
-                    background: gold >= item.price
-                      ? "linear-gradient(135deg, #065f46, #047857)"
-                      : "linear-gradient(135deg, #374151, #4b5563)",
-                    border: gold >= item.price
-                      ? "1px solid #10b981"
-                      : "1px solid #6b7280",
-                    borderRadius: "6px",
-                    color: gold >= item.price ? "#a7f3d0" : "#9ca3af",
-                    fontSize: "13px",
-                    fontWeight: "600",
-                    cursor: gold >= item.price ? "pointer" : "not-allowed",
-                    opacity: gold >= item.price ? 1 : 0.6,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {item.price} Gold
-                </button>
+          {isLastMsg && (
+            <div style={{
+              marginTop: "16px",
+              padding: "16px",
+              background: "rgba(15, 23, 42, 0.6)",
+              borderRadius: "12px",
+              border: "1px solid #334155",
+            }}>
+              {/* Gold */}
+              <div style={{
+                display: "flex", alignItems: "center", gap: "8px", marginBottom: "16px",
+                padding: "10px 14px", background: "linear-gradient(135deg, #78350f, #92400e)",
+                borderRadius: "8px", border: "1px solid #b45309",
+              }}>
+                <span style={{ fontSize: "20px" }}>💰</span>
+                <span style={{ color: "#fde68a", fontSize: "16px", fontWeight: "bold" }}>{gold} Gold</span>
               </div>
-            ))}
-          </div>
 
-          {/* ====== Inventory heading ====== */}
-          <div style={{
-            fontSize: "14px",
-            fontWeight: "bold",
-            color: "#94a3b8",
-            marginBottom: "10px",
-            textTransform: "uppercase",
-            letterSpacing: "1px",
-          }}>
-            Inventory
-          </div>
+              {/* Items for sale */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
+                {shopItems.map((item) => {
+                  const affordable = gold >= item.price;
+                  return (
+                    <div key={item.name} style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "10px 14px", background: "rgba(30, 41, 59, 0.8)",
+                      borderRadius: "8px", border: "1px solid #475569",
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <span style={{ fontSize: "22px" }}>{item.icon}</span>
+                        <div>
+                          <div style={{ color: "#e2e8f0", fontSize: "14px", fontWeight: "600" }}>{item.name}</div>
+                          <div style={{ color: "#64748b", fontSize: "12px" }}>{item.desc}</div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => buy(item)}
+                        style={{
+                          padding: "6px 16px", borderRadius: "6px", fontSize: "13px", fontWeight: "600", whiteSpace: "nowrap",
+                          background: affordable ? "#047857" : "#4b5563",
+                          border: "1px solid " + (affordable ? "#10b981" : "#6b7280"),
+                          color: affordable ? "#a7f3d0" : "#9ca3af",
+                          cursor: "pointer",
+                          opacity: affordable ? 1 : 0.6,
+                        }}
+                      >
+                        {item.price} Gold
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
 
-          {/* ====== Inventory grid ====== */}
-          {inventory.length === 0 ? (
-            <div style={{
-              padding: "20px",
-              textAlign: "center",
-              color: "#475569",
-              fontSize: "13px",
-              background: "rgba(30, 41, 59, 0.4)",
-              borderRadius: "8px",
-              border: "1px dashed #334155",
-            }}>
-              Inventory is empty
-            </div>
-          ) : (
-            <div style={{
-              display: "grid",
-              gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))",
-              gap: "8px",
-            }}>
-              {inventory.map((item, idx) => (
-                <div
-                  key={idx}
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: "10px 6px",
-                    background: "rgba(30, 41, 59, 0.8)",
-                    borderRadius: "8px",
-                    border: "1px solid #475569",
-                    gap: "4px",
-                  }}
-                >
-                  <span style={{ fontSize: "24px" }}>
-                    {item === "Potion" ? "\u{1F9EA}" : item === "Iron Sword" ? "\u2694\uFE0F" : "\uD83D\uDCE6"}
-                  </span>
-                  <span style={{ color: "#cbd5e1", fontSize: "11px", textAlign: "center" }}>
-                    {String(item)}
-                  </span>
+              {/* Inventory */}
+              {inventory.length === 0 ? (
+                <div style={{
+                  padding: "20px", textAlign: "center", color: "#475569", fontSize: "13px",
+                  background: "rgba(30, 41, 59, 0.4)", borderRadius: "8px", border: "1px dashed #334155",
+                }}>
+                  Inventory is empty
                 </div>
-              ))}
+              ) : (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))", gap: "8px" }}>
+                  {inventory.map((name, idx) => {
+                    const def = shopItems.find((s) => s.name === String(name));
+                    return (
+                      <div key={idx} style={{
+                        display: "flex", flexDirection: "column", alignItems: "center", gap: "4px",
+                        padding: "10px 6px", background: "rgba(30, 41, 59, 0.8)",
+                        borderRadius: "8px", border: "1px solid #475569",
+                      }}>
+                        <span style={{ fontSize: "24px" }}>{def ? def.icon : "📦"}</span>
+                        <span style={{ color: "#cbd5e1", fontSize: "11px", textAlign: "center" }}>{String(name)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </div>
-      )}
-    </div>
       );
     }} />
   );
 }
 ```
 
----
+**What the code does:**
 
-### Code walkthrough
+- `api.executeActionAndWait("buy", { item, price })` sets off the Buy behavior with the same values a player interface button would pass, and waits for it to finish
+- `result.firedIds` lists the behaviors that ran. Empty means the condition failed: the behavior has already shown its "not enough gold" notice, and nothing is added
+- `api.setVariable("inventory", [...current, item.name])` adds the item to the list
+- Unaffordable items are greyed out but still tappable, so the player gets the notice
+- `repeat(auto-fill, minmax(80px, 1fr))` fits as many inventory cells per row as the width allows
 
-Don't let the code length intimidate you — what it does is very straightforward. Let's go through it section by section:
+If you use this route, change the behavior's **Tell the AI** line to `The player just bought {param.item} for {param.price} gold.` so the AI doesn't also add the item.
 
-#### Basic setup
+The status next to the file in **Panels → Front End Code** should read a green **OK**.
 
-```tsx
-const api = useYumina();
-const msgs = api.messages || [];
-// ...
-<Chat renderBubble={(msg) => {
-  const isLastMsg = msg.messageIndex === msgs.length - 1;
-  // ...
-}} />
-```
-
-- The Root Component `MyWorld()` is the entry for the world's UI. `<Chat renderBubble={...} />` lets the platform handle the message list, input box, and scrolling — we only take over how an individual bubble looks
-- `useYumina()` — Gets the Yumina API so you can read variables and trigger actions
-- `msg.messageIndex` — The current bubble's index in the message list, used to check whether it's the last. The shop panel only shows below the last message so it doesn't repeat under every message in the chat
-- `msg.contentHtml` — The HTML the platform already rendered from Markdown, can be used directly in `dangerouslySetInnerHTML`
-
-#### Reading variables
-
-```tsx
-const gold = Number(api.variables.gold ?? 100);
-const inventory = Array.isArray(api.variables.inventory)
-  ? api.variables.inventory
-  : [];
-```
-
-- `api.variables.gold` — Reads the gold variable. `?? 100` is a fallback in case the variable hasn't loaded yet
-- `api.variables.inventory` — Reads the inventory variable. We use `Array.isArray()` to confirm it's actually an array, guarding against unexpected data
-
-#### Shop item definitions
-
-```tsx
-const shopItems = [
-  { name: "Potion",     price: 20, actionId: "buy-potion", icon: "\u{1F9EA}", desc: "Restores a small amount of health" },
-  { name: "Iron Sword", price: 50, actionId: "buy-sword",  icon: "\u2694\uFE0F", desc: "A plain iron sword" },
-];
-```
-
-All item info is defined in a single array, then rendered with `.map()`. Want to add a new item? Just add a line to the array — and of course, create the corresponding behaviors in the editor too.
-
-#### The buy button
-
-```tsx
-<button onClick={() => api.executeAction(item.actionId)}>
-  {item.price} Gold
-</button>
-```
-
-This is the most important line. Clicking the button calls `api.executeAction("buy-potion")`, and the engine finds the behavior with action ID `"buy-potion"`, checks conditions, and executes actions. **All the logic (checking gold, deducting it, adding the item, showing the notification) is defined in the behaviors** — the button just triggers them.
-
-#### Button visual feedback
-
-```tsx
-background: gold >= item.price
-  ? "linear-gradient(135deg, #065f46, #047857)"   // affordable → green
-  : "linear-gradient(135deg, #374151, #4b5563)",   // can't afford → gray
-cursor: gold >= item.price ? "pointer" : "not-allowed",
-opacity: gold >= item.price ? 1 : 0.6,
-```
-
-The button's color, cursor style, and opacity change dynamically based on whether the player can afford the item. Affordable items get green buttons; unaffordable ones are grayed out. This is purely visual feedback — the actual purchase logic lives in the behavior conditions.
-
-#### Inventory grid
-
-```tsx
-<div style={{
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fill, minmax(80px, 1fr))",
-  gap: "8px",
-}}>
-  {inventory.map((item, idx) => (
-    <div key={idx} style={{ /* cell styles */ }}>
-      <span>{item === "Potion" ? "\u{1F9EA}" : item === "Iron Sword" ? "\u2694\uFE0F" : "\uD83D\uDCE6"}</span>
-      <span>{String(item)}</span>
-    </div>
-  ))}
-</div>
-```
-
-Uses CSS Grid to lay out inventory items. `auto-fill` + `minmax(80px, 1fr)` makes the cells adapt to the available width — wider windows show more items per row, narrower windows show fewer. Each cell displays the item's icon and name.
-
-::: tip Don't want to write code? Use Studio AI
-At the top of the editor, click **Enter Studio** → AI Assistant panel → describe what you want, e.g., "Build a shop UI with gold display, item list, and inventory grid" — the AI will generate the code for you.
+::: tip Don't want to write code yourself?
+Click **Creation assistant** at the top right of the canvas and describe the shop you want.
 :::
 
 ---
 
-### Step 4: Save and test
+## Going further
 
-1. Click **Save** at the top of the editor
-2. Click **Start Game** or go back to the home page and open a new session
-3. You'll see a shop panel below the AI's reply: 100 gold, two items, empty inventory
-4. Click **20 Gold** to buy a potion — gold drops to 80, a potion icon appears in the inventory, and a gold notification says "Purchase successful! You got a Potion."
-5. Click it again — gold drops to 60, now there are two potions in the inventory
-6. Click **50 Gold** to buy an iron sword — gold drops to 10, the inventory gains a sword
-7. Now try buying anything — a yellow warning pops up saying "Not enough gold!", and gold and inventory stay unchanged
-8. Continue chatting with the AI — the shop panel stays at the bottom of the latest message, updating in real time
+### More items
 
-**If something goes wrong:**
+Add a button (or a line in `shopItems`) with its own item and price. The behavior doesn't change.
 
-| Symptom | Likely cause | Fix |
-|---------|-------------|-----|
-| Shop panel doesn't appear | Root Component code wasn't saved or has a syntax error | Check the compile status at the bottom of the Custom UI section — it should show a green "OK" |
-| Buttons don't respond to clicks | Action IDs in behaviors don't match the code | Confirm the behavior action IDs are `buy-potion` / `buy-sword`, exactly matching the `executeAction()` arguments in the code |
-| Gold is deducted but inventory doesn't change | The push action in the behavior isn't set up correctly | Check the modify variable action: variable should be `inventory`, operation should be `push`, value should be `"Potion"` (with quotes) |
-| Not enough gold but no warning appears | The "not enough gold" behavior condition is inverted | Confirm the condition is `gold lt 20` (less than), not `gold gte 20` |
-| Inventory items don't show icons | Item names don't match the icon mapping in the code | Confirm the behavior's push value matches the code's icon mapping (`"Potion"` maps to the test tube emoji, etc.) |
-| Gold display doesn't update after purchase | Normal — it refreshes with the next message | Send a message and check again, or check whether the notification appeared (if it did, the purchase succeeded) |
+### Selling
 
----
-
-## Going further: expanding the shop system
-
-Once you've got the basics down, you can use the same patterns to build more complex systems.
-
-### Adding more items
-
-Add a line to the `shopItems` array in the Root Component:
-
-```tsx
-const shopItems = [
-  { name: "Potion",       price: 20, actionId: "buy-potion", icon: "\u{1F9EA}", desc: "Restores a small amount of health" },
-  { name: "Iron Sword",   price: 50, actionId: "buy-sword",  icon: "\u2694\uFE0F", desc: "A plain iron sword" },
-  { name: "Shield",       price: 30, actionId: "buy-shield",  icon: "\uD83D\uDEE1\uFE0F", desc: "Provides basic protection" },
-  { name: "Magic Scroll", price: 80, actionId: "buy-scroll", icon: "\uD83D\uDCDC", desc: "Unleashes a fireball spell" },
-];
-```
-
-Then in the editor's Behaviors tab, create two behaviors for each new item (success + insufficient), following the exact same pattern as Potion and Iron Sword.
-
-### Letting the AI know what the player bought
-
-If you want the AI's story to react to purchases (e.g., after buying an iron sword the AI knows the player is armed), add a "Tell AI" action to the purchase-success behavior:
-
-| Action Type | Settings |
-|-------------|----------|
-| Tell AI | Content: `The player just bought an Iron Sword at the shop. Please reference this weapon in subsequent replies where appropriate.` |
-
-This injects a temporary instruction into the AI's context, letting it know what happened.
+A second behavior "Sell", Button `sell`, with Gold plus `{param.price}` and **Tell the AI** `The player sold {param.item}. Remove it from their Inventory.`
 
 ### Earning gold
 
-Right now the player can only spend gold, not earn it. You can use behaviors to give the player gold:
+- **Every N turns** (say `3`): **Change variable** Gold plus `10`
+- **AI says keyword** `you win the fight, the reward is yours`: Gold plus `25` (any one keyword fires it)
+- The AI itself, through Gold's Behavior Rules, for loot and rewards in the story
+- Quest rewards from the [quest tracker](./quest-tracker.md)
 
-- **Per-turn reward**: Create a behavior with the trigger "Every N turns" (e.g., every 3 turns), with the action `Modify Variable gold add 10`. The player automatically earns 10 gold every 3 conversation rounds.
-- **Keyword reward**: Use the trigger "AI said keyword" with a keyword like "battle won" or "quest complete". When the AI mentions these words in a reply, gold is automatically added.
-- **Manual earn button**: Add a "Work for Gold" button in the Root Component using `executeAction("earn-gold")` to trigger a behavior with the action `gold add 15`.
+### A shopkeeper who haggles
+
+For a merchant who answers in character and sometimes gives a discount, add a UI-based [AI](/creator/ais) with an **Answer format** field for the price, and call it from a button with **Call an AI**.
 
 ---
 
@@ -542,41 +295,20 @@ Right now the player can only spend gold, not earn it. You can use behaviors to 
 
 | What you want | How to do it |
 |---------------|-------------|
-| Track gold | Create a number variable, category: Resources |
-| Track inventory | Create a JSON variable, default `[]`, category: Inventory |
-| Deduct gold on purchase | Behavior action: Modify Variable, operation `subtract` |
-| Add item on purchase | Behavior action: Modify Variable, operation `push` |
-| Check if player can afford it | Behavior condition: `gold gte price` |
-| Show "not enough gold" warning | Separate behavior, condition `gold lt price`, action: Show Notification (warning) |
-| Show "purchase successful" alert | Behavior action: Show Notification (achievement style) |
-| Button triggers purchase | In the Root Component, call `api.executeAction("actionId")` |
-| Display inventory grid | In the Root Component, use CSS Grid + `inventory.map()` to render |
-| Add more items | Add a line to the shopItems array + create two behaviors in the editor |
-
----
-
-## Try it yourself — importable demo world
-
-Download this JSON file and import it to experience the complete shop system:
-
-<a href="/recipe-3-demo.json" download>recipe-3-demo.json</a>
-
-**How to import:**
-1. Go to Yumina → **My Worlds** → **Create New World**
-2. In the editor, click **More Actions** → **Import Package**
-3. Select the downloaded `.json` file
-4. A new world is created with all variables, behaviors, and Root Component pre-configured
-5. Start a new session and try it out
-
-**What's included:**
-- 2 variables (`gold` + `inventory`)
-- 4 behaviors (potion buy success/insufficient + iron sword buy success/insufficient)
-- A Root Component (gold display + item list + inventory grid)
+| Track gold | A Number variable with a minimum of `0` |
+| One behavior for the whole shop | **The player presses a button**, values read as `{param.item}` / `{param.price}` |
+| Pass the item and price | Button step **Set off a behavior** → **+ Pass something in** |
+| Check the player can afford it | **ONLY IF** Gold **≥** `{param.price}` |
+| Tell them when they can't | **If the conditions don't hold, say** |
+| Confirm the purchase | **Show notification**, style **Success** |
+| Get the item into the inventory | **Tell the AI** + the Inventory template, a Number variable per item, a **Code** effect, or interface code |
+| Grey out what they can't afford | Two versions of the button with **When to show** |
+| Run the same behavior from code | `api.executeActionAndWait("buy", { item, price })` |
 
 ---
 
 ::: tip This is Recipe #3
-The earlier recipes covered scene jumping and entry modification. This recipe shows you how to combine variable condition checks + JSON arrays + behavior actions into an interactive system. The same pattern works for quest systems, combat systems, crafting systems — anything that needs "check condition → deduct resource → add item → give feedback".
+A button passing values to one behavior works for anything priced or chosen from a menu: crafting, training, hiring. See [Behaviors · Passing a value from a button](/creator/automation#passing-a-value-from-a-button).
 :::
 
 </div>

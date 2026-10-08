@@ -1000,10 +1000,12 @@ const defaultAPI: SandboxedYuminaAPI = {
   voiceInputState: NO_VOICE_INPUT,
   realtimeVideo: {
     start: () => Promise.resolve({ error: "Video is unavailable in this view." }),
-    stop: () => {}, release: () => {}, skip: () => {}, rewind: () => {}, setSlot: () => {}, direct: () => {}, setMuted: () => {},
+    stop: () => {}, release: () => {}, skip: () => {}, rewind: () => {}, retake: () => {}, openWindow: () => {}, setSlot: () => {}, direct: () => {}, setMuted: () => {},
     onEvent: () => () => {},
   },
   realtimeVoice: {
+    getConfig: async () => ({ available: false, funding: null, transport: null, maxDurationSeconds: 0, finishAcknowledged: false }),
+    finish: async () => ({ status: 'unsupported', reason: 'no-scoped-relay-call', providerState: 'unconfirmed', accounting: 'unknown' }),
     prepare: () => Promise.reject(new Error("Voice is unavailable in this view.")),
     start: () => Promise.reject(new Error("Voice is unavailable in this view.")),
     stop: () => {}, interrupt: () => {}, setMuted: () => {}, updateContext: () => {}, updateInstructions: () => {}, reactToScene: () => {}, cancelSceneReaction: () => {}, resolveTool: () => {}, setSpatial: () => {},
@@ -1019,6 +1021,17 @@ export const COMPOSER_DRAFT_EVENT = "yumina:set-composer-draft";
 
 /** Realtime video state pushed by the host; api.realtimeVideo.onEvent listens. */
 export const VIDEO_EVENT = "yumina:video-event";
+// The latest film state the host pushed, for UI that mounts after it arrived (the chat's menu).
+let latestVideoState: RealtimeVideoState | null = null;
+if (typeof window !== "undefined") {
+  window.addEventListener(VIDEO_EVENT, (e) => {
+    const event = (e as CustomEvent).detail as { type?: string; state?: RealtimeVideoState } | null;
+    if (event?.type === "state" && event.state) latestVideoState = event.state;
+  });
+}
+export function currentVideoState(): RealtimeVideoState | null {
+  return latestVideoState;
+}
 /** An event the AI set off (`[event: name]`); api.onStoryEvent listens. */
 export const STORY_EVENT = "yumina:story-event";
 
@@ -1037,12 +1050,19 @@ export interface RealtimeVideoState {
   offered?: boolean;
   /** The player turned scene video on in Settings › Display (otherwise the host asks once). */
   optedIn?: boolean;
-  /** Engines the card may offer the player: "comfy-h3" (about 130 mushies a minute), "fal" (about 5,800). */
+  /** Engines the card may offer the player: "fal" (a live stream that follows the story, about
+   *  5,800 mushies a minute) and "shorts" (a 5-60 s film per reply, ready a few minutes after
+   *  it is written, about 100-1,400 mushies a reply). */
   engines?: string[];
   /** The host is asking the player to turn scene video on (first use). */
   consent?: boolean;
   clips: number;
+  /** Shorts: no film is playing right now and the last frame holds. */
   waiting: boolean;
+  /** Shorts: the newest reply's film while it is made ("writing" the shots, then "shooting" them:
+   *  done of shots), or "failed" with a reason ("busy" | "credits" | "timeout" | "unavailable");
+   *  null once it has landed (it plays next). */
+  short?: { status: "writing" | "shooting" | "failed"; shots: number; done: number; reason?: string } | null;
   currentShot: string;
   currentStatus: string;
   /** Sound is off; the host falls back to muted when the browser refuses sound. */
@@ -1081,13 +1101,19 @@ export interface RealtimeVideoState {
 export interface RealtimeVideoAPI {
   /** hold: get ready while the player is busy (a character form): the opening is directed and its
    *  first shot starts shooting, the rest waits for release(). A hold nobody releases stops after 3 min. */
-  start(options?: { engine?: "fal" | "comfy-h3" | "comfy-causal"; style?: string; limitSeconds?: number; idleSeconds?: number; openingBeats?: number; hold?: boolean; resume?: boolean; playerChoice?: boolean }): Promise<{ ok: true } | { error: string }>;
+  start(options?: { engine?: "fal" | "shorts"; style?: string; limitSeconds?: number; idleSeconds?: number; openingBeats?: number; hold?: boolean; resume?: boolean; playerChoice?: boolean }): Promise<{ ok: true } | { error: string }>;
   /** The player is here: play the rest of a held opening. */
   release(): void;
-  /** Fast-forward: send the next shot now instead of letting the current one play out. */
+  /** Fast-forward: send the next shot now instead of letting the current one play out.
+   *  Shorts: on to the next film (on the newest one, to its last frame). */
   skip(): void;
-  /** Rewind: film the previous shot again, then replay the shots after it up to the latest. */
+  /** Rewind: film the previous shot again, then replay the shots after it up to the latest.
+   *  Shorts: back to the start of this film (at its start: the one before), playing on from there. */
   rewind(): void;
+  /** Shoot the latest shot again. Shorts: film the newest reply again (its new film replaces the old). */
+  retake(): void;
+  /** Open the host's own film window (where a card without a film stage shows the film). */
+  openWindow(): void;
   stop(): void;
   /** Where the host draws the video, in this frame's viewport; null hides it. Re-send on resize. */
   setSlot(rect: VideoSlotRect | null): void;
@@ -1658,6 +1684,8 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
       release: () => postToParent("realtimeVideo.release", []),
       skip: () => postToParent("realtimeVideo.skip", []),
       rewind: () => postToParent("realtimeVideo.rewind", []),
+      retake: () => postToParent("realtimeVideo.retake", []),
+      openWindow: () => postToParent("realtimeVideo.openWindow", []),
       setSlot: (rect) => postToParent("realtimeVideo.setSlot", [rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, radius: rect.radius } : null]),
       direct: (prompt) => postToParent("realtimeVideo.direct", [String(prompt).slice(0, 4000)]),
       setMuted: (muted) => postToParent("realtimeVideo.setMuted", [!!muted]),

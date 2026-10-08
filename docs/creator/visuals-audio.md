@@ -1,7 +1,5 @@
 # Visuals & Audio
 
-Every card comes with a clean chat interface. Here's how to make it look and sound better.
-
 On the canvas, audio and scene images each get their own block. If you don't have them yet, click **＋ Audio** or **＋ Scene images** in the "Add" row at the bottom of the card. The screen players see is edited under **Player interface** at the top. Uploaded files live in **Panels → Assets**.
 
 ## Character portraits
@@ -31,11 +29,9 @@ The full interface code guide → [Advanced: Custom UI Deep Dive](/creator/advan
 
 **BGM playlists** rotate through tracks automatically, and **Conditional BGM** switches based on game state (like playing battle music when the variable `location` is "arena").
 
-A horror world might play tense BGM while you explore, fire a sharp SFX when something lunges at the player, and keep steady rain ambience going in the background. Three layers, all at once.
-
 Click a track in **Panels → Audio** to see its **Track ID**, with **Copy ID** right next to it. That's the ID to use in your own interface code, like `api.playAudio("track-id")`. Renaming the track doesn't change it, so your code keeps working.
 
-If you don't want the AI touching a track, click it on the canvas and turn off **Allow AI control** on the right. The AI can't play, stop or change it anymore, but your interface, behaviours and playlists still can.
+If you don't want the AI touching a track, click it on the canvas and turn off **Allow AI control** on the right. The AI can't play, stop or change it anymore, but your interface, behaviors and playlists still can.
 
 Audio patterns and conditional BGM in detail → [Advanced: Audio Design](/creator/advanced/audio-deep)
 
@@ -43,7 +39,7 @@ Audio patterns and conditional BGM in detail → [Advanced: Audio Design](/creat
 
 Players can turn on **Voice readout** in their own settings to have the story read out. You can give each character a voice: on the canvas, right-click that character's lore entry, pick **Voice…**, choose one, and click **Preview voice** to hear it. Characters without a voice use the **Narrator voice**. If the narrator doesn't have one either, it uses whatever the player picked in their settings.
 
-The narrator voice and **Player voice input** live in the **Sound** section of **Card settings** (click **Cover & blurb** on the right of the canvas, or **Panels → Card settings**). Player voice input decides what happens when the player holds the mic, speaks and lets go: **Review first** before sending, or **Send right away**. Cards that thrive on quick reactions, like werewolf games or interrogations, suit Send right away.
+The narrator voice and **Player voice input** live in the **Sound** section of **Card settings** (click **Cover & blurb** on the right of the canvas, or **Panels → Card settings**). Player voice input decides what happens when the player holds the mic, speaks and lets go: **Review first** before sending, or **Send right away**. Cards built on quick reactions, like werewolf games or interrogations, suit Send right away.
 
 ![The Sound section in Card settings](./images/canvas/card-settings.webp)
 
@@ -66,7 +62,7 @@ If you turn **Smart tracking** off in **Card settings**, only the story AI can i
 
 ## Assets
 
-You can upload images, audio files, fonts and other media in **Panels → Assets**. Files are hosted on Yumina's CDN, and you can use them anywhere in custom UI, entries or audio tracks. No need to host anything yourself.
+You can upload images, audio files, fonts and other media in **Panels → Assets**. Files are hosted on Yumina's CDN, and you can use them anywhere in custom UI, entries or audio tracks.
 
 In **My Library → Assets**, upload MP4 or WebM videos with **Upload → Upload files**. Click the **Video** filter to find them, then open a video's preview to play it with the built-in controls.
 
@@ -82,9 +78,9 @@ With lots of assets, type a page number in the pagination box at the bottom and 
 
 ## AI image generation
 
-Don't feel like hunting for pictures? Make them right on the platform. There are three ways in: the **AI Image Generation** card on the "Create" page, the **AI Generation** button in the top right of "My Library → Assets", and the **AI generation** section in the editor.
+You can also make pictures right on the platform. There are three ways in: the **AI Image Generation** card on the "Create" page, the **AI Generation** button in the top right of "My Library → Assets", and the **AI generation** section in the editor.
 
-Write a line describing the picture, pick a model, an aspect ratio and how many images, then click "Generate". The default model costs about 35 mushies per image, charged by actual usage once the image arrives. No image, no charge. Pictures usually take around 30 seconds, and a notification with a thumbnail tells you when they're done.
+Write a line describing the picture, pick a model, an aspect ratio and how many images, then click "Generate". The default model costs about 35 mushies per image, charged by actual usage once the image arrives. If no image comes back, you aren't charged. Pictures usually take around 30 seconds, and a notification with a thumbnail tells you when they're done.
 
 Generated pictures go into your asset library (you can pick a folder) and are used just like uploads, with `@asset:{id}`. You can also take an existing picture as a reference and describe how to change it.
 

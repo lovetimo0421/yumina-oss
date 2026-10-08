@@ -66,7 +66,11 @@ export function scanAssets(
     }
   };
 
-  if (!world) return { priority: [], deferred: [] };
+  // A full custom root can own all stage loading, including content outside its
+  // code. Do not speculate from future lore, audio or messages in that mode.
+  if (!world || world.rootComponent?.assetLoading === "on-demand") {
+    return { priority: [], deferred: [] };
+  }
 
   // Priority tier 1: root component entry file (v2 Card UI runtime) — always on
   // screen as soon as the sandbox mounts

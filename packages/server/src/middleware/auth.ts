@@ -137,13 +137,10 @@ async function loadUserFresh(userId: string): Promise<SessionUser | null> {
   return row as SessionUser;
 }
 
-export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
-  // Several routers share the "/api" mount and some still guard it broadly
-  // (completions' "/*"), so a request can pass this middleware more than once.
-  // The first pass already proved the session and loaded the user for THIS
-  // request; repeating it only costs Redis reads and a primary lookup.
-  if (c.get("user") && c.get("session")) return next();
-  const token = getSessionToken(c.req.raw.headers);
+/** Shared authentication for HTTP middleware and owned WebSocket upgrades.
+ * A decoded cookie or embedded cached user is never an account-existence proof. */
+export async function authenticateHeaders(headers: Headers): Promise<Pick<AppEnv["Variables"], "user" | "session"> | null> {
+  const token = getSessionToken(headers);
 
   // Fast path: validate session via Redis (cheap), then fetch user fresh from
   // DB. Avoids Better-Auth's full getSession() JOIN query on cache hit.
@@ -152,14 +149,12 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
     if (cached) {
       const user = await loadUserFresh(cached.userId);
       if (user) {
-        c.set("user", user);
-        c.set("session", {
+        return { user, session: {
           id: cached.sessionId,
           userId: cached.userId,
           expiresAt: new Date(cached.sessionExpiresAtMs),
           token,
-        });
-        return next();
+        } };
       }
       // User row missing (deleted account but cached session token).
       // Drop to full Better-Auth lookup which will 401.
@@ -167,16 +162,10 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   }
 
   const result = await auth.api.getSession({
-    headers: c.req.raw.headers,
+    headers,
   });
 
-  if (!result) {
-    const hasCookie = !!token;
-    console.warn(
-      `[auth] 401 on ${c.req.method} ${c.req.path} — cookie=${hasCookie ? "present" : "missing"}`,
-    );
-    return c.json({ error: "Unauthorized" }, 401);
-  }
+  if (!result) return null;
 
   // Better Auth may still accept a signed cookie-cache payload (or a stale
   // secondary-storage entry) briefly after account deletion. Never trust that
@@ -190,16 +179,27 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
         `ba:rl:${token}`,
       ).catch(() => {});
     }
-    return c.json({ error: "Unauthorized" }, 401);
+    return null;
   }
-
-  c.set("user", freshUser);
-  c.set("session", result.session as AppEnv["Variables"]["session"]);
 
   if (token) {
     writeCachedSession(token, result.session.id, result.session.userId, new Date(result.session.expiresAt));
   }
 
+  return { user: freshUser, session: result.session as AppEnv["Variables"]["session"] };
+}
+
+export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
+  // Multiple routers may authenticate the same HTTP request; reuse only its
+  // already established context, never a separate upgrade's supplied fields.
+  if (c.get("user") && c.get("session")) return next();
+  const result = await authenticateHeaders(c.req.raw.headers);
+  if (!result) {
+    console.warn(`[auth] 401 on ${c.req.method} ${c.req.path} — cookie=${getSessionToken(c.req.raw.headers) ? "present" : "missing"}`);
+    return c.json({ error: "Unauthorized" }, 401);
+  }
+  c.set("user", result.user);
+  c.set("session", result.session);
   await next();
 });
 

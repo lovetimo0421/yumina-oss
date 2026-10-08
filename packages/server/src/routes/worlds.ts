@@ -52,7 +52,7 @@ import { serveDiscoveryFeed, DISCOVERY_POLICY_VERSION, DiscoveryCursorError, Dis
 import { edition } from "../edition/index.js";
 import { sanitizeContent } from "../lib/sanitize.js";
 import { createWorldSchema, updateWorldSchema } from "@yumina/shared";
-import { hasPublishableCover, hasDiscoverCoverArt, isDefaultWorldName } from "@yumina/shared";
+import { hasPublishableCover, getDiscoverCoverArtIssues, isDefaultWorldName } from "@yumina/shared";
 import { scanWorldSchemaForInlineAssets } from "../lib/asset-validation.js";
 import {
   notify,
@@ -82,7 +82,6 @@ import { resolveProfileContentLevel } from "../lib/profile-content-level.js";
 import { resolveHeroWorlds, type HeroSlot } from "../lib/hero-worlds.js";
 import type { AppEnv, SessionUser } from "../lib/types.js";
 import { blockedJson, getBlockStatus, listBlockedUsersForHiding } from "../lib/blocks.js";
-import { findVariantSiblings, isEligibleForReviewSubmit } from "../lib/review.js";
 import { approveGroup } from "../lib/approve-review.js";
 import {
   getPendingEdit,
@@ -2275,7 +2274,7 @@ worldRoutes.patch("/:id", authMiddleware, async (c) => {
   // metadata PATCH no longer carries status/isPublished (removed from
   // updateWorldSchema), so this was both dead and the moderation-bypass vector
   // (a forged PATCH could flip a whole variant group live without review).
-  // Publish/unpublish + the sibling fan-out live solely in POST /:id/status.
+  // Publish/unpublish transitions live solely in POST /:id/status.
   const updated = result[0]!;
 
   // (主/副 rebalance after a language change now runs INSIDE the transaction
@@ -2422,6 +2421,9 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
       languageGroupId: worlds.languageGroupId,
       language: worlds.language,
       tags: worlds.tags,
+      landscapeCoverUrl: worlds.landscapeCoverUrl,
+      coverCrop: worlds.coverCrop,
+      landscapeCoverCrop: worlds.landscapeCoverCrop,
     })
     .from(worlds)
     .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)));
@@ -2506,16 +2508,10 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
     // true/false.
     const blurCover = body.blurCover === undefined ? isNsfw : body.blurCover;
 
-    const siblings = await findVariantSiblings(
-      currentUser.id,
-      existing[0]!.languageGroupId,
-      worldId,
-    );
-
-    const submittable = siblings.filter((s) => isEligibleForReviewSubmit(s.status));
-    if (submittable.length === 0) {
-      return c.json({ error: "No siblings are eligible to enter review" }, 400);
-    }
+    // The creator picked one card. Language siblings may be unfinished drafts
+    // or separate releases, so neither validate nor submit them implicitly.
+    // Ownership and this card's transition were checked above.
+    const submittable = [existing[0]!];
 
     // A card must carry a real, creator-chosen name before it can go live. The
     // default placeholder ("未命名" / "Untitled", numbered or not) is rejected so
@@ -2538,11 +2534,16 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
       return c.json({
         error: "Add a cover image before publishing — every published card needs one. Upload it in the editor's Overview section, then submit again.",
         code: "COVER_REQUIRED",
+        artworkFailures: [{ worldId: coverless.id, name: coverless.name, language: coverless.language, missing: ["portraitImage"] }],
       }, 400);
     }
 
-    if ((await discoverAccess(currentUser.id)).enabled && submittable.some(s => !hasDiscoverCoverArt(s))) {
-      return c.json({ error: "Set up portrait (2:3) and landscape (16:9) artwork in Overview and confirm both crops before publishing.", code: "COVER_ART_REQUIRED" }, 400);
+    if ((await discoverAccess(currentUser.id)).enabled) {
+      const artworkFailures = submittable.map(s => ({ worldId: s.id, name: s.name, language: s.language, missing: getDiscoverCoverArtIssues(s) }))
+        .filter(failure => failure.missing.length > 0);
+      if (artworkFailures.length > 0) {
+        return c.json({ error: "Set up portrait (2:3) and landscape (16:9) artwork in Overview and confirm both crops before publishing.", code: "COVER_ART_REQUIRED", artworkFailures }, 400);
+      }
     }
 
     const groupKey = existing[0]!.languageGroupId ?? worldId;
@@ -2660,34 +2661,17 @@ worldRoutes.post("/:id/status", authMiddleware, rateLimitMiddleware("publishing"
     .where(and(eq(worlds.id, worldId), eq(worlds.creatorId, currentUser.id)))
     .returning();
 
-  // Withdraw fan-out across variant siblings + mark submissions withdrawn.
+  // Withdraw only this version, matching the author's independent submission.
   if (currentStatus === "pending_review" && newStatus === "draft") {
-    const groupKey = existing[0]!.languageGroupId ?? worldId;
     await db.transaction(async (tx) => {
       await tx
         .update(worldReviewSubmissions)
         .set({ decision: "withdrawn", decidedBy: currentUser.id, decidedAt: new Date() })
         .where(and(
-          eq(worldReviewSubmissions.groupKey, groupKey),
+          eq(worldReviewSubmissions.worldId, worldId),
+          eq(worldReviewSubmissions.submissionType, "initial"),
           eq(worldReviewSubmissions.decision, "pending"),
         ));
-
-      if (existing[0]!.languageGroupId) {
-        await tx
-          .update(worlds)
-          .set({
-            status: "draft",
-            isPublished: false,
-            reviewStatus: null,
-            submittedForReviewAt: null,
-            updatedAt: new Date(),
-          })
-          .where(and(
-            eq(worlds.languageGroupId, existing[0]!.languageGroupId),
-            eq(worlds.creatorId, currentUser.id),
-            eq(worlds.status, "pending_review"),
-          ));
-      }
     });
   }
 
@@ -2725,7 +2709,6 @@ worldRoutes.post("/:id/withdraw-review", authMiddleware, async (c) => {
     return c.json({ error: "World is not currently in review" }, 400);
   }
 
-  const groupKey = w.languageGroupId ?? worldId;
   const now = new Date();
 
   await db.transaction(async (tx) => {
@@ -2733,37 +2716,25 @@ worldRoutes.post("/:id/withdraw-review", authMiddleware, async (c) => {
       .update(worldReviewSubmissions)
       .set({ decision: "withdrawn", decidedBy: currentUser.id, decidedAt: now })
       .where(and(
-        eq(worldReviewSubmissions.groupKey, groupKey),
+        eq(worldReviewSubmissions.worldId, worldId),
+        eq(worldReviewSubmissions.submissionType, "initial"),
         eq(worldReviewSubmissions.decision, "pending"),
       ));
 
-    if (w.languageGroupId) {
-      await tx
-        .update(worlds)
-        .set({
-          status: "draft",
-          isPublished: false,
-          reviewStatus: null,
-          submittedForReviewAt: null,
-          updatedAt: now,
-        })
-        .where(and(
-          eq(worlds.languageGroupId, w.languageGroupId),
-          eq(worlds.creatorId, currentUser.id),
-          eq(worlds.status, "pending_review"),
-        ));
-    } else {
-      await tx
-        .update(worlds)
-        .set({
-          status: "draft",
-          isPublished: false,
-          reviewStatus: null,
-          submittedForReviewAt: null,
-          updatedAt: now,
-        })
-        .where(eq(worlds.id, worldId));
-    }
+    await tx
+      .update(worlds)
+      .set({
+        status: "draft",
+        isPublished: false,
+        reviewStatus: null,
+        submittedForReviewAt: null,
+        updatedAt: now,
+      })
+      .where(and(
+        eq(worlds.id, worldId),
+        eq(worlds.creatorId, currentUser.id),
+        eq(worlds.status, "pending_review"),
+      ));
   });
 
   return c.json({ data: { withdrawn: true } });
@@ -2789,12 +2760,11 @@ worldRoutes.post("/:id/refresh-review", authMiddleware, rateLimitMiddleware("pub
     return c.json({ error: "World is not currently in review" }, 400);
   }
 
-  const groupKey = w.languageGroupId ?? worldId;
   const now = new Date();
 
   await db.transaction(async (tx) => {
     const reviewWorlds = await tx.select().from(worlds).where(and(
-      sql`coalesce(${worlds.languageGroupId}, ${worlds.id}) = ${groupKey}`,
+      eq(worlds.id, worldId),
       eq(worlds.creatorId, currentUser.id), eq(worlds.status, "pending_review"),
     )).orderBy(worlds.id).for("update");
     for (const row of reviewWorlds) await capturePublishVersion(tx, row, null);
@@ -2802,28 +2772,22 @@ worldRoutes.post("/:id/refresh-review", authMiddleware, rateLimitMiddleware("pub
       .update(worldReviewSubmissions)
       .set({ submittedAt: now, ignoredAt: null, ignoredBy: null })
       .where(and(
-        eq(worldReviewSubmissions.groupKey, groupKey),
+        eq(worldReviewSubmissions.worldId, worldId),
+        eq(worldReviewSubmissions.submissionType, "initial"),
         eq(worldReviewSubmissions.decision, "pending"),
       ));
 
     // Deliberately do NOT touch worlds.updatedAt: this is not a content
     // change, and bumping it would trip the editor's STALE_WORLD save guard
     // (baseUpdatedAt mismatch) on the very next save after pressing the button.
-    if (w.languageGroupId) {
-      await tx
-        .update(worlds)
-        .set({ submittedForReviewAt: now })
-        .where(and(
-          eq(worlds.languageGroupId, w.languageGroupId),
-          eq(worlds.creatorId, currentUser.id),
-          eq(worlds.status, "pending_review"),
-        ));
-    } else {
-      await tx
-        .update(worlds)
-        .set({ submittedForReviewAt: now })
-        .where(eq(worlds.id, worldId));
-    }
+    await tx
+      .update(worlds)
+      .set({ submittedForReviewAt: now })
+      .where(and(
+        eq(worlds.id, worldId),
+        eq(worlds.creatorId, currentUser.id),
+        eq(worlds.status, "pending_review"),
+      ));
   });
 
   return c.json({ data: { refreshed: true } });

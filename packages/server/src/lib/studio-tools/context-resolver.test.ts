@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { WorldDefinition } from "@yumina/engine";
-import { buildInventory, extractKeywords, toStringArray } from "./context-resolver.js";
+import { buildInventory, extractKeywords, resolveContext, toStringArray } from "./context-resolver.js";
+import { migrateWorldDefinition } from "@yumina/engine";
 
 // ── toStringArray ──
 // Regression: a lorebook entry whose `keywords`/`tags` were persisted as a
@@ -119,6 +120,41 @@ function blackboardWorld(): WorldDefinition {
     },
   } as unknown as WorldDefinition;
 }
+
+for (const conditions of [undefined, null]) {
+  test(`Studio context and estimates accept sparse entry conditions (${conditions})`, async () => {
+    const world = blackboardWorld();
+    world.version = "21.0.0";
+    world.entries = [{
+      id: "locale-output-policy", name: "Language and display policy", content: "Use the chosen language.",
+      role: "system", section: "system-presets", keywords: [], enabled: true, alwaysSend: true,
+      conditions,
+    }] as unknown as WorldDefinition["entries"];
+
+    // Both a raw legacy snapshot and the estimate route's migrated snapshot
+    // must survive inventory and full-content preloading.
+    for (const snapshot of [world, migrateWorldDefinition(world)]) {
+      const context = await resolveContext(snapshot, "Review language policy", { userId: "u" });
+      assert.match(context.inventory, /locale-output-policy/);
+      assert.match(context.preloadedEntities, /Use the chosen language\./);
+      assert.doesNotMatch(context.preloadedEntities, /conditions \(/);
+      assert.ok(Number.isFinite(context.tokenEstimate) && context.tokenEstimate > 0);
+    }
+  });
+}
+
+test("Studio context keeps non-empty entry conditions in inventory and preloaded content", async () => {
+  const world = blackboardWorld();
+  world.entries = [{
+    id: "conditional", name: "Conditional policy", content: "Only when trusted.",
+    role: "system", section: "system-presets", keywords: [], enabled: true,
+    conditions: [{ variableId: "trust", operator: "gte", value: 5 }], conditionLogic: "any",
+  }] as unknown as WorldDefinition["entries"];
+
+  const context = await resolveContext(world, "Review policy", { userId: "u" });
+  assert.match(context.inventory, /conditions=\[trust gte 5\]/);
+  assert.match(context.preloadedEntities, /conditions \(any\): trust gte 5/);
+});
 
 test("buildInventory carries a module's sticky note", () => {
   const inv = buildInventory(blackboardWorld(), []);

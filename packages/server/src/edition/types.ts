@@ -70,6 +70,8 @@ export interface Edition {
   info(): EditionInfo;
   /** Hosting-wide access policies, installed before every core/API router. */
   mountAccessPolicies?(app: Hono): void;
+  /** Hosted editions may own bounded authenticated upgrade transports. */
+  attachHttpServer?(server: import("node:http").Server): void;
   /**
    * Routers that must sit BEFORE messageRoutes' broad `/api/*` auth middleware:
    * public reads (hub gallery, community, bundles), webhooks (Stripe), guest

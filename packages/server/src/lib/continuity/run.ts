@@ -51,6 +51,7 @@ export interface ContinuityTurnArgs {
 }
 
 export interface ContinuityTurnOutcome {
+  audit?: { status: "disabled" | "no-questions" | "completed" | "error"; model?: string; errorCode?: string; ms?: number };
   /** The typed questions the judge was asked (playtest shows them). */
   questions?: Record<string, JevQuestion>;
   /** Set-effects for judge-owned variables. Apply AFTER the AI write filter. */
@@ -95,7 +96,7 @@ function readMemory(stateManager: GameStateManager): ContinuityMemory {
 }
 
 export async function runContinuityTurn(args: ContinuityTurnArgs): Promise<ContinuityTurnOutcome> {
-  if (!continuityGloballyEnabled() || !isContinuityEnabled(args.world)) return NOTHING;
+  if (!continuityGloballyEnabled() || !isContinuityEnabled(args.world)) return { ...NOTHING, audit: { status: "disabled" } };
   const state = args.stateManager.getSnapshot();
   const memory = readMemory(args.stateManager);
   // Planning reads the card's own data (variables, audio notes, scene images),
@@ -119,9 +120,9 @@ export async function runContinuityTurn(args: ContinuityTurnArgs): Promise<Conti
     });
   } catch (err) {
     console.warn(`[Continuity] skipped (plan): ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);
-    return NOTHING;
+    return { ...NOTHING, audit: { status: "error", errorCode: "plan-error" } };
   }
-  if (!plan) return NOTHING;
+  if (!plan) return { ...NOTHING, audit: { status: "no-questions" } };
 
   const started = Date.now();
   let playerKey: string | null = null;
@@ -144,10 +145,11 @@ export async function runContinuityTurn(args: ContinuityTurnArgs): Promise<Conti
       promptTokens: res.usage.inputTokens, completionTokens: res.usage.outputTokens, totalTokens: res.usage.inputTokens + res.usage.outputTokens,
       apiKeyTier: sideCallTier(res.keySource), generationTimeMs: Date.now() - started, tokenMeasurement: "provider",
     }).catch(() => { /* logged inside */ });
-    return { effects: result.effects, audioEffects: result.audioEffects, imageIds: result.imageIds, ran: true, decisions: result.decisions, questions: plan.questions };
+    return { effects: result.effects, audioEffects: result.audioEffects, imageIds: result.imageIds, ran: true, decisions: result.decisions, questions: plan.questions,
+      audit: { status: "completed", model: res.model, ms: Date.now() - started } };
   } catch (err) {
     const code = err instanceof DecisionError ? err.code : "unknown";
     if (code !== "cancelled") console.warn(`[Continuity] skipped (${code}) after ${Date.now() - started}ms: ${err instanceof Error ? err.message.slice(0, 200) : String(err)}`);
-    return NOTHING;
+    return { ...NOTHING, audit: { status: "error", errorCode: code, ms: Date.now() - started } };
   }
 }

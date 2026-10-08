@@ -1,4 +1,5 @@
 import { Hono, type Context } from "hono";
+import type { PilotCleanupResult } from "../lib/voice-lifetime.js";
 import { z } from "zod";
 import type { AppEnv, SessionUser } from "../lib/types.js";
 import { isVoiceSdp, isVoiceToolAllowlist, VOICE_MAX_INSTRUCTIONS, VoiceConnectionError, type VoiceConnectRequest, type VoiceToolName } from "../lib/voice-realtime.js";
@@ -36,6 +37,9 @@ export class VoiceAvatarError extends Error {
 }
 
 export interface VoiceRouteServices {
+  /** Null means outside hosted balance policy. An unavailable result must not
+   * fall through to another key/funding mechanism. */
+  balanceConfig?(userId: string, sessionId: string): Promise<Record<string, unknown> | null>;
   authenticate(c: Context<AppEnv>): Promise<Pick<SessionUser, "id" | "isBanned" | "isSuspended"> | null>;
   ownsSession(sessionId: string, userId: string): Promise<boolean>;
   getOpenAiKey(userId: string): Promise<string | null>;
@@ -48,7 +52,7 @@ export interface VoiceRouteServices {
   getTestingKey?(): string | null;
   getPilotKey?(userId: string, sessionId: string): Promise<string | null>;
   connectPilot?(request: VoiceConnectRequest & { sessionId: string; connectionId: string }): Promise<string>;
-  stopPilot?(userId: string, sessionId: string, connectionId: string): Promise<void>;
+  stopPilot?(userId: string, sessionId: string, connectionId: string): Promise<PilotCleanupResult|null|void>;
   connectSponsored?(request: VoiceConnectRequest & { sessionId: string; connectionId?: string; sponsored?: boolean }): Promise<string>;
   stopSponsored?(userId: string, sessionId: string, connectionId?: string): Promise<void>;
   avatarAvailable?(): boolean;
@@ -80,15 +84,22 @@ export function createVoiceRoutes(services: VoiceRouteServices | (() => Promise<
         const deps = typeof services === "function" ? await services() : services;
         const user = await deps.authenticate(c);
         if (!user) return c.json({ error: "Sign in to use live voice.", code: "UNAUTHORIZED" }, 401);
-        if (user.isBanned || user.isSuspended) return c.json({ error: "Live voice is unavailable for this account.", code: "VOICE_FORBIDDEN" }, 403);
         const sessionId = c.req.param("sessionId")!;
+        const connection=action==='stop'?readConnectionId(c.req.raw):undefined;
+        if(action==='stop'&&connection&&/^[a-zA-Z0-9_-]{1,128}$/.test(sessionId)){
+          // Exact retained pilot ownership authorizes cleanup only, including
+          // deleted chats/restricted accounts. It grants no other transport.
+          const cleanup=await deps.stopPilot?.(user.id,sessionId,connection);
+          if(cleanup)return c.json({stopped:cleanup.status==='closed',cleanup:cleanup.status},cleanup.status==='pending'?202:200);
+        }
+        if (user.isBanned || user.isSuspended) return c.json({ error: "Live voice is unavailable for this account.", code: "VOICE_FORBIDDEN" }, 403);
         if (!/^[a-zA-Z0-9_-]{1,128}$/.test(sessionId) || !await deps.ownsSession(sessionId, user.id)) return c.json({ error: "Session not found.", code: "SESSION_NOT_FOUND" }, 404);
         if (action === "stop") {
-          const connection = readConnectionId(c.req.raw);
           await deps.stopSponsored?.(user.id, sessionId, connection);
-          if (connection) await deps.stopPilot?.(user.id, sessionId, connection);
           return c.json({ stopped: true });
         }
+        const balance = await deps.balanceConfig?.(user.id, sessionId);
+        if (balance) return c.json(balance);
         const ownKey = await deps.getOpenAiKey(user.id);
         const funding = ownKey?.trim() ? "byok" : deps.connectSponsored && deps.getTestingKey?.() ? "testing"
           : deps.connectPilot && await deps.getPilotKey?.(user.id, sessionId) ? "private-pilot" : null;
@@ -159,6 +170,9 @@ export function createVoiceRoutes(services: VoiceRouteServices | (() => Promise<
       }
       if (!await deps.ownsSession(sessionId, currentUser.id)) {
         return c.json({ error: "Session not found.", code: "SESSION_NOT_FOUND" }, 404);
+      }
+      if (await deps.balanceConfig?.(currentUser.id, sessionId)) {
+        return c.json({ error: "This session uses normal-balance voice.", code: "VOICE_BALANCE_REQUIRED" }, 409);
       }
       const ownKey = await deps.getOpenAiKey(currentUser.id);
       const testingKey = !ownKey?.trim() && deps.connectSponsored ? deps.getTestingKey?.() : null;

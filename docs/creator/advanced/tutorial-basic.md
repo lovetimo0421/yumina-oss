@@ -1,41 +1,36 @@
 # Step-by-Step Tutorial: Build a Survival Horror World from Scratch
 
 ::: tip
-This tutorial uses the classic editor layout. For your first story in Studio, start with [Canvas basics](/creator/canvas).
+This tutorial uses the canvas moves from [Canvas basics](/creator/canvas): clicking rows open, the **Add** row at the bottom of the card, and **Play** in the top bar. Do that page first if you haven't.
 :::
 
 
 We're going to build a horror survival game inspired by **"No, I'm not a Human"**. The premise is simple: the apocalypse has arrived, and outside there are "Visitors" disguised as humans. You're alone at home, and every night someone comes knocking. Peer through the peephole to judge whether they're human or monster, make your choice, and survive 14 nights.
 
-Finish this tutorial and you'll have a solid grasp of Yumina's core creation skills — entries, variables, directives, components, and the lorebook. Whatever kind of world you want to build in the future, this is where it starts (•̀ᴗ•́)و
+Along the way you'll use lore, variables, an AI-written interface and keyword lore.
 
 ---
 
 ## Step 1: Create a new world
 
-Click the **Create** button in the left navigation, then select **Blank Project**. In the editor, fill in the world name in the top input field:
+Click **Create** on the left, choose **Blank Project**, and pick **Canvas**. Then type the name into the name field at the top left, next to the **Canvas** switch:
 
 - **Name**: `The Imposters`
-
-If you're not familiar with the editor's sections yet, read through [How It Works](/creator/) first, then come back here.
 
 ---
 
 ## Step 2: Write the character setup entry
 
-Click **Lorebook** in the left navigation.
-
-Let's create our own entry. Make sure you're under the **PRESETS** group and click **+ Add Entry** in the top right.
-
 In this game, the AI isn't playing a character — it's acting as the **Game Master (GM)**, responsible for narrating scenes, playing all NPCs, and driving the story forward. So the first entry tells the AI its role and responsibilities.
+
+Click the row under **Character and world** to open it.
 
 ![Creating the character setup entry](./images/tutorial-system-entry.png)
 
 | Field | Value |
 |-------|-------|
 | **Name** | `Game Master Setup` |
-| **Send as** | `Instruction` (the AI treats this as a rule to follow) |
-| **Tags** | Click `Preset` |
+| **Send as** | `Instruction` (the default; the AI treats this as a rule to follow) |
 
 In the **Content** field, write:
 
@@ -57,15 +52,14 @@ Begin each reply with a phase header:
 ```
 
 A few key points:
-- This entry is under **PRESETS** → it's always sent to the AI, visible in every conversation. Core settings must go here
-- **Send as = Instruction** → the AI treats this as a system directive, not character dialogue
-- **Tag = Preset** → for organizational purposes
+- This entry is in **Character and world** → it's sent to the AI every turn. Core settings must go here
+- **Send as = Instruction** → the AI treats this as a system directive, not character dialogue. You'll find **Send as** under **When the AI sees this** → **Advanced**, but there's nothing to change
 
 ---
 
 ## Step 3: Write the opening message
 
-Switch to the **First Message** section and click **Add Greeting**. (Alternatively, create a new entry with `role: greeting` in the Lorebook — same effect.)
+Click the box under the opening (**Greeting**) and write:
 
 ![Editing the first message](./images/tutorial-greeting.png)
 
@@ -101,7 +95,9 @@ The key elements of a good opening:
 
 ## Step 4: Create game variables
 
-Switch to the **Variables** section and click **Add Variable**. Create 5 variables.
+Click **＋ Variable** in the **Add** row at the bottom of the card. Do this 5 times, once per variable below. For each one, change the name at the top, pick the **Type**, set **Starts at** and the **Range**, and write the **Behavior Rules**.
+
+The **ID** is what the interface code in Step 6 uses to read the variable. New variables get a random ID, so open **Advanced** at the bottom of the variable's settings, type the ID from the table, and click **Apply**.
 
 ![Creating variables](./images/tutorial-variables.png)
 
@@ -109,83 +105,78 @@ Switch to the **Variables** section and click **Add Variable**. Create 5 variabl
 
 | Field | Value |
 |-------|-------|
-| **ID** | `player_hp` |
-| **Display Name** | `Player HP` |
+| **Name** | `Player HP` |
 | **Type** | `Number` |
-| **Default Value** | `3` |
-| **Min** | `0` |
-| **Max** | `5` |
+| **Starts at** | `3` |
+| **Range** | `0` to `5` |
 | **Behavior Rules** | `Decrease by 1 when the player is attacked by a Visitor or makes a fatal mistake. Drop directly to zero if the player lets the Pale Stranger inside or admits to being alone. Game over at 0.` |
+| **ID** (under Advanced) | `player_hp` |
 
 ### 2. Energy
 
 | Field | Value |
 |-------|-------|
-| **ID** | `energy_current` |
-| **Display Name** | `Energy` |
+| **Name** | `Energy` |
 | **Type** | `Number` |
-| **Default Value** | `3` |
-| **Min** | `0` |
-| **Max** | `8` |
+| **Starts at** | `3` |
+| **Range** | `0` to `8` |
 | **Behavior Rules** | `Body-checking a visitor and shooting both cost 1 point. Peephole observation and talking are free. Restore to max during the day. Cannot perform energy-consuming actions when energy is 0.` |
+| **ID** (under Advanced) | `energy_current` |
 
 ### 3. Day count
 
 | Field | Value |
 |-------|-------|
-| **ID** | `game_day` |
-| **Display Name** | `Game Day` |
+| **Name** | `Game Day` |
 | **Type** | `Number` |
-| **Default Value** | `1` |
-| **Min** | `1` |
-| **Max** | `14` |
+| **Starts at** | `1` |
+| **Range** | `1` to `14` |
 | **Behavior Rules** | `Increase by 1 after each complete night-day cycle. The game concludes when Day 14 ends.` |
+| **ID** (under Advanced) | `game_day` |
 
 ### 4. Phase
 
 | Field | Value |
 |-------|-------|
-| **ID** | `game_phase` |
-| **Display Name** | `Game Phase` |
-| **Type** | `String` |
-| **Default Value** | `Night` |
+| **Name** | `Game Phase` |
+| **Type** | `Text` |
+| **Starts at** | `Night` |
+| **Allowed values** | `Night`, `Day` |
 | **Behavior Rules** | `Value is "Night" or "Day". Night is for handling door-knocking events; Day is for freely exploring rooms and using items.` |
+| **ID** (under Advanced) | `game_phase` |
 
 ### 5. Armed status
 
 | Field | Value |
 |-------|-------|
-| **ID** | `player_has_gun` |
-| **Display Name** | `Has Gun` |
-| **Type** | `Boolean` |
-| **Default Value** | `True` |
+| **Name** | `Has Gun` |
+| **Type** | `Switch` |
+| **Starts at** | on (`true`) |
 | **Behavior Rules** | `Player starts with a handgun. Shooting a visitor costs 1 energy but may accidentally harm a human. Describe the consequences after a shooting.` |
+| **ID** (under Advanced) | `player_has_gun` |
 
 ::: tip What are Behavior Rules?
-**Behavior Rules** aren't code — they're natural language instructions written for the AI. When the AI generates a reply, it reads these to know when to update which variable. Think of it as a "cheat sheet" for the AI φ(>ω<*)
+**Behavior Rules** aren't code — they're natural language instructions written for the AI. They tell it when to update which variable. Think of it as a "cheat sheet" for the AI φ(>ω<*)
 :::
 
 ---
 
 ## Step 5: How variables actually change
 
-You might be wondering — now that variables are set up, how does the AI know when to change them?
+Every variable you just made has **Precise tracking** switched on. New Number and Switch variables start with it on, and a Text variable gets it once it has **Allowed values**. You'll see a little "precise" tag on each row.
 
-**Good news: you don't need to teach the AI manually.** As long as your world has variables, the Yumina engine automatically does two things:
+With Precise tracking on, the AI writing the story doesn't change these values itself. After every reply, a small helper rereads the scene, checks it against your **Behavior Rules**, and decides whether each value should change and by how much. Numbers move at most by **Most it can fall per turn** / **Most it can rise per turn**. Those start at 10, which is more than this game needs. Set **Game Day** to rise by at most `1` per turn, and leave the rest.
 
-1. **Automatically tells the AI the directive format**: The engine silently slips a set of instructions to the AI each turn, telling it to use `[variableID: operation value]` syntax to update state. You don't need to do anything for this.
-2. **Automatically sends your behavior rules to the AI**: The rules you wrote for each variable in Step 4 are visible to the AI on every turn. It uses those rules to decide when to update what.
+**So the clearer you write the behavior rules, the better the tracking works.** Go back and review the rules you wrote in Step 4. Make sure every variable clearly specifies "when does it change, and how."
 
-For example: in the `health` variable's behavior rules, you wrote "decrease when attacked by a Visitor or when the player makes a dangerous choice." When a player gets attacked in the game, the AI will include `[health: -20]` at the end of its reply. The engine detects this and automatically drops health from 100 to 80.
-
-**So the clearer you write the behavior rules, the better the AI performs.** Go back and review the rules you wrote in Step 4. Make sure every variable clearly specifies "when does it change, and how."
+If you switch Precise tracking off for a variable, the story AI changes it instead, by writing a short directive at the end of its reply. The engine teaches the AI that format by itself.
 
 ::: tip What do directives look like in the AI's output?
 At the end of the AI's reply you'll see something like:
 
 ```
-[health: -20]
-[energy: -15]
+[player_hp: -1]
+[energy_current: -1]
 ```
 
 These are the directives. The engine automatically extracts and applies them, and they never appear in the reply the player sees.
@@ -199,14 +190,12 @@ Besides `+` (add) and `-` (subtract), there's also `set` (set to a specific valu
 
 ## Step 6: Make it look great — AI-generated interface
 
-At this point your world is playable. But all the player sees is plain text — no atmosphere, no immersion. Let's build an interface with a real horror game feel.
+At this point your world is playable. But all the player sees is plain text. Let's build an interface with a real horror game feel, and let the AI write the code.
 
-"Write code?" Nope — let AI do it for you (￣▽￣)ノ
+### Method 1: Use the Creation assistant (recommended)
 
-### Method 1: Use Yumina's built-in Studio AI (recommended)
-
-1. Click **Enter Studio** at the top of the editor
-2. Open the **AI Assistant** panel
+1. Click **Creation assistant** on the right of the second row of the top bar
+2. Make sure the mode under the input box is **Build**
 3. Send it the following (you can copy this directly):
 
 ```
@@ -254,18 +243,20 @@ My variables:
 - player_has_gun — whether armed, true/false
 ```
 
-4. The AI generates the code and shows an approval card; the Canvas panel gives a live preview
-5. Satisfied? Click **Approve**. Want changes? Keep talking — "make the knocking effect more dramatic" or "the choice buttons are too spread out"
+4. The assistant writes the code into **Panels → Front End Code**. Click **Player interface** in the middle of the top bar to see the result
+5. Want changes? Keep talking — "make the knocking effect more dramatic" or "the choice buttons are too spread out". If a round goes wrong, click **Undo this turn** in **The assistant's last turn** strip at the bottom of the canvas
 
-![Studio AI generating the interface](./images/tutorial-studio-ai2.png)
+![The Creation assistant generating the interface](./images/tutorial-studio-ai2.png)
 
 ![Generated effect preview](./images/tutorial-studio-result.png)
 
-Just like that — a slick frontend, assembled effortlessly!
-
 ### Method 2: Use an external AI (Claude, ChatGPT, etc.)
 
-If you're more comfortable with another AI, that works too. Send the effect description above along with the Yumina technical info appended at the end:
+If you'd rather use another AI, there are two ways.
+
+**Connect it to your card.** Click **Connect your AI** in the top bar and follow the steps. Once connected, your AI edits the card directly, and you can send it the request above as is. See [Connect your own AI](/creator/studio-ai#connect-your-own-ai).
+
+**Paste the code yourself.** Send the effect description above along with the Yumina technical info appended at the end:
 
 ```
 Yumina technical info (please follow these rules when writing code):
@@ -284,25 +275,25 @@ Yumina technical info (please follow these rules when writing code):
 ```
 
 Once you have the code:
-1. Go back to the editor → **Custom UI** section → open `index.tsx`
+1. Open **Panels → Front End Code** and select `index.tsx`
 2. Paste the code in (replace the default `return <Chat />`)
-3. If the bottom shows **Compile Status: OK**, you're done
+3. If the panel shows **OK**, you're done
 
 ::: tip You don't need to understand the code
-You don't need to know what this code is doing. As long as the bottom shows **Compile Status: OK** after pasting, it's working. If there's an error, send the error message back to the AI verbatim and ask it to fix it ∠( ᐛ 」∠)＿
+As long as the panel shows **OK** after pasting, it's working. If it shows **Error**, send the error message back to the AI verbatim and ask it to fix it.
 :::
 
 ::: tip What if the result isn't what you wanted?
-Tell the AI directly: "the health bar is too thin, make it thicker," "change the background to pure black," "add a flickering effect." A few iterations and it'll match your vision.
+Tell the AI directly: "the health bar is too thin, make it thicker," "change the background to pure black," "add a flickering effect." A few iterations usually get it there.
 :::
 
 ---
 
-## Step 7: Write lorebook entries
+## Step 7: Write keyword lore
 
-The entries from earlier are in the **PRESETS** group — always sent. But some information only needs to be available when it's relevant — that's what the **CHAT HISTORY** group is for.
+The setup entry from Step 2 is sent every turn. Some information only needs to reach the AI when it's relevant, and that's what **keyword lore** is for.
 
-Go back to **Lorebook**, expand the **CHAT HISTORY** group on the left, and click **+ Add Entry** under that group to create a few keyword-triggered entries:
+Click the **＋** in the top right of the **Character and world** block to add a new entry. Open it, then open **When the AI sees this**: untick **Always Send** and type the keywords into **Keywords**. The entry moves into the **Keyword lore** block. Make these three:
 
 ### 1. Door-knocking rules
 
@@ -354,49 +345,48 @@ Room search rules (daytime only):
 ```
 
 ::: tip How keyword triggering works
-Before each AI response, the engine scans recent messages. If a matching keyword appears → the corresponding entry is temporarily sent to the AI. If nobody mentioned it → the AI doesn't see it, no token budget wasted. Efficient and precise (≧▽≦)
+Before each AI response, the engine scans recent messages. If a matching keyword appears → the corresponding entry is sent to the AI for that turn. If nobody mentioned it → the AI doesn't see it, and no token budget is spent on it.
 
-The scan depth is the `Scan Depth` setting under **Entry Settings** in the **Lorebook** section — default 2, recommend bumping it to 4.
+How many recent messages are scanned is the **Keyword scan depth**: click **Context** at the bottom of the card and open **Advanced**. The default is 2; for this game, 4 works better.
 :::
 
 ---
 
 ## Step 8: Test it
 
-The core content is done. Let's test it!
-
-Click **Save** in the editor's top bar, then hit the gold **PLAY** button at the bottom of the left navigation. The editor takes you straight into the session — if you already have a saved session for this world it'll reuse it, otherwise a fresh one is created automatically. Check the following:
+Click **Play** on the right of the top bar. A playtest starts a real game with the model you picked, so it uses credits. Play a few turns and check the following. **This turn** on the right shows what happened behind each one.
 
 | Check item | How to verify | If it's not working |
 |-----------|---------------|---------------------|
-| Opening message appears | First message shows automatically on entry | Check the First Message section for a written greeting |
-| Custom UI is active | Messages have a CRT-style phase title and HUD | Check that `index.tsx` has the renderBubble code and Compile Status is OK |
-| Directives working | Variables change after interactions (HUD values update) | Check that each variable's behavior rules are clearly written |
-| Lorebook triggers | Mentioning "peephole" makes AI follow the rules | Check keyword spelling and Scan Depth setting |
+| Opening message appears | First message shows automatically on entry | Check that the opening (Greeting) has text |
+| Custom UI is active | Messages have a CRT-style phase title and HUD | Check that `index.tsx` in **Panels → Front End Code** has the renderBubble code and shows **OK** |
+| Values change | HUD values update after interactions; **Each value** in This turn says why a value changed or didn't | Check that each variable's Behavior Rules are clearly written |
+| Keyword lore triggers | Mentioning "peephole" makes the AI follow the rules; **What the AI got** lists it under lore mentioned this turn | Check keyword spelling and the Keyword scan depth |
+
+When you're done, click **Stop** to go back to the canvas.
 
 ---
 
-## Step 9: Fill out the overview info
+## Step 9: Fill in the card details
 
-Once testing passes, switch to **Overview** and fill in the pre-publish details:
+Click **Cover & blurb** on the right of the canvas. **Card settings** opens:
 
-1. Upload a **Cover Image** (something that conveys the horror atmosphere)
+1. Upload a **Cover Image** (something that conveys the horror atmosphere). You need a portrait **Phone · 2:3** and a landscape **Desktop · 16:9** version
 2. Write a **Description** so players know what they're getting into
-3. Add **Tags**: `horror`, `survival`, `mystery`, `interactive fiction`
-4. Set **Language**: choose the language your world is written in (e.g., `English`)
-5. Click **Save** at the top
+3. Set **Language**: choose the language your world is written in (e.g., `English`)
+4. Click **Save** in the top bar
 
-![Overview info](./images/tutorial-publish.png)
+![Card details](./images/tutorial-publish.png)
 
 ---
 
 ## Step 10: Publish
 
-1. In the editor's top bar, click the **Publish** button (sits right next to **Save**)
-2. In the publish dialog, set the **content mode** (**Limited** or **Limitless**), visibility, and whether others can edit it
-3. Check the terms agreement and click publish
+1. Click **Not live** on the right of the top bar. It runs through a short checklist: a name, a cover, an opening, and at least one playtest
+2. Click **Publish**. In the dialog, add **Tags** (`horror`, `survival`, `mystery`, `interactive fiction`), set the **Content Mode** (**Limited** or **Limitless**), visibility, and whether others may make editable copies
+3. Confirm your rights to the content and click **Publish**
 
-Done! Your world is live ヽ(✿ﾟ▽ﾟ)ノ
+Your world goes into review. Once it passes, players can find it on Discover ヽ(✿ﾟ▽ﾟ)ノ
 
 ---
 
@@ -404,25 +394,19 @@ Done! Your world is live ヽ(✿ﾟ▽ﾟ)ノ
 
 | Concept | What you did |
 |---------|-------------|
-| **Entries** | Wrote system setup and an opening message — the foundation of AI behavior |
-| **Variables** | Created HP, energy, and day counter — the skeleton of game state |
-| **Directives** | The engine teaches the AI automatically; you just write clear behavior rules |
-| **Custom UI** | Had AI generate a status panel — no code written yourself |
-| **Lorebook** | Keyword-triggered rule entries — an on-demand knowledge base |
-
-These five pieces working together make a complete interactive world.
+| **Lore** | Wrote the GM setup and an opening message, the foundation of AI behavior |
+| **Variables** | Created HP, energy, day counter, phase and armed status, tracked precisely after every reply |
+| **Behavior Rules** | Told the tracking (or the AI) in plain words when each value changes |
+| **Interface** | Had the AI generate a CRT-style interface, no code written yourself |
+| **Keyword lore** | Rule entries that only reach the AI when they're mentioned |
 
 ## What else you can do
 
-This tutorial only used the most fundamental features. There's a lot more Yumina can do:
-
-- **[Rules Engine](./rules-deep.md)** — auto-trigger a death ending when HP hits 0, no need to rely on the AI remembering
+- **[Behaviors](./rules-deep.md)** — auto-trigger a death ending when HP hits 0, no need to rely on the AI remembering
 - **[Custom UI Guide](./custom-ui-deep.md)** — turn messages into speech bubbles, visual novel scenes, or battle logs
 - **[Audio](./audio-deep.md)** — add BGM and sound effects, auto-switch to creepy music when entering the basement
-- **[Conditional Entries](./entries-deep.md)** — activate entries based on variable values, like late-game plot reveals
-
-For deeper dives into individual systems, the [Rules Engine](./rules-deep.md), [Custom UI](./custom-ui-deep.md) and [Variables](./variables-deep.md) reference pages have worked examples covering complex state management.
+- **[Conditional lore](./entries-deep.md)** — send lore based on variable values, like late-game plot reveals
 
 ---
 
-Head to [yumina.io](https://yumina.io) and search for **"No, I'm not a Human"** to experience the full version — get a feel for what your world can become. Then come back and keep building ᕕ( ᐛ )ᕗ
+Head to [yumina.io](https://yumina.io) and search for **"No, I'm not a Human"** to play the full version.

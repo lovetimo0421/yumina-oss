@@ -21,6 +21,7 @@ function fixtureController() {
     subscribe: (cb: () => void) => { listeners.add(cb); return () => listeners.delete(cb); },
     attach: () => { calls.attach++; }, detach: () => { calls.detach++; },
     start: async () => { calls.start++; }, stop: () => { calls.stop++; },
+    onOpenWindow: () => () => {}, resumeShorts: async () => {},
     setState: (patch: Partial<VideoState>) => { state = { ...state, ...patch }; listeners.forEach((cb) => cb()); },
   };
 }
@@ -41,7 +42,8 @@ async function harness(url = "http://localhost", mobile = false, touch = false) 
       clearPendingChoices: noop, loadSession: noop },
     config: { selectedModel: "fixture", modelPool: [], setConfig: noop },
     ui: { theaterMode: false, playZoomPercent: 100, openSceneGallery: noop },
-    userProfile: { profile: { filmOffered: true, preferences: { autoFullscreenOnPlay: false } } },
+    // A player who turned scene video on (it stays hidden until they do).
+    userProfile: { profile: { filmOffered: true, preferences: { autoFullscreenOnPlay: false, experimentalFilm: true } } },
     extensions: { installState: { "session-memory": "installed", "state-update-guard": "installed" } },
     audio: { cleanup: noop }, models: { models: [], addToRecent: noop },
     credit: { plan: "free" },

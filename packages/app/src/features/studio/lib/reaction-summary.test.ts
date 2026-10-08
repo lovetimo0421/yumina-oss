@@ -112,3 +112,12 @@ test("a behaviour switching a scenario reads as the word and the scenario's name
   );
   assert.equal(s, "每回合 · 停用 阁楼");
 });
+
+test("a notification, a track and another behaviour read as words — never →ui:notification or @audio.bgm", () => {
+  const words = { ...LABELS, varOn: "启用", varOff: "停用", music: "播放", notify: "通知", trackNames: new Map([["theme", "酒馆主题曲"]]), behaviorNames: new Map([["r2", "好感到 80"]]) };
+  const notify = reactionSummary(reaction({ then: [{ type: "emit", event: { type: "ui:notification", message: "Yumina 好像有点不一样了", style: "info" } }] }), VARS, words);
+  assert.match(notify, /通知「Yumina 好像有点/);
+  assert.doesNotMatch(notify, /ui:/);
+  assert.match(reactionSummary(reaction({ then: [{ type: "set", path: "@audio.bgm", value: "theme", operation: "set" }] }), VARS, words), /播放 酒馆主题曲/);
+  assert.match(reactionSummary(reaction({ then: [{ type: "set", path: "@rules.disabled.r2", value: true, operation: "set" }] }), VARS, words), /停用 好感到 80/);
+});

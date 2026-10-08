@@ -1,6 +1,6 @@
 # Player Interface
 
-The player interface is the screen players actually see while they play. It's totally fine to leave it alone. The default chat interface is clean and works well. If you want to give your card an opening page, a status panel, an inventory or a map, this is where you build them, **no code needed**.
+The player interface is the screen players actually see while they play. If you leave it alone, it's the default chat interface. If you want to give your card an opening page, a status panel, an inventory or a map, this is where you build them, **no code needed**.
 
 There are two ways in: click **Player interface** in the middle of the top bar, or on the canvas, double-click the player interface preview stuck on top of "This card" (the pencil in its top right works too).
 
@@ -22,7 +22,7 @@ There are 22 ready-made templates, already wired up with variables, buttons and 
 | Stat panel | Raising, managing, surviving: four meters, gold, day |
 | Character sheet | Roleplay: the player's own name, role, location and story phase |
 
-Every whole-screen template tells you "Adds these variables to the card". Stat panel, for example, adds Day, Time of Day, Gold, Affection, Stamina… These are ordinary variables. Back on the canvas you can see them, change them, and drive them with behaviours. Don't want them? Just undo.
+Every whole-screen template tells you "Adds these variables to the card". Stat panel, for example, adds Day, Time of Day, Gold, Affection, Stamina… These are ordinary variables. Back on the canvas you can see them, change them, and drive them with behaviors. If you don't want them, undo.
 
 **Openings · before the story starts**: Title screen, Pick an opening, Enter your name, Character sheet, Pick a background, Pick a difficulty, Draw an opening, Spend attribute points, Confirm before starting. The player goes through these in order before the story begins, and what they pick is handed to the AI. Fill in a name, for instance, and the AI calls you by it from the very first line.
 
@@ -60,7 +60,7 @@ With nothing selected, the right side lists what this page uses.
 
 ### How the conversation looks
 
-The **Conversation** block in the middle and the input box below it are the heart of the card. You can't delete them, but you can change how they look. Select it, and **Message look** offers Platform, Bubbles, Novel, Letter and Terminal. Further down, **Fine-tune text, bubbles and special formats** lets you change the font and bubble colours separately, and even style special formats (like *italic* action lines).
+You can't delete the **Conversation** block in the middle or the input box below it, but you can change how they look. Select it, and **Message look** offers Platform, Bubbles, Novel, Letter and Terminal. Further down, **Fine-tune text, bubbles and special formats** lets you change the font and bubble colours separately, and even style special formats (like *italic* action lines).
 
 ## What buttons can do
 
@@ -70,7 +70,7 @@ Select a button, and under **When pressed, do in order** you can line up several
 
 - **Say a line for the player**: like "Look around". One click and it's as if the player said it
 - **Change a variable**
-- **Set off a behaviour**: you can **+ Pass something in**, see [Behaviours · Passing a value from a button](/creator/automation#passing-a-value-from-a-button)
+- **Set off a behavior**: you can **+ Pass something in**, see [Behaviors · Passing a value from a button](/creator/automation#passing-a-value-from-a-button)
 - **Call an AI**: calls a UI-based [AI](/creator/ais), like a fortune teller
 - **Switch opening**, **Go to page**, **Pick at random**
 - **Show a notice**, **Play audio**, **Stop audio**

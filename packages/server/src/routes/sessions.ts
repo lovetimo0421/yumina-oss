@@ -706,7 +706,8 @@ sessionRoutes.patch("/:id/state", async (c) => {
       .where(eq(playSessions.id, sessionId))
       .returning();
     return { data: updated[0], closedRecords, nextState: mergedState, prevState: normalizeGameState(worldDef, currentState) };
-    });
+    }, c.req.header('X-Yumina-State-Acknowledgement') === 'required'
+      ? { acknowledged: { userId: currentUser.id, signal: c.req.raw.signal } } : undefined);
   } catch (err) {
     if (err instanceof SessionBusyError) {
       c.header("Retry-After", "2");

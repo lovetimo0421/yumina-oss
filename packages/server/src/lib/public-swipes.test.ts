@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { publicSwipes } from "./public-swipes.js";
 
 test("public replay swipes exclude private validation evidence and baseline", () => {
-  const swipe = { content: "Story", stateSnapshot: { variables: { hp: 5 } }, stateValidation: { originalRaw: "private", usageLogIds: ["private"] }, generationState: { private: true } };
+  const swipe = { content: "Story", stateSnapshot: { variables: { hp: 5 } }, stateValidation: { originalRaw: "private", usageLogIds: ["private"] }, generationState: { private: true }, variableAudit: { private: true } };
   assert.deepEqual(publicSwipes([swipe]), [{ content: "Story", stateSnapshot: { variables: { hp: 5 } } }]);
   assert.ok(swipe.stateValidation);
 });

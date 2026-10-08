@@ -31,7 +31,7 @@ import { splitBySpeaker } from "./speaker-split";
 import { RefusalBar, isRefusedReply } from "./player-prompts";
 import { TurnImageState } from "./turn-image-state";
 import { TurnImageCard } from "./turn-image-card";
-import { splitTurnImages } from "./turn-image-embeds";
+import { splitTurnImages, splitTurnVideos } from "./turn-image-embeds";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -161,7 +161,8 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
   // draws them under its bubble (see turn-image-embeds.ts).
   const rendererText = useMemo(() => {
     const shown = splitTurnImages(displayContent);
-    return { content: shown.text, rawContent: splitTurnImages(rawContent).text, embeds: shown.embeds };
+    // A reply's short film rides in its text too; the film window plays it (turn-video.ts).
+    return { content: splitTurnVideos(shown.text).text, rawContent: splitTurnVideos(splitTurnImages(rawContent).text).text, embeds: shown.embeds };
   }, [displayContent, rawContent]);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [rawExpanded, setRawExpanded] = useState(false);

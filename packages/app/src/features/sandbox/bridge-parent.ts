@@ -334,7 +334,11 @@ export class SandboxBridge {
         try {
           // Keep synchronous mutations synchronous; notifications and subsequent
           // storage/checkpoint requests rely on their original dispatch order.
-          const result = this.onApiCall(msg.method, msg.args);
+          // Kept-alive worlds can still run timers/receive stream updates.
+          // Their audio callbacks must not affect the currently visible view.
+          const inactiveAudioCall = this.mediaSuspended
+            && ["playAudio", "resumeAudio", "pauseAudio", "stopAudio", "setAudioVolume"].includes(msg.method);
+          const result = inactiveAudioCall ? undefined : this.onApiCall(msg.method, msg.args);
           if (needsResponse) {
             Promise.resolve(result).then((resolved) => {
               this.send({

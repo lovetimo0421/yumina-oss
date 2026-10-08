@@ -124,6 +124,10 @@ const _maxDurationTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let _playIntentSerial = 0;
 const _latestPlayIntents = new Map<string, number>();
 
+// Async world loads must not re-install audio after the owning view left.
+let _audioScope = 0;
+export function getAudioScope(): number { return _audioScope; }
+
 function beginPlayIntent(id: string): number {
   const intent = ++_playIntentSerial;
   _latestPlayIntents.set(id, intent);
@@ -883,12 +887,15 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     // Pause in place — keep the element AND its activeTracks entry so
     // resumeTrack can continue from the same position. (stopTrack, by
     // contrast, destroys the element via src="" and drops the entry.)
+    _cancelledAudios.add(active.audio);
+    _pendingUnlockAudios.delete(active.audio);
     active.audio.pause();
   },
 
   resumeTrack: (id) => {
     const active = get().activeTracks.get(id);
     if (!active || !active.audio.paused) return;
+    _cancelledAudios.delete(active.audio);
     safePlay(active.audio);
   },
 
@@ -1120,6 +1127,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   },
 
   cleanup: () => {
+    _audioScope++;
     const state = get();
     if (state.playlistState.gapTimer) clearTimeout(state.playlistState.gapTimer);
     get().stopAll();

@@ -124,7 +124,7 @@
   "notifications": {
     "settings": "通知設定",
     "socialEventAnnouncement": "YUMINA 分享活動規則已更新，點擊查看參與詳情。",
-    "socialEventInitialApproved": "你的社群貼文已通過初審，並發放 {{amount}} Mushies。",
+    "socialEventInitialApproved": "你的社群貼文已通過初審，並發放 {{amount}} 蘑菇幣。",
     "socialEventNeedsChanges": "你的活動投稿需要修改，點此查看審核意見。",
     "socialEventInitialRejected": "你的活動投稿未通過初審。",
     "socialEventDisqualified": "你的活動投稿已被取消資格。",
@@ -230,7 +230,7 @@
     "newReviewCommentOnly": "{{reviewer}} 評論了你的 {{worldName}} 卡：{{comment}}",
     "newComment": "{{commenter}} 評論了 {{worldName}}",
     "platformAnnouncement": "官方公告：{{title}}",
-    "socialEventVerifiedSettlementFloor": "你的活動終審已完成。我們已核實你提交的公開貼文。雖然本次沒有產生額外的傳播分級補發，你仍獲得 {{amount}} Mushies 終審完成獎勵，現已到帳。感謝你的分享與耐心等待！",
+    "socialEventVerifiedSettlementFloor": "你的活動終審已完成。我們已核實你提交的公開貼文。雖然本次沒有產生額外的傳播分級補發，你仍獲得 {{amount}} 蘑菇幣終審完成獎勵，現已到帳。感謝你的分享與耐心等待！",
     "newFriend": "You and {{name}} are now friends",
     "newFriendNoName": "You made a new friend",
     "friendInvite": "{{name}} invited you to play {{worldName}}",

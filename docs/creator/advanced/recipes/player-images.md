@@ -2,7 +2,9 @@
 
 # Player-Uploaded Images
 
-Save player pictures with `api.media`, and small related JSON with `api.sessionStorage`. Both belong to the current play session and can be read on another device signed into the same account. Creator-supplied images still use the editor's **Assets** tab and `@asset:` references.
+Save player pictures with `api.media`, and small related JSON with `api.sessionStorage`. Both belong to the current play session and can be read on another device signed into the same account. Creator-supplied images still go in **Panels → Assets** and are used through `@asset:` references.
+
+The Player interface templates have no upload part, so this recipe needs interface code (**Panels → Front End Code**).
 
 ## Choose where data belongs
 
@@ -17,7 +19,7 @@ Do not put image base64 into JSON, game variables, or browser storage. Cloud sav
 
 ## Upload and display
 
-In a component, obtain `const api = useYumina()`. Load the list on opening, after changes, and before temporary display URLs expire (five minutes):
+In a component, get `const api = useYumina()`. Load the list on opening, after changes, and before temporary display URLs expire (five minutes):
 
 ```tsx
 const page = await api.media.list(0);
@@ -55,7 +57,7 @@ const saved = await api.sessionStorage.set(
 
 All JSON methods return `{ value, version, exists }`. Check `exists` when loading. Every `set` and `remove` requires `{ expectedVersion }`; if another device changed the record, `SESSION_STORAGE_CONFLICT` rejects the write. Keep the draft, reload, and reconcile before resubmitting. Do not blindly retry a stale selection.
 
-To clear only the selection, use `api.sessionStorage.remove("selected-portrait", { expectedVersion })` with its latest version. To remove an image from the current session, use `api.media.remove(item.entryId, item.version)`. These are separate actions; clearing the selection does not delete the image. Permanent file deletion is managed in **Library → Assets → Save images** and can affect other saves, checkpoints, and shares.
+To clear only the selection, use `api.sessionStorage.remove("selected-portrait", { expectedVersion })` with its latest version. To remove an image from the current session, use `api.media.remove(item.entryId, item.version)`. These are separate actions; clearing the selection does not delete the image. Permanent file deletion is managed in **My Library → Assets → Save images** and can affect other saves, checkpoints, and shares.
 
 ## Limits and saved copies
 

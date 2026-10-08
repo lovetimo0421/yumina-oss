@@ -85,8 +85,9 @@ import {
 import type { WorldDefinition, UserPrompt, GameEvent, Effect, Variable } from "@yumina/engine";
 import { applyReplyRules } from "@yumina/engine";
 import { applyJudgeSceneImages, continuityGloballyEnabled, runContinuityTurn } from "../lib/continuity/run.js";
-import { repairMissedUpdates } from "../lib/continuity/missed-updates.js";
+import { guardRebuiltBatch, repairMissedUpdates } from "../lib/continuity/missed-updates.js";
 import { buildChangeTrace, describeDroppedAiWrites } from "../lib/change-trace.js";
+import { appendVariableAudit, buildVariableAudit, type StoredVariableAudit } from "../lib/variable-audit.js";
 import { createPromptTracer } from "../lib/prompt-trace.js";
 import { liveSceneMessage, normalizeLiveScene, takeStoryEvents } from "../lib/live-scene.js";
 
@@ -119,6 +120,7 @@ import { appendPersonaSystemMessage, buildPersonaSystemMessage } from "../lib/pe
 import { resolvePersonaForSession } from "../lib/resolve-persona.js";
 import { checkRateLimit, acquireConcurrency, releaseConcurrency, checkTurnImageRate, claimTurnImageDaily } from "../middleware/rate-limit.js";
 import { fineAvailable, illustrateTurn, stripTurnImages } from "../lib/per-turn-image/illustrate.js";
+import { stripTurnVideos } from "../lib/realtime-video/turn-clip.js";
 import { perTurnImagesEnabled, turnImagePrefs } from "../lib/per-turn-image/availability.js";
 import { refundTurnImage, reserveTurnImage, turnImageQuote } from "../lib/per-turn-image/billing.js";
 import { redis } from "../lib/redis.js";
@@ -235,6 +237,7 @@ async function resolveModel(requestedModel: string | undefined): Promise<string>
 }
 
 type SwipeWithUsage = {
+  variableAudit?: StoredVariableAudit;
   stateValidation?: StateValidationAudit;
   modelFallback?: import("@yumina/shared").ModelFallbackRecord;
   content: string;
@@ -1627,7 +1630,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           // platform correction model writes only those variables).
           const missed = await repairMissedUpdates({
             world: worldDef, state: stateManager.getSnapshot(), playerText: userContent, replyText: cleanText, effects,
-            guardCorrected: outputAttempt.audit.correctionCount > 0,
+            guardCorrected: guardRebuiltBatch(outputAttempt.audit),
             userId: currentUser.id, sessionId, path: "send", signal: abortController.signal,
           });
           effects.push(...missed.effects);
@@ -1667,9 +1670,9 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
             playerOpenRouterKey: turnPlayerOpenRouterKey(resolved, currentUser.id),
           });
           cleanText = applyJudgeSceneImages(worldDef, cleanText, continuity);
-          // The per-turn picture is drawn after the turn (POST /messages/:id/illustrate);
-          // drop any the model copied from an earlier reply in its history.
-          cleanText = stripTurnImages(cleanText);
+          // The per-turn picture and clip come after the turn (POST /messages/:id/illustrate,
+          // /realtime-video/turn-clip/:id); drop any the model copied from an earlier reply.
+          cleanText = stripTurnVideos(stripTurnImages(cleanText));
 
           // Expand `[image: handle]` scene directives into the shared embed
           // syntax before the text is persisted or rendered anywhere.
@@ -1701,6 +1704,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           // say so, because the failure is otherwise invisible until a player
           // notices their inventory is gone.
           const rejectedWrites = stateManager.drainRejectedWrites();
+          const blockedAiWrites = stateManager.drainBlockedWrites();
           if (rejectedWrites.length > 0) {
             console.log(`[Messages] Refused ${rejectedWrites.length} malformed JSON write(s): ${rejectedWrites.map((w) => w.variableId).join(", ")}`);
           }
@@ -1735,8 +1739,10 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           );
           const ruleChanges = systemResult.changes;
           const allChanges = [...seedChanges, ...changes, ...ruleChanges];
+          const blockedRuleWrites = stateManager.drainBlockedWrites();
           outputAttempt.recordChanges(changes, ruleChanges);
           const changeTrace = buildChangeTrace({
+            world: worldDef, repairEffects: missed.effects, guardCorrected: guardRebuiltBatch(outputAttempt.audit),
             setupCount: seedChanges.length, aiAndJudge: changes, judgeEffects: continuity.effects, kept: aiWriteFilter.kept,
             rules: systemResult, dropped: droppedAiWrites, rejected: rejectedWrites, decisions: continuity.decisions, questions: continuity.questions,
           });
@@ -1956,6 +1962,13 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
                         : undefined,
                     stateSnapshot: turnSnapshot,
                     generationState: generationSnapshot,
+                    variableAudit: appendVariableAudit(undefined, buildVariableAudit({
+                      path: "send", state: turnState, changes: allChanges, trace: changeTrace, continuity, repair: missed,
+                      blocked: [
+                        ...blockedAiWrites.map(b => ({ ...b, phase: "ai" as const })),
+                        ...blockedRuleWrites.map(b => ({ ...b, phase: "rule" as const })),
+                      ],
+                    })),
                     createdAt: new Date().toISOString(),
                     modelFallback: parseModelFallbackRecord(body.modelFallback, model),
                     model: actualModel,
@@ -2437,8 +2450,9 @@ messageRoutes.post("/messages/:id/illustrate", async (c) => {
       // The reply may have been regenerated, edited or deleted while this drew;
       // then the picture belongs to text that no longer exists.
       const [current] = await db.select({ content: messages.content }).from(messages).where(eq(messages.id, messageId));
-      if (!current || stripTurnImages(current.content) !== replyText) return c.json({ data: { ok: false, reason: "stale" } });
-      const content = `${replyText.trimEnd()}\n\n${result.embed}`;
+      // A scene-video clip landing meanwhile is not a change: the picture joins it.
+      if (!current || stripTurnVideos(stripTurnImages(current.content)) !== stripTurnVideos(replyText)) return c.json({ data: { ok: false, reason: "stale" } });
+      const content = `${stripTurnImages(current.content).trimEnd()}\n\n${result.embed}`;
       const [updated] = await db.update(messages).set(messageContentUpdate(content))
         .where(and(eq(messages.id, messageId), eq(messages.content, current.content))).returning();
       if (!updated) return c.json({ data: { ok: false, reason: "stale" } });
@@ -3179,7 +3193,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           // Forgotten state writes (see the send path).
           const regenMissed = await repairMissedUpdates({
             world: worldDef, state: stateManager.getSnapshot(), playerText: lastUserText(priorMessages), replyText: regenParseResult.cleanText,
-            effects: regenParseResult.effects, guardCorrected: outputAttempt.audit.correctionCount > 0,
+            effects: regenParseResult.effects, guardCorrected: guardRebuiltBatch(outputAttempt.audit),
             userId: currentUser.id, sessionId: msg.sessionId, path: "regenerate", signal: abortController.signal,
           });
           regenParseResult.effects.push(...regenMissed.effects);
@@ -3191,7 +3205,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             playerOpenRouterKey: turnPlayerOpenRouterKey(resolved, currentUser.id),
           });
           // Per-turn picture: drawn after the turn, as on the send path.
-          const regenTextWithImage = stripTurnImages(applyJudgeSceneImages(worldDef, regenParseResult.cleanText, regenContinuity));
+          const regenTextWithImage = stripTurnVideos(stripTurnImages(applyJudgeSceneImages(worldDef, regenParseResult.cleanText, regenContinuity)));
           const regenSceneImageResult = resolveSceneImageDirectives(regenTextWithImage, worldDef.sceneImages ?? []);
           rememberRevealedSceneImages(stateManager, regenSceneImageResult.shown);
           const regenBgResult = resolveBackgroundDirectives(regenSceneImageResult.text, worldDef.backgrounds ?? []);
@@ -3218,6 +3232,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           // say so, because the failure is otherwise invisible until a player
           // notices their inventory is gone.
           const rejectedWrites = stateManager.drainRejectedWrites();
+          const blockedAiWrites = stateManager.drainBlockedWrites();
           if (rejectedWrites.length > 0) {
             console.log(`[Messages] Refused ${rejectedWrites.length} malformed JSON write(s): ${rejectedWrites.map((w) => w.variableId).join(", ")}`);
           }
@@ -3244,8 +3259,10 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           );
           const ruleChanges = regenSystemResult.changes;
           const allChanges = [...changes, ...ruleChanges];
+          const blockedRuleWrites = stateManager.drainBlockedWrites();
           outputAttempt.recordChanges(changes, ruleChanges);
           const changeTrace = buildChangeTrace({
+            world: worldDef, repairEffects: regenMissed.effects, guardCorrected: guardRebuiltBatch(outputAttempt.audit),
             aiAndJudge: changes, judgeEffects: regenContinuity.effects, kept: regenWriteFilter.kept,
             rules: regenSystemResult, dropped: regenDroppedAiWrites, rejected: rejectedWrites, decisions: regenContinuity.decisions, questions: regenContinuity.questions,
           });
@@ -3391,7 +3408,15 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
                 stateSnapshot: turnSnapshot,
                 swipes: updatedSwipes.map((swipe, index) =>
                   index === updatedSwipes.length - 1
-                    ? { ...swipe, stateSnapshot: turnSnapshot, generationState: generationSnapshot }
+                    ? { ...swipe, stateSnapshot: turnSnapshot, generationState: generationSnapshot,
+                        variableAudit: appendVariableAudit(undefined, buildVariableAudit({
+                          path: "regenerate", state: turnState, changes: allChanges, trace: changeTrace,
+                          continuity: regenContinuity, repair: regenMissed,
+                          blocked: [
+                            ...blockedAiWrites.map(b => ({ ...b, phase: "ai" as const })),
+                            ...blockedRuleWrites.map(b => ({ ...b, phase: "rule" as const })),
+                          ],
+                        })) }
                     : swipe,
                 ),
                 activeSwipeIndex: updatedSwipes.length - 1,
@@ -4227,7 +4252,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           // Forgotten state writes (see the send path), on the new segment only.
           const contMissed = await repairMissedUpdates({
             world: worldDef, state: stateManager.getSnapshot(), playerText: lastUserText(currentRunHistory), replyText: contParseResult.cleanText,
-            effects: contParseResult.effects, guardCorrected: outputAttempt.audit.correctionCount > 0,
+            effects: contParseResult.effects, guardCorrected: guardRebuiltBatch(outputAttempt.audit),
             userId: currentUser.id, sessionId, path: "continue", signal: abortController.signal,
           });
           contParseResult.effects.push(...contMissed.effects);
@@ -4265,6 +4290,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           // say so, because the failure is otherwise invisible until a player
           // notices their inventory is gone.
           const rejectedWrites = stateManager.drainRejectedWrites();
+          const blockedAiWrites = stateManager.drainBlockedWrites();
           if (rejectedWrites.length > 0) {
             console.log(`[Messages] Refused ${rejectedWrites.length} malformed JSON write(s): ${rejectedWrites.map((w) => w.variableId).join(", ")}`);
           }
@@ -4288,8 +4314,10 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           );
           const ruleChanges = contSystemResult.changes;
           const allChanges = [...changes, ...ruleChanges];
+          const blockedRuleWrites = stateManager.drainBlockedWrites();
           outputAttempt.recordChanges(changes, ruleChanges);
           const changeTrace = buildChangeTrace({
+            world: worldDef, repairEffects: contMissed.effects, guardCorrected: guardRebuiltBatch(outputAttempt.audit),
             aiAndJudge: changes, judgeEffects: contContinuity.effects, kept: contWriteFilter.kept,
             rules: contSystemResult, dropped: contDroppedAiWrites, rejected: rejectedWrites, decisions: contContinuity.decisions, questions: contContinuity.questions,
           });
@@ -4465,7 +4493,15 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
                 stateSnapshot: turnSnapshot,
                 swipes: updatedSwipes.map((swipe, index) =>
                   index === (existingSwipes.length > 0 ? activeSwipeIndex : 0)
-                    ? { ...swipe, stateSnapshot: turnSnapshot, generationState: generationSnapshot }
+                    ? { ...swipe, stateSnapshot: turnSnapshot, generationState: generationSnapshot,
+                        variableAudit: appendVariableAudit((swipe as SwipeWithUsage).variableAudit, buildVariableAudit({
+                          path: "continue", state: turnState, changes: allChanges, trace: changeTrace,
+                          continuity: contContinuity, repair: contMissed,
+                          blocked: [
+                            ...blockedAiWrites.map(b => ({ ...b, phase: "ai" as const })),
+                            ...blockedRuleWrites.map(b => ({ ...b, phase: "rule" as const })),
+                          ],
+                        })) }
                     : swipe,
                 ),
                 activeSwipeIndex:

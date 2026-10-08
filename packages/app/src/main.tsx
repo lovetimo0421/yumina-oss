@@ -10,7 +10,6 @@ import {
   shouldReloadForChunkError,
   clearChunkErrorFlag,
 } from "@/lib/stale-chunk-reload";
-import { installAudioUnlock } from "@/lib/ios-audio-unlock";
 import { installRouteScrollRestoration, prepareRouteScrollRestoration } from "@/lib/route-scroll-restoration";
 import { installDeployRefresh } from "@/lib/deploy-refresh";
 import { clearReadingPageBootstrap } from "@/lib/reading-page-canvas";
@@ -30,11 +29,6 @@ if (typeof window.requestIdleCallback === "undefined") {
   (window as unknown as Record<string, unknown>).requestIdleCallback = (cb: IdleRequestCallback) => window.setTimeout(cb, 1);
   (window as unknown as Record<string, unknown>).cancelIdleCallback = (id: number) => window.clearTimeout(id);
 }
-
-// Prime iOS audio on the first user gesture anywhere in the app, so that
-// later programmatic audio.play() calls (SDK BGM, playlist tracks) don't get
-// rejected by iOS's gesture-scope rule. No-op on desktop.
-installAudioUnlock();
 
 // Auto-reload when a dynamically imported chunk is stale (e.g., after a deploy).
 // Vite emits this event when a lazy route or code-split chunk 404s.

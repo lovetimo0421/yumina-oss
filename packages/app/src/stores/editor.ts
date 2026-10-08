@@ -984,7 +984,7 @@ const SAME_THING: Record<string, string[]> = {
 
 /** Names an opening gets by default, in every UI language — not worth
  *  putting on a card the player picks from. */
-const GENERIC_GREETING_NAME = /^(开场白|開場白|新建词条|新建詞條|greeting|opening|first message|new entry|挨拶|冒頭|新しいエントリ|saludo|inicio|nueva entrada)\s*\d*$/i;
+const GENERIC_GREETING_NAME = /^(开场白|開場白|开场|開場|新建词条|新建詞條|greeting|opening|opening message|first message|new entry|挨拶|冒頭|オープニング|開幕メッセージ|新しいエントリ|saludo|inicio|mensaje de apertura|nueva entrada)\s*\d*$/i;
 
 function scheduleUiDocRecompile() {
   if (uiDocRecompileTimer) clearTimeout(uiDocRecompileTimer);
@@ -2776,6 +2776,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         return {
           id: previous?.id || crypto.randomUUID(),
           name: previous?.name || "Interface",
+          assetLoading: previous?.assetLoading,
           entryFile: built.entryFile,
           files: { ...files, ...built.files },
           updatedAt: new Date().toISOString(),
@@ -2880,6 +2881,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         rootComponent: {
           id: previous?.id || crypto.randomUUID(),
           name: previous?.name || "Interface",
+          assetLoading: previous?.assetLoading,
           entryFile: built.entryFile,
           files: { ...files, ...built.files },
           updatedAt: new Date().toISOString(),
@@ -2925,6 +2927,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           rootComponent: {
             id: previous?.id || crypto.randomUUID(),
             name: previous?.name || "Interface",
+            assetLoading: previous?.assetLoading,
             entryFile: built.entryFile,
             files: { ...files, ...built.files },
             updatedAt: new Date().toISOString(),
@@ -2973,6 +2976,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             rootComponent: {
               id: previous?.id || crypto.randomUUID(),
               name: previous?.name || "Interface",
+              assetLoading: previous?.assetLoading,
               entryFile: built.entryFile,
               files: { ...files, ...built.files },
               updatedAt: new Date().toISOString(),
@@ -3151,6 +3155,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           uiDoc: doc,
           rootComponent: {
             id: previous?.id || crypto.randomUUID(), name: previous?.name || "Interface",
+            assetLoading: previous?.assetLoading,
             entryFile: built.entryFile,
             files: { ...(previous?.files ?? {}), ...built.files },
             updatedAt: new Date().toISOString(), generatedFrom: "uiDoc",
@@ -3209,6 +3214,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         uiDoc: doc,
         rootComponent: {
           id: previous?.id || crypto.randomUUID(), name: previous?.name || "Interface",
+          assetLoading: previous?.assetLoading,
           entryFile: built.entryFile,
           files: { ...(previous?.files ?? {}), ...built.files },
           updatedAt: new Date().toISOString(), generatedFrom: "uiDoc",

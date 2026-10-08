@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { GameState, WorldDefinition } from "@yumina/engine";
-import { normalizeGameState, reconcileTurnState } from "./game-state.js";
+import { mergeGameStatePatch, normalizeGameState, reconcileTurnState } from "./game-state.js";
 
 // 问道, 2026-09-01: the card's creation screen commits ~60 variables through
 // PATCH /sessions/:id/state and then sends its opening message. The turn read
@@ -29,6 +29,15 @@ const state = (
 ): GameState => normalizeGameState(worldDef, { variables, ...extra });
 
 describe("reconcileTurnState", () => {
+  it("ordinary patches preserve opted-in permanent facts without locking normal booleans", () => {
+    const world = { ...worldDef, variables: [
+      ...worldDef.variables, { id: "ever", name: "Ever", type: "boolean" as const, defaultValue: false, onceTrue: true },
+    ] };
+    const before = normalizeGameState(world, { variables: { ever: true, "setup-complete": true } });
+    const patched = mergeGameStatePatch(world, before, { variables: { ever: false, "setup-complete": false } });
+    assert.equal(patched.variables.ever, true);
+    assert.equal(patched.variables["setup-complete"], false);
+  });
   it("keeps a patch that landed while the turn was streaming", () => {
     // What the turn read at request start (the card was mid-commit).
     const base = state({ "player-name": "cpk" });

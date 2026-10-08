@@ -233,7 +233,7 @@ export class GameStateManager {
         const value = evaluateFormula(v.formula!, lookup);
         if (value === null) continue;
         const oldValue = this.state.variables[v.id];
-        const next = v.type === "boolean" ? value !== 0 : v.type === "string" ? String(value) : this.validateValue(v, value);
+        const next = this.validateValue(v, v.type === "boolean" ? value !== 0 : v.type === "string" ? String(value) : value);
         if (oldValue === next) continue;
         this.state = { ...this.state, variables: { ...this.state.variables, [v.id]: next } };
         const prior = changes.find((c) => c.variableId === v.id);
@@ -257,7 +257,13 @@ export class GameStateManager {
   settleSystems(): Array<{ variableId: string; oldValue: VariableValue; newValue: VariableValue }> {
     if (!this.poisonSurvival) return [];
     const before = this.state;
-    this.state = settlePoisonState(before);
+    const next = settlePoisonState(before);
+    for (const variable of this.variables.values()) {
+      if (variable.type === "boolean" && variable.onceTrue && before.variables[variable.id] === true) {
+        next.variables[variable.id] = this.validateValue(variable, next.variables[variable.id]!);
+      }
+    }
+    this.state = next;
     return Object.entries(this.state.variables).flatMap(([variableId, newValue]) => {
       const oldValue = before.variables[variableId];
       return oldValue !== undefined && JSON.stringify(oldValue) !== JSON.stringify(newValue)
@@ -655,6 +661,16 @@ export class GameStateManager {
     return out;
   }
 
+  private blockedWrites: Array<{ variableId: string; reason: "once-true"; attemptedValue: VariableValue }> = [];
+
+  /** Constraint refusals are distinct from malformed JSON and may come from
+   * either AI writes or authored rules. Draining never changes game state. */
+  drainBlockedWrites(): Array<{ variableId: string; reason: "once-true"; attemptedValue: VariableValue }> {
+    const out = this.blockedWrites;
+    this.blockedWrites = [];
+    return out;
+  }
+
   /**
    * A `json` variable currently holding a list/object must not be replaced
    * wholesale by a bare scalar: `[items: set delete 1, delete 0]` is a model
@@ -693,6 +709,11 @@ export class GameStateManager {
     variable: Variable,
     value: VariableValue
   ): VariableValue {
+    if (variable.type === "boolean" && variable.onceTrue === true &&
+        this.state.variables[variable.id] === true && value !== true) {
+      this.blockedWrites.push({ variableId: variable.id, reason: "once-true", attemptedValue: value });
+      return true;
+    }
     if (variable.type === "json") return value;
     if (variable.type === "number" && typeof value === "number") {
       let v = value;

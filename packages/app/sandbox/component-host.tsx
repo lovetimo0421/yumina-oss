@@ -11,63 +11,9 @@
 import React, { Component, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { scheduleRootRendered } from "./schedule-root-rendered";
 
-/**
- * Track every AudioContext a card creates so the host can suspend them when the
- * parent hides the iframe.
- *
- * The `suspend-media` handler can only find `<video>`/`<audio>` elements via a
- * DOM query. Web Audio has no element to find — a card that synthesises its own
- * sound kept playing after the player navigated away, and only a full page
- * refresh stopped it. Wrapping the constructor here (before any creator code
- * runs) is the same replace-the-browser-API approach the SDK already takes for
- * storage and networking.
- *
- * Contexts are held weakly so a discarded one does not pin its graph in memory.
- * Only contexts this host suspended are resumed, so a card that deliberately
- * paused its own audio is never restarted behind its back.
- */
-const trackedAudioContexts = new Set<WeakRef<AudioContext>>();
-const hostSuspendedContexts = new WeakSet<AudioContext>();
+import { installSandboxMedia } from "../src/lib/sandbox-media";
 
-function trackAudioContexts(): void {
-  const w = window as unknown as Record<string, unknown>;
-  for (const key of ["AudioContext", "webkitAudioContext"]) {
-    const Original = w[key] as (new (...args: unknown[]) => AudioContext) | undefined;
-    if (typeof Original !== "function" || (Original as { __yuminaTracked?: boolean }).__yuminaTracked) continue;
-    const Wrapped = function (this: unknown, ...args: unknown[]) {
-      const ctx = new Original(...args);
-      try {
-        trackedAudioContexts.add(new WeakRef(ctx));
-      } catch {}
-      return ctx;
-    } as unknown as new (...args: unknown[]) => AudioContext;
-    Wrapped.prototype = Original.prototype;
-    (Wrapped as { __yuminaTracked?: boolean }).__yuminaTracked = true;
-    w[key] = Wrapped;
-  }
-}
-trackAudioContexts();
-
-function suspendTrackedAudioContexts(suspended: boolean): void {
-  for (const ref of [...trackedAudioContexts]) {
-    const ctx = ref.deref();
-    if (!ctx) {
-      trackedAudioContexts.delete(ref);
-      continue;
-    }
-    try {
-      if (suspended) {
-        if (ctx.state === "running") {
-          hostSuspendedContexts.add(ctx);
-          void ctx.suspend();
-        }
-      } else if (hostSuspendedContexts.has(ctx)) {
-        hostSuspendedContexts.delete(ctx);
-        void ctx.resume();
-      }
-    } catch {}
-  }
-}
+const sandboxMedia = installSandboxMedia();
 import { buildComponent } from "../src/lib/tsx/tsx-component-builder";
 import { useAssetFont } from "../src/lib/asset-font";
 import { originalImageUrl, resolveAssetUrl, resolveAssetRefs } from "../src/lib/asset-url";
@@ -1237,24 +1183,7 @@ export function ComponentHost() {
       case "suspend-media": {
         voiceScopeRef.current.suspended = msg.suspended;
         setTranscriptActive(!msg.suspended);
-        // Universal pause for raw <video>/<audio> tags in creator TSX.
-        // Called when the parent hides the iframe (navigation, theater exit) without
-        // unmounting it — without this, media elements inside a display:none iframe
-        // keep playing. We only pause; resume is up to the creator's own code on
-        // re-mount (autoPlay / onVisible handlers), so we don't silently restart
-        // audio the user expected to stay stopped.
-        const els = document.querySelectorAll<HTMLMediaElement>("video, audio");
-        if (msg.suspended) {
-          els.forEach((el) => {
-            if (!el.paused) el.pause();
-          });
-        }
-        // Web Audio is NOT a media element, so the query above never sees it. A
-        // card that synthesises its own sound (procedural ambience, an in-card
-        // synth) kept playing after the player navigated away and only stopped on
-        // a full refresh. Suspending the tracked contexts covers every card
-        // without the creator having to wire anything up.
-        suspendTrackedAudioContexts(msg.suspended);
+        sandboxMedia.setSuspended(msg.suspended);
         break;
       }
 
@@ -1350,45 +1279,8 @@ export function ComponentHost() {
     // Listen for messages
     window.addEventListener("message", handleMessage);
 
-    // iOS autoplay rescue: Safari / Chrome on iOS (all iOS browsers are WebKit)
-    // often refuse to honor `autoplay` inside cross-origin iframes even with
-    // `allow="autoplay"` and `muted=true`. The <video> / <audio> element loads
-    // and just sits at the first frame. The rescue runs on every early gesture
-    // (not one-shot) because: (a) one gesture may unlock but not land on a
-    // media element that's still buffering, (b) repeated idempotent .play()
-    // calls on already-playing media are cheap, (c) we'd rather be robust
-    // than clever — iOS behavior varies by version / Low Power Mode.
-    // Silent-unlock trick also primes HTMLAudioElement + AudioContext for
-    // creator code that calls .play() directly after the gesture.
-    const SILENT_WAV =
-      "data:audio/wav;base64,UklGRhwAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
-    let _rescuedOnce = false;
-    const rescueAutoplay = () => {
-      if (!_rescuedOnce) {
-        _rescuedOnce = true;
-        // Prime element-based audio
-        try { const a = new Audio(SILENT_WAV); a.volume = 0; void a.play().catch(() => {}); } catch { /* noop */ }
-        // Prime Web Audio context
-        try {
-          const Ctor = (window as typeof window & { webkitAudioContext?: typeof AudioContext }).AudioContext
-            ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-          if (Ctor) {
-            const ctx = new Ctor();
-            const src = ctx.createBufferSource();
-            src.buffer = ctx.createBuffer(1, 1, 22050);
-            src.connect(ctx.destination);
-            src.start(0);
-            void ctx.resume().catch(() => {});
-          }
-        } catch { /* noop */ }
-      }
-      const els = document.querySelectorAll<HTMLMediaElement>(
-        "video[autoplay], audio[autoplay]"
-      );
-      els.forEach((el) => {
-        if (el.paused) el.play().catch(() => {});
-      });
-    };
+    // Retry only real autoplay media; silent priming steals external audio focus.
+    const rescueAutoplay = sandboxMedia.rescueAutoplay;
     document.addEventListener("touchstart", rescueAutoplay, { passive: true, capture: true });
     document.addEventListener("touchend", rescueAutoplay, { passive: true, capture: true });
     document.addEventListener("click", rescueAutoplay, { capture: true });

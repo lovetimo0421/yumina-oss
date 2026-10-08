@@ -2162,10 +2162,6 @@ html:lang(zh) .hub-hero--world .hub-hero-subtitle {
   gap: clamp(1rem, 0.8rem + 0.35vw, 1.4rem);
 }
 
-.library-header-search {
-  display: none;
-}
-
 .library-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -2395,12 +2391,6 @@ html.dm-mobile-selection-locked body * {
   .topbar-shell--community {
     min-height: 0;
     padding-top: calc(0.2rem + var(--mobile-safe-top));
-  }
-
-  /* Library keeps its own in-page search on mobile; hide the topbar one so
-     the page doesn't show two search fields. */
-  .topbar-shell--library .topbar-search-region {
-    display: none;
   }
 
   .topbar-shell--create-picker {
@@ -3074,11 +3064,6 @@ html.dm-mobile-selection-locked body * {
     margin-bottom: 0.75rem;
     font-size: 2.15rem;
     line-height: 0.95;
-  }
-
-  .library-header-search {
-    display: block;
-    width: 100%;
   }
 
   .library-tab-button {
@@ -4450,6 +4435,15 @@ iframe[title="Yumina Sandbox"] {
   box-shadow: var(--profile-glass-shadow);
   backdrop-filter: blur(18px) saturate(128%);
   -webkit-backdrop-filter: blur(18px) saturate(128%);
+}
+
+/* Editing surfaces need more separation from bright profile banners. */
+.profile-window-glass--dialog {
+  --profile-glass-background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    rgba(18, 19, 24, 0.40);
+  backdrop-filter: blur(56px) saturate(115%);
+  -webkit-backdrop-filter: blur(56px) saturate(115%);
 }
 
 .profile-window-glass--soft {

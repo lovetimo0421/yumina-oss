@@ -142,18 +142,18 @@
       }
     },
     "behavior": {
-      "title": "Behaviours",
+      "title": "Behaviors",
       "goal": "If this, then that.",
-      "body": "A behaviour is \"if… then…\". I've added one: affection reaches 80 → turn on the entry \"Yumina's feelings\". That entry is off until then, so the AI can't see it; once it's on, Yumina starts quietly caring about you. Besides turning on an entry, a behaviour can change a variable, play a song, or notify the player.",
-      "bodyMobile": "A behaviour is \"if… then…\". I've added one: affection reaches 80 → turn on \"Yumina's feelings\", and she starts quietly caring about you. Edit it on the Behaviours page.",
+      "body": "A behavior is \"if… then…\". I've added one: affection reaches 80 → turn on the entry \"Yumina's feelings\". That entry is off until then, so the AI can't see it; once it's on, Yumina starts quietly caring about you. Besides turning on an entry, a behavior can change a variable, play a song, or notify the player.",
+      "bodyMobile": "A behavior is \"if… then…\". I've added one: affection reaches 80 → turn on \"Yumina's feelings\", and she starts quietly caring about you. Edit it on the Behaviors page.",
       "beats": {
         "add": {
-          "title": "Add a behaviour",
+          "title": "Add a behavior",
           "body": "Press this ＋ to add one. Pick the condition first, then what should happen.",
           "after": {
             "added": {
-              "title": "A behaviour in one sentence",
-              "body": "The new behaviour is on the canvas. On the right, fill in the sentence: when it checks, which number reaches what, and what happens: tell the AI something, change a number, or pop up a note for the player. Once it's filled in, it just works."
+              "title": "A behavior in one sentence",
+              "body": "The new behavior is on the canvas. On the right, fill in the sentence: when it checks, which number reaches what, and what happens: tell the AI something, change a number, or pop up a note for the player. Once it's filled in, it just works."
             }
           }
         }
@@ -211,7 +211,7 @@
       "title": "When settings reach the AI",
       "goal": "Always, keyword, condition, standby.",
       "body": "Entries are for the AI, but they don't all have to be sent every turn: send one only when it's needed and you save words and keep the AI focused.",
-      "bodyMobile": "Four ways: always, by keyword, by condition, or standby until a behaviour turns it on. Change it under the setting's text.",
+      "bodyMobile": "Four ways: always, by keyword, by condition, or standby until a behavior turns it on. Change it under the setting's text.",
       "beats": {
         "delivery": {
           "title": "How it is sent",
@@ -219,7 +219,7 @@
           "after": {
             "modes": {
               "title": "Four ways",
-              "body": "Always: sent every turn. Keywords: sent when a word comes up in the chat. Conditions: sent when variables match. Standby: never sent on its own, waiting for a behaviour to switch it on, like \"Yumina's feelings\" from the Behaviours lesson."
+              "body": "Always: sent every turn. Keywords: sent when a word comes up in the chat. Conditions: sent when variables match. Standby: never sent on its own, waiting for a behavior to switch it on, like \"Yumina's feelings\" from the Behaviors lesson."
             }
           }
         }
@@ -244,8 +244,8 @@
     "modules": {
       "title": "Scenarios",
       "goal": "Content that is only used in a certain scenario.",
-      "body": "Once a card grows, add a scenario: like a card inside the card, with its own entries, variables and behaviours. Drag things in and they only apply in that scenario.",
-      "bodyMobile": "The Scenarios page splits content by chapter or scene, each with its own settings, variables and behaviours. Dragging needs a computer.",
+      "body": "Once a card grows, add a scenario: like a card inside the card, with its own entries, variables and behaviors. Drag things in and they only apply in that scenario.",
+      "bodyMobile": "The Scenarios page splits content by chapter or scene, each with its own settings, variables and behaviors. Dragging needs a computer.",
       "beats": {
         "add": {
           "title": "Add",
@@ -309,7 +309,7 @@
         },
         "playtest": {
           "title": "Playtest",
-          "body": "This is the playtest: a real round with the model you chose; it uses credits. You can watch variables change and see which behaviours ran."
+          "body": "This is the playtest: a real round with the model you chose; it uses credits. You can watch variables change and see which behaviors ran."
         },
         "publish": {
           "title": "Publish",

@@ -193,6 +193,9 @@ const envSchema = z.object({
   // per-turn illustration build.
   COMFY_IMAGE_DEPLOY_URL: z.string().default(""),
   COMFY_DEPLOY_URL: z.string().default(""),
+  // Platform styles marked optIn (e.g. anime-story) are offered only when
+  // listed here (comma-separated slugs), once the deployment carries them.
+  IMAGE_OPT_IN_STYLES: z.string().default(""),
   // Per-turn pictures (experimental, opt-in per player in Settings › Display).
   // Off unless "1"; needs a generation provider and YUMINA_OPENROUTER_KEY.
   PER_TURN_IMAGES: z.string().default(""),
@@ -215,6 +218,20 @@ const envSchema = z.object({
   // LoRAs are dropped and the checkpoint runs its full schedule (sharper
   // lines, ~2x the GPU time). Empty: no fine redraw is offered.
   PER_TURN_IMAGE_FINE_SAMPLING: z.string().default(""),
+  // A picture of characters with an author's portrait is drawn by this
+  // multi-reference edit model (Qwen-Image-Edit 2511) from the portraits
+  // themselves. Empty: the older SDXL + IP-Adapter path.
+  PER_TURN_IMAGE_EDIT_MODEL: z.string().default(""),
+  // "1": sex acts with portraits go to the edit model too (it keeps the face
+  // but doesn't draw the act); otherwise they are drawn by the SDXL path from
+  // the characters' tags alone. Nudity without an act always goes to it.
+  PER_TURN_IMAGE_EDIT_EXPLICIT: z.string().default(""),
+  // Non-explicit moments without portraits are drawn by this story model
+  // (Z-Anime) from the tagger's caption. Empty: the SDXL path.
+  PER_TURN_IMAGE_STORY_MODEL: z.string().default(""),
+  // The SDXL checkpoint for explicit moments, when it differs from
+  // PER_TURN_IMAGE_CHECKPOINT. Same LoRAs and sampling.
+  PER_TURN_IMAGE_EXPLICIT_CHECKPOINT: z.string().default(""),
   // What a per-turn picture costs (mushies), and how many each account gets free.
   PER_TURN_IMAGE_PRICE_MUSHIES: z.coerce.number().min(0).default(12),
   PER_TURN_IMAGE_FREE_COUNT: z.coerce.number().int().min(0).default(5),

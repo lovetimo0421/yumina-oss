@@ -87,6 +87,33 @@ describe("migrateWorldDefinition", () => {
     expect(migrated.entries[0]?.keywords).toEqual([]);
     expect(migrated.entries[0]?.enabled).toBe(true);
   });
+
+  it.each([undefined, null])("defaults missing entry conditions on current-version cards (%s)", (conditions) => {
+    const entry = {
+      id: "locale-output-policy", name: "Language and display policy", content: "Use the chosen language.",
+      role: "system", section: "system-presets", keywords: [], enabled: true, conditions,
+    };
+    const world = { version: "21.0.0", entries: [entry] } as unknown as WorldDefinition;
+
+    const migrated = migrateWorldDefinition(world);
+
+    expect(migrated.entries[0]?.conditions).toEqual([]);
+    expect(migrated.entries[0]?.conditionLogic).toBeUndefined();
+    expect(entry.conditions).toBe(conditions);
+    expect(migrateWorldDefinition(migrated)).toBe(migrated);
+  });
+
+  it.each(["all", "any", undefined, null])("preserves configured conditions and legacy logic (%s)", (conditionLogic) => {
+    const conditions = [{ variableId: "trust", operator: "gte", value: 5 }];
+    const entry = {
+      id: "conditional", role: "system", keywords: [], enabled: true,
+      conditions, conditionLogic,
+    };
+    const world = { version: "21.0.0", entries: [entry] } as unknown as WorldDefinition;
+
+    expect(migrateWorldDefinition(world)).toBe(world);
+    expect(migrateWorldDefinition(world).entries[0]?.conditions).toBe(conditions);
+  });
 });
 
 describe("migrateV18ToV19", () => {

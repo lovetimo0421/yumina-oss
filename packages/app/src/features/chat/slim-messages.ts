@@ -23,9 +23,14 @@
  * Pure + side-effect free so it can be memoized on `api.messages` and unit
  * tested. Returns the input array unchanged (same ref) when nothing was
  * stripped, so memoization stays stable for swipe-free chats.
+ *
+ * A reply's short film (video embeds at the end of its text, see turn-video-embeds.ts) is
+ * dropped too: only the film window plays it, and a card that draws its own chat would show
+ * the raw markup.
  */
 import { displayAudit } from "../../../sandbox/extensions/state-update-guard/audit-records";
 import type { StateValidationAudit } from "@yumina/shared";
+import { stripTurnVideos } from "./turn-video-embeds";
 type Msg = Record<string, unknown>;
 
 export function slimMessages(messages: ReadonlyArray<Msg>, defs?: ReadonlyArray<{ id: string; name?: string }>): Msg[] {
@@ -33,6 +38,10 @@ export function slimMessages(messages: ReadonlyArray<Msg>, defs?: ReadonlyArray<
   const out = messages.map((m) => {
     const audit = m.stateValidation as StateValidationAudit | undefined;
     if (audit?.version === 1) { m = { ...m, stateValidation: displayAudit(audit, undefined, defs) }; changed = true; }
+    if (typeof m.content === "string") {
+      const content = stripTurnVideos(m.content);
+      if (content !== m.content) { m = { ...m, content }; changed = true; }
+    }
     const swipes = m.swipes;
     if (!Array.isArray(swipes) || swipes.length === 0) return m;
     const activeIdx =
@@ -43,7 +52,12 @@ export function slimMessages(messages: ReadonlyArray<Msg>, defs?: ReadonlyArray<
       const { stateSnapshot: _drop, generationState: _baseline, ...rest } = s as Msg;
       const swipeAudit = rest.stateValidation as StateValidationAudit | undefined;
       if (swipeAudit?.version === 1) rest.stateValidation = displayAudit(swipeAudit, rest.rawContent, defs);
-      if (i === activeIdx) return rest; // active swipe keeps content + rawContent
+      if (i === activeIdx) {
+        // Active swipe keeps content + rawContent (without the film).
+        if (typeof rest.content === "string") rest.content = stripTurnVideos(rest.content);
+        if (typeof rest.rawContent === "string") rest.rawContent = stripTurnVideos(rest.rawContent);
+        return rest;
+      }
       // Non-active swipe: drop the big display strings too (not rendered).
       const { content: _c, rawContent: _r, ...scalars } = rest;
       return scalars;

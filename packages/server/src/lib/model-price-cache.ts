@@ -7,6 +7,7 @@ import { modelPrices } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { getModelPriceLookupIds, withModelPriceAliases } from "./model-price-aliases.js";
 import { singleFlight } from "./single-flight.js";
+import { isNativeVoiceModel } from "./voice-native-models.js";
 
 export interface ModelPriceEntry {
   modelId: string;
@@ -78,12 +79,12 @@ export async function getModelPrice(modelId: string): Promise<ModelPriceEntry | 
 /** Get all active model prices. */
 export async function getAllModelPrices(): Promise<ModelPriceEntry[]> {
   await ensureLoaded();
-  return withModelPriceAliases(cache.values());
+  return withModelPriceAliases(cache.values()).filter(price => !isNativeVoiceModel(price.modelId));
 }
 
 /** Check if a model is available on the official API. */
 export async function isOfficialModel(modelId: string): Promise<boolean> {
-  return (await getModelPrice(modelId)) !== null;
+  return !isNativeVoiceModel(modelId) && (await getModelPrice(modelId)) !== null;
 }
 
 /**

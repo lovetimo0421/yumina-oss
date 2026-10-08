@@ -672,3 +672,20 @@ test("ordinary voice readouts do not allocate output analysis or publish at conv
     else Reflect.deleteProperty(globalThis, "window");
   }
 });
+
+test("pausing blocked audio cancels gesture retries until explicitly resumed", async () => {
+  resetStore();
+  const s = useAudioStore.getState();
+  s.setTracks([bgmTrack("paused")]);
+  playOutcomes.push("reject");
+  s.playTrack("paused");
+  await flush();
+  const audio = useAudioStore.getState().activeTracks.get("paused")!.audio;
+  s.pauseTrack("paused");
+  fireDocumentEvent("click");
+  await flush();
+  assert.equal(audio.paused, true);
+  s.resumeTrack("paused");
+  await flush();
+  assert.equal(audio.paused, false);
+});

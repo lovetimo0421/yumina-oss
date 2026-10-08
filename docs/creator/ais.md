@@ -2,7 +2,7 @@
 
 Every card comes with one AI, called the **Narrator**: the player says something, it answers. For the vast majority of cards, that's all you need.
 
-Sometimes you'll want more, though. A talking Rat King in the cellar who should have a temper of his own. A fortune-telling mushroom in the tavern who reads your luck when the player presses a button. A little bookkeeping sprite who tidies the ledger behind the scenes every five turns and never says a word to the player. Each of these is one more AI.
+If you want a talking Rat King in the cellar to speak with his own temper, or a little sprite to keep the books behind the scenes every five turns, add another AI.
 
 **Every extra AI means one more model call each time, which costs more credits.** Before adding one, think about whether it really needs to be its own AI. Often one more lore entry does the job.
 
@@ -49,7 +49,7 @@ Fine-tune it under **When it runs** in its settings:
 
 Some AIs can't be set up with a form: two characters on stage, each with rules only code can handle, or a director who only speaks up after watching what happens in the room. For those, pick **Custom**.
 
-Once picked, the AI is a placeholder. It has a name, lives in a scenario, and gets to read that scenario's lore, but it won't run by itself. Who makes it run? Whoever writes the code. You don't need to know how. Stick a note on it saying what it should do, and the Creation assistant, or an outside AI you've hooked up with "Connect your AI", will come and write it.
+Once picked, the AI is a placeholder. It has a name, lives in a scenario, and gets to read that scenario's lore, but it won't run by itself. Code has to run it. You don't need to know how to write it. Stick a note on it saying what it should do, and the Creation assistant, or an outside AI you've hooked up with "Connect your AI", will come and write it.
 
 Once it's written, click its row to see which file and line implement it. If nothing's written yet, it's empty and says "not implemented yet".
 
@@ -65,6 +65,20 @@ When two or more AIs that answer the player are in the same place, you get a **G
 - **In a scenario**: when a scenario has its own AIs, by default they speak instead of the Narrator. The Narrator's row fades, and on the right there's a **Card's AI too** button. Click it and the Narrator stays to talk along with them. While the Narrator is there, the button changes to **Card's AI out**. Click that to have the Narrator step aside
 
 When the player regenerates, the later speakers in a group chat are redone by the same AI too, so nobody ends up with someone else's lines.
+
+## Context: what the AI reads each turn
+
+At the bottom of the card, and of every scenario, there's a **Context** block. Click it and the right side lists everything the AI here is handed each turn, and lets you decide a few of those things:
+
+![Context: conversation history, pinned note, context budget and what the AI reads each turn](./images/canvas/context.webp)
+
+- **Conversation history**: **Everything that fits** (the default: it sends as much as it can and only drops the oldest when it runs out of room), **Latest N** (cheaper, but the AI forgets older things), or **Summary + latest N**, where turns that scroll out get folded into a summary sent ahead of the rest. With that one you can also fill in **What the summary must keep**, like "Keep every promise made, and who owes whom." The summary updates in the background on a cheap model and usually costs the player well under 1 mushie each time
+- **Pinned note**: one line placed near the end of the conversation every turn, which is where the AI listens best. Style reminders and long-running rules belong here
+- **Context budget**: how much the AI can read each turn. By default it follows **the player's setting**. Turn on **Lock to this card** and yours wins
+- **What the AI reads each turn**: everything in the order the AI gets it (always-on lore, history, lore waiting for keywords, variables) with a rough token count. If the AI keeps forgetting things or drifts off topic, look here first
+- Under **Advanced** you'll also find **Keyword scan depth**, **Cascading triggers** and **Variables shown to the AI**: **All**, **Only changed** or **None**
+
+The **Smart tracking** switch lives in **Card settings**, and you'll also see it when you click the card's AI row. It's the same switch in both places.
 
 ## What it remembers
 
@@ -84,7 +98,7 @@ This is how what a behind-the-scenes AI writes gets handed to other AIs. On the 
 
 ## Answer format: getting a tidy answer
 
-In an AI's settings, under **Where it is**, there's a folded section called **Answer format**. Most of the time you won't need it, but it's great for building minigames.
+In an AI's settings, under **Where it is**, there's a folded section called **Answer format**. Most of the time you won't need it. It's mainly for building minigames.
 
 Take the "Fortune Mushroom" in the tavern: when the player presses the button, it has to answer two things, a **Fortune** (only Great luck / Good luck / A little bad luck) and a **Lucky Number** (1 to 9). The fortune is said to the player. The lucky number goes into a variable.
 
@@ -112,4 +126,4 @@ If an AI's settings aren't complete, the canvas tells you what's wrong under **T
 - A behind-the-scenes AI has nothing wired in, so anything it writes is made up, and it still costs money
 - The AI it's waiting for never replies to the player, so it'll wait forever
 
-Just follow the hints. When you're done, remember to [playtest](/creator/playtest). In the playtest timeline every AI gets its own lane, so you can see who spoke and who was woken up but stayed silent.
+Follow the hints. When you're done, remember to [playtest](/creator/playtest). In the playtest timeline every AI gets its own lane, so you can see who spoke and who was woken up but stayed silent.
