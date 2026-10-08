@@ -85,6 +85,7 @@ test("creation, import, and reopening preserve content and choose the intended e
     "@/features/editor/editor-draft-recovery": { backupEditorDraft },
     "@/lib/auth-client": { getSessionSafe: async () => ({ data: {} }) },
     "@/lib/safe-back": { navigateBackSafely: () => {} },
+    "@/features/editor/editor-unavailable": { EditorUnavailable: () => <div>UNAVAILABLE</div>, useEditorOwnership: () => null },
     // The re-import offer reads the real editor store (and analytics) — nothing here is one of the creator's own cards.
     "@/features/world-changes/apply-world-changes": { findImportTargets: async () => [] },
     "@/features/world-changes/apply-changes-dialog": { ApplyChangesDialog: () => null },

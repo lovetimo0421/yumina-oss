@@ -138,10 +138,12 @@ export function LibraryDetailPanelDesktop({
   );
   const favorited = isFavorited(selectedItem.sourceWorldId ?? selectedItem.id);
 
-  const isOriginalAuthor = !!userId && selectedItem.creatorId === userId && !selectedItem.sourceWorldId;
   const isOrphanedFork = !!selectedItem.sourceWorldId && selectedItem.sourceWorldTakenDown === true;
-  const canEditDirectly = !isOrphanedFork && (isProject || isOriginalAuthor);
-  const canDelete = !!userId && selectedItem.creatorId === userId;
+  // Ownership, never the tab: `isProject` follows the URL and can disagree with
+  // the item on screen, which once opened another creator's card for editing.
+  const isOwner = !!userId && selectedItem.creatorId === userId;
+  const canEditDirectly = !isOrphanedFork && isOwner;
+  const canDelete = isOwner;
   const canViewCreatorAnalytics = true;
 
   // Resolve "Based on X by Y" attribution. Prefer the server-attached

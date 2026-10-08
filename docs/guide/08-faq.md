@@ -29,6 +29,8 @@ A few tricks:
 3. **Library Detail panel** — read the description, check ratings, see the creator's other work before committing.
 4. **Follow** creators whose stuff lands — their new worlds show up in your Following tab.
 
+**Filters** opens automatically when you start a Discover search, so sorting, tags, and other-language options are visible. You can collapse it while editing that search; clearing the search and entering a new query opens it again.
+
 ---
 
 ## When the AI gets weird

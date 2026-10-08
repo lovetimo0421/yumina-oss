@@ -10,6 +10,7 @@ import { useUnsavedChangesGuard } from "@/features/editor/use-unsaved-changes-gu
 import { UnsavedChangesDialog } from "@/features/editor/unsaved-changes-dialog";
 import { backupEditorDraft } from "@/features/editor/editor-draft-recovery";
 import { saveEditorSurface } from "@/lib/editor-surface";
+import { EditorUnavailable, useEditorOwnership } from "@/features/editor/editor-unavailable";
 
 const StudioShell = lazyRouteComponent(
   () => import("@/features/studio/studio-shell"),
@@ -28,43 +29,13 @@ function StudioLoading() {
   );
 }
 
-/** A load that failed leaves serverWorldId null, which the gate below reads as
- *  "still loading" — without this the studio spins forever on someone else's
- *  card or a dropped connection. */
-function StudioUnavailable({ reason }: { reason: "notFound" | "failed" }) {
-  const { t } = useTranslation("common");
-  return (
-    <div className="flex h-full w-full items-center justify-center bg-background px-6">
-      <div className="flex max-w-sm flex-col items-center gap-4 text-center">
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          {reason === "notFound" ? t("studioNotYours") : t("studioLoadFailed")}
-        </p>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="rounded-lg border border-border px-3 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            {t("action.retry")}
-          </button>
-          <a
-            href="/app/profile"
-            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground transition-opacity hover:opacity-90"
-          >
-            {t("backToMyWorlds")}
-          </a>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function StudioPage() {
   const { worldId } = Route.useParams();
   const loadWorld = useEditorStore((s) => s.loadWorld);
   const serverWorldId = useEditorStore((s) => s.serverWorldId);
   const loadingWorld = useEditorStore((s) => s.loadingWorld);
   const loadError = useEditorStore((s) => s.loadError);
+  const ownership = useEditorOwnership(worldId);
   const isDirty = useEditorStore((s) => s.isDirty || s.layoutDirty);
   const backup = () => {
     const state = useEditorStore.getState();
@@ -117,10 +88,14 @@ function StudioPage() {
   }, [worldId, loadWorld, serverWorldId]);
 
   if (loadError && !loadingWorld) {
-    return <StudioUnavailable reason={loadError} />;
+    return <EditorUnavailable reason={loadError} />;
   }
 
-  if (loadingWorld || serverWorldId !== worldId) {
+  if (ownership === "notMine") {
+    return <EditorUnavailable reason="notFound" />;
+  }
+
+  if (loadingWorld || serverWorldId !== worldId || ownership === "pending") {
     return <StudioLoading />;
   }
 

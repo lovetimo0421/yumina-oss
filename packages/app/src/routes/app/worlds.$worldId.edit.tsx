@@ -11,6 +11,7 @@ import { navigateBackSafely } from "@/lib/safe-back";
 import { resolveEditorMode } from "@/features/editor/editor-entry";
 import { fetchBlueprintAccess } from "@/lib/blueprint-access";
 import { getEditorSurface, shouldOpenVisual } from "@/lib/editor-surface";
+import { EditorUnavailable, useEditorOwnership } from "@/features/editor/editor-unavailable";
 
 const QuickCreateEditor = lazyRouteComponent(
   () => import("@/features/editor/quick-create-editor"),
@@ -34,6 +35,8 @@ function WorldEditPage() {
   const router = useRouter();
   const loadWorld = useEditorStore((s) => s.loadWorld);
   const loadingWorld = useEditorStore((s) => s.loadingWorld);
+  const loadError = useEditorStore((s) => s.loadError);
+  const ownership = useEditorOwnership(worldId);
   const serverWorldId = useEditorStore((s) => s.serverWorldId);
   const editorMode = useEditorStore((s) => s.worldDraft.editorMode);
   const isDirty = useEditorStore((s) => s.isDirty);
@@ -128,12 +131,19 @@ function WorldEditPage() {
     return () => clearTimeout(timer);
   }, [blocker.status, redirecting, worldId]);
 
+  if (loadError && !loadingWorld) {
+    return <EditorUnavailable reason={loadError} />;
+  }
+  if (ownership === "notMine") {
+    return <EditorUnavailable reason="notFound" />;
+  }
+
   // Show the spinner while loading, before the correct world is in the store,
   // and while the redirect above is on its way — rendering this editor for a
   // frame first is a visible flash of the surface they are leaving. The
   // leave dialog renders here too: a redirect the guard stops has to be able
   // to ask, or it waits on an answer nobody can give.
-  if (loadingWorld || serverWorldId !== worldId || mode === null || blueprintAllowed === null || redirecting) {
+  if (loadingWorld || serverWorldId !== worldId || ownership === "pending" || mode === null || blueprintAllowed === null || redirecting) {
     return (
       <>
         <LoadingSpinner />

@@ -56,6 +56,7 @@ test("the canvas redirect waits for the save and falls back to the editor when t
     "@/features/editor/unsaved-changes-dialog": { UnsavedChangesDialog: ({ blocker: b }: { blocker: { status: string } }) => b.status === "blocked" ? <div>DIALOG</div> : null },
     "@/features/editor/editor-draft-recovery": { backupEditorDraft: () => false },
     "@/lib/safe-back": { navigateBackSafely: () => {} },
+    "@/features/editor/editor-unavailable": { EditorUnavailable: () => <div>UNAVAILABLE</div>, useEditorOwnership: () => null },
     "@/features/editor/editor-entry": { resolveEditorMode },
     "@/lib/blueprint-access": { fetchBlueprintAccess: async () => true },
     "@/lib/editor-surface": { getEditorSurface: () => null, isPhoneScreen: () => false, shouldOpenVisual: ({ mode }: { mode: string }) => mode === "advanced" },

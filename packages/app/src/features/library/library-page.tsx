@@ -124,9 +124,14 @@ export function LibraryPage() {
     }
   }, [returnKey, returnTo, searchWorldId]);
 
-  const effectiveSelectedItem = selectedItem ?? searchSelectedItem;
-  const effectiveActiveTab: LibraryTab = searchSelectedItem
-    ? searchSelectedItem.creatorId === userId
+  // The URL is the source of truth. Browser Back only changes `?worldId=`, so a
+  // tapped selection that no longer matches it is stale and must not win —
+  // otherwise one card renders under another card's ownership (a stranger's
+  // game shown as "My Projects" with Edit and Download JSON unlocked).
+  const effectiveSelectedItem =
+    selectedItem && selectedItem.id === searchWorldId ? selectedItem : searchSelectedItem;
+  const effectiveActiveTab: LibraryTab = effectiveSelectedItem
+    ? effectiveSelectedItem.creatorId === userId
       ? "projects"
       : "games"
     : hiddenTabs.has(activeTab)

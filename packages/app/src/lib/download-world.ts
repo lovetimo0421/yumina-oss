@@ -33,7 +33,7 @@ async function fetchWorldPayload(worldId: string): Promise<WorldDownloadPayload 
   try {
     // forEdit=1: the owner of a published card downloads what their editor
     // shows (the held working copy), not the last-approved live version.
-    // Ignored for anyone else.
+    // Anyone else gets the live card, and only if its creator allows remixing.
     const res = await fetch(`${apiBase}/api/worlds/${worldId}?forEdit=1`, { credentials: "include" });
     if (!res.ok) return null;
     const { data } = await res.json();

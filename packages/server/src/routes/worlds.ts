@@ -1559,7 +1559,7 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
   // writes the master over a minutes-long streaming run; the 5s read-after-write flag
   // (set at stream-open) is long expired by the time the editor refreshes, so readDb()
   // would route to a lagging replica and show stale pre-edit content ("AI changes lost").
-  // forEdit reads are creator/admin-gated + low volume → always serve from primary.
+  // forEdit reads are low volume (and gated below for no-remix cards) → always serve from primary.
   // Public (non-forEdit) detail views stay on the replica for browse load-shedding.
   const forEdit = c.req.query("forEdit") === "1";
   const rd = forEdit ? db : await readDb(currentUser?.id);
@@ -1714,6 +1714,14 @@ worldRoutes.get("/:id", optionalAuthMiddleware, async (c) => {
         requiresAuth: true,
       },
     });
+  }
+
+  // forEdit=1 is the editor / Download JSON read. Anyone else gets it only for a
+  // card whose creator allows remixing — the same rule /duplicate enforces — so
+  // a no-remix card's source can't be pulled through the export path.
+  if (forEdit && !isCreator && world.allowEdit === false) {
+    await ensureAdminFlag();
+    if (!isAdmin) return c.json({ error: "World not found" }, 404);
   }
 
   // Edit re-review: for the OWNER of a published world, surface the held-edit

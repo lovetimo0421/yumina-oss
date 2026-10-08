@@ -410,6 +410,9 @@ export type EditorSection =
 interface EditorState {
   worldDraft: WorldDefinition;
   serverWorldId: string | null;
+  /** Creator of the card loadWorld fetched. A published card loads for anyone,
+   *  so the editor routes compare this with the signed-in user before editing. */
+  serverCreatorId: string | null;
   isDirty: boolean;
   /** Canvas positions changed and want persisting. Deliberately separate from
    *  `isDirty`: laying blocks out is a view action, and `isDirty` is what says
@@ -1358,6 +1361,7 @@ function buildServerDraftFromData(data: any): WorldDefinition {
 export const useEditorStore = create<EditorState>((set, get) => ({
   worldDraft: createEmptyWorld(),
   serverWorldId: null,
+  serverCreatorId: null,
   isDirty: false,
   layoutDirty: false,
   templateLeftovers: null,
@@ -1496,6 +1500,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       worldDraft: draft,
       serverWorldId: null,
+      serverCreatorId: null,
       saving: false,
       loadingWorld: false,
       isDirty: false,
@@ -1540,7 +1545,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null; }
     const controller = new AbortController();
     loadAbort = controller;
-    set({ loadingWorld: true, serverWorldId: null, loadError: null, saving: false });
+    set({ loadingWorld: true, serverWorldId: null, serverCreatorId: null, loadError: null, saving: false });
 
     // Check for a crash-recovery draft BEFORE clearing localStorage
     let recoveryDraft: RecoveredDraft | null = null;
@@ -1585,6 +1590,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({
         worldDraft: draft,
         serverWorldId: data.id,
+        serverCreatorId: typeof data.creatorId === "string" ? data.creatorId : null,
         isDirty: false,
         layoutDirty: false,
         activeSection: "entries",
@@ -1874,6 +1880,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       worldDraft: draft,
       serverWorldId: data.id,
+      serverCreatorId: null,
       saving: false,
       isDirty: false,
       layoutDirty: false,
@@ -3430,6 +3437,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set({
       worldDraft: draft,
       serverWorldId: null,
+      serverCreatorId: null,
       saving: false,
       loadingWorld: false,
       baseUpdatedAt: null,
@@ -4400,6 +4408,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           // Only clear dirty if no changes were made during the save
           const updates: Partial<EditorState> = {
             serverWorldId: data.id,
+            serverCreatorId: null,
             _baseSchema: structuredClone(cleanDraft),
           };
           const savedToken = validServerToken(data.updatedAt);
@@ -4488,7 +4497,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     discardedWorldId = null;
     // Still the discarded edits in memory: without this an in-app return to
     // the card showed them again, now looking saved.
-    if (get().serverWorldId === worldId) set({ serverWorldId: null, isDirty: false, layoutDirty: false });
+    if (get().serverWorldId === worldId) set({ serverWorldId: null, serverCreatorId: null, isDirty: false, layoutDirty: false });
   },
 
   stopAutosave: () => {
