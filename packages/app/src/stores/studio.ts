@@ -4,7 +4,7 @@ import { useCreditStore } from "@/edition/slots.state";
 import { serializeStudioChatMessages } from "@/features/studio/lib/types";
 import type { StudioImageProposal, StudioImageBatchProposal } from "@/features/studio/lib/types";
 import { matchingImageBatch, proposalWithImageBatch } from "@/features/studio/lib/image-batch-state";
-import { SMART_IMAGE_MODEL, getPlatformStyle, platformStylePrice } from "@yumina/shared";
+import { SMART_IMAGE_MODEL, getPlatformStyle, platformStylePrice, isStudioBuildProposal, type StudioBuildProposal } from "@yumina/shared";
 import type {
   StudioChatMessage,
   ToolCall,
@@ -345,7 +345,7 @@ interface StudioState {
   activePanel: string;
 
   // Actions
-  sendChatMessage: (worldId: string, content: string, model: string, conversationId?: string | null, focus?: StudioFocusRef[], options?: { jobApproved?: boolean; mode?: "build" | "advise" }) => Promise<void>;
+  sendChatMessage: (worldId: string, content: string, model: string, conversationId?: string | null, focus?: StudioFocusRef[], options?: { jobApproved?: boolean; mode?: "build" | "advise"; buildProposal?: StudioBuildProposal }) => Promise<void>;
   resumeCreditPause: () => Promise<void>;
   refreshCreditPause: (worldId: string, conversationId?: string | null, runId?: string) => Promise<void>;
   /** Re-attach to a run whose stream died, from the "connection dropped" card.
@@ -407,7 +407,7 @@ interface AgentStreamCallbacks {
   /** Server has committed one assistant text turn as a persistent chat bubble.
    *  The ONLY code path that appends an assistant message to chatMessages during a run —
    *  replaces the old split where onReadToolsExecuted and onDone both tried to commit. */
-  onAssistantTurnCommit: (data: { runId: string; iteration: number; textContent: string; commitId: string; writeToolCalls?: ToolCall[] }) => void;
+  onAssistantTurnCommit: (data: { runId: string; iteration: number; textContent: string; commitId: string; writeToolCalls?: ToolCall[]; buildProposal?: StudioBuildProposal }) => void;
   /** Run terminated. Payload is intentionally tiny — all bubble content arrives via
    *  assistant_turn_commit, and the client just cleans up streaming/working state here. */
   onDone: (data: { runId: string }) => void;
@@ -492,13 +492,14 @@ async function tryRecoverAgentRun(
       const commitId = (turn as { commitId?: unknown })?.commitId;
       if (typeof commitId !== "string" || emittedCommitIds.has(commitId)) continue;
       emittedCommitIds.add(commitId);
-      const t = turn as { iteration?: number; textContent?: string; writeToolCalls?: unknown };
+      const t = turn as { iteration?: number; textContent?: string; writeToolCalls?: unknown; buildProposal?: unknown };
       callbacks.onAssistantTurnCommit({
         runId: recoveredRunId,
         iteration: t.iteration ?? 0,
         textContent: t.textContent ?? "",
         commitId,
         writeToolCalls: Array.isArray(t.writeToolCalls) ? (t.writeToolCalls as ToolCall[]) : undefined,
+        ...(isStudioBuildProposal(t.buildProposal) ? { buildProposal: t.buildProposal } : {}),
       });
     }
     return turns.length;
@@ -1330,6 +1331,7 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
       set(s => s.chatMessages.some(message => message.commitId === data.commitId) ? {} : {
         chatMessages: [...s.chatMessages, { id: nextMsgId(), role: "assistant" as const, content: data.textContent,
           agentRunId: data.runId, commitId: data.commitId,
+          ...(isStudioBuildProposal(data.buildProposal) ? { buildProposal: data.buildProposal } : {}),
           ...(data.writeToolCalls?.length ? { toolCalls: data.writeToolCalls, proposalStatus: "approved" as const } : {}) }],
         chatStreamContent: "",
       });
@@ -1522,11 +1524,6 @@ function studioAgentCallbacks(scope: StudioAgentScope, initialRunId: string | nu
 
 // ── Store ──
 
-const ASSISTANT_MODE_KEY = "yumina.studio.assistantMode";
-function readAssistantMode(): "build" | "advise" {
-  try { return localStorage.getItem(ASSISTANT_MODE_KEY) === "advise" ? "advise" : "build"; } catch { return "build"; }
-}
-
 export const useStudioStore = create<StudioState>((set, get) => ({
   chatMessages: [],
   runCosts: {},
@@ -1549,9 +1546,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   agentToolCall: null,
   aiPlaytest: null,
   aiDigest: null,
-  assistantMode: readAssistantMode(),
+  assistantMode: "advise",
   setAssistantMode: (mode) => {
-    try { localStorage.setItem(ASSISTANT_MODE_KEY, mode); } catch { /* remembered for this page only */ }
     set({ assistantMode: mode });
   },
   briefSavedRunId: null,
@@ -1649,7 +1645,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         feedback.error(tr("editor:studio.aiChat.saveBeforeSendFailed",
           "Your latest edits couldn't be saved, so the message wasn't sent. Save or resolve the conflict, then retry."), {
           label: tr("common:action.retry", "Retry"),
-          onClick: () => { void get().sendChatMessage(worldId, content, model, conversationId); },
+          onClick: () => { void get().sendChatMessage(worldId, content, model, conversationId, focus, options); },
         });
         return;
       }
@@ -1730,7 +1726,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
           selectedElementType,
           ...(focus && focus.length > 0 && { focusIds: focus.map((item) => item.id) }),
           ...(options?.jobApproved && { jobApproved: true }),
-          ...((options?.mode ?? get().assistantMode) === "advise" && !options?.jobApproved && { mode: "advise" }),
+          mode: options?.jobApproved ? "build" : options?.mode ?? get().assistantMode,
+          ...(options?.buildProposal && { buildProposal: options.buildProposal }),
         },
         attachments: attachments ?? [],
       },
@@ -2172,6 +2169,8 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   clearChat: () => {
     get().stopAgent();
     set({
+      assistantMode: "advise",
+      briefSavedRunId: null,
       chatMessages: [],
       chatWorldId: null,
       chatWorldName: null,

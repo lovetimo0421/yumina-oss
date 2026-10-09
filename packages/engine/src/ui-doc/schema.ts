@@ -168,6 +168,7 @@ const baseElementSchema = {
   id: z.string().min(1).max(200),
   name: z.string().max(200).optional(),
   group: z.string().max(200).optional(),
+  variableDisplay: z.string().min(1).max(200).optional(),
   desktop: z.object({ x: z.number(), y: z.number(), w: z.number().min(0), h: z.number().min(0) })
     .nullable().optional(),
   x: z.number(),

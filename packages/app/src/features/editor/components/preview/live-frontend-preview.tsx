@@ -235,6 +235,7 @@ type PreviewVars = Record<string, number | string | boolean | Record<string, unk
 interface PreviewPlay {
   setVariable: (id: string, value: PreviewVars[string]) => void;
   switchGreeting: (index: number) => void;
+  onAiUnavailable: () => void;
 }
 
 interface PreviewRuntimeData {
@@ -264,6 +265,12 @@ function readPreviewRuntime(latest: React.RefObject<PreviewRuntimeData>): Previe
 
 function buildPreviewApi({ previewVars, worldName, mockMessages, play, entries }: PreviewRuntimeData): YuminaAPI {
   return {
+    ai: {
+      complete: async () => {
+        play?.onAiUnavailable();
+        throw new Error("AI is unavailable in Canvas preview. Use the card's fallback or Playtest.");
+      },
+    },
     entries,
     sendMessage: () => {},
     setVariable: play ? (id, value) => play.setVariable(id, value as PreviewVars[string]) : () => {},
@@ -958,20 +965,33 @@ export function LiveFrontendPreview({
    *  object — a fresh one every render re-sends the variables. */
   overrides?: Record<string, number | string | boolean | Record<string, unknown> | unknown[]>;
 } = {}) {
-  const [played, setPlayed] = useState<{ greetingId?: string; vars: PreviewVars }>(EMPTY_PLAYED);
-  useEffect(() => { if (!play) setPlayed(EMPTY_PLAYED); }, [play]);
-  const shownGreeting = (play && played.greetingId) || greetingId;
+  const { t } = useTranslation("editor");
+  const worldKey = useEditorStore(s => s.worldDraft.id || "new");
+  const scopeKey = `${worldKey}:${greetingId ?? ""}:${play}`;
+  const scope = useRef({ key: scopeKey });
+  if (scope.current.key !== scopeKey) scope.current = { key: scopeKey };
+  const token = scope.current;
+  const [played, setPlayed] = useState<{ token?: object; greetingId?: string; vars: PreviewVars }>(EMPTY_PLAYED);
+  const [aiSkipped, setAiSkipped] = useState<object | null>(null);
+  useEffect(() => { setPlayed(EMPTY_PLAYED); setAiSkipped(null); }, [token]);
+  const activePlayed = play && played.token === token ? played : EMPTY_PLAYED;
+  const shownGreeting = activePlayed.greetingId || greetingId;
   const base = usePreviewVars(shownGreeting, overrides);
   const previewVars = useMemo(
-    () => (Object.keys(played.vars).length ? { ...base, ...played.vars } : base),
-    [base, played.vars],
+    () => (Object.keys(activePlayed.vars).length ? { ...base, ...activePlayed.vars } : base),
+    [base, activePlayed.vars],
   );
   const playApi = useMemo<PreviewPlay | null>(() => (play ? {
-    setVariable: (id, value) => setPlayed((p) => ({ ...p, vars: { ...p.vars, [id]: value } })),
+    setVariable: (id, value) => {
+      if (scope.current !== token) return;
+      setPlayed((p) => ({ ...p, token, vars: { ...(p.token === token ? p.vars : {}), [id]: value } }));
+    },
+    onAiUnavailable: () => { if (scope.current === token) setAiSkipped(token); },
     // The openings in switchGreeting's count (world-preview collectGreetings).
     // Switching starts that opening's variables over, keeping what the player
     // set up before the story — as play does (preserveSetupScopedVariables).
     switchGreeting: (index) => {
+      if (scope.current !== token) return;
       const draft = useEditorStore.getState().worldDraft;
       const opening = (draft.entries ?? [])
         .filter((e) => e.role === "greeting" && e.enabled !== false && (e.content ?? "").trim())
@@ -979,12 +999,18 @@ export function LiveFrontendPreview({
       if (!opening) return;
       const setup = new Set(draft.variables.filter((v) => v.scope === "setup").map((v) => v.id));
       setPlayed((p) => ({
+        token,
         greetingId: opening.id,
         vars: Object.fromEntries(Object.entries(p.vars).filter(([id]) => setup.has(id))),
       }));
     },
-  } : null), [play]);
-  return <RootComponentCanvas previewVars={previewVars} inspect={inspect} greetingId={shownGreeting} fitToFrame={fitToFrame} play={playApi} />;
+  } : null), [play, token]);
+  return <div className="flex h-full min-h-0 flex-col">
+    <div className="min-h-0 flex-1">
+      <RootComponentCanvas key={scopeKey} previewVars={previewVars} inspect={inspect} greetingId={shownGreeting} fitToFrame={fitToFrame} play={playApi} />
+    </div>
+    {play && aiSkipped === token && <p role="status" className="shrink-0 border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">{t("studio.canvas.aiSkipped")}</p>}
+  </div>;
 }
 const EMPTY_PLAYED: { greetingId?: string; vars: PreviewVars } = { vars: {} };
 

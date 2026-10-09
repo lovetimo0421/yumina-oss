@@ -1588,5 +1588,27 @@
     "showcaseSet": "「{{title}}」をショーケースに設定しました",
     "showcaseRemoved": "ショーケースを解除しました",
     "showcaseFailed": "ショーケースを更新できませんでした"
+  },
+  "membershipCredits": {
+    "source": {
+      "invite_race": "招待レース報酬",
+      "referral": "招待報酬",
+      "event": "イベント報酬",
+      "admin": "付与されたメンバーシップ",
+      "gift": "ギフトメンバーシップ"
+    },
+    "paidUpfront": "Mushies は一括付与済み",
+    "endsOn": "メンバーシップ期限：{{date}}",
+    "details": "メンバーシップ・付与明細",
+    "rewardDays": "{{plan}} 報酬 · {{days}} 日間",
+    "paidOn": "{{date}} に一括付与済み",
+    "creditedOn": "{{date}} に付与済み",
+    "inviteExtra": "招待レース追加報酬",
+    "freeAllowance": "無料枠",
+    "planAllowance": "{{plan}} の付与枠",
+    "cycleLatest": "1周期あたり {{amount}} · 直近の付与",
+    "cycle": "1周期あたり {{amount}}",
+    "allowanceInfoDrops": "{{plan}}：1周期あたり {{amount}} Mushies を予定に沿って分割付与します。メンバーシップ報酬の Mushies は別途付与されます。",
+    "allowanceInfo": "{{plan}}：1周期あたり {{amount}} Mushies。メンバーシップ報酬の Mushies は別途付与されます。"
   }
 }

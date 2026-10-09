@@ -8,7 +8,7 @@ import type { BlockKind } from "@yumina/engine";
  *  guide, which stays docked at the bottom of the canvas. Finishing them
  *  unlocks the rest — one lesson per subject, taken in any order, each
  *  bringing its own block onto the same three. */
-export const LEARNING_RELEASE = "blueprint-tour-13";
+export const LEARNING_RELEASE = "blueprint-tour-14";
 export const LEARNING_PANEL_EVENT = "yumina:studio-learn-panel";
 export const LEARNING_CANVAS_EVENT = "yumina:studio-learn-canvas";
 export const LEARNING_TARGET_EVENT = "yumina:studio-learn-target";
@@ -38,10 +38,10 @@ export const LEARNING_LESSONS = [
   { id: "setting", revision: 17, part: "required", panel: "lorebook", stage: ["opening", "lore"], focus: ["lore"], canvasTarget: "setting" },
   { id: "interface", revision: 16, part: "required", panel: "frontend", stage: ["opening", "lore", "frontend"], focus: ["frontend"] },
   // ── More ── each brings its own block onto the three the learner knows.
-  { id: "state", revision: 16, part: "more", panel: "variables", stage: ["opening", "lore", "frontend", "state"], focus: ["state"] },
+  { id: "state", revision: 17, part: "more", panel: "variables", stage: ["opening", "lore", "frontend", "state"], focus: ["state"] },
   { id: "behavior", revision: 13, part: "more", panel: "rules", stage: ["opening", "lore", "frontend", "state", "behavior"], focus: ["behavior"] },
   { id: "atmosphere", revision: 8, part: "more", panel: "audio", stage: ["opening", "lore", "frontend", "audio", "image"], focus: ["audio", "image"] },
-  { id: "assistant", revision: 12, part: "more", panel: "ai-chat" },
+  { id: "assistant", revision: 13, part: "more", panel: "ai-chat" },
   { id: "card", revision: 13, part: "more", panel: "overview" },
   { id: "knowledge", revision: 9, part: "more", panel: "lorebook", stage: ["opening", "lore", "frontend"], focus: ["lore"] },
   { id: "looks", revision: 10, part: "more", panel: "frontend", stage: ["opening", "lore", "frontend"], focus: ["frontend"] },

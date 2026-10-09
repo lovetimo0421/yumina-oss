@@ -41,7 +41,10 @@ import { NoApiKeyNotice, isNoApiKeyError } from "../components/no-api-key-notice
 import { CreditPauseCard } from "../components/credit-pause-card";
 import { ImageProposalCard } from "../components/image-proposal-card";
 import { ImageBatchProposalCard } from "../components/image-batch-proposal-card";
-import { BriefReady, DigestProgress, JobAsk } from "../components/agent-job-chat";
+import { DigestProgress, JobAsk } from "../components/agent-job-chat";
+import { BuildHandoff } from "../components/build-handoff";
+import { latestBuildProposal } from "../lib/build-handoff";
+import type { StudioBuildProposal } from "@yumina/shared";
 import { focusKind, toneChip } from "../lib/kind-tone";
 import { AssistantModeSwitch } from "../components/assistant-mode";
 import { AiFocusChips } from "../components/ai-focus-chips";
@@ -305,7 +308,7 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
   const digest = useStudioStore(s => (s.aiDigest && s.aiDigest.runId === s._currentRunId ? s.aiDigest : null));
   const assistantMode = useStudioStore(s => s.assistantMode);
   const setAssistantMode = useStudioStore(s => s.setAssistantMode);
-  const briefSavedRunId = useStudioStore(s => s.briefSavedRunId);
+  const buildProposal = useMemo(() => latestBuildProposal(chatMessages), [chatMessages]);
   const addChatAttachment = useStudioStore(s => s.addChatAttachment);
   const removeChatAttachment = useStudioStore(s => s.removeChatAttachment);
   const undoLastTurn = useStudioStore(s => s.undoLastTurn);
@@ -367,7 +370,7 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
     const controller = new AbortController();
     const params = new URLSearchParams({ model });
     if (activeConversationId) params.set("conversationId", activeConversationId);
-    if (assistantMode === "advise") params.set("mode", "advise");
+    params.set("mode", assistantMode);
     fetch(`${apiBase}/api/studio/${serverWorldId}/agent/estimate?${params}`, { credentials: "include", signal: controller.signal })
       .then(res => res.ok ? res.json() : null)
       .then((body: { data?: { billed?: boolean; floorCredits?: number | null; coldCache?: boolean } } | null) => {
@@ -539,6 +542,7 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
       if (currentStore.isAgentWorking || currentStore.isResumingCredits || currentStore._pendingApproval || currentStore._pendingImage) currentStore.stopAgent();
       useStudioStore.setState({
         chatMessages: data.messages,
+        assistantMode: "advise",
         chatWorldId: requestedWorldId,
         chatConversationId: convId,
         chatStreamContent: "",
@@ -671,7 +675,7 @@ export function AiChatPanel(_props: IDockviewPanelProps) {
       && sendPendingRef.current !== conversationLoadRef.current
   ), [isAgentWorking]);
 
-  const sendText = useCallback(async (text: string, options?: { jobApproved?: boolean; mode?: "build" | "advise" }) => {
+  const sendText = useCallback(async (text: string, options?: { jobApproved?: boolean; mode?: "build" | "advise"; buildProposal?: StudioBuildProposal }) => {
     const trimmed = text.trim();
     if (!trimmed || !serverWorldId || !canSend()) return;
     const requestedWorldId = serverWorldId;
@@ -1047,12 +1051,6 @@ ${trimmed}` : trimmed);
                     />
                   )}
 
-                  {/* The advisor saved the brief: one step to building from it. */}
-                  {msg.role === "assistant" && briefSavedRunId && msg.agentRunId === briefSavedRunId
-                    && msgIdx === chatMessages.length - 1 && !isAgentWorking && (
-                    <BriefReady onBuild={() => { setAssistantMode("build"); void sendText(t("studio.aiChat.mode.buildFromBriefMessage"), { mode: "build" }); }} />
-                  )}
-
                   {/* generate_image confirmation / result */}
                   {msg.imageProposal && (
                     <ImageProposalCard
@@ -1192,6 +1190,15 @@ ${trimmed}` : trimmed);
           </div>
         )}
 
+        <BuildHandoff proposal={buildProposal} worldId={serverWorldId} conversationId={activeConversationId}
+          available={assistantMode === "advise" && chatWorldId === serverWorldId && chatConversationId === activeConversationId
+            && !isAgentWorking && !isConversationLoading && !visibleCreditPause && !hasPendingApproval}
+          onBuild={proposal => {
+            if (!canSend() || !serverWorldId) return false;
+            setAssistantMode("build");
+            void sendText(t("studio.aiChat.mode.buildFromBriefMessage"), { mode: "build", buildProposal: proposal });
+            return true;
+          }} />
         <div ref={messagesEndRef} />
       </div>
 

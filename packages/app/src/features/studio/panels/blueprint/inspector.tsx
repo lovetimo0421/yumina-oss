@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { confirmAction } from "@/components/ui/global-confirm-dialog";
 import { getSendAsOptions, SECONDARY_LOGIC_OPTIONS } from "@/lib/entry-constants";
 import { KIND_STYLE } from "./style";
-import { showVariableOnScreen } from "../../lib/show-on-screen";
+import { hideVariableOnScreen, showVariableOnScreen } from "../../lib/show-on-screen";
 import { isVariableOnScreen } from "../../lib/variable-on-screen";
 import { ConditionSentences, EffectSentences, WhenSentence } from "./behavior-sentence";
 import { VariableValueField } from "./variable-value-field";
@@ -736,28 +736,30 @@ export function VariableForm({ variableId }: { variableId: string }) {
             {numberField(variable.max, (max) => commit({ max }), t("variables.max"))}
           </Row>
         )}
-        {/* From the variable straight to the screen: a number becomes a
-            meter, a list a list, the rest a line — one click, no binding.
-            Once something shows it, the button says so instead of offering
-            to add it again (taking it off is the player-screen editor's). */}
-        {isVariableOnScreen(worldDraft.uiDoc, variable.id) ? (
-          <p data-testid="on-screen" className="mt-1 rounded-lg border border-emerald-500/25 bg-emerald-500/5 px-2.5 py-1.5 text-center text-[11.5px] font-medium text-emerald-300/90">
-            {t("blueprint.insp.onScreen")}
-          </p>
-        ) : <button
+        <button
           type="button"
           data-testid="show-on-screen"
+          role="switch"
+          aria-checked={isVariableOnScreen(worldDraft.uiDoc, variable.id)}
           onClick={() => {
+            if (isVariableOnScreen(useEditorStore.getState().worldDraft.uiDoc, variable.id)) {
+              hideVariableOnScreen(variable.id);
+              return;
+            }
             const placed = showVariableOnScreen(variable.id, {
               chatPageName: String(t("studio.pageTemplates.chatPageName")),
               lineLabel: (name) => String(t("blueprint.insp.showOnScreenLine", { name })),
             });
             if (placed) feedback.notice(t("blueprint.insp.shownOnScreen", { name: variable.name }));
           }}
-          className="studio-control mt-1 w-full rounded-lg border px-2.5 py-1.5 text-[11.5px] font-medium text-foreground/80 transition-colors hover:text-foreground"
+          className="studio-control mt-1 flex w-full items-center justify-between gap-3 rounded-lg border px-2.5 py-1.5 text-left text-[11.5px] font-medium text-foreground/80 transition-colors hover:text-foreground"
         >
           {t("blueprint.insp.showOnScreen")}
-        </button>}
+          <span aria-hidden="true" className={cn("relative h-[18px] w-[30px] shrink-0 rounded-full", isVariableOnScreen(worldDraft.uiDoc, variable.id) ? "bg-emerald-500/70" : "bg-foreground/20")}>
+            <span className={cn("absolute top-[2px] h-[14px] w-[14px] rounded-full bg-foreground transition-[left]", isVariableOnScreen(worldDraft.uiDoc, variable.id) ? "left-[14px]" : "left-[2px]")} />
+          </span>
+        </button>
+        <p className="mt-1 text-[11px] text-muted-foreground">{t("blueprint.insp.displayOnly")}</p>
       </Group></div>
 
       {/* The variable's own description — when it changes and how. The one

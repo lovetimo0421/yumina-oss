@@ -1588,5 +1588,27 @@
     "back": "返回個人主頁",
     "title": "方案與模型",
     "subtitle": "查看目前方案、蘑菇幣、AI 來源和正在使用的模型。"
+  },
+  "membershipCredits": {
+    "source": {
+      "invite_race": "邀請賽獎勵",
+      "referral": "邀請獎勵",
+      "event": "活動獎勵",
+      "admin": "贈送會員",
+      "gift": "禮物會員"
+    },
+    "paidUpfront": "Mushies 已一次發放",
+    "endsOn": "會員有效至 {{date}}",
+    "details": "會員與入帳明細",
+    "rewardDays": "{{plan}} 獎勵 · {{days}} 天",
+    "paidOn": "{{date}} 已一次入帳",
+    "creditedOn": "{{date}} 已入帳",
+    "inviteExtra": "邀請賽額外獎勵",
+    "freeAllowance": "基本免費額度",
+    "planAllowance": "{{plan}} 額度",
+    "cycleLatest": "每週期 {{amount}} · 最近入帳",
+    "cycle": "每週期 {{amount}}",
+    "allowanceInfoDrops": "{{plan}}：每週期 {{amount}} Mushies，按計畫分批發放。會員獎勵 Mushies 另行入帳。",
+    "allowanceInfo": "{{plan}}：每週期 {{amount}} Mushies。會員獎勵 Mushies 另行入帳。"
   }
 }

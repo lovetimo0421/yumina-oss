@@ -409,8 +409,10 @@ export function removeGroup(doc: UiDoc, pageId: string, elementIds: readonly str
   if (going.length === 0) return doc;
 
   const isMeterRow = going.some((el) => el.type === "meter");
+  const isManagedRow = going.every(el => !!el.variableDisplay)
+    && new Set(going.map(el => el.group ?? el.id)).size === 1;
   const kept = page.elements.filter((el) => !ids.has(el.id));
-  if (!isMeterRow) return mapPage(doc, pageId, () => kept);
+  if (!isMeterRow && !isManagedRow) return mapPage(doc, pageId, () => kept);
 
   // Each canvas closes its own gap: the row may be alone on the phone and
   // shoulder to shoulder with another on the desktop, or the other way round.
@@ -420,23 +422,31 @@ export function removeGroup(doc: UiDoc, pageId: string, elementIds: readonly str
     if (boxes.length === 0) continue;
     const top = Math.min(...boxes.map((b) => b.y));
     const bottom = Math.max(...boxes.map((b) => b.y + b.h));
+    if (!isMeterRow) {
+      const transcript = transcriptOf(page);
+      const tBox = transcript && boxOn(transcript, canvas);
+      // A managed part moved into the composition no longer owns a row
+      // above the transcript. Removing it must not rearrange that layout.
+      if (!tBox || bottom + 8 > tBox.y) continue;
+    }
 
     // Two meters side by side share a row. Removing one of them empties half
     // the row and frees no vertical space at all — reclaiming it would drag
     // the survivor up into whatever sits above, which is how deleting 体力 slid
     // 精力 into the details button.
     const rowStillStands = elements.some((el) => {
-      if (el.type !== "meter") return false;
+      if (isMeterRow ? el.type !== "meter" : !el.variableDisplay) return false;
       const b = boxOn(el, canvas);
       return b !== null && b.y < bottom && b.y + b.h > top;
     });
     if (rowStillStands) continue;
 
     // The panel shrinks back with the row it was holding.
-    const panel = panelAround({ ...page, elements: page.elements }, canvas, 0);
+    const panel = isMeterRow ? panelAround({ ...page, elements: page.elements }, canvas, 0) : null;
     // Measured from the BOTTOM of what left, so nothing that merely starts at
     // the same y — a label beside the track — counts as being below it.
-    elements = reflow({ ...page, elements }, bottom, -METER_ROW_H, canvas);
+    const rowHeight = isMeterRow ? METER_ROW_H : bottom - top + 8;
+    elements = reflow({ ...page, elements }, bottom, -rowHeight, canvas);
     if (panel) {
       elements = elements.map((el) => {
         if (el.id !== panel.id) return el;

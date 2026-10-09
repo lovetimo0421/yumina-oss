@@ -1703,5 +1703,27 @@
     "back": "Back to Profile",
     "title": "Plan & model",
     "subtitle": "Review your current plan, credits, AI provider, and active model."
+  },
+  "membershipCredits": {
+    "source": {
+      "invite_race": "Invite Race reward",
+      "referral": "Referral reward",
+      "event": "Event reward",
+      "admin": "Granted membership",
+      "gift": "Gift membership"
+    },
+    "paidUpfront": "Mushies paid upfront",
+    "endsOn": "Membership ends {{date}}",
+    "details": "Membership & credit details",
+    "rewardDays": "{{plan}} reward · {{days}} days",
+    "paidOn": "Paid in full {{date}}",
+    "creditedOn": "Credited {{date}}",
+    "inviteExtra": "Invite Race extra",
+    "freeAllowance": "Free allowance",
+    "planAllowance": "{{plan}} allowance",
+    "cycleLatest": "{{amount}} per cycle · Latest credit",
+    "cycle": "{{amount}} per cycle",
+    "allowanceInfoDrops": "{{plan}}: {{amount}} Mushies per cycle, delivered in scheduled drops. Membership reward Mushies are credited separately.",
+    "allowanceInfo": "{{plan}}: {{amount}} Mushies per cycle. Membership reward Mushies are credited separately."
   }
 }

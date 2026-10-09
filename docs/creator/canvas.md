@@ -87,6 +87,8 @@ Give it a name, say where it starts and its lowest and highest values, then use 
 
 ![Affection, filled in](./images/canvas/w-var-done.webp)
 
+Use the variable’s **Show on the player screen** switch to add its display. Switch it off to remove the display; the variable and its value stay in the card. Canvas previews keep setup changes temporary. If a custom setup needs AI, it can use its own fallback in the preview; use Playtest for real AI responses.
+
 No need to write formats like `[Affection: +5]`. The engine teaches the AI that by itself. For how to write Behavior Rules and what Precise tracking is, see [Variables](/creator/variables).
 
 ## 7. Add a behavior
@@ -163,7 +165,7 @@ The top bar also has these:
 
 ![The Add menu](./images/canvas/addmenu.webp)
 
-The **Creation assistant** is the built-in AI. Tell it "Add a coins variable and take money off when they buy a drink" and it makes the change for you. See [The Creation assistant and your own AI](/creator/studio-ai). The **Guide** is Yumina (yes, the little mushroom) walking you through it lesson by lesson, right on your own card. **Creator Guide** opens the docs you're reading now.
+The **Creation assistant** is the built-in AI. New conversations start in Plan. Tell it "Add a coins variable and take money off when they buy a drink", discuss the scope, then choose **Start building** when prompted, or **Keep brainstorming**. See [The Creation assistant and your own AI](/creator/studio-ai). The **Guide** is Yumina (yes, the little mushroom) walking you through it lesson by lesson, right on your own card. **Creator Guide** opens the docs you're reading now.
 
 ## 11. When your card gets bigger
 

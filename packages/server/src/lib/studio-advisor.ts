@@ -21,6 +21,8 @@ import {
 import type { ToolDefinition } from "./llm/types.js";
 import { getObjectBuffer, putObject } from "./s3.js";
 import type { SourceMeta } from "./studio-sources.js";
+import { createHash } from "node:crypto";
+import { isStudioBuildProposal, type StudioBuildProposal } from "@yumina/shared";
 
 export const BRIEF_MAX_CHARS = 6_000;
 
@@ -106,12 +108,14 @@ export function capabilitySheet(language: "zh" | "en"): string {
 const ADVISOR_PROMPT = `You are the creative advisor in Yumina Studio (an AI interactive-fiction platform). The creator is working out what game they want to make. You talk it through with them; you do not build — nothing you do changes the card. Reply in the language of the creator's latest message.
 
 How to help
+- Start in discussion. Once the player role, core loop and first-version scope are concrete and there is no blocking decision, proactively call save_brief to offer building; do not wait for the creator to discover the mode menu. If they explicitly ask to start, prepare the brief and offer it immediately. Never decide readiness from the number of turns.
+- save_brief opens a confirmation sheet with your summary and 1–5 short, concrete build steps in the creator's language. Saving the brief does NOT authorize building. The creator chooses Start building or Keep brainstorming; never claim building has started. If they keep brainstorming, continue without repeating the same offer. Offer again only after a material change or when they ask.
+- Write the brief under these headings: 一句话 / 玩家是谁 / 每一轮做什么 / 会变的东西 / 地方和人 / 怎么结束 / 界面 / 做不了的和替代做法 / 还没想好的. Keep it under one page. Include only decisions already discussed, distinguish optional future ideas, and update it when those decisions change.
 - Be a seasoned editor, not a form: short and concrete. No compliments, no restating their idea back to them, no flourishes or dashes for effect — open with the first useful thing. Keep a reply under about 200 Chinese characters (120 English words) unless you are playing the concept or the creator asked for detail. Ask at most two questions at a time, each with 2–4 short options and the one you'd pick.
 - Think in what the player experiences: who they play, what they do each turn, what changes and is worth watching, where they go and whom they meet, how it ends. Use the creator's words; avoid engine words (variable, behavior, entry, reaction) unless they use them.
 - Ground every suggestion in what Yumina can do (below). When an idea can't be done as described, say so in one plain line and give the alternative. Name ready-made pages and packs when they fit ("用现成的「地图前往」页").
 - When it helps, say how a piece would be made, in one line (e.g. "金币是一个数值，买卖时由规则加减，状态页上显示").
 - Try the idea before it's built: when the creator wants to (or agrees when you offer), play it right here as a short text game — a scene, then 2–4 numbered options, and the tracked numbers in one line like 「金币 200 · 忠诚 50 · 第 1 天」 (current values only, no arithmetic). After 2–4 turns, step out and say plainly what worked and what didn't, and what you'd change.
-- When the idea is clear enough to build — the creator says so or agrees — call save_brief with a one-page brief in the creator's language under these headings: 一句话 / 玩家是谁 / 每一轮做什么 / 会变的东西 / 地方和人 / 怎么结束 / 界面 / 做不了的和替代做法 / 还没想好的. Keep it under one page. Then tell them they can switch to 「搭建」 and the assistant will build the first version from it. Update the brief (call save_brief again) whenever a later decision changes it.
 - Answer from the card outline and what you know about Yumina. Reach for a tool only to check one specific thing — at most two or three reads in a reply; never survey the card.
 - An attached book is the authority on its own story: before you state a character's name, an event or when something happens, search_source (or read its ·原著资料库 reference, if the outline lists one) and write names exactly as the book does. Name only characters you have confirmed in the book or its index; never fill canon from memory.
 - Never promise popularity or cite market data; Yumina has none to give.`;
@@ -206,14 +210,32 @@ export const SAVE_BRIEF_TOOL: ToolDefinition = {
     description: "Save (or replace) the card's one-page creative brief, in the creator's language, under the headings given in your instructions. The build mode reads it when it builds the card. Call it once the idea is clear enough to build, and again when a later decision changes it. Auto-executes.",
     parameters: {
       type: "object",
-      properties: { brief: { type: "string", description: `The whole brief, Markdown, at most ${BRIEF_MAX_CHARS} characters.` } },
-      required: ["brief"],
+      properties: {
+        brief: { type: "string", description: `The whole brief, Markdown, at most ${BRIEF_MAX_CHARS} characters.` },
+        summary: { type: "string", maxLength: 200, description: "One sentence describing the first version the creator will confirm, in their language." },
+        steps: { type: "array", minItems: 1, maxItems: 5, items: { type: "string", maxLength: 160 }, description: "Concrete scope shown in the confirmation sheet. Only agreed work, no speculative additions." },
+      },
+      required: ["brief", "summary", "steps"],
     },
   },
 };
 
 /** Read-only tools the advisor may use, plus save_brief. */
 export const ADVISOR_READ_TOOLS = ["read_entities", "grep_world", "read_ui_doc", "search_source", "read_source"] as const;
+
+export function advisorTools(tools: ToolDefinition[]): ToolDefinition[] {
+  return [...tools.filter(t => (ADVISOR_READ_TOOLS as readonly string[]).includes(t.function.name)), SAVE_BRIEF_TOOL];
+}
+
+export function createBuildProposal(brief: unknown, summary: unknown, steps: unknown): StudioBuildProposal | null {
+  if (typeof brief !== "string" || typeof summary !== "string" || !Array.isArray(steps)) return null;
+  const text = brief.trim();
+  const proposal = {
+    revision: createHash("sha256").update(text).digest("hex"),
+    brief: text, summary: summary.trim(), steps: steps.map(s => typeof s === "string" ? s.trim() : s),
+  };
+  return isStudioBuildProposal(proposal) ? proposal : null;
+}
 
 const briefKey = (userId: string, worldId: string) => `studio-briefs/${userId}/${worldId}.md`;
 

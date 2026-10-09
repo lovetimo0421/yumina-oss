@@ -35,7 +35,7 @@ The assistant's chat opens on the right. That's your main workspace from here on
 
 ## Step 2: Tell the AI what you want
 
-Under the input box, switch the mode to **Build** so it edits the card straight away. (**Plan** is for talking an idea through first. It writes a creative brief without touching the card, and **Build it** then builds from the brief.)
+New conversations start in **Plan**, where you can discuss the idea without changing the card. Review the proposed scope and choose **Start building** to execute it, or **Keep brainstorming** to continue discussing. For this tutorial, you can also switch to **Build** under the input box to edit the card straight away.
 
 Give it your full game concept in one go. The more detail you provide, the better the output.
 

@@ -6,8 +6,8 @@ import { JSDOM } from "jsdom";
 import { createServer } from "vite";
 import type { WorldDefinition, WorldEntry } from "@yumina/engine";
 
-const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: "http://localhost" });
-const globals = { window: dom.window, document: dom.window.document, location: dom.window.location, navigator: dom.window.navigator, localStorage: dom.window.localStorage, HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true };
+const dom = new JSDOM('<!doctype html><div id="root"></div>', { url: "http://localhost", pretendToBeVisual: true });
+const globals = { window: dom.window, document: dom.window.document, location: dom.window.location, navigator: dom.window.navigator, localStorage: dom.window.localStorage, HTMLElement: dom.window.HTMLElement, MutationObserver: dom.window.MutationObserver, requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window), cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window), IS_REACT_ACT_ENVIRONMENT: true };
 const previous = new Map(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
 for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { configurable: true, writable: true, value });
 const { createRoot } = await import("react-dom/client");
@@ -107,4 +107,42 @@ test("opening selections stay runtime-only while existing preview overrides rema
     assert.deepEqual(persisted.previewVariableOverridesByWorld, { a: { hp: 30 } });
     assert.ok(persisted.sectionVisibility);
   });
+});
+
+test("free preview lets AI-dependent setup use its fallback and keeps writes out of the saved card", async () => {
+  const { LiveFrontendPreview } = await vite.ssrLoadModule("/src/features/editor/components/preview/live-frontend-preview.tsx") as typeof import("@/features/editor/components/preview/live-frontend-preview");
+  const initial = card("setup-preview", []);
+  initial.variables = [{ id: "setup-complete", name: "Setup Complete", type: "boolean", defaultValue: false }];
+  initial.rootComponent = { id: "root", name: "Root", entryFile: "index.tsx", updatedAt: "2026-10-08", files: { "index.tsx": `
+    export default function Setup() {
+      const api = useYumina();
+      const [busy, setBusy] = React.useState(false);
+      const [theme, setTheme] = React.useState("Forest");
+      if (api.variables["setup-complete"]) return <div data-game="">Game</div>;
+      function begin() {
+        setBusy(true);
+        api.ai.complete({ messages: [{ role: "user", content: theme }] })
+          .catch(() => "")
+          .then(() => { api.setVariable("setup-complete", true); setBusy(false); });
+      }
+      return <button data-begin="" disabled={busy} onClick={begin}>{theme}</button>;
+    }` } };
+  useEditorStore.setState({ worldDraft: initial, serverWorldId: null, isDirty: false, _past: [], _future: [] });
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const source = JSON.stringify(initial);
+  const shadow = () => [...dom.window.document.querySelectorAll("div")].map(el => el.shadowRoot).find(Boolean)!;
+  try {
+    await act(async () => root.render(<LiveFrontendPreview play />));
+    await act(async () => shadow().querySelector<HTMLButtonElement>("[data-begin]")!.click());
+    assert.ok(shadow().querySelector("[data-game]"), "fallback finishes setup without an AI request");
+    assert.equal(JSON.stringify(useEditorStore.getState().worldDraft), source);
+    assert.equal(useEditorStore.getState().isDirty, false);
+    assert.equal(useEditorStore.getState()._past.length, 0);
+    await act(async () => root.render(<LiveFrontendPreview play={false} />));
+    assert.ok(shadow().querySelector("[data-begin]"), "leaving preview resets scratch values");
+    assert.equal(shadow().querySelector("[data-game]"), null);
+  } finally {
+    await act(async () => root.unmount());
+    useEditorStore.getState().stopAutosave();
+  }
 });

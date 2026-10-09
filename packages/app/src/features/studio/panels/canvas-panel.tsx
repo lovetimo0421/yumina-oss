@@ -32,7 +32,7 @@ export function CanvasPanel() {
   const hasFiles = !!worldDraft.rootComponent?.files && Object.keys(worldDraft.rootComponent.files).length > 0;
   return (
     <CanvasShell isEmpty={!hasFiles} fullBleed>
-      <LiveFrontendPreview greetingId={greetingId} overrides={overrides} />
+      <LiveFrontendPreview greetingId={greetingId} overrides={overrides} play />
     </CanvasShell>
   );
 }

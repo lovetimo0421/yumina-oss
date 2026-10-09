@@ -1677,7 +1677,11 @@
         "placeholder": "What kind of game do you want to make?",
         "buildFromBrief": "Build it",
         "buildFromBriefMessage": "Build the first version from the creative brief.",
-        "briefSaved": "Brief saved"
+        "briefSaved": "Plan ready",
+        "reviewBuild": "Review build plan",
+        "buildTitle": "Build the first version?",
+        "keepPlanning": "Keep brainstorming",
+        "startBuild": "Start building"
       },
       "send": "Send"
     },
@@ -1760,6 +1764,7 @@
       "tablet": "Tablet",
       "mobile": "Mobile",
       "emptyState": "Add a greeting entry or custom component to preview your world.",
+      "aiSkipped": "AI skipped in preview. The card may use its default values.",
       "noComponent": "The frontend produced nothing to render",
       "noComponentHint": "Most likely the entry file is missing an export default. Open Frontend Code and check.",
       "noComponentFiles": "These files failed to compile:"
@@ -5029,6 +5034,7 @@
       "whatItIs": "What it is",
       "range": "Range",
       "showOnScreen": "Show on the player screen",
+      "displayOnly": "Display only. Variable data is kept.",
       "onScreen": "On the player screen",
       "showOnScreenLine": "{{name}}: ",
       "shownOnScreen": "“{{name}}” is on the player screen's chat page",

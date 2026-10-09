@@ -511,3 +511,4 @@ export * from "./creative-upload-policy.js";
 export { UNPERSON_ROOM_TIMING } from "./unperson-room-timing.js";
 
 export { parseCompletionResponseFormat, type CompletionResponseFormat } from "./completion-response-format.js";
+export { isStudioBuildProposal, type StudioBuildProposal } from "./types/studio-build.js";

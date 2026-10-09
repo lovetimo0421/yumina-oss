@@ -1651,7 +1651,7 @@ export function FrontendPage({
               boxShadow: "0 24px 60px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.4)",
             }}
           >
-            <LiveFrontendPreview inspect play={!!uiDoc && !editOn} />
+            <LiveFrontendPreview inspect play={uiDoc ? !editOn : !pickingActive} />
           </div>
           {partMenu && createPortal(
             <>

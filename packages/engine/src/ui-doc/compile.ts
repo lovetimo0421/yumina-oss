@@ -577,6 +577,19 @@ export function stockChatTopBand(page: UiPage, canvas: "phone" | "desktop"): num
   return bottom > 0 ? Math.ceil(bottom + 8) : 0;
 }
 
+/** Studio-added variable displays reserve space above a preserved frontend.
+ *  Other overlays keep their author's layout. Removing the displays restores
+ *  the original full-bleed frontend without modifying its code. */
+export function variableDisplayTopBand(page: UiPage, canvas: "phone" | "desktop"): number {
+  let bottom = 0;
+  for (const el of page.elements ?? []) {
+    if (!el.variableDisplay) continue;
+    const box = rectOn(el, canvas);
+    if (box) bottom = Math.max(bottom, box.y + box.h);
+  }
+  return bottom > 0 ? Math.ceil(bottom + 8) : 0;
+}
+
 /** How far above a part's top the bottom of the one on it may end and still
  *  count as stacked on it (the layouts leave 8–12px between rows). */
 const STACK_BAND = 24;
@@ -872,8 +885,8 @@ ${indent}/>`;
         // A row that does something is a real button; one that does not
         // stays a plain row, so a list without row steps compiles as before.
         const row = onRow === "null"
-          ? `<div key={i} style={${itemStyle}}>{interpolate(vars, itemText(${template}, item, i))}</div>`
-          : `<button type="button" key={i} className="yp-rowbtn" onClick={function () { runSteps(onRow, [Object.assign({}, vars), item, i]); }} style={${itemStyle}}>{interpolate(vars, itemText(${template}, item, i))}</button>`;
+          ? `<div key={i} style={${itemStyle}}>{interpolate(vars, itemText(${template}, item, i${el.variableDisplay ? ", true" : ""}))}</div>`
+          : `<button type="button" key={i} className="yp-rowbtn" onClick={function () { runSteps(onRow, [Object.assign({}, vars), item, i]); }} style={${itemStyle}}>{interpolate(vars, itemText(${template}, item, i${el.variableDisplay ? ", true" : ""}))}</button>`;
         const across = el.direction === "row" && !!el.columns && el.columns > 0;
         return `${indent}<div ${elAttr(el)} style={${frameStyle(el, [
           ["display", across ? `"grid"` : `"flex"`],
@@ -1437,8 +1450,11 @@ export function compileUiDoc(doc: UiDoc): CompiledUi {
   // A stock chat makes room for the bars a page puts across its top (see
   // stockChatTopBand). Emitted only when a page has one, so every other card
   // compiles exactly as before.
-  const topBands = stockBase
-    ? pages.map((p) => ({ id: p.id, phone: stockChatTopBand(p, "phone"), desktop: stockChatTopBand(p, "desktop") })).filter((b) => b.phone || b.desktop)
+  const topBand = (page: UiPage, canvas: "phone" | "desktop") => Math.max(
+    variableDisplayTopBand(page, canvas), stockBase ? stockChatTopBand(page, canvas) : 0,
+  );
+  const topBands = hasBase
+    ? pages.map((p) => ({ id: p.id, phone: topBand(p, "phone"), desktop: topBand(p, "desktop") })).filter((b) => b.phone || b.desktop)
     : [];
   const topBandTable = topBands.length
     ? `/** How much of each page's top its own bars take, in design pixels; the
@@ -1645,7 +1661,7 @@ function interpolate(vars, template) {
  *  {{item}} is the row itself, {{item.field.sub}} walks into it, {{index}} is
  *  1-based because it faces the player. Missing fields become "" — a template
  *  should never print its own plumbing. */
-function itemText(template, item, index) {
+function itemText(template, item, index, compact) {
   let out = String(template).replace(/\\{\\{\\s*item((?:\\.[\\w$]+)*)\\s*\\}\\}/g, function (_m, path) {
     // A list of plain words ("钥匙") drawn by a card that expects records:
     // the word is its name.
@@ -1659,6 +1675,13 @@ function itemText(template, item, index) {
       }
     }
     if (value === null || value === undefined) return "";
+    if (compact && !path && typeof value === "object") {
+      for (const key of ["name", "label", "title", "id"]) {
+        if ((typeof value[key] === "string" && value[key].trim()) || typeof value[key] === "number") return String(value[key]);
+      }
+      const summary = JSON.stringify(value);
+      return summary.length > 120 ? summary.slice(0, 117) + "…" : summary;
+    }
     return typeof value === "object" ? JSON.stringify(value) : String(value);
   });
   out = out.replace(/\\{\\{\\s*index\\s*\\}\\}/g, String(index + 1));

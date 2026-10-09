@@ -99,7 +99,7 @@ export function remapUiVariable<T>(node: T, from: string, to: string): T {
     if (!value || typeof value !== "object") return value;
     const out: Record<string, unknown> = {};
     for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-      if ((key === "variableId" || key === "valueRef") && v === from) out[key] = to;
+      if ((key === "variableId" || key === "valueRef" || key === "variableDisplay") && v === from) out[key] = to;
       else if (key === "requires" && Array.isArray(v)) out[key] = v.map((id) => (id === from ? to : id));
       else out[key] = walk(v);
     }

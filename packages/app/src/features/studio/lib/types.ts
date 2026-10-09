@@ -1,4 +1,4 @@
-import type { ImageBatchProposal, ImageBatchSnapshot } from "@yumina/shared";
+import type { ImageBatchProposal, ImageBatchSnapshot, StudioBuildProposal } from "@yumina/shared";
 
 /** A tool call returned by the LLM */
 export interface ToolCall {
@@ -131,6 +131,7 @@ export interface StudioChatMessage {
   focus?: StudioFocusRef[];
   /** A big job proposed in this reply, waiting for (or past) Start. */
   jobProposal?: StudioJobProposal;
+  buildProposal?: StudioBuildProposal;
   /** Tool calls made by the assistant in this turn */
   toolCalls?: ToolCall[];
   /** Auto-applied write tool calls retained for mobile change review */
@@ -169,6 +170,7 @@ export function serializeStudioChatMessages(messages: StudioChatMessage[]): Arra
     attachments,
     focus,
     jobProposal,
+    buildProposal,
     toolCalls,
     mobileReviewToolCalls,
     toolResults,
@@ -185,6 +187,7 @@ export function serializeStudioChatMessages(messages: StudioChatMessage[]): Arra
     ...(attachments && { attachments }),
     ...(focus && focus.length > 0 && { focus }),
     ...(jobProposal && { jobProposal }),
+    ...(buildProposal && { buildProposal }),
     ...(toolCalls && { toolCalls }),
     ...(mobileReviewToolCalls && { mobileReviewToolCalls }),
     ...(toolResults && { toolResults }),

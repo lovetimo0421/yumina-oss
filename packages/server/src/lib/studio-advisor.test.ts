@@ -2,6 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { UI_PAGE_TEMPLATES, migrateWorldDefinition, type WorldDefinition } from "@yumina/engine";
 import { PAGE_TEMPLATE_NAMES, advisorPrompt, approxPromptSize, capabilitySheet, cardOutline, describeLanguage, referenceIndex, saveBrief } from "./studio-advisor.js";
+import { createBuildProposal, advisorTools } from "./studio-advisor.js";
+import { STUDIO_TOOLS } from "./studio-tools/tools.js";
+
+test("build offers validate concise scope and identify the exact saved brief", () => {
+  const proposal = createBuildProposal(" Port story ", "First version", ["Opening", "Trust"]);
+  assert.ok(proposal);
+  assert.equal(proposal.revision.length, 64);
+  assert.equal(createBuildProposal("Port story", "New wording", ["Opening"])!.revision, proposal.revision);
+  assert.notEqual(createBuildProposal("Different story", "First version", ["Opening"])!.revision, proposal.revision);
+  assert.equal(createBuildProposal("story", "summary", []), null);
+  assert.equal(createBuildProposal("x".repeat(6001), "summary", ["Opening"]), null);
+  assert.equal(createBuildProposal("story", "summary", [null]), null);
+  assert.deepEqual(advisorTools(STUDIO_TOOLS).map(t => t.function.name).sort(),
+    ["grep_world", "read_entities", "read_source", "read_ui_doc", "save_brief", "search_source"]);
+});
 
 test("every ready-made page the engine has is named for the advisor", () => {
   for (const t of UI_PAGE_TEMPLATES) assert.ok(PAGE_TEMPLATE_NAMES[t.id], `name ${t.id} in PAGE_TEMPLATE_NAMES`);

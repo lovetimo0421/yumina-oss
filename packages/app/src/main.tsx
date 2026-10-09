@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useRef, useState } from "react";
 import { rememberShareInvite } from "@/lib/share-invite";
 import { createRoot } from "react-dom/client";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
+import { trackTikTokPageView } from "@/lib/analytics";
 import { PostHogProvider } from "@posthog/react";
 import { routeTree } from "./routeTree.gen";
 import {
@@ -368,6 +369,8 @@ window.addEventListener(OPEN_STUDIO_EVENT, (event) => {
   if (worldId) void router.navigate({ to: "/app/studio/$worldId", params: { worldId } });
 });
 router.subscribe("onResolved", (event) => clearReadingPageBootstrap(document, event.toLocation.pathname));
+// TikTok pixel page views per SPA route (index.html fired the first one).
+router.subscribe("onResolved", (event) => trackTikTokPageView(event.toLocation.pathname));
 
 declare module "@tanstack/react-router" {
   interface Register {

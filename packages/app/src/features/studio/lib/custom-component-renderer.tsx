@@ -25,6 +25,9 @@ export interface PreviewEntry {
 }
 
 export interface YuminaAPI {
+  /** Preview implementations reject asynchronously so cards can use their
+   *  normal AI-failure fallback without a real request or credit charge. */
+  ai?: { complete: (options: unknown) => Promise<string> };
   mode?: "session" | "guest-preview";
   capabilities?: {
     canSendMessage: boolean;

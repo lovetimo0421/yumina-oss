@@ -8,6 +8,9 @@ import { agentRuns, creditWallets, studioConversations, user, worlds } from "../
 import type { GenerateParams, LLMProvider } from "../lib/llm/types.js";
 import { STUDIO_TOOLS } from "../lib/studio-tools/tools.js";
 import { agentRoutes, streamAgentLoop } from "./agent.js";
+import { loadStudioConversationForDisplay } from "../lib/studio-conversations.js";
+import { S3Client } from "@aws-sdk/client-s3";
+import { LocalDiskStorage } from "../lib/storage/local-disk.js";
 
 // A big job: the assistant states its plan, the platform adds time and cost,
 // and the run waits for the creator to press Start — surviving a reload.
@@ -32,6 +35,57 @@ async function fixture() {
     model: "test/job", status: "running", messages: [{ role: "user", content: "给这张卡加一个选角色的开局" }] }).returning();
   return { userId, worldId, world, runId: run!.id, conversationId: conversation!.id };
 }
+
+test("Advise rejects an invented write tool even when the caller supplies Build tools", async () => {
+  const f = await fixture();
+  let calls = 0;
+  const provider: LLMProvider = {
+    async *generateStream(params) {
+      assert.ok(!params.tools?.some(t => t.function.name === "update_settings"));
+      if (++calls === 1) yield { type: "tool_call_end", content: "", toolCall: { id: "forbidden", type: "function", function: { name: "update_settings", arguments: '{"name":"Changed without approval"}' } } };
+      else yield { type: "text", content: "We can discuss this first." };
+      yield { type: "done", content: "", stopReason: calls === 1 ? "tool_use" : "stop" };
+    }, async listModels() { return []; },
+  };
+  const app = new Hono();
+  app.post("/loop", c => streamAgentLoop(c, { ...f, model: "test/plan", provider, isByok: true,
+    context: { mode: "advise" }, apiKeyTier: "regular", iteration: 0, maxIterations: 3,
+    tools: STUDIO_TOOLS, messages: [{ role: "user", content: "Think this through" }] }));
+  const text = await (await app.request("/loop", { method: "POST" })).text();
+  assert.equal(calls, 2);
+  assert.ok(!text.includes("event: applied"));
+  const [row] = await db.select().from(worlds).where(eq(worlds.id, f.worldId));
+  assert.equal((row!.schema as { name: string }).name, f.world.name);
+});
+
+test("saving a brief commits a recoverable build offer without writing the card", async t => {
+  const f = await fixture();
+  // Synthetic storage only, irrespective of the edition's backend choice.
+  t.mock.method(S3Client.prototype, "send", async () => ({}));
+  t.mock.method(LocalDiskStorage.prototype, "putObject", async () => {});
+  t.mock.method(LocalDiskStorage.prototype, "getObjectBuffer", async () => { throw new Error("No stored source"); });
+  let calls = 0;
+  const provider: LLMProvider = {
+    async *generateStream() {
+      if (++calls === 1) yield { type: "tool_call_end", content: "", toolCall: { id: "brief", type: "function", function: { name: "save_brief", arguments: JSON.stringify({ brief: "Port story", summary: "Build a port opening", steps: ["Opening", "Trust"] }) } } };
+      else yield { type: "text", content: "The plan is ready for your confirmation." };
+      yield { type: "done", content: "", stopReason: calls === 1 ? "tool_use" : "stop" };
+    }, async listModels() { return []; },
+  };
+  const app = new Hono();
+  app.post("/loop", c => streamAgentLoop(c, { ...f, model: "test/plan", provider, isByok: true,
+    context: { mode: "advise" }, apiKeyTier: "regular", iteration: 0, maxIterations: 3,
+    tools: STUDIO_TOOLS, messages: [{ role: "user", content: "The scope is ready" }] }));
+  const text = await (await app.request("/loop", { method: "POST" })).text();
+  assert.ok(text.includes('"buildProposal"'), text);
+  assert.ok(!text.includes("event: applied"));
+  const display = await loadStudioConversationForDisplay({ userId: f.userId, worldId: f.worldId, conversationId: f.conversationId });
+  const proposal = display!.messages.find(m => m.buildProposal)?.buildProposal as { brief: string; summary: string; steps: string[] };
+  assert.equal(proposal.brief, "Port story");
+  assert.deepEqual(proposal.steps, ["Opening", "Trust"]);
+  const [row] = await db.select().from(worlds).where(eq(worlds.id, f.worldId));
+  assert.equal((row!.schema as { name: string }).name, f.world.name);
+});
 
 test("propose_job streams the plan with an estimate and waits for Start, across a reload", async () => {
   const f = await fixture();

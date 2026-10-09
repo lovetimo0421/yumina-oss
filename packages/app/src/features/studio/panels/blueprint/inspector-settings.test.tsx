@@ -247,6 +247,55 @@ test("read-only selections never expose or autofocus editable variable fields", 
   });
 });
 
+test("a variable's player-screen switch can undo a legacy list without deleting its data or base frontend", async () => {
+  const variable = { id: "room-type-roster", name: "Room Type Roster", type: "json" as const, defaultValue: [{ id: "mana-condenser", label: "Mana Condenser" }] };
+  const base = { file: "_base.tsx" };
+  await withInspector(world({ variables: [variable], uiDoc: {
+    version: 1, entryPageId: "main", base,
+    pages: [{ id: "main", name: "Main", height: 812, elements: [
+      { id: "legacy-roster", type: "list", x: 16, y: 16, w: 250, h: 160, source: { kind: "variable", variableId: variable.id }, item: { template: "{{item}}" } },
+      { id: "keep", type: "text", x: 16, y: 400, w: 100, h: 20, text: { template: "My custom title" } },
+    ] }],
+  } }), "var:room-type-roster", {}, async ({ container, click }) => {
+    const toggle = () => container.querySelector<HTMLButtonElement>('[data-testid="show-on-screen"]')!;
+    assert.ok(toggle(), "the enabled control remains a button");
+    assert.equal(toggle().getAttribute("role"), "switch");
+    assert.equal(toggle().getAttribute("aria-checked"), "true");
+    await click(toggle());
+    assert.equal(toggle().getAttribute("aria-checked"), "false");
+    assert.deepEqual(useEditorStore.getState().worldDraft.uiDoc?.pages[0]?.elements.map(el => el.id), ["keep"]);
+    assert.deepEqual(useEditorStore.getState().worldDraft.variables, [variable]);
+    assert.deepEqual(useEditorStore.getState().worldDraft.uiDoc?.base, base);
+    await click(toggle());
+    assert.equal(toggle().getAttribute("aria-checked"), "true");
+    await click(toggle());
+    assert.deepEqual(useEditorStore.getState().worldDraft.uiDoc?.pages[0]?.elements.map(el => el.id), ["keep"]);
+  });
+});
+
+
+test("repeated text and list display switches restore the native transcript at both widths", async () => {
+  for (const type of ["string", "json"] as const) {
+    const variable = { id: "roster", name: "Roster", type, defaultValue: type === "json" ? [{ label: "Mana Condenser" }] : "Forest" };
+    const transcript = { id: "messages", type: "messages" as const, x: 0, y: 0, w: 375, h: 704, desktop: { x: 16, y: 0, w: 992, h: 600 } };
+    await withInspector(world({ variables: [variable], uiDoc: {
+      version: 1, entryPageId: "main", pages: [{ id: "main", name: "Main", height: 812, elements: [transcript] }],
+    } }), "var:roster", {}, async ({ container, click }) => {
+      const toggle = () => container.querySelector<HTMLButtonElement>('[data-testid="show-on-screen"]')!;
+      for (let cycle = 0; cycle < 3; cycle++) {
+        await click(toggle());
+        const shown = useEditorStore.getState().worldDraft.uiDoc!.pages[0].elements.find(el => el.id === "messages")!;
+        assert.ok(shown.y > 0);
+        await click(toggle());
+        const restored = useEditorStore.getState().worldDraft.uiDoc!.pages[0].elements.find(el => el.id === "messages")!;
+        assert.equal(restored.y, transcript.y);
+        assert.equal(restored.h, transcript.h);
+        assert.deepEqual(restored.desktop, transcript.desktop);
+      }
+      assert.deepEqual(useEditorStore.getState().worldDraft.variables, [variable]);
+    });
+  }
+});
 
 test("memory has its own inspector and changing its scope preserves station behavior and inputs", async () => {
   const station = { kind: "narrator" as const, history: "own" as const, onClose: "archive" as const, archivePrompt: "Keep the ending", model: "test/model", inputs: [{ kind: "transcript" as const, from: "b", limit: 7, as: "lore" as const }] };

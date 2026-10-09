@@ -123,7 +123,7 @@
           "after": {
             "added": {
               "title": "Ya está añadida",
-              "body": "La variable nueva ya está en el lienzo y sus ajustes están abiertos a la derecha. Cambia el nombre arriba, como afecto, dinero o energía, y luego decide desde cuánto empieza y su rango. Para que el jugador la vea, pulsa \"Mostrar en la pantalla del jugador\"."
+              "body": "La variable nueva ya está en el lienzo y sus ajustes están abiertos a la derecha. Cambia el nombre arriba, como afecto, dinero o energía, y luego decide desde cuánto empieza y su rango. Para que el jugador la vea, pulsa \"Mostrar en la pantalla del jugador\". Haz clic de nuevo para quitar la visualización; la variable y sus datos se conservan."
             }
           }
         },
@@ -174,8 +174,8 @@
     "assistant": {
       "title": "El asistente",
       "goal": "Todo lo anterior puede hacerlo por ti.",
-      "body": "Todo lo anterior se lo puedes pedir. Dile lo que quieres —«añade una variable de confianza que desbloquee una escena secreta en 80»— y lo cambia, enseñándotelo antes. ¿Solo quieres cambiar algunas piezas? Selecciónalas antes en el lienzo (Ctrl para varias). Puedes salir de Studio mientras trabaja; recibirás un aviso cuando termine o necesite tu respuesta. Los mensajes gastan créditos, así que de momento solo mira.",
-      "bodyMobile": "El asistente está abierto. Dile lo que quieres, como «añade una variable de confianza y desbloquea una escena a 80», y hace el cambio por ti, enseñándotelo antes. Puedes salir de Studio y volver cuando recibas un aviso. Enviar un mensaje cuesta créditos como siempre; no hace falta enviar uno ahora."
+      "body": "Cada conversación nueva empieza con la planificación, sin modificar la carta. Cuando el plan esté listo, revisa su alcance y elige Empezar a construir o Seguir ideando. Puedes volver a ver el plan o cambiar de modo debajo del campo de texto. Selecciona bloques del lienzo para centrar la petición (Ctrl para varios). Puedes salir mientras trabaja y volver al recibir un aviso. Los mensajes gastan créditos; no hace falta enviar uno ahora.",
+      "bodyMobile": "Cada conversación nueva empieza con la planificación, sin modificar la carta. Revisa el plan y elige Empezar a construir o Seguir ideando; puedes volver a verlo después. También puedes cambiar de modo debajo del campo de texto. Puedes salir mientras trabaja y volver al recibir un aviso. Los mensajes gastan créditos; no hace falta enviar uno ahora."
     },
     "card": {
       "title": "Portada, descripción y variantes",

@@ -3,6 +3,7 @@ import { db } from "../db/index.js";
 import { agentRuns, studioConversations } from "../db/schema.js";
 import type { ChatMessage, ContentPart, MessageContent, ToolCall } from "./llm/types.js";
 import { readPersistedImageBatchProposal } from "./studio-tools/image-batch-proposal.js";
+import { isStudioBuildProposal, type StudioBuildProposal } from "@yumina/shared";
 
 type StudioConversation = typeof studioConversations.$inferSelect;
 type StudioConversationUpdate = Partial<
@@ -21,6 +22,7 @@ interface CommittedDisplayTurn {
   createdAt: string;
   commitId: string;
   writeToolCalls?: ToolCall[];
+  buildProposal?: StudioBuildProposal;
   lane?: "answer" | "step" | "notice";
 }
 
@@ -226,6 +228,7 @@ function normalizeCommittedDisplayTurn(runId: string, value: unknown): Committed
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     commitId,
     writeToolCalls: normalizeToolCalls(value.writeToolCalls),
+    ...(isStudioBuildProposal(value.buildProposal) ? { buildProposal: value.buildProposal } : {}),
     ...(lane ? { lane } : {}),
   };
 }
@@ -266,6 +269,7 @@ function hydrateDisplayMessagesWithCommittedTurns(
     const turn = turns[turnIndex]!;
     if (!message.commitId) message.commitId = turn.commitId;
     if (!message.agentRunId) message.agentRunId = turn.runId;
+    if (turn.buildProposal) message.buildProposal = turn.buildProposal;
     if (turn.lane && !message.lane) message.lane = turn.lane;
     if (!messageHasReviewCalls(message) && turn.writeToolCalls?.length) {
       message.toolCalls = turn.writeToolCalls;
@@ -285,6 +289,7 @@ function hydrateDisplayMessagesWithCommittedTurns(
       agentRunId: turn.runId,
       commitId: turn.commitId,
       ...(turn.lane ? { lane: turn.lane } : {}),
+      ...(turn.buildProposal ? { buildProposal: turn.buildProposal } : {}),
       ...(turn.writeToolCalls?.length ? { toolCalls: turn.writeToolCalls, proposalStatus: "approved" } : {}),
     });
   }

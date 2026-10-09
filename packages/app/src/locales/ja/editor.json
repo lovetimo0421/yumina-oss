@@ -1585,7 +1585,11 @@
         "placeholder": "どんなゲームを作りたいですか？",
         "buildFromBrief": "作り始める",
         "buildFromBriefMessage": "企画書をもとに最初の版を作って。",
-        "briefSaved": "企画書を保存しました"
+        "briefSaved": "企画がまとまりました",
+        "reviewBuild": "制作プランを見る",
+        "buildTitle": "最初のバージョンを作りますか？",
+        "keepPlanning": "構想を続ける",
+        "startBuild": "制作を始める"
       },
       "send": "送信"
     },
@@ -1668,6 +1672,7 @@
       "tablet": "タブレット",
       "mobile": "モバイル",
       "emptyState": "オープニングエントリまたはカスタムコンポーネントを追加して、ワールドをプレビューしてください。",
+      "aiSkipped": "プレビューでは AI をスキップします。カードは初期値で続行できます。",
       "noComponent": "フロントエンドから描画できるコンポーネントが出力されませんでした",
       "noComponentHint": "エントリーファイルに export default が無い可能性が高いです。「フロントエンドコード」を開いて確認してください。",
       "noComponentFiles": "次のファイルのコンパイルに失敗しました："
@@ -4903,6 +4908,7 @@
       "whatItIs": "これは何か",
       "range": "範囲",
       "showOnScreen": "プレイヤー画面に表示",
+      "displayOnly": "表示のみを変更します。変数のデータは保持されます。",
       "onScreen": "プレイヤー画面に表示中",
       "showOnScreenLine": "{{name}}：",
       "shownOnScreen": "「{{name}}」をプレイヤー画面のチャットページに置きました",

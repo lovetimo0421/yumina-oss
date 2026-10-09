@@ -44,7 +44,8 @@ import { loadAssetCatalog } from "../lib/studio-tools/asset-catalog.js";
 import { executeReadEntities, executeApplyChanges, executeGrepWorld, executeValidateWorld, executeAnalyzeTokenCost, toolCallsToSchemaChanges } from "../lib/studio-tools/tool-executor.js";
 import { executeReadUiDoc } from "../lib/studio-tools/ui-doc-tools.js";
 import { buildSystemPrompt, type SystemPromptParts } from "../lib/studio-tools/system-prompt.js";
-import { ADVISOR_READ_TOOLS, SAVE_BRIEF_TOOL, advisorPrompt, briefBlock, describeLanguage, loadBrief, referenceIndex, saveBrief } from "../lib/studio-advisor.js";
+import { ADVISOR_READ_TOOLS, SAVE_BRIEF_TOOL, advisorTools, createBuildProposal, advisorPrompt, briefBlock, describeLanguage, loadBrief, referenceIndex, saveBrief } from "../lib/studio-advisor.js";
+import { isStudioBuildProposal, type StudioBuildProposal } from "@yumina/shared";
 import { getSkillContent } from "../lib/studio-skills/index.js";
 import { parseToolArgs } from "../lib/studio-tools/parse-tool-args.js";
 import { generateStreamWithRetry } from "../lib/studio-tools/generate-stream-with-retry.js";
@@ -387,13 +388,19 @@ agentRoutes.post("/:worldId/agent/start", async (c) => {
       focusIds?: string[];
       /** The creator pressed Start on a proposed job. */
       jobApproved?: boolean;
-      /** "advise": talk the idea through (lib/studio-advisor.ts); default builds. */
+      /** New requests discuss first unless the creator explicitly chooses Build. */
       mode?: "build" | "advise";
+      buildProposal?: StudioBuildProposal;
     };
     attachments?: Array<{ url: string; key: string; mimeType: string; name: string }>;
     /** Existing conversation messages to continue from */
     existingMessages?: ChatMessage[];
   }>();
+
+  if (body.context?.buildProposal !== undefined && !isStudioBuildProposal(body.context.buildProposal)) {
+    return c.json({ error: "Invalid build proposal" }, 400);
+  }
+  body.context = { ...body.context, mode: body.context?.mode === "build" || body.context?.jobApproved === true ? "build" : "advise" };
 
   // Verify world ownership
   const worldRows = await db
@@ -1216,7 +1223,7 @@ agentRoutes.get("/:worldId/agent/estimate", async (c) => {
   const worldId = c.req.param("worldId");
   const model = c.req.query("model") || "qwen/qwen3-vl-235b-a22b-instruct";
   const conversationId = c.req.query("conversationId");
-  const advise = c.req.query("mode") === "advise";
+  const advise = c.req.query("mode") !== "build";
 
   const [row] = await db
     .select({ schema: worlds.schema, status: worlds.status })
@@ -1727,6 +1734,7 @@ export interface AgentLoopParams {
     focusIds?: string[];
     jobApproved?: boolean;
     mode?: "build" | "advise";
+    buildProposal?: StudioBuildProposal;
   };
   iteration: number;
   maxIterations: number;
@@ -1853,6 +1861,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
     // at least one platform base model ready. Otherwise the schema stays smart-only.
     const customImageStyles = isCustomGenerationEnabled() ? await readyPlatformStyles() : [];
     tools = withCustomImageTool(tools, customImageStyles);
+    if (context?.mode === "advise") tools = advisorTools(tools);
     const unlimited = params.unlimited ?? false;
     const creditRecovery = studioCreditRecoveryEnabled() && !isByok && (!unlimited || !!params.creditResume);
     const creditScope = { runId, worldId: params.worldId, userId };
@@ -2127,7 +2136,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
     // bubble on the client. This is the SINGLE source of truth for "has this text been
     // shown to the user as a bubble yet?" — replaces the fragile implicit-commit logic that
     // used to infer boundaries from read_tools_executed vs done.
-    const committedTurns: Array<{ iteration: number; textContent: string; createdAt: string; commitId: string; writeToolCalls?: ToolCall[]; lane?: "answer" | "step" | "notice"; actions?: Array<{ op: string; target?: string }>; toolNarration?: boolean }> = [...(params.committedTurns ?? [])];
+    const committedTurns: NonNullable<AgentRunRow["committedTurns"]> = [...(params.committedTurns ?? [])];
 
     /** Commit one assistant text turn as a persistent chat bubble.
      *  Idempotent on (runId, iteration): callers may invoke it even if unsure whether
@@ -2137,7 +2146,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
      *  mid-task stall), `notice` (server-injected guard/nudge text). `step`/`notice`
      *  are UI-only, so the model is never trained on announcements that never act.
      *  `actions` is the compact tool trace for `step` turns. */
-    async function commitTextTurn(iter: number, text: string, opts?: { writeToolCalls?: ToolCall[]; lane?: "answer" | "step" | "notice"; actions?: Array<{ op: string; target?: string }>; allowEmpty?: boolean }) {
+    async function commitTextTurn(iter: number, text: string, opts?: { writeToolCalls?: ToolCall[]; lane?: "answer" | "step" | "notice"; actions?: Array<{ op: string; target?: string }>; allowEmpty?: boolean; buildProposal?: StudioBuildProposal }) {
       const writeToolCalls = opts?.writeToolCalls;
       const trimmed = text.trim();
       if (!trimmed && !writeToolCalls?.length && !opts?.allowEmpty) return;
@@ -2154,6 +2163,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         commitId,
         ...(writeToolCalls && writeToolCalls.length > 0 ? { writeToolCalls } : {}),
         ...(lane ? { lane } : {}),
+        ...(opts?.buildProposal ? { buildProposal: opts.buildProposal } : {}),
         ...(opts?.actions && opts.actions.length > 0 ? { actions: opts.actions } : {}),
         // Back-compat: legacy consumers keyed off `toolNarration`. `lane` is the
         // new source of truth; a `step` turn is exactly the old "tool narration".
@@ -2176,6 +2186,7 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         textContent: text,
         commitId,
         ...(writeToolCalls && writeToolCalls.length > 0 ? { writeToolCalls } : {}),
+        ...(opts?.buildProposal ? { buildProposal: opts.buildProposal } : {}),
       }));
     }
 
@@ -2247,7 +2258,9 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
 
     async function getSystemPromptParts(): Promise<SystemPromptParts> {
       if (cachedSystemPrompt) return cachedSystemPrompt;
-      const brief = await loadBrief(userId, params.worldId);
+      // Use the exact snapshot confirmed in the sheet, even if another conversation saved a newer brief.
+      const brief = context?.mode === "build" && isStudioBuildProposal(context.buildProposal)
+        ? context.buildProposal.brief : await loadBrief(userId, params.worldId);
       if (context?.mode === "advise") {
         const lastAsk = [...messages].reverse().find((m) => m.role === "user" && !isHarnessTurn(m));
         const askText = lastAsk && typeof lastAsk.content === "string" ? lastAsk.content : "";
@@ -2784,6 +2797,15 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
         // Checked before the read/write split so a stray combined call still yields.
         // The tool's only side effect is ending the run in "awaiting_user" — the user's
         // next chat message resumes the conversation like a normal reply.
+        // Tool availability is enforced here too: a model may invent a write call
+        // even when only reads were advertised. Never execute it in Advise.
+        if (context?.mode === "advise" && toolCalls.some(tc => !tools.some(t => t.function.name === tc.function.name))) {
+          messages = [...messages, assistantToolCallMessage(textContent, toolCalls, reasoningContent),
+            ...buildToolResultMessages(toolCalls.map(tc => ({ tool_call_id: tc.id, name: tc.function.name,
+              status: "error" as const, result: null, error: "Nothing was executed. In Advise, use only the available read tools or save_brief to offer building for the creator to confirm." })))];
+          iteration++;
+          continue;
+        }
         const controlCalls = toolCalls.filter((tc) => CONTROL_TOOL_NAMES.has(tc.function.name));
         const ask = controlCalls.find((tc) => tc.function.name === "ask_user");
         if (ask) {
@@ -3141,8 +3163,11 @@ export function streamAgentLoop(c: Parameters<typeof streamSSE>[0], params: Agen
               });
             } else if (tc.function.name === "save_brief") {
               // The advisor's one write: the brief the build mode reads (lib/studio-advisor.ts).
-              const saved = await saveBrief(userId, params.worldId, args.brief);
+              const proposal = createBuildProposal(args.brief, args.summary, args.steps);
+              const saved = proposal ? await saveBrief(userId, params.worldId, proposal.brief)
+                : { error: "Provide a non-empty brief (up to 6000 characters), summary (up to 200), and 1–5 scope steps (up to 160 each)." };
               const saveError = "error" in saved ? saved.error : undefined;
+              if (!saveError && proposal) await commitTextTurn(iteration, textContent, { lane: "answer", allowEmpty: true, buildProposal: proposal });
               if (!saveError) await safeSend("brief_saved", JSON.stringify({ runId, chars: (saved as { chars: number }).chars }));
               allResults.push({
                 tool_call_id: tc.id,

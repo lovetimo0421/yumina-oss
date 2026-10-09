@@ -380,6 +380,9 @@ export interface UiElementBase {
    * their own unit, which is every element a hand-built document has.
    */
   group?: string;
+  /** Variable display inserted by Studio's Show on the player screen switch.
+   *  Its label and value share this marker, so removal never removes game data. */
+  variableDisplay?: string;
   /**
    * This element's box on the wide canvas. Absent means "the same numbers as
    * the phone", which is right for a full-bleed backdrop and wrong for almost

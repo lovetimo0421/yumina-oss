@@ -123,7 +123,7 @@
           "after": {
             "added": {
               "title": "It's added",
-              "body": "The new variable is on the canvas, and its settings are open on the right. Rename it at the top, like affection, money or stamina, then set where it starts and its range. To let the player see it, click \"Show on the player screen\"."
+              "body": "The new variable is on the canvas, and its settings are open on the right. Rename it at the top, like affection, money or stamina, then set where it starts and its range. To let the player see it, click \"Show on the player screen\". Click it again to remove the display; the variable and its data are kept."
             }
           }
         },
@@ -174,8 +174,8 @@
     "assistant": {
       "title": "The assistant",
       "goal": "It can do all of the above.",
-      "body": "Everything above, you can hand to it. Tell it what you want — \"add a trust variable that unlocks a secret scene at 80\" — and it'll make the change, showing you first. Only want a few things changed? Select them on the canvas first (hold Ctrl to pick several). You can leave Studio while it works; a notice appears when it finishes or needs your input. Messages use credits, so just have a look for now.",
-      "bodyMobile": "Everything above, you can hand to it. Tell it what you want and it makes the change, showing you first. You can leave Studio while it works and return when notified. Messages use credits, so no need to send one now."
+      "body": "New conversations start in Plan: discuss ideas without changing the card. When the plan is ready, review its scope and choose Start building to switch and execute, or Keep brainstorming to continue the discussion. You can reopen the plan later or switch modes below the input. Select canvas blocks first to focus a request (Ctrl selects several). You can leave while it works and return when notified. Messages use credits; no need to send one now.",
+      "bodyMobile": "New conversations start in Plan without changing the card. When the plan is ready, review its scope and choose Start building, or Keep brainstorming and return to the plan later. You can also switch modes below the input. Leave while it works and return when notified. Messages use credits; no need to send one now."
     },
     "card": {
       "title": "Cover, description and variants",

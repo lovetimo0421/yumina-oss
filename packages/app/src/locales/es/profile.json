@@ -1604,5 +1604,27 @@
     "showcaseSet": "Ahora destacas \"{{title}}\"",
     "showcaseRemoved": "Ya no destacas este logro",
     "showcaseFailed": "No se pudo actualizar el destacado"
+  },
+  "membershipCredits": {
+    "source": {
+      "invite_race": "Premio de la carrera de invitaciones",
+      "referral": "Recompensa por invitaciones",
+      "event": "Recompensa de evento",
+      "admin": "Membresía concedida",
+      "gift": "Membresía de regalo"
+    },
+    "paidUpfront": "Mushies abonados por adelantado",
+    "endsOn": "Membresía hasta el {{date}}",
+    "details": "Detalles de membresía y abonos",
+    "rewardDays": "Recompensa {{plan}} · {{days}} días",
+    "paidOn": "Abonado íntegramente el {{date}}",
+    "creditedOn": "Abonado el {{date}}",
+    "inviteExtra": "Extra de la carrera de invitaciones",
+    "freeAllowance": "Asignación gratuita",
+    "planAllowance": "Asignación {{plan}}",
+    "cycleLatest": "{{amount}} por ciclo · Último abono",
+    "cycle": "{{amount}} por ciclo",
+    "allowanceInfoDrops": "{{plan}}: {{amount}} Mushies por ciclo, abonados en entregas programadas. Los Mushies de la recompensa de membresía se abonan por separado.",
+    "allowanceInfo": "{{plan}}: {{amount}} Mushies por ciclo. Los Mushies de la recompensa de membresía se abonan por separado."
   }
 }

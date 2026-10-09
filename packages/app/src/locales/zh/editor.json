@@ -1659,7 +1659,11 @@
         "placeholder": "说说你想做个什么样的游戏…",
         "buildFromBrief": "开始搭",
         "buildFromBriefMessage": "按创作简介把第一版搭出来。",
-        "briefSaved": "创作简介已存好"
+        "briefSaved": "构思已整理",
+        "reviewBuild": "查看搭建方案",
+        "buildTitle": "开始搭建第一版？",
+        "keepPlanning": "继续构思",
+        "startBuild": "开始搭建"
       },
       "send": "发送"
     },
@@ -1742,6 +1746,7 @@
       "tablet": "平板",
       "mobile": "手机",
       "emptyState": "添加一条开场白或自定义组件来预览你的世界。",
+      "aiSkipped": "预览已跳过 AI，角色卡可使用默认值继续。",
       "noComponent": "前端没有产出可渲染的组件",
       "noComponentHint": "多半是入口文件缺少 export default。打开「前端代码」看一眼。",
       "noComponentFiles": "下面这些文件编译失败了："
@@ -4999,6 +5004,7 @@
       "whatItIs": "是什么",
       "range": "范围",
       "showOnScreen": "放到玩家界面上",
+      "displayOnly": "只改变显示，不删除变量数据。",
       "onScreen": "已在玩家界面上",
       "showOnScreenLine": "{{name}}：",
       "shownOnScreen": "「{{name}}」已放到玩家界面的聊天页",

@@ -1788,6 +1788,7 @@ export const agentRuns = pgTable("agent_runs", {
     createdAt: string;
     commitId: string;
     writeToolCalls?: ToolCall[];
+    buildProposal?: import("@yumina/shared").StudioBuildProposal;
     /** Identity of this committed turn, decided from structural facts at commit
      *  time (NOT inferred from text later). Cross-run agent history keeps ONLY
      *  `answer`; `step` (tool preamble or mid-task stall) and `notice`

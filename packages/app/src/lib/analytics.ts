@@ -381,6 +381,7 @@ export function trackSignupConversion(userId?: string | null): void {
     const w = window as unknown as {
       rdt?: (...args: unknown[]) => void;
       fbq?: (...args: unknown[]) => void;
+      ttq?: TikTokPixel;
     };
     // conversionId must match the server-side CAPI SignUp's conversion_id
     // (the user id) — Reddit dedupes the pixel/CAPI pair on it.
@@ -388,6 +389,11 @@ export function trackSignupConversion(userId?: string | null): void {
       w.rdt("track", "SignUp", userId ? { conversionId: userId } : undefined);
     }
     if (typeof w.fbq === "function") w.fbq("track", "CompleteRegistration");
+    // TikTok: the campaign conversion. event_id = user id so a future
+    // Events API (server-side) copy dedupes against this one.
+    if (w.ttq && typeof w.ttq.track === "function") {
+      w.ttq.track("CompleteRegistration", {}, userId ? { event_id: userId } : undefined);
+    }
   } catch {
     // Never let analytics break the app.
   }
@@ -454,8 +460,63 @@ export function trackGuestPlayIntentPixel(): void {
     } catch {
       // storage unavailable (private mode) — still fire, just unguarded
     }
-    const w = window as unknown as { rdt?: (...args: unknown[]) => void };
+    const w = window as unknown as { rdt?: (...args: unknown[]) => void; ttq?: TikTokPixel };
     if (typeof w.rdt === "function") w.rdt("track", "Lead");
+    if (w.ttq && typeof w.ttq.track === "function") w.ttq.track("ClickButton");
+  } catch {
+    // Never let analytics break the app.
+  }
+}
+
+// ── TikTok pixel (injected in index.html, prod hostnames only) ──────────
+// Standard events only, so the ad account can optimize on them:
+//   CompleteRegistration (signup, above), ClickButton (guest play intent,
+//   above), CompletePayment (checkout success), and page() per SPA route.
+type TikTokPixel = {
+  track?: (event: string, properties?: Record<string, unknown>, options?: { event_id?: string }) => void;
+  page?: () => void;
+};
+
+// index.html already fired page() for the first document, so start from the
+// landing path and only report real route changes.
+let lastTikTokPagePath = typeof window !== "undefined" ? window.location.pathname : "";
+
+export function trackTikTokPageView(pathname?: string): void {
+  try {
+    if (typeof window === "undefined") return;
+    const path = pathname ?? window.location.pathname;
+    if (path === lastTikTokPagePath) return;
+    lastTikTokPagePath = path;
+    const w = window as unknown as { ttq?: TikTokPixel };
+    if (w.ttq && typeof w.ttq.page === "function") w.ttq.page();
+  } catch {
+    // Never let analytics break the app.
+  }
+}
+
+// CompletePayment: fired once per Stripe checkout session when the plans
+// page comes back with ?success=true&session_id=cs_…. The session id is the
+// dedupe key (device-local) and the event_id, so a server-side copy can
+// dedupe against it later. Value is optional: the plans page does not know
+// the charged amount, and TikTok accepts the event without it.
+const PURCHASE_FIRED_PREFIX = "y_purchase_pixel_";
+
+export function trackPurchaseConversion(sessionId: string, value?: number): void {
+  try {
+    if (typeof window === "undefined" || !sessionId) return;
+    try {
+      const key = PURCHASE_FIRED_PREFIX + sessionId;
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, String(Date.now()));
+    } catch {
+      // storage unavailable (private mode) — still fire, just unguarded
+    }
+    const w = window as unknown as { ttq?: TikTokPixel };
+    if (w.ttq && typeof w.ttq.track === "function") {
+      const props: Record<string, unknown> = { content_type: "product", currency: "USD" };
+      if (typeof value === "number" && Number.isFinite(value) && value > 0) props.value = value;
+      w.ttq.track("CompletePayment", props, { event_id: sessionId });
+    }
   } catch {
     // Never let analytics break the app.
   }

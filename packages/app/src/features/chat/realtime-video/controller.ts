@@ -203,6 +203,10 @@ function enginesOffered(): VideoEngine[] {
   const profile = useUserProfileStore.getState().profile;
   return [...(profile?.filmFalOffered === true ? ["fal" as const] : []), "shorts"];
 }
+/** fal looks pinned with keyframes (falFrame/pinLook): admin-only until tested on prod. */
+function lookPins(): boolean {
+  return useUserProfileStore.getState().profile?.role === "admin";
+}
 function engineAllowed(e: unknown): e is VideoEngine {
   return (enginesOffered() as unknown[]).includes(e);
 }
@@ -815,13 +819,22 @@ export class RealtimeVideoController {
       this.falTicks = 0;
       this.addCredits((await post<{ credits?: number }>("fal-meter", { sessionId: this.sessionId, run: this.falRun, tick: 0 })).credits);
       const fal = createFalClient({ proxyUrl: `${apiBase}/api/realtime-video/fal-proxy` });
-      // First frame: an uploaded image (sent to fal storage), or the cover when publicly reachable.
+      this.fal = fal;
+      // First frame: an uploaded image (sent to fal storage), or the cover when publicly reachable,
+      // else (looks pinned) the opening shot drawn from its scene plate with the portraits' faces.
       let anchor: string | null = null;
       if (uploaded) {
         const blob = await (await fetch(uploaded)).blob();
         anchor = await fal.storage.upload(blob);
       } else if (this.opts.firstFrame === "cover" && op.coverUrl && /^https:\/\//.test(op.coverUrl)) {
         anchor = op.coverUrl;
+      } else if (lookPins()) {
+        const first = saved?.shot ? { shot: saved.shot, scene: saved.currentScene ?? undefined } : op.beats[0];
+        if (first?.shot) {
+          this.addStep({ kind: "info", text: "按定场图画第一帧，定住角色形象…" });
+          anchor = await this.falFrame(first.shot, first.scene ?? null);
+          if ((this.state.status as VideoState["status"]) !== "starting") return { error: "stopped" };
+        }
       }
       this.falSession = (fal.realtime.open(wma("minimax/h3-max/director"), {
         receive: ["video", "audio"],
@@ -936,6 +949,44 @@ export class RealtimeVideoController {
       .finally(() => { this.falMetering = false; });
   }
   private falAnchor: string | null = null;
+  private fal: ReturnType<typeof createFalClient> | null = null;
+
+  /** A frame that pins the characters' looks (server /keyframe: the scene's plate, this shot's
+   *  moment edited from it with the portraits' faces), uploaded to fal. Null when it failed. */
+  private async falFrame(shot: string, scene: string | null): Promise<string | null> {
+    const fal = this.fal;
+    if (!fal) return null;
+    const sheet = scene ? this.state.scenes.find((x) => x.id === scene)?.sheet ?? null : null;
+    const t0 = performance.now();
+    try {
+      const r = await Promise.race([
+        post<{ url: string; credits?: number }>("keyframe", { sessionId: this.sessionId, shot, scene, sheet, style: this.opts.style, look: this.look || null }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timed out")), 90_000)),
+      ]);
+      this.addCredits(r.credits);
+      const blob = await (await fetch(`${apiBase}${r.url}`)).blob();
+      const url = await fal.storage.upload(blob);
+      this.addStep({ kind: "info", text: `角色形象帧已画好（${((performance.now() - t0) / 1000).toFixed(1)}s）` });
+      return url;
+    } catch (e) {
+      if (e instanceof FilmError && FILM_STOP_CODES.has(e.code)) { this.failHard(e.code, "蘑菇币不足，停止拍摄"); return null; }
+      this.addStep({ kind: "error", text: `角色形象帧失败：${(e as Error).message}` });
+      return null;
+    }
+  }
+
+  /** Steer the stream onto a pinned frame: the current shot again, ending exactly on `url`. A wait
+   *  on the shot it replaces carries over to it. */
+  private pinLook(url: string) {
+    const session = this.falSession;
+    if (!this.running || !session || !this.prevShot) return;
+    const v = ++this.version;
+    this.sentAt.set(v, performance.now());
+    const waiter = this.onScreenWaiters.get(v - 1);
+    if (waiter) { this.onScreenWaiters.delete(v - 1); this.onScreenWaiters.set(v, waiter); }
+    session.send({ type: "prompt", prompt_version: v, prompt: this.prevShot, end_image_url: url });
+    this.addStep({ kind: "info", text: "校正角色形象（画面会走到定好的这一帧）", shot: this.prevShot, version: v, status: "已发送" });
+  }
 
   private begin() {
     this.startedAt = performance.now();
@@ -1802,6 +1853,12 @@ export class RealtimeVideoController {
         if (!beats.length) throw new Error("no shot");
         const label = `导演 ${((performance.now() - t0) / 1000).toFixed(1)}s 拆成 ${beats.length} 镜${early ? "（接着拍这条回复的后半段）" : ""}`;
         const go = () => this.playBeats(beats, early ? 2 : 1, beats.length + (early ? 1 : 0), label, restText);
+        // fal drifts from the characters' looks over a story: each reply steers it back once.
+        if (this.state.engine === "fal" && lookPins()) {
+          const no = this.turnNo;
+          const b = beats[0];
+          void this.falFrame(b.shot, b.scene ?? null).then((url) => { if (url && this.turnNo === no) this.pinLook(url); });
+        }
         // The early shot plays out first: 6 s after its picture is on screen.
         if (early && this.state.engine === "fal") this.afterOnScreen(early.v, () => 6000, 30_000, go);
         else go();

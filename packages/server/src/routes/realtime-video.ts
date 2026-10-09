@@ -44,6 +44,7 @@ import {
   turnVideoEmbed, turnVideoKeyOf, turnVideoPath, type FilmState, type TurnClipFailure, type TurnClipJob, type TurnClipProgress,
 } from "../lib/realtime-video/turn-clip.js";
 import { stripTurnImages } from "../lib/per-turn-image/illustrate.js";
+import { keyframeGraph, keyframePrompt, plateGraph, platePrompt } from "../lib/realtime-video/keyframes.js";
 import { messageContentUpdate } from "../lib/message-edit.js";
 import { getObjectBuffer, putObject } from "../lib/s3.js";
 import { acquireConcurrency, releaseConcurrency } from "../middleware/rate-limit.js";
@@ -84,6 +85,10 @@ async function chargeFilm(o: {
 
 // Picked by the 2026-10-03 experiment: best score and ~1.5 s per shot (vs 6–18 s for 3.8 Flash).
 const DIRECTOR_MODEL = process.env.REALTIME_DIRECTOR_MODEL || "google/gemini-3.1-flash-lite";
+/** A short film's script: a long reply cut into a whole script of shots in story order. The
+ *  lite model skipped most of a reply and wrote shots out of order (2026-10-08), so scripts use
+ *  a stronger one; it runs once per reply. */
+const SCRIPT_DIRECTOR_MODEL = process.env.REALTIME_SCRIPT_DIRECTOR_MODEL || "google/gemini-3.8-flash";
 // The opening breakdown is one long structured answer; this model keeps its JSON valid.
 const OPENING_MODEL = process.env.REALTIME_OPENING_MODEL || "google/gemini-3.1-flash-lite";
 
@@ -364,7 +369,7 @@ type DirectInput = {
 type DirectedBeat = { text: string; shot: string; transition: "continue" | "cut" | "return"; scene: string | null; sheet: string | null; take: "new" | "same" };
 
 /** Turn one story reply into camera directions (/shot, and the clip per message). */
-async function directTurn(body: DirectInput, bill: FilmBill): Promise<{ beats: DirectedBeat[]; newCast: { name: string; look: string }[]; state?: string }> {
+async function directTurn(body: DirectInput, bill: FilmBill): Promise<{ beats: DirectedBeat[]; newCast: { name: string; look: string }[]; state?: string; states: Record<string, string> }> {
   const partNote = body.part === "start"
     ? "\n\n(The story reply is still being written; this is its beginning. Film its first visible moment.)"
     : body.part === "rest"
@@ -384,7 +389,7 @@ async function directTurn(body: DirectInput, bill: FilmBill): Promise<{ beats: D
   const filming = body.script
     ? `write the film of it as a script of shots, about five seconds each.
 COVERAGE: the script films the WHOLE reply, from its first visible event to its last, in story order. The beginning is never skipped and no stretch of the reply goes unfilmed: every paragraph that shows something new is inside some shot's passage. This reply needs at least ${minShots} and at most ${maxBeats} shots.
-SCENES: one place is one scene. Inside a scene every shot is in the same room, with the same people, in the poses and the state of dress the story gives them at that moment. When the reply moves to another place (a ceremony, then waking up somewhere else), that is a new scene, filmed after the first, in order. For the scene the reply ends in, write the scene state ("state"): one English paragraph with the exact place (the room, its furniture and where things are), the light, and for each person on screen their look, what they are wearing right now (or that they are undressed), their pose and where they are relative to each other. When the story is still where the previous scene state left it, start from that state and change only what the story changed. Every shot of a scene repeats that scene's place, light, people, clothing and poses (after the style sentence) before its camera angle and action; a shot never contradicts it (no clothes coming back on, no different room, no other people).
+SCENES: one place is one scene. Inside a scene every shot is in the same room, with the same people, in the poses and the state of dress the story gives them at that moment. When the reply moves to another place (a ceremony, then waking up somewhere else), that is a new scene, filmed after the first, in order. For every scene write its scene state ("states", by scene id): one English paragraph with the exact place (the room, its furniture and where things are), the light, and for each person on screen their look, what they are wearing right now (or that they are undressed), their pose and where they are relative to each other. "state" repeats the scene state of the scene the reply ends in. When the story is still where the previous scene state left it, start from that state and change only what the story changed. Every shot of a scene repeats that scene's place, light, people, clothing and poses (after the style sentence) before its camera angle and action; a shot never contradicts it (no clothes coming back on, no different room, no other people).
 SHOTS: count shots by visible action, not by sentence. A spoken line, a sound, a moan or an inner reaction belongs to the action shot it happens in and never gets a shot of its own; a long stretch of continued action gets several shots, about one per paragraph that shows something new. Cut between camera angles inside a scene the way a film editor does (wide, close-up, reverse shot, the player's first-person view). The player is the camera: never show the player's face or body from outside, only their hands and what they see. Mark a shot "take":"same" only when it must carry on the previous shot's movement as one unbroken take (the previous shot of this turn, or for the first shot the previous shot below); otherwise "take":"new".${body.script.ownShot ? `\nThe story's author wrote this camera direction for the turn; follow it, cut into shots:\n${body.script.ownShot}` : ""}`
     : body.maxBeats === 1
     ? "film it in exactly 1 shot of about ten seconds: its key visible moment (the main event the reply is about, as far as it has gone) with the action that leads into it. Do not try to show everything."
@@ -409,7 +414,7 @@ ${body.notes ? `\nCharacter notes:\n${body.notes}\n` : ""}
 Scene list:
 ${sceneList}
 
-Output JSON only: {${body.script ? '"state":"<the scene state>",' : ""}"newCast":[{"name":"…","look":"…"}],"beats":[{"passage":"<sentences copied word for word from the story reply: the part this shot films, from its first sentence to its last>","transition":"continue|cut|return","scene":"<scene id>","sheet":"<only for cut>",${body.script ? '"take":"new|same",' : ""}"shot":"<the camera direction, following the shot rules>"}]}
+Output JSON only: {${body.script ? '"state":"<the scene state the reply ends in>","states":{"<scene id>":"<its scene state>"},' : ""}"newCast":[{"name":"…","look":"…"}],"beats":[{"passage":"<sentences copied word for word from the story reply: the part this shot films, from its first sentence to its last>","transition":"continue|cut|return","scene":"<scene id>","sheet":"<only for cut>",${body.script ? '"take":"new|same",' : ""}"shot":"<the camera direction, following the shot rules>"}]}
 The passage is the story text itself, never the camera direction.${extra}`,
     `Story so far (most recent last):
 ${(body.recent ?? "").slice(-2500) || "(the opening)"}
@@ -423,7 +428,7 @@ ${(body.userText ?? "").slice(0, 1500)}
 Story reply:
 ${body.aiText.slice(0, 6000)}${partNote}`,
     body.script ? 9000 : 5000,
-    pickModel(body.model, DIRECTOR_MODEL),
+    pickModel(body.model, body.script ? SCRIPT_DIRECTOR_MODEL : DIRECTOR_MODEL),
     bill,
   );
   let out = await ask();
@@ -483,7 +488,11 @@ Your last answer had only ${first} shot${first === 1 ? "" : "s"} and skipped mos
   }
   // The scene state (script mode): where things stand, carried to the next reply.
   const state = typeof out.state === "string" && out.state.trim() ? out.state.trim().slice(0, 2000) : undefined;
-  return { beats, newCast, state };
+  const states: Record<string, string> = {};
+  if (out.states && typeof out.states === "object") {
+    for (const [id, v] of Object.entries(out.states as Record<string, unknown>)) if (typeof v === "string" && v.trim()) states[id] = v.trim().slice(0, 2000);
+  }
+  return { beats, newCast, state, states };
 }
 
 realtimeVideoRoutes.post("/realtime-video/shot", async (c) => {
@@ -588,7 +597,7 @@ async function clipPrompt(body: ClipBody, bill: FilmBill): Promise<string> {
 
 /** Run one graph on the shared Comfy Cloud pool: the mp4, its GPU and queue time, and its
  *  output path (a later clip can continue from it). Throws with the reason when it fails. */
-async function renderOnPool(graph: Record<string, unknown>, deadlineAt: number): Promise<{ bytes: ArrayBuffer; execMs: number; queueMs: number | null; ref: string; promptId: string }> {
+async function renderOnPool(graph: Record<string, unknown>, deadlineAt: number, ext = ".mp4"): Promise<{ bytes: ArrayBuffer; execMs: number; queueMs: number | null; ref: string; promptId: string }> {
   const sub = await comfy<{ prompt_id?: string }>("/api/prompt", { method: "POST", body: JSON.stringify({ prompt: graph }) });
   if (!sub.prompt_id) throw new Error("no prompt_id");
   const submittedAt = Date.now();
@@ -602,7 +611,7 @@ async function renderOnPool(graph: Record<string, unknown>, deadlineAt: number):
   type OutFile = { filename: string; subfolder?: string; type?: string };
   const detail = await comfy<{ outputs?: Record<string, { images?: OutFile[] }>; preview_output?: OutFile; execution_start_time?: number; execution_end_time?: number; execution_error?: { exception_message?: string } }>(`/api/jobs/${sub.prompt_id}`);
   // Saved clips only; a LoadVideo guide also shows up in outputs as an input file.
-  const file = Object.values(detail.outputs ?? {}).flatMap((o) => o.images ?? []).find((f) => f.type === "output" && f.filename.endsWith(".mp4")) ?? detail.preview_output;
+  const file = Object.values(detail.outputs ?? {}).flatMap((o) => o.images ?? []).find((f) => f.type === "output" && f.filename.endsWith(ext)) ?? detail.preview_output;
   if (!["completed", "success"].includes(status) || !file) {
     throw new Error(detail.execution_error?.exception_message?.slice(0, 300) || `clip ${status || "timed out"}`);
   }
@@ -767,8 +776,10 @@ async function renderOnDeploy(
 
 const TURN_CLIP_MAX_CHAIN = 3;
 const TURN_FILM_MAX_SHOTS = 8;
-/** Shots of one message rendering at once, each on its own machine. */
-const TURN_FILM_LANES = 3;
+/** Shots of one message rendering at once. Past the deployment's warm machine they go to the
+ *  shared pool (pay per use, no idle cost), so a film's shots can all start together; an
+ *  8-shot film comes out in about one render instead of three (owner, 2026-10-08). */
+const TURN_FILM_LANES = Math.max(1, Number(process.env.REALTIME_FILM_LANES) || 8);
 /** One shot on the film deployment: a worker started from nothing pulls ~65 GB of models first
  *  (2-10 min measured 2026-10-07) before ~1.5 min of render. */
 const TURN_SHOT_DEPLOY_DEADLINE_MS = 900_000;
@@ -959,9 +970,11 @@ async function renderTurnClip(
   const leave = () => { free++; waiting.shift()?.(); };
   let broke = false;
   const tasks: Promise<RenderedShot | null>[] = [];
+  const keyframes = filmKeyframes(userId, sessionId, plan, directed, style, look, bill);
   plan.forEach((p, i) => {
     tasks.push((async () => {
       const parent = p.after != null ? await tasks[p.after]! : null;
+      const frame = await keyframes[i]!;
       const parentDepth = parent ? parent.depth : p.guideKey && prev ? prev.depth : -1;
       // Too deep a chain, or its parent is missing: a new angle instead.
       const guide = (parent || p.guideKey) && parentDepth < TURN_CLIP_MAX_CHAIN ? { assetId: parent?.assetId, key: parent ? parent.key : p.guideKey! } : null;
@@ -971,7 +984,7 @@ async function renderTurnClip(
         cells[i] = "rendering";
         progress();
         const keepForNext = plan.some((q) => q.after === i);
-        const out = await renderShot(userId, sessionId, p.beat, style, look, cast, guide, keepForNext, bill);
+        const out = await renderShot(userId, sessionId, p.beat, style, look, cast, guide, keepForNext, bill, guide ? null : frame);
         const key = `users/${userId}/${TURN_VIDEO_DIR}/${filmId}-${i}.mp4`;
         await putObject(key, Buffer.from(out.bytes), "video/mp4");
         cells[i] = "done";
@@ -1008,6 +1021,124 @@ async function renderTurnClip(
   return { content, credits: bill.credits };
 }
 
+/** A shot without the style sentence it opens with (a picture prompt states the look itself). */
+function withoutStyle(shot: string): string {
+  return shot.replace(/^\s*Visual style:.*?\.(\s|$)/i, "").trim();
+}
+
+/** A keyframe or plate on the shared pool; past this the shot renders from text instead. */
+const KEYFRAME_DEADLINE_MS = 150_000;
+
+/**
+ * Each new shot's first frame (keyframes.ts): one plate per scene of the script, then the shot's
+ * frame edited from it, all on the shared pool, side by side. A shot that carries on another gets
+ * none (it starts from that shot's last frames). Null where anything failed: that shot renders from
+ * text as before. REALTIME_FILM_KEYFRAMES=0 turns it off.
+ */
+function filmKeyframes(
+  userId: string, sessionId: string, plan: PlannedShot[], directed: { state?: string; states: Record<string, string> },
+  style: string, look: string | null, bill: FilmBill,
+): Promise<Uint8Array | null>[] {
+  if (process.env.REALTIME_FILM_KEYFRAMES === "0") return plan.map(() => Promise.resolve(null));
+  const styleLine = styleSentence(style, look);
+  const noStyle = withoutStyle;
+  const lastScene = plan[plan.length - 1]?.beat.scene ?? null;
+  const charge = async (out: { execMs: number; promptId: string }, what: string) => {
+    bill.credits += await chargeFilm({
+      userId, sessionId, endpoint: "film-clip", model: "comfy/qwen-image", costUsd: (out.execMs / 1000) * COMFY_USD_PER_GPU_SECOND,
+      referenceId: `film-key:${out.promptId}`, description: `Scene video — ${what} ${(out.execMs / 1000).toFixed(1)} GPU s`,
+    });
+  };
+  const plates = new Map<string, Promise<{ name: string; bytes: Uint8Array } | null>>();
+  const plateFor = (scene: string | null, firstShot: string) => {
+    const key = scene ?? "-";
+    if (!plates.has(key)) {
+      plates.set(key, (async () => {
+        const state = (scene && directed.states[scene]) || (scene === lastScene ? directed.state : undefined) || noStyle(firstShot);
+        const out = await renderOnPool(plateGraph(platePrompt(styleLine, state), Math.floor(Math.random() * 1e9)), Date.now() + KEYFRAME_DEADLINE_MS, ".png");
+        await charge(out, "scene plate");
+        const bytes = new Uint8Array(out.bytes);
+        return { name: await uploadToComfy(bytes, "image/png", `rtv-plate-${crypto.randomUUID()}.png`), bytes };
+      })().catch((e) => { console.warn("[TurnClip] scene plate failed:", e instanceof Error ? e.message : e); return null; }));
+    }
+    return plates.get(key)!;
+  };
+  // The first new shot of a scene starts on the plate itself (an establishing frame): the film's
+  // first picture comes one edit (~20 s) sooner.
+  const opening = new Set<number>();
+  const seen = new Set<string>();
+  plan.forEach((p, i) => {
+    if (p.after != null || p.guideKey) return;
+    const key = p.beat.scene ?? "-";
+    if (!seen.has(key)) { seen.add(key); opening.add(i); }
+  });
+  return plan.map((p, i) => {
+    if (p.after != null || p.guideKey) return Promise.resolve(null);
+    return (async () => {
+      const plateOut = await plateFor(p.beat.scene, p.beat.shot);
+      if (!plateOut) return null;
+      if (opening.has(i)) return plateOut.bytes;
+      const plate = plateOut.name;
+      const faces = (await portraitRefs(userId, sessionId, p.beat.shot).catch(() => [])).slice(0, 2);
+      const out = await renderOnPool(keyframeGraph(plate, faces.map((f) => f.image), keyframePrompt(noStyle(p.beat.shot), faces.map((f) => f.name)), Math.floor(Math.random() * 1e9)),
+        Date.now() + KEYFRAME_DEADLINE_MS, ".png");
+      await charge(out, "keyframe");
+      return new Uint8Array(out.bytes);
+    })().catch((e) => { console.warn("[TurnClip] keyframe failed:", e instanceof Error ? e.message : e); return null; });
+  });
+}
+
+/** Scene plates for fal streams, by session and scene (pool image names; an hour is plenty). */
+const falPlates = new Map<string, { name: string; at: number }>();
+
+/**
+ * A frame that pins a fal stream's look (owner, 2026-10-09: players saw fal characters change).
+ * fal takes no reference images, only an exact first frame when the stream opens and an exact end
+ * frame with any update. This draws one the way short films start their shots: the scene's plate
+ * (cached per session and scene), then this shot's moment edited from it with the characters'
+ * portraits for faces. `start`: the stream's first frame is the plate itself, re-framed for the
+ * shot. Charged at GPU time. Returns the picture's public path; the client hands it to fal.
+ */
+realtimeVideoRoutes.post("/realtime-video/keyframe", async (c) => {
+  const userId = c.get("user").id;
+  const body = await c.req.json<{ sessionId?: string; shot?: string; scene?: string | null; sheet?: string | null; style?: string; look?: string | null }>().catch(() => ({} as Record<string, never>));
+  const shot = typeof body.shot === "string" ? body.shot.slice(0, 6000) : "";
+  if (!body.sessionId || !shot) return c.json({ error: "sessionId and shot required" }, 400);
+  if (!(await canAffordFilm(userId, 5))) return c.json(NO_CREDITS, 402);
+  const sessionId = body.sessionId;
+  const bill: FilmBill = { userId, sessionId, credits: 0 };
+  const style = typeof body.style === "string" && STYLES[body.style] ? body.style : "source";
+  const styleLine = styleSentence(style, body.look ?? null);
+  const charge = async (out: { execMs: number; promptId: string }, what: string) => {
+    bill.credits += await chargeFilm({
+      userId, sessionId, endpoint: "film-clip", model: "comfy/qwen-image", costUsd: (out.execMs / 1000) * COMFY_USD_PER_GPU_SECOND,
+      referenceId: `film-key:${out.promptId}`, description: `Scene video — ${what} ${(out.execMs / 1000).toFixed(1)} GPU s`,
+    });
+  };
+  try {
+    const plateKey = `${sessionId}:${body.scene ?? "-"}`;
+    let plate = falPlates.get(plateKey);
+    if (!plate || Date.now() - plate.at > 3600_000) {
+      const state = [body.sheet, withoutStyle(shot)].filter(Boolean).join(" ");
+      const out = await renderOnPool(plateGraph(platePrompt(styleLine, state), Math.floor(Math.random() * 1e9)), Date.now() + KEYFRAME_DEADLINE_MS, ".png");
+      await charge(out, "scene plate");
+      plate = { name: await uploadToComfy(new Uint8Array(out.bytes), "image/png", `rtv-plate-${crypto.randomUUID()}.png`), at: Date.now() };
+      falPlates.set(plateKey, plate);
+      if (falPlates.size > 500) falPlates.delete(falPlates.keys().next().value!);
+    }
+    const faces = (await portraitRefs(userId, sessionId, shot).catch(() => [])).slice(0, 2);
+    const out = await renderOnPool(keyframeGraph(plate.name, faces.map((f) => f.image), keyframePrompt(withoutStyle(shot), faces.map((f) => f.name)), Math.floor(Math.random() * 1e9)),
+      Date.now() + KEYFRAME_DEADLINE_MS, ".png");
+    await charge(out, "keyframe");
+    const key = `users/${userId}/film-keys/${crypto.randomUUID()}.png`;
+    await putObject(key, Buffer.from(out.bytes), "image/png");
+    return c.json({ url: turnVideoPath(key), credits: bill.credits });
+  } catch (e) {
+    console.warn("[Film] keyframe failed:", e instanceof Error ? e.message : e);
+    return c.json({ error: "keyframe failed", credits: bill.credits }, 502);
+  }
+});
+
 /** Shots on the film deployment right now, and how many it has warm (its always-on machines). A
  *  shot past that would wait minutes for another machine to boot, so it goes to the shared pool
  *  instead (no idle cost, starts in seconds); shots that continue or are continued stay on the
@@ -1019,7 +1150,7 @@ const DEPLOY_WARM_MACHINES = Math.max(1, Number(process.env.REALTIME_FILM_DEPLOY
  *  pool. Charged at its GPU time. `keep` uploads it back as an asset for the shot that continues it. */
 async function renderShot(
   userId: string, sessionId: string, beat: DirectedBeat, style: string, look: string | null, cast: { name: string; look: string }[],
-  guide: { assetId?: string; key: string } | null, keep: boolean, bill: FilmBill,
+  guide: { assetId?: string; key: string } | null, keep: boolean, bill: FilmBill, frame: Uint8Array | null = null,
 ): Promise<{ bytes: ArrayBuffer; assetId?: string; continued: boolean }> {
   let prompt = await clipPrompt({ prompt: pinLooks(beat.shot, cast), style, look: look ?? undefined }, bill);
   const seed = Math.floor(Math.random() * 1e9);
@@ -1028,12 +1159,15 @@ async function renderShot(
     deployShots++;
     try {
       const guideAssetId = guide ? guide.assetId ?? await uploadFilmAsset(new Uint8Array((await getObjectBuffer(guide.key)).buffer), "video/mp4", "guide.mp4") : undefined;
-      // Portraits only on a new angle: with a guide they fight the carried-over frames.
-      const refs = guideAssetId ? [] : await portraitRefs(userId, sessionId, prompt, true).catch(() => []);
+      // Portraits only on a new angle without a first frame: with a guide they fight the
+      // carried-over frames, and a keyframe already has the faces.
+      const refs = guideAssetId || frame ? [] : await portraitRefs(userId, sessionId, prompt, true).catch(() => []);
       const images = new Map<string, string>();
       const refFiles = refs.map((r, i) => { const name = `rtv-ref-${i}.jpg`; images.set(name, r.image); return name; });
+      const frameName = frame && !guideAssetId ? "rtv-keyframe.png" : undefined;
+      if (frameName) images.set(frameName, await uploadFilmAsset(frame!, "image/png", frameName));
       const withRefs = refs.length ? `${refs.map((r, i) => `<Picture ${i + 1}> is ${r.name}'s face and hair.`).join(" ")} Clothing and pose follow the description, not the pictures. ${prompt}` : prompt;
-      const graph = buildH3Graph({ prompt: withRefs, seed, guide: guideAssetId ? "guide" : undefined, refs: refFiles, preset: "shot" });
+      const graph = buildH3Graph({ prompt: withRefs, seed, frame: frameName, guide: guideAssetId ? "guide" : undefined, refs: refFiles, preset: "shot" });
       const out = await renderFilmClip(bindFilmAssets(graph, images, guideAssetId), TURN_SHOT_DEPLOY_DEADLINE_MS, keep);
       noteFilmDeployDone();
       clip = { bytes: out.bytes, execMs: out.execMs, model: "comfy-deploy/h3", jobId: out.jobId, assetId: keep ? out.ref.slice("asset:".length) : undefined, continued: !!guideAssetId };
@@ -1045,10 +1179,12 @@ async function renderShot(
     }
   }
   if (!clip) {
-    // The pool cannot read a clip stored by us, so this shot starts fresh.
-    const refs = await portraitRefs(userId, sessionId, prompt).catch(() => []);
+    // The pool cannot read a clip stored by us, so this shot starts fresh (from its keyframe when
+    // it has one).
+    const frameName = frame ? await uploadToComfy(frame, "image/png", `rtv-key-${crypto.randomUUID()}.png`).catch(() => undefined) : undefined;
+    const refs = frameName ? [] : await portraitRefs(userId, sessionId, prompt).catch(() => []);
     if (refs.length) prompt = `${refs.map((r, i) => `<Picture ${i + 1}> is ${r.name}'s face and hair.`).join(" ")} Clothing and pose follow the description, not the pictures. ${prompt}`;
-    const out = await renderOnPool(buildH3Graph({ prompt, seed, refs: refs.map((r) => r.image), preset: "shot" }), Date.now() + TURN_SHOT_POOL_DEADLINE_MS);
+    const out = await renderOnPool(buildH3Graph({ prompt, seed, frame: frameName, refs: refs.map((r) => r.image), preset: "shot" }), Date.now() + TURN_SHOT_POOL_DEADLINE_MS);
     clip = { bytes: out.bytes, execMs: out.execMs, model: "comfy/h3", jobId: out.promptId, continued: false };
   }
   // The player pays the GPU time of a shot they get, up to a render's worth; failed renders are on us.

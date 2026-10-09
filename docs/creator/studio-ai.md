@@ -20,10 +20,12 @@ It can write lore and openings, add variables and behaviors, open scenarios, add
 
 ### Two modes
 
-You can switch under the input box:
+New conversations start in **Plan**. Once the scope is clear, the assistant offers a build confirmation with a summary and concrete steps. **Start building** switches modes and executes the exact plan you reviewed. **Keep brainstorming** leaves the card unchanged; the same plan will not pop up repeatedly. Use **Review build plan** to reopen it.
+
+You can also switch under the input box:
 
 - **Plan**: for when you haven't decided what to make yet. It chats with you and helps shape your ideas into a **creative brief**, without touching the card
-- **Build**: gets straight to editing the card. Once the brief is saved, click **Build it** and it builds a first version from the brief
+- **Build**: gets to work on the card, using the creative brief you confirmed
 
 ### Changing only certain parts
 

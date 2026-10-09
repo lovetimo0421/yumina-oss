@@ -1598,7 +1598,11 @@
         "placeholder": "¿Qué tipo de juego quieres hacer?",
         "buildFromBrief": "Construir",
         "buildFromBriefMessage": "Construye la primera versión a partir del resumen creativo.",
-        "briefSaved": "Resumen guardado"
+        "briefSaved": "Plan listo",
+        "reviewBuild": "Ver plan de construcción",
+        "buildTitle": "¿Construir la primera versión?",
+        "keepPlanning": "Seguir ideando",
+        "startBuild": "Empezar a construir"
       },
       "send": "Enviar"
     },
@@ -1682,6 +1686,7 @@
       "tablet": "Tableta",
       "mobile": "Móvil",
       "emptyState": "Agrega un saludo o un componente personalizado para previsualizar tu mundo.",
+      "aiSkipped": "IA omitida en la vista previa. La tarjeta puede usar sus valores predeterminados.",
       "noComponent": "El frontend no produjo ningún componente renderizable",
       "noComponentHint": "Lo más probable es que al archivo de entrada le falte un export default. Abre el código del frontend y revísalo.",
       "noComponentFiles": "Estos archivos no compilaron:"
@@ -4929,6 +4934,7 @@
       "whatItIs": "Qué es",
       "range": "Rango",
       "showOnScreen": "Mostrar en la pantalla del jugador",
+      "displayOnly": "Solo cambia la visualización. Los datos se conservan.",
       "onScreen": "Ya está en la pantalla del jugador",
       "showOnScreenLine": "{{name}}: ",
       "shownOnScreen": "«{{name}}» ya está en la página de chat del jugador",
