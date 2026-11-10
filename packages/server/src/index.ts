@@ -2,6 +2,7 @@ import "./utc-init.js"; // MUST be first — pins the process to UTC before any 
 import { discoverRoutes } from "./routes/discover.js";
 import fs from "node:fs";
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import type { Context } from "hono";
 import { compress } from "hono/compress";
 import { serve } from "@hono/node-server";
@@ -9,6 +10,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { preloadTokenizer } from "@yumina/engine";
 import { env } from "./lib/env.js";
 import { privateStateCache } from "./middleware/private-state-cache.js";
+import { requestBodyLimit } from "./middleware/request-body-limit.js";
 import {
   db,
   ensureAccountDeletionForeignKeys,
@@ -24,15 +26,22 @@ import {
   ensureDmSchema,
   ensureExtensionTables,
   ensureMessagesSwipeCount,
+  ensurePgliteColumnsAndIndexes,
   ensurePlatformAchievementTables,
   ensureHotPathIndexes,
   ensureProfileWallTable,
+  // testing-only: re-applies main's additive DDL against the real Postgres this
+  // branch deploys to, which nobody migrates by hand.
+  ensureRecentAdditiveSchema,
   ensureScheduledFunctions,
   ensureSessionContextColumns,
   ensureTables,
+  ensureCreativeUploadSchema,
+  ensureUserMuteColumns,
   ensureWorldReviewControlsColumn,
   ensureSessionPersonaColumn,
   ensureWorldReviewTables,
+  ensureWorldVersionSchema,
   ensureWorldTagsConstraint,
   ensureWorldsSchemaDerived,
   flagWrite,
@@ -52,13 +61,17 @@ import localBridgeRoutes from "./routes/local-bridge.js";
 import { localSetupRoutes } from "./routes/local-setup.js";
 import { initLocalBridge } from "./lib/local-bridge/registry.js";
 import { sessionRoutes } from "./routes/sessions.js";
+import { voiceRoutes } from "./routes/voice.js";
 import { sessionMemoryRoutes } from "./routes/session-memory.js";
 import { stateGuardRoutes } from "./routes/state-update-guard.js";
+import { liveCanonRoutes } from "./routes/live-canon.js";
 import { messageRoutes } from "./routes/messages.js";
 import { studioRoutes } from "./routes/studio.js";
 import { assetRoutes } from "./routes/assets.js";
 import { userPromptsRoutes } from "./routes/user-prompts.js";
 import { userPresetOverridesRoutes } from "./routes/user-preset-overrides.js";
+import { assetImportRoutes } from "./routes/asset-import.js";
+import { startAssetImportWorker, stopAssetImportWorker } from "./lib/asset-import.js";
 import { userAssetRoutes } from "./routes/user-assets.js";
 import { sessionMediaRoutes } from "./routes/session-media.js";
 import { startSessionMediaCleanup } from "./lib/session-media.js";
@@ -66,8 +79,12 @@ import { assetRefRoutes } from "./routes/asset-references.js";
 import { folderBindingRoutes } from "./routes/folder-bindings.js";
 import { personaRoutes } from "./routes/personas.js";
 import { agentRoutes } from "./routes/agent.js";
+import { agentApiRoutes, mcpDiscoveryRoutes } from "./routes/agent-api.js";
+import { worldAccessRoutes } from "./routes/world-access.js";
+import { connectedAppsRoutes } from "./routes/connected-apps.js";
 import { cdnRoutes } from "./routes/cdn.js";
 import { ensureLifetimePlaytimePending } from "./lib/lifetime-playtime-counter.js";
+import { reportIfRogue } from "./lib/leader.js";
 import { stopRateLimitCleanup } from "./middleware/rate-limit.js";
 import { devRoutes } from "./routes/dev.js";
 import { extensionRoutes } from "./routes/extensions.js";
@@ -75,6 +92,7 @@ import { localAuthRoutes } from "./routes/local-auth.js";
 import { completionRoutes } from "./routes/completions.js";
 import { ttsRoutes } from "./routes/tts.js";
 import { voiceInputRoutes } from "./routes/voice-input.js";
+import { realtimeVideoRoutes } from "./routes/realtime-video.js";
 import { socialSimulatorRoutes } from "./routes/social-simulator.js";
 import { combatRoutes } from "./routes/combat.js";
 import { BIND_HOST, IS_DEV } from "./lib/env.js";
@@ -86,8 +104,11 @@ import { getMetaForPath, injectMeta, injectContent } from "./lib/seo.js";
 import { renderPublicContent } from "./lib/prerender.js";
 import { registerSessionMemoryExtension } from "./extensions/session-memory/hooks.js";
 import { registerStateUpdateGuard } from "./extensions/state-update-guard/hooks.js";
+import { registerLiveCanonExtension } from "./extensions/live-canon/hooks.js";
 import { runWithRequestCache } from "./lib/request-cache.js";
 import { edition, editionRoutes } from "./edition/index.js";
+import { changelogRoutes } from "./routes/changelog.js";
+import { getChangelogEntries } from "./lib/changelog.js";
 import { storageRoutes } from "./routes/storage.js";
 
 // Register first-party extension hooks before any request is served — the
@@ -95,6 +116,7 @@ import { storageRoutes } from "./routes/storage.js";
 // per-feature checks.
 registerSessionMemoryExtension();
 registerStateUpdateGuard();
+registerLiveCanonExtension();
 
 // Last-resort process-level handlers. Without these, any unhandled 'error'
 // event or stray rejection from a fire-and-forget promise crashes the whole
@@ -132,6 +154,7 @@ const VITE_DEV_SERVER_ORIGIN = process.env.VITE_DEV_SERVER_ORIGIN ?? "http://loc
 // Global error handler — log + capture unhandled exceptions so they reach
 // both Railway logs and PostHog error tracking (same pane as client errors).
 app.onError((err, c) => {
+  if (err instanceof HTTPException) return err.getResponse();
   const queryTimeout = findDatabaseQueryTimeout(err);
   if (queryTimeout) {
     return c.json({ error: "Database response timed out. Refresh to check whether the operation completed.",
@@ -209,17 +232,8 @@ app.use("/api/*", corsMiddleware);
 app.use("/api/*", privateStateCache);
 app.use("/health", corsMiddleware);
 
-// Global body size limit — reject payloads over 5 MB before route handlers parse them.
-// S3 uploads bypass this (client uploads directly to S3 via presigned URLs).
-// Stripe webhooks need raw body parsing so they get a generous limit too.
-app.use("/api/*", async (c, next) => {
-  if (c.req.path.startsWith("/api/stripe/webhook")) return next();
-  const contentLength = c.req.header("content-length");
-  if (contentLength && parseInt(contentLength, 10) > 5 * 1024 * 1024) {
-    return c.json({ error: "Request body too large (max 5 MB)" }, 413);
-  }
-  return next();
-});
+// World create/save: 10 MiB; other API requests: 5 MiB.
+app.use("/api/*", requestBodyLimit);
 
 // Legacy cookie cleanup removed 2026-05-15 (was scheduled for ~2026-05-17).
 // All active users have had their old __Secure-better-auth.* cookies expired.
@@ -236,12 +250,17 @@ app.use("/api/*", async (c, next) => {
 });
 
 // Routes
+edition.mountAccessPolicies?.(app);
 app.route("/health", health);
 if (IS_DEV || !env.DATABASE_URL) app.route("/api/dev", devRoutes);
 app.route("/api/auth", authRoutes);
 // The edition descriptor is public: a logged-out browser reads it to decide
 // between a login screen and single-user auto sign-in.
 app.route("/api/edition", editionRoutes);
+// The update log is public (internal entries only for admins) and read from
+// changelog/ at the repo root, so parse it once at boot and log any bad file.
+getChangelogEntries();
+app.route("/api/changelog", changelogRoutes);
 app.route("/api/local-auth", localAuthRoutes);
 app.route("/api/users", users);
 app.route("/api/discover", discoverRoutes);
@@ -249,9 +268,15 @@ app.route("/api/worlds", worldRoutes);
 app.route("/api/world-changes", worldChangeRoutes);
 app.route("/api/keys", apiKeyRoutes);
 app.route("/api/local-bridge", localBridgeRoutes);
+// Outside AIs on one card, by token — before any cookie-auth "/api/*" router.
+app.route("/api/agent/v1", agentApiRoutes);
+// OAuth discovery for the card MCP (resource + authorization-server metadata).
+app.route("/", mcpDiscoveryRoutes);
 app.route("/api/sessions", sessionRoutes);
+app.route("/api/voice", voiceRoutes);
 app.route("/api/sessions", sessionMemoryRoutes);
 app.route("/api/sessions", stateGuardRoutes);
+app.route("/api/sessions", liveCanonRoutes);
 app.route("/api/combat", combatRoutes);
 // Hosted routers with public reads, webhooks or guest beacons MUST precede
 // messageRoutes' broad "/api/*" authMiddleware. The edition owns that list
@@ -266,12 +291,16 @@ app.route("/api", messageRoutes);
 app.route("/api", completionRoutes);
 app.route("/api", ttsRoutes);
 app.route("/api", voiceInputRoutes);
+app.route("/api", realtimeVideoRoutes);
 app.route("/api/sessions", socialSimulatorRoutes);
 app.route("/api/studio", studioRoutes);
 app.route("/api/studio", agentRoutes);
+app.route("/api/studio", worldAccessRoutes);
+app.route("/api/connected-apps", connectedAppsRoutes);
 app.route("/api", assetRoutes);
 app.route("/api/user-prompts", userPromptsRoutes);
 app.route("/api/user-preset-overrides", userPresetOverridesRoutes);
+app.route("/api/user-assets/imports", assetImportRoutes);
 app.route("/api/user-assets", userAssetRoutes);
 app.route("/api/session-media", sessionMediaRoutes);
 app.route("/api", assetRefRoutes);
@@ -320,6 +349,7 @@ if (process.env.NODE_ENV === "production") {
     if (!indexHtml) return c.notFound();
     if (c.req.path.startsWith("/sandbox")) return c.notFound();
     if (c.req.path.startsWith("/assets/")) return c.notFound();
+    if (c.req.path.startsWith("/experiments/unperson/")) return c.notFound();
 
     let html = indexHtml;
     try {
@@ -361,6 +391,11 @@ if (process.env.NODE_ENV === "production") {
     "default-src https: 'unsafe-inline' 'unsafe-eval'",
     "img-src https: data: blob:",
     "font-src https: data:",
+    // Audio and video: card BGM and voice come from https: (and blob: once a
+    // card builds a clip itself), and the iOS audio unlock in the sandbox
+    // plays a silent data: WAV. Without this they fell back to default-src,
+    // which has no data: or blob:, and the unlock silently failed.
+    "media-src https: data: blob:",
     "connect-src 'none'",
     "frame-src https://*.pages.dev https://*.vercel.app https://*.netlify.app https://*.github.io",
     // Only the app itself may embed the sandbox document. If the sandbox
@@ -471,6 +506,16 @@ if (process.env.NODE_ENV === "production") {
     // them DYNAMIC, sending every image to the LA origin. HTML stays no-store so SPA
     // deploys never serve a stale index.html. (2026-06-05 wallpaper/asset-cache fix.)
     onFound: (path, c) => {
+      // The Unperson world runs in an opaque sandbox origin. Only its public
+      // textures need cross-origin reads; no credentials or API access here.
+      if (c.req.path.startsWith("/experiments/unperson/assets/")) {
+        c.header("Access-Control-Allow-Origin", "*");
+      }
+      if (c.req.path.startsWith("/experiments/unperson/")) {
+        c.header("Cache-Control", "no-store");
+        c.header("CDN-Cache-Control", "no-store");
+        return;
+      }
       // Everything under /assets/ is content-hashed, .html included: the build
       // emits the sandbox document as assets/sandbox-doc-<hash>.html precisely
       // so it can live here. It is as immutable as the JS chunks beside it and
@@ -595,12 +640,18 @@ const SELF_HEAL_ATTEMPT_DELAYS_MS = process.env.NODE_ENV === "production"
 
 async function runSchemaSelfHealOnce(): Promise<void> {
   await ensureTables();
+  await ensureCreativeUploadSchema();
+  // testing-only: heal real-Postgres schema drift from main's additive DDL
+  // (TABLE_DDLS/COLUMN_ALTERS), which main otherwise applies only for PGlite.
+  await ensureRecentAdditiveSchema();
+  await ensureUserMuteColumns();
   await ensureLifetimePlaytimePending();
   await ensureWorldsSchemaDerived();
   await ensureMessagesSwipeCount();
   await ensureWorldReviewControlsColumn();
   await ensureSessionPersonaColumn();
   await ensureWorldReviewTables();
+  await ensureWorldVersionSchema();
   await ensureJwksTable();
   await ensurePlatformAchievementTables();
   await seedPlatformAchievements();
@@ -619,6 +670,11 @@ async function runSchemaSelfHealOnce(): Promise<void> {
   await ensureExtensionTables();
   await ensureScheduledFunctions();
   await ensureAnalyticsRollupTables();
+  // Every table exists now, so the alters and indexes whose table one of the
+  // steps above creates can finally land — the first pass, inside
+  // ensureTables, ran before they existed (PGlite only — see db/index.ts).
+  const deferred = await ensurePgliteColumnsAndIndexes();
+  if (deferred.length) console.log(`[DEV] PGlite: ${deferred.length} alter(s)/index(es) skipped — their table is not in this file's DDL`);
   // Flip account-deletion readiness only after every table touched by the
   // atomic cleanup/counter reconciliation above exists.
   await ensureAccountDeletionForeignKeys();
@@ -689,7 +745,7 @@ async function start() {
   // edition (hosted: recommendations, payouts, rollups, image generation, ...;
   // local: nothing).
   edition.startBackgroundJobs();
-  if (edition.name === "hosted") startSessionMediaCleanup();
+  if (edition.name === "hosted") { startSessionMediaCleanup(); startAssetImportWorker(); }
 
   // Load the cl100k_base ranks up front so token budgeting is exact from the
   // first request. estimateTokens falls back to a char heuristic until the
@@ -716,6 +772,8 @@ async function start() {
     }
   );
 
+  edition.attachHttpServer?.(server as import("node:http").Server);
+
   // Real Postgres: heal the schema in the background now that the port is
   // bound and the healthcheck can pass.
   if (env.DATABASE_URL) {
@@ -738,6 +796,7 @@ async function start() {
     // Without this, process.exit(0) would still work but Node would log
     // "still running" warnings during deploys.
     edition.stopBackgroundJobs();
+    stopAssetImportWorker();
     stopRateLimitCleanup();
     server.close();
     const [{ finishedNaturally, abortedCount }] = await Promise.all([

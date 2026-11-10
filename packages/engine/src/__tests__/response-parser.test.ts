@@ -862,3 +862,117 @@ describe("ResponseParser speaker tag", () => {
     expect(r.effects).toEqual([{ variableId: "speaker", operation: "set", value: "Mia" }]);
   });
 });
+
+// Gemini 3 Flash read "Format: [variableId: operation value]" literally and
+// wrote the word as a prefix: [variable: mood: set "angry"]. That directive
+// must apply and vanish exactly like [mood: set "angry"].
+describe("ResponseParser literal `variable:` / `var:` prefix", () => {
+  const parser = new ResponseParser();
+
+  it("applies a prefixed set with a quoted string and strips it", () => {
+    const r = parser.parse('她冷笑一声。\n[variable: mood: set "angry"]\n[variable: tone: set "tense"]');
+    expect(r.effects).toEqual([
+      { variableId: "mood", operation: "set", value: "angry" },
+      { variableId: "tone", operation: "set", value: "tense" },
+    ]);
+    expect(r.cleanText).toBe("她冷笑一声。");
+  });
+
+  it("applies a prefixed add with a number, any case of the prefix", () => {
+    expect(parser.parse("[var: gold: add 50]").effects).toEqual([{ variableId: "gold", operation: "add", value: 50 }]);
+    expect(parser.parse("[Variable: hp: -10]").effects).toEqual([{ variableId: "hp", operation: "subtract", value: 10 }]);
+    expect(parser.parse("[VAR:score: +5]").effects).toEqual([{ variableId: "score", operation: "add", value: 5 }]);
+  });
+
+  it("applies a Chinese value, quoted or bare, and keeps the story text", () => {
+    const r = parser.parse('他们走进了陈列室。[variable: location: set "奖品陈列室"] 灯光很暗。[variable: 心情: set 紧张]');
+    expect(r.effects).toEqual([
+      { variableId: "location", operation: "set", value: "奖品陈列室" },
+      { variableId: "心情", operation: "set", value: "紧张" },
+    ]);
+    expect(r.cleanText).toBe("他们走进了陈列室。 灯光很暗。");
+    expect(r.cleanText).not.toContain("[");
+  });
+
+  it("strips prefixed dot-path and JSON directives the same way", () => {
+    const r = parser.parse('Fine. [variable: relations.艾丝·华伦斯坦: +20] [var: inventory: push {"name":"rope"}]');
+    expect(r.effects).toEqual([
+      { variableId: "inventory", operation: "push", value: { name: "rope" } },
+      { variableId: "relations.艾丝·华伦斯坦", operation: "add", value: 20 },
+    ]);
+    expect(r.cleanText).toBe("Fine.");
+  });
+
+  it("leaves a real variable named `var` or `variable` writing normally", () => {
+    expect(parser.parse("[var: set 3]").effects).toEqual([{ variableId: "var", operation: "set", value: 3 }]);
+    expect(parser.parse("[var: +2]").effects).toEqual([{ variableId: "var", operation: "add", value: 2 }]);
+    expect(parser.parse('[variable: set "x"]').effects).toEqual([{ variableId: "variable", operation: "set", value: "x" }]);
+    expect(parser.parse("[var: toggle]").effects).toEqual([{ variableId: "var", operation: "toggle", value: true }]);
+    const r = parser.parse("A. [var: 7] B.");
+    expect(r.effects).toEqual([{ variableId: "var", operation: "set", value: 7 }]);
+    expect(r.cleanText).toBe("A. B.");
+  });
+});
+
+// Bookkeeping wrappers models put around their directives (prod play):
+// Claude Haiku 5.5 `<directive>` / `<rationale>`, GLM 5.2 `[state-changes]`.
+describe("ResponseParser bookkeeping wrappers", () => {
+  const parser = new ResponseParser();
+
+  it("drops an empty <directive> block (Claude Haiku)", () => {
+    const r = parser.parse("She turns away.\n\n<directive>\n\n</directive>");
+    expect(r.effects).toEqual([]);
+    expect(r.cleanText).toBe("She turns away.");
+  });
+
+  it("applies the directives inside a <directive> block, then drops the block and its prose", () => {
+    const r = parser.parse('She turns away.\n<DIRECTIVE>\n[guard: -10]\n[mood: set "softened"]\nstate updated\n</directive>');
+    // Quoted `set` goes through the JSON scanner first, so order is by scanner.
+    expect(r.effects).toHaveLength(2);
+    expect(r.effects).toEqual(expect.arrayContaining([
+      { variableId: "guard", operation: "subtract", value: 10 },
+      { variableId: "mood", operation: "set", value: "softened" },
+    ]));
+    expect(r.cleanText).toBe("She turns away.");
+  });
+
+  it("drops a <rationale> block whole, without applying what it quotes", () => {
+    const r = parser.parse(
+      "She takes the scarf. [guard: -10]\n<rationale>\nHarry's scarf is a kindness, so her Guard drops [guard: -10].\n</rationale>",
+    );
+    expect(r.effects).toEqual([{ variableId: "guard", operation: "subtract", value: 10 }]);
+    expect(r.cleanText).toBe("She takes the scarf.");
+  });
+
+  it("drops an unclosed <rationale> to the end of the reply", () => {
+    const r = parser.parse("She nods.\n<rationale>\nTrust rises because");
+    expect(r.cleanText).toBe("She nods.");
+  });
+
+  it("drops an empty [state-changes] block (GLM), with either closer", () => {
+    expect(parser.parse("他沉默了。\n[state-changes]\n\n[/state-changes]").cleanText).toBe("他沉默了。");
+    expect(parser.parse("他沉默了。\n[state-changes]\n\n</state-changes>").cleanText).toBe("他沉默了。");
+    expect(parser.parse("他沉默了。\n<state-changes>\n\n[/state-changes]").cleanText).toBe("他沉默了。");
+    expect(parser.parse("他沉默了。\n<State-Changes>\n</state-changes>").cleanText).toBe("他沉默了。");
+  });
+
+  it("drops a lone [state-changes] opener at the end of the reply", () => {
+    expect(parser.parse("他沉默了。\n[state-changes]\n\n").cleanText).toBe("他沉默了。");
+    expect(parser.parse("他沉默了。\n<state-changes>").cleanText).toBe("他沉默了。");
+  });
+
+  it("applies the directives inside a [state-changes] block and drops the wrapper", () => {
+    const r = parser.parse('他沉默了。\n[state-changes]\n[location: set "奖品陈列室"]\n[trust: +5]\n</state-changes>');
+    expect(r.effects).toEqual([
+      { variableId: "location", operation: "set", value: "奖品陈列室" },
+      { variableId: "trust", operation: "add", value: 5 },
+    ]);
+    expect(r.cleanText).toBe("他沉默了。");
+  });
+
+  it("leaves the tags cards use alone", () => {
+    const text = "<inner>她想逃。</inner>\n<options>\n1. 留下\n</options>\n<directive-format>x</directive-format>";
+    expect(parser.parse(text).cleanText).toBe(text);
+    expect(parser.parse("Look. [image: forest_dawn]").cleanText).toBe("Look. [image: forest_dawn]");
+  });
+});

@@ -76,7 +76,7 @@ In **Settings → Generation → Backup model**, choose **Ask every time**, **Us
 ### Content & Safety
 - **Content mode:** **Limited** (default) or **Limitless** (available to eligible accounts)
 - **Audience preference:** **For Everyone** / **For Men** / **For Women** -- filters Hub recommendations
-- **Blur Limitless media:** Toggle thumbnail blurring for Limitless worlds
+- **Blur sensitive covers:** On by default. Covers marked sensitive appear behind a foggy blur. **Show this cover** reveals only that image; **Hide cover** conceals it again. **Media settings** takes you straight to this toggle. Turn it off to show all covers without changing your content mode.
 
 ### Privacy
 - **Private account** -- only followers can see your activity

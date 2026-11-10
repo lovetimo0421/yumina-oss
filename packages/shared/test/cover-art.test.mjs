@@ -10,3 +10,15 @@ test("publishing requires both artwork slots and confirmed full-frame crops", ()
     assert.equal(shared.hasDiscoverCoverArt({...ready,...patch}), false);
   }
 });
+
+test("artwork diagnostics list only missing images or unconfirmed crops", () => {
+  const crop = { x: 0, y: 0, zoom: 1, fit: "cover" };
+  const ready = { thumbnailUrl: "portrait.jpg", landscapeCoverUrl: "wide.jpg", coverCrop: crop, landscapeCoverCrop: crop };
+  assert.deepEqual(shared.getDiscoverCoverArtIssues(ready), []);
+  assert.deepEqual(shared.getDiscoverCoverArtIssues({}), ["portraitImage", "landscapeImage"]);
+  assert.deepEqual(shared.getDiscoverCoverArtIssues({ ...ready, landscapeCoverUrl: " " }), ["landscapeImage"]);
+  assert.deepEqual(shared.getDiscoverCoverArtIssues({ ...ready, coverCrop: null }), ["portraitCrop"]);
+  for (const invalid of [undefined, null, {}, { ...crop, fit: "contain" }, { ...crop, zoom: 0.1 }, { ...crop, x: NaN }]) {
+    assert.deepEqual(shared.getDiscoverCoverArtIssues({ ...ready, landscapeCoverCrop: invalid }), ["landscapeCrop"]);
+  }
+});

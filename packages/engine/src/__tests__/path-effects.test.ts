@@ -185,3 +185,40 @@ describe("dot-path effects on a json variable", () => {
     });
   });
 });
+
+describe("keys with a middle dot", () => {
+  beforeEach(() => resetIdCounter());
+
+  it("a transliterated name in the path still parses and applies", () => {
+    const m = mgrWith({ relations: { "艾丝·华伦斯坦": 10 } });
+    const world = createMockWorld({
+      variables: [createMockVariable({ id: "relations", name: "r", type: "json", defaultValue: {} as never })],
+    });
+    const parsed = new ResponseParser().parse(
+      "她点了点头。\n[relations.艾丝·华伦斯坦: +20]\n[relations.アイズ・ヴァレンシュタイン: set 5]",
+      world.variables,
+    );
+    expect(parsed.cleanText).not.toContain("[relations");
+    m.applyEffects(parsed.effects);
+    expect(vars(m).relations).toEqual({ "艾丝·华伦斯坦": 30, "アイズ・ヴァレンシュタイン": 5 });
+  });
+});
+
+describe("keys with spaces after a dot", () => {
+  beforeEach(() => resetIdCounter());
+
+  it("an English full name in the path parses and applies; bracketed prose does not", () => {
+    const m = mgrWith({ relations: { "Riveria Ljos Alf": 10 } });
+    const world = createMockWorld({
+      variables: [createMockVariable({ id: "relations", name: "r", type: "json", defaultValue: {} as never })],
+    });
+    const parsed = new ResponseParser().parse(
+      "She nods.\n[relations.Riveria Ljos Alf: +1]\n[relations.Bell Cranel: set 5]\n[Chapter One: Begin]",
+      world.variables,
+    );
+    expect(parsed.cleanText).not.toContain("[relations");
+    expect(parsed.cleanText).toContain("[Chapter One: Begin]");
+    m.applyEffects(parsed.effects);
+    expect(vars(m).relations).toEqual({ "Riveria Ljos Alf": 11, "Bell Cranel": 5 });
+  });
+});

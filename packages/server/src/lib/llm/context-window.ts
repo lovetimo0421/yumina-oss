@@ -1,9 +1,9 @@
 import { effectiveMaxTokens } from "./openrouter.js";
 import { getCatalogContextWindow } from "./model-catalog.js";
+import { DEFAULT_LOCAL_CONTEXT, clampLocalMaxTokens } from "./local-bridge.js";
 import { YUMINA_MODELS } from "@yumina/shared";
 
 const REGISTERED_CONTEXT_WINDOWS = new Map(YUMINA_MODELS.filter(model => model.addedAt).map(model => [model.id, model.contextWindow]));
-import { DEFAULT_LOCAL_CONTEXT, clampLocalMaxTokens } from "./local-bridge.js";
 
 /**
  * Real maximum context window (input + output, in tokens) for a model.
@@ -127,6 +127,8 @@ export function clampMaxContextToModel(
   const outputReserve = isLocal
     ? clampLocalMaxTokens(effectiveMaxTokens(maxTokens, reasoningEffort, modelId))
     : effectiveMaxTokens(maxTokens, reasoningEffort, modelId);
+  // 256, not 4096: an 8K-window model reserving 4K has 3,481 left after the
+  // 0.85 discount, and a 4,096 floor would hand back more than the window holds.
   const inputCap = Math.max(256, Math.floor((window - outputReserve) * 0.85));
   if (requestedMaxContext <= inputCap) return requestedMaxContext;
 

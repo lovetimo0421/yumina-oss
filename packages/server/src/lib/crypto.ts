@@ -3,8 +3,21 @@ import { env } from "./env.js";
 
 const ALGORITHM = "aes-256-gcm";
 
+const hashKey = (material: string) => createHash("sha256").update(material).digest();
+
 function deriveKey(): Buffer {
-  return createHash("sha256").update(env.ENCRYPTION_KEY ?? env.BETTER_AUTH_SECRET).digest();
+  return hashKey(env.ENCRYPTION_KEY ?? env.BETTER_AUTH_SECRET);
+}
+
+/** Keys a stored row may have been written with, current first. ENCRYPTION_KEY_PREVIOUS
+ *  holds retired material during a rotation, so rows keep decrypting until re-encrypted. */
+function decryptionKeys(): Buffer[] {
+  const materials = [
+    env.ENCRYPTION_KEY,
+    ...(env.ENCRYPTION_KEY_PREVIOUS ?? "").split(",").map((s) => s.trim()),
+    env.BETTER_AUTH_SECRET,
+  ].filter((m): m is string => !!m);
+  return [...new Set(materials)].map(hashKey);
 }
 
 export function encryptApiKey(plaintext: string): {
@@ -28,16 +41,19 @@ export function encryptApiKey(plaintext: string): {
 }
 
 export function decryptApiKey(encrypted: string, iv: string, tag: string): string | null {
-  try {
-    const key = deriveKey();
-    const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(iv, "hex"));
-    decipher.setAuthTag(Buffer.from(tag, "hex"));
+  let lastError: Error | undefined;
+  for (const key of decryptionKeys()) {
+    try {
+      const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(iv, "hex"));
+      decipher.setAuthTag(Buffer.from(tag, "hex"));
 
-    let decrypted = decipher.update(encrypted, "hex", "utf8");
-    decrypted += decipher.final("utf8");
-    return decrypted;
-  } catch (err) {
-    console.error("[Crypto] API key decryption failed:", (err as Error).message);
-    return null;
+      let decrypted = decipher.update(encrypted, "hex", "utf8");
+      decrypted += decipher.final("utf8");
+      return decrypted;
+    } catch (err) {
+      lastError = err as Error;
+    }
   }
+  console.error("[Crypto] API key decryption failed:", lastError?.message);
+  return null;
 }

@@ -71,6 +71,10 @@ Same shape as a worldbook's activation. Omit = always active.
 
 An **inactive** variable leaves `<game-state>` and the player UI and rejects AI writes, but **keeps its value** — conditions, behaviors and the custom UI still read it. To also reset it, have a behavior `set` it explicitly.
 
+### worldbookId — module membership
+
+A variable can belong to a module (worldbook) via `worldbookId` (write_variable `{ worldbookId }`). While that module is INACTIVE the variable behaves exactly like an inactive variable above (out of `<game-state>`, AI writes dropped, value kept). This gate stacks with the variable's own `activation`/`enabled` (AND). Module activation conditions read raw values, so a variable can even gate its own module without circularity. Omit = the always-on Core. Prefer this over per-variable conditions when a whole mechanic (its entries + variables + behaviors) should switch on/off together — one activation rule on the module gates them all.
+
 Example — dungeon flow: `阶段` is `aiAccess: "read"` (behaviors advance it, the AI narrates it); `直播积分` is `{ mode: "conditions" }` on `阶段` so it only appears mid-broadcast; the reward ledger is `aiAccess: "none"` with the settlement math in behaviors; a curated `当前可用道具` summary stays `write` if the AI must reference items in prose.
 
 ## Variable Types

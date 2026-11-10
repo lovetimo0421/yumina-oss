@@ -12,10 +12,16 @@ Variables are the world's game state. The AI reads current values each turn and 
   "defaultValue": 100,
   "min": 0,
   "max": 100,
+  "liveCanonEditable": false,
   "description": "Player's physical health",
   "behaviorRules": "0 = death. 1-20 = critical. 20-50 = wounded. 50-80 = bruised. 80-100 = healthy. Decrease on physical damage: punch -5 to -10, slash -15 to -25, fall -20 to -40. Rest +5, healing +10 to +30. Max change per turn: 30."
 }
 ```
+
+`liveCanonEditable` defaults to `false`. When a published world also enables
+Lore Shift, setting this to `true` lets a player manually change this primitive
+value for their current session. It does not let them create variables, edit
+JSON values, or change the author's source world.
 
 ## Variable Types
 

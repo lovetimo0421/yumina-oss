@@ -5,6 +5,7 @@ import { getCheckInWindow, type CheckInWindow } from "./check-ins.js";
 import { runExclusive } from "./leader.js";
 import { posthog } from "./posthog.js";
 import { redis } from "./redis.js";
+import { QUEST_TURN_ENDPOINTS_SQL } from "./quest-turn-endpoints.js";
 import { claimQuest, questClaimContext, questClaimGate, questPeriod, type QuestClaimTrigger } from "./quest-claim.js";
 import { WEEKLY_BOARD, claimedInPeriod, dailyBoardFor, questProgress, walletUsesQuests, type WorldTurnCache } from "./quests.js";
 
@@ -174,7 +175,7 @@ export async function questSweepCandidates(window: CheckInWindow, database: { ex
   const from = window.previousResetAt, to = window.nextResetAt;
   const result = await database.execute(sql`SELECT DISTINCT user_id FROM (
       SELECT user_id FROM usage_logs WHERE created_at >= ${from} AND created_at < ${to}
-        AND endpoint IN ('send','regenerate','continue') AND completion_tokens > 0
+        AND endpoint IN (${sql.raw(QUEST_TURN_ENDPOINTS_SQL)}) AND completion_tokens > 0
       UNION SELECT user_id FROM favorites WHERE created_at >= ${from} AND created_at < ${to}
       UNION SELECT user_id FROM quest_community_visits WHERE visited_at >= ${from} AND visited_at < ${to}
       UNION SELECT user_id FROM analytics_activity WHERE surface = 'community' AND occurred_at >= ${from} AND occurred_at < ${to}

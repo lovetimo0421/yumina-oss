@@ -204,7 +204,9 @@
     "export": "匯出",
     "exported": "資源包已匯出",
     "deleteBundle": "刪除資源包",
-    "deleteConfirm": "確定要刪除 <strong>{{name}}</strong> 嗎？此操作無法撤銷。"
+    "deleteConfirm": "確定要永久刪除 <strong>{{name}}</strong> 嗎？",
+    "importBundle": "匯入資源包",
+    "deleteConsequence": "資源包及其中可編輯的內容會被永久刪除。"
   },
   "favorites": {
     "backToLibrary": "返回庫",
@@ -322,7 +324,8 @@
       "viewInAssets": "前往資源檢視",
       "shareInCommunity": "分享到社羣"
     },
-    "reviews": "評價"
+    "reviews": "評價",
+    "overviewSubtitle": "關鍵資訊、筆記和描述集於一處。"
   },
   "bulk": {
     "select": "選擇",
@@ -357,7 +360,11 @@
     "deleteAction": "刪除",
     "deletePermanently": "永久刪除",
     "deleteIrreversible": "此操作無法撤銷。",
-    "authorDoesNotAllowEditing": "作者不允許編輯"
+    "authorDoesNotAllowEditing": "作者不允許編輯",
+    "deleteProjectConsequenceFiles": "可編輯專案及其本機資料會被永久刪除。",
+    "deletePublishedConsequence": "已收藏這個世界的玩家將失去訪問許可權。",
+    "removeGameConsequenceHistory": "這個遊戲的存檔和遊玩記錄會被刪除。",
+    "removeGameConsequenceHub": "已釋出的遊戲仍可在發現頁中找到。"
   },
   "card": {
     "play": "開始遊戲",
@@ -400,6 +407,10 @@
     "deleteBundleFailed": "無法刪除資源包",
     "downloadBundleFailed": "無法下載資源包",
     "deleteAssetFailed": "無法刪除素材",
+    "deleteAssetVersioned": "已儲存的卡片歷史版本仍在使用這個素材，保留這些歷史版本期間無法刪除。",
+
+    "deleteAssetInUse": "這張圖還是《{{name}}》的封面，先把那張卡的封面換掉再刪。",
+    "deleteAssetUsedByCard": "《{{name}}》還在用這個檔案，先從那張卡裡拿掉再刪。",
     "renameAssetFailed": "無法重新命名素材",
     "moveAssetFailed": "無法移動素材",
     "createFolderFailed": "無法建立資料夾",
@@ -414,7 +425,7 @@
   },
   "create": {
     "title": "新建",
-    "mobileTitle": "建立新故事",
+    "mobileTitle": "開啟新的創作",
     "mobileInstructionTitle": "選擇你的創作方式",
     "import": "匯入",
     "back": "返回",
@@ -426,7 +437,8 @@
       "signInBody": "登入後即可生成圖片和音樂、儲存作品，並隨時查看生成紀錄。",
       "signInAction": "生成圖片和音樂",
       "signIn": "登入開始創作"
-    }
+    },
+    "mobileSubtitle": "建構世界、設計角色，或把靈感變成一幅畫。"
   },
   "time": {
     "justNow": "剛剛",
@@ -438,9 +450,9 @@
   },
   "templates": {
     "blank": "空白專案",
-    "blankDesc": "一個空白世界——沒有任何預設。",
+    "blankDesc": "空白世界，只帶預設敘事設定。",
     "importWorld": "匯入世界",
-    "importWorldDesc": "從 JSON 檔案匯入世界。",
+    "importWorldDesc": "上傳 Yumina 卡。",
     "characterChat": "角色聊天",
     "characterChatDesc": "設計角色，沉浸於一對一的對話之中。",
     "worldSimulation": "世界模擬",
@@ -678,35 +690,42 @@
       "surcharge": "+{{count}}",
       "anime": {
         "name": "動漫",
-        "desc": "清爽的動漫插畫風（Animagine XL），預設選擇",
-        "detail": "吃 Danbooru 標籤；角色立繪和乾淨線條最強。"
+        "variant": "經典"
       },
       "nsfw-anime": {
-        "name": "NSFW 動漫",
-        "desc": "Illustrious 系無刪減動漫，最適合成人向角色圖",
-        "detail": "完整理解成人向 Danbooru 標籤；配角色 LoRA 效果更佳。"
+        "name": "無限制動漫",
+        "variant": "經典"
       },
       "realistic": {
-        "name": "寫實",
-        "desc": "照片級人像與場景（Juggernaut XL）",
-        "detail": "用自然語言描述而非標籤；寫上光線和鏡頭詞（柔光、85mm）效果顯著。"
+        "name": "寫實"
       },
       "semireal": {
-        "name": "2.5D 半寫實",
-        "desc": "介於動漫與寫實之間的厚塗/遊戲 CG 質感",
-        "detail": "標籤或句子都行；氛圍感角色場景表現好。"
+        "name": "2.5D 半寫實"
       },
       "guofeng": {
-        "name": "國風",
-        "desc": "中式美學——漢服、水墨意境、古典場景",
-        "detail": "用句子描述服飾與場景（漢服、水墨、亭台）風味更濃。"
+        "name": "水墨"
       },
       "western": {
-        "name": "歐美",
-        "desc": "歐美奇幻/漫畫風（ZavyChroma XL）",
-        "detail": "用句子描述；戲劇光影和奇幻厚塗場景最強。"
+        "name": "歐美"
       },
-      "surchargeChip": "+{{count}} 蘑菇幣"
+      "surchargeChip": "+{{count}} 蘑菇幣",
+      "version": "版本",
+      "anime-new": {
+        "name": "動漫 · 新番",
+        "variant": "新番"
+      },
+      "anime-story": {
+        "name": "動漫 · 劇情",
+        "variant": "劇情"
+      },
+      "anime-anima": {
+        "name": "動漫 · Anima",
+        "variant": "Anima"
+      },
+      "nsfw-anima": {
+        "name": "無限制動漫 · Anima",
+        "variant": "Anima"
+      }
     },
     "videoStyleFromReference": "影片會沿用參考圖的畫風。",
     "makeReference": "先生成一張",
@@ -751,9 +770,31 @@
       "PROVIDER_REQUEST": "模型未接受這組設定，請更換模型或調整圖片設定。",
       "PROVIDER_TIMEOUT": "模型出圖逾時了，本次未扣款。可以換個更快的模型，或調低清晰度再試。",
       "PROVIDER_REJECTED": "模型方拒絕了這次請求，本次未扣款。可以換個模型再試。",
-      "CONTENT_FILTERED": "這張圖被模型方拒絕了，不是 Yumina 的限制。未扣款，可以換個模型或調整描述再試。",
+      "CONTENT_FILTERED": "這次的內容被模型方拒絕了，不是 Yumina 的限制。未扣款，可以換個模型或調整描述再試。",
       "ENHANCE_REFUSED": "AI 沒能優化這段描述，原文沒有改動。可以換個說法再試，或直接用原文生成。",
-      "ENHANCE_FAILED": "AI 優化暫時無法使用，原文沒有改動，請稍後再試。"
+      "ENHANCE_FAILED": "AI 優化暫時無法使用，原文沒有改動，請稍後再試。",
+      "VIDEO_BAD_ASPECT": "這個模型不支援這個畫面比例。",
+      "VIDEO_BAD_RESOLUTION": "這個模型不支援這個清晰度。",
+      "VIDEO_BAD_DURATION": "這個模型不支援這個時長。",
+      "VIDEO_NO_FIRST_FRAME": "這個模型不能指定首幀。",
+      "VIDEO_NO_LAST_FRAME": "這個模型不能指定尾幀。",
+      "VIDEO_ONE_FRAME_ONLY": "這個模型一次只能用首幀或尾幀其中一張。",
+      "VIDEO_TOO_MANY_REFERENCES": "角色參考圖超過這個模型的上限。",
+      "VIDEO_FRAMES_OR_REFERENCES": "這個模型只能用首尾幀或角色參考圖其中一種。",
+      "VIDEO_LAST_NEEDS_FIRST": "這個模型要有首幀才能用尾幀。",
+      "VIDEO_NEEDS_FRAME": "這個模型需要一張參考畫面。",
+      "VIDEO_NO_SOUND": "這個模型不能生成聲音。",
+      "VIDEO_NO_TUNING": "這個模型不開放這些引數。",
+      "VIDEO_FAST_FIXED": "4 步加速開著時不能改步數和 CFG。",
+      "VIDEO_NO_LORAS": "這個模型不能加 LoRA。",
+      "MODEL_FAMILY": "這個 LoRA 和模型對不上：影片要用 Wan LoRA，圖片要用 SDXL LoRA。",
+      "VIDEO_STYLE_PROMPT": "這段描述沒辦法轉成畫風首幀。換成英文描述，或畫風選「不指定」再試。沒有扣費。",
+      "VIDEO_BAD_STYLE": "這個畫風現在用不了，換一個再試。",
+      "VIDEO_NO_STYLE": "這個畫風現在用不了，換一個再試。",
+      "VIDEO_STYLE_WITH_FRAME": "這個畫風現在用不了，換一個再試。",
+      "QUALITY_BATCH": "4K 一次只能生成一張，把數量改成 1 再試。",
+      "MODEL_UNAVAILABLE": "這個模型暫時無法使用，請換一個模型。",
+      "REFERENCE_UNSUPPORTED": "這個模型不支援參考圖。請移除圖片，或換一個模型。"
     },
     "queue": {
       "waiting": "排隊中…",
@@ -786,12 +827,40 @@
       "fewer": "少一張",
       "more": "多一張",
       "tier": {
+        "seedreamFlash": "最便宜",
         "seedreamLite": "快",
         "seedreamPro": "均衡",
-        "nanoBanana2": "改圖強",
+        "nanoBanana21": "最新 · 改圖強",
+        "nanoBanana2": "有 512",
         "nanoBananaPro": "高質",
-        "gptImage2": "最強 · 慢"
-      }
+        "gptImage25Flare": "精緻 · 快",
+        "gptImage25Sunburst": "最強 · 慢",
+        "gptImage2": "上一代 · 慢",
+        "flux2Pro": "性價比",
+        "flux2Max": "細節多",
+        "flux3": "最新 · 場景豐富",
+        "qwenImage3": "便宜 · 慢",
+        "qwenImage3Pro": "細節多 · 慢",
+        "grokImagine": "最便宜 · 快",
+        "grokImagineQuality": "快",
+        "grokImagine2": "細節多 · 很慢",
+        "klingO1": "乾淨動漫",
+        "lumaUni1": "400萬像素 · 慢",
+        "lumaUni1Max": "400萬像素更細 · 慢",
+        "ideogram45": "擅長文字",
+        "wan25": "偏繪畫 · 預覽版",
+        "recraft41": "設計 · 平面",
+        "krea2Turbo": "最便宜",
+        "krea2Medium": "風格化",
+        "krea2Large": "風格化 · 慢",
+        "maiImage26": "乾淨 · 快",
+        "hunyuan35": "便宜 · 2K"
+      },
+      "version": "版本",
+      "noReference": "{{model}} 不支援參考圖。請移除圖片，或換一個模型。",
+      "fromPerImage": "{{count}} / 張起",
+      "moreModels": "更多模型（{{count}}）",
+      "fewerModels": "收起"
     },
     "loading": "正在載入…",
     "loadTemplatesError": "生圖選項載入失敗，你的草稿仍然保留。",
@@ -852,7 +921,10 @@
       "tabAudio": "音訊",
       "audioTitle": "AI 生成 BGM",
       "audioLead": "音樂會儲存到素材庫。",
-      "sectionOutput": "畫面規格"
+      "sectionOutput": "畫面規格",
+      "tabVideo": "影片",
+      "videoTitle": "AI 生成影片",
+      "videoLead": "影片會儲存到素材庫，可以放進立繪、開場白和玩家介面。"
     },
     "music": {
       "workshopTitle": "AI 生成 BGM",
@@ -904,6 +976,161 @@
       "generating": "生成中",
       "generatingSteps": "生成中 約 {{step}}/{{steps}} 步",
       "saving": "儲存中"
+    },
+    "video": {
+      "modeLabel": "影片模式",
+      "mode": {
+        "partner": {
+          "name": "描述生影片",
+          "desc": "Seedance、可靈、Veo 等頂級模型"
+        },
+        "custom": {
+          "name": "自定義生影片",
+          "desc": "自己的顯卡 · LoRA、參數全開"
+        }
+      },
+      "describe": "畫面描述",
+      "enhance": "AI 潤色",
+      "enhanceHint": "生成前讓 AI 把描述改寫得更適合影片模型",
+      "promptPlaceholder": "寫畫面裡有什麼、怎麼動、鏡頭怎麼動。例：月夜的海邊，黑長髮少女站在礁石上，風吹起頭髮，她慢慢轉頭看向鏡頭。鏡頭別動，動作越小，人物越不容易走樣。",
+      "reference": "參考畫面",
+      "referenceOptional": "都不放 = 只用文字生成",
+      "slot": {
+        "first": "首幀",
+        "last": "尾幀",
+        "ref": "角色參考"
+      },
+      "slotHint": {
+        "first": "影片從這張圖開始",
+        "last": "影片停在這張圖上"
+      },
+      "slotRefHint": "長相照著它，場景可以全新 · 最多 {{count}} 張，每張 +{{price}}",
+      "slotRefHintFree": "長相照著它，場景可以全新 · 最多 {{count}} 張",
+      "notSupported": "{{model}} 不支援",
+      "oneFrameOnly": "{{model}} 一次只能用首幀或尾幀其中一張。要首尾都定，換一個模型。",
+      "aspectFromFrame": "用了首尾幀，影片比例跟著首幀走。",
+      "framesOrReferences": "{{model}} 不能這樣組合：帶角色參考圖時最多再加一張首幀。去掉一些再生成。",
+      "lastNeedsFirst": "{{model}} 用尾幀時必須同時給首幀。",
+      "needsFrame": "{{model}} 是讓圖片動起來的模型：先在上面加一張首幀。",
+      "remove": "移除",
+      "closePicker": "收起",
+      "modelSpec": "模型與規格",
+      "model": "模型",
+      "tag": {
+        "text": "文生",
+        "image": "圖生",
+        "sound": "有聲",
+        "selfHosted": "無限制",
+        "firstLast": "首尾幀",
+        "refs": "最多 {{count}} 張參考圖",
+        "firstLastShort": "首尾幀",
+        "refsShort": "參考圖",
+        "fast": "快",
+        "needsImage": "需要圖片"
+      },
+      "priceFrom": "{{count}} / {{seconds}} 秒起",
+      "priceFor": "{{count}} / {{seconds}}秒",
+      "aspect": "畫面比例",
+      "resolution": "清晰度",
+      "duration": "時長",
+      "seconds": "{{count}} 秒",
+      "etaSeconds": "約 {{count}} 秒",
+      "etaMinutes": "約 {{count}} 分鐘",
+      "sound": "一起生成環境音和臺詞",
+      "soundAlways": "這個模型總是連聲音一起生成。",
+      "more": "更多引數",
+      "fast": "4 步加速",
+      "fastHint": "快幾倍、便宜一大半；關掉可調步數和 CFG",
+      "fastOn": "4 步加速",
+      "stepsValue": "步數 {{count}}",
+      "seedValue": "種子 {{seed}}",
+      "seedRandom": "隨機",
+      "loraCount": "{{count}} 個 LoRA",
+      "watermarkOn": "加水印",
+      "watermarkOff": "不加水印",
+      "negative": "反向提示詞",
+      "negativePlaceholder": "不想出現的東西。例：變形的手，多餘的手指，畫面閃爍，文字，水印",
+      "steps": "步數",
+      "stepsHint": "越高越細，也越慢越貴",
+      "cfgHint": "越高越聽描述的話，太高畫面會僵",
+      "seed": "種子",
+      "watermark": "影片角落加“AI 生成”水印",
+      "noTuning": "{{model}} 沒有開放種子、步數、反向提示詞這些引數。要細調，換 Wan 2.2。",
+      "loras": "LoRA",
+      "loraPrice": "每個 +2",
+      "addLora": "加一個 Wan LoRA",
+      "civitaiPlaceholder": "貼上 Civitai 上 Wan LoRA 的連結",
+      "civitaiImport": "匯入",
+      "loraHint": "只能用 Wan 2.2 / Wan Video 的 LoRA，圖片用的 SDXL LoRA 放不進影片。",
+      "howText": "只用文字生成",
+      "howFrames": "從圖片生成",
+      "howReference": "照角色參考生成",
+      "unavailable": "這臺伺服器現在還不能生成影片。",
+      "modelGone": "這個模型現在用不了，換一個試試。",
+      "emptyTitle": "還沒有影片",
+      "emptyBody": "第一段會出現在這裡。",
+      "place": "放到…",
+      "placePortrait": "角色動態立繪",
+      "placeGreeting": "開場白最前面",
+      "placed": "已放到：{{where}}",
+      "unnamed": "未命名角色",
+      "clip": {
+        "idle": "待機",
+        "speaking": "說話"
+      },
+      "placeFailed": {
+        "noGreeting": "這張卡還沒有開場白。",
+        "linkFailed": "沒能把這段影片關聯到卡上，再試一次。",
+        "noUi": "這張卡還沒有視覺化的玩家介面，先在「玩家介面」裡選個範本。"
+      },
+      "style": "畫風",
+      "styleCost": "文字生成時可選 · 畫首幀 +{{count}} 蘑菇幣",
+      "styleNone": "不指定",
+      "styleFromFrame": "已經放了首幀或尾幀，影片會沿用那張圖的畫風。",
+      "howStyle": "{{style}}畫風",
+      "placeUi": "玩家介面（新影片框）",
+      "styleHint": "先按這個畫風畫出第一幀，再讓它動起來，整段影片保持這個畫風。",
+      "styleNoneHint": "{{model}} 直接從文字生成，畫面偏寫實。"
+    },
+    "folderLoadFallback": "讀不到這張卡綁定的資料夾，先按「全部素材」生成。",
+    "quality": {
+      "label": "畫質",
+      "included": "不加價",
+      "standard": {
+        "name": "標準"
+      },
+      "hd": {
+        "name": "高清"
+      },
+      "4k": {
+        "name": "4K"
+      },
+      "redo": "4K 版 · {{count}} 蘑菇幣",
+      "redoNote": "生成好的圖可以在右側點「4K 版」，按原樣重新出 4K。"
+    },
+    "badge": {
+      "limitless": "無限制",
+      "textOnly": "僅文生圖"
+    },
+    "trait": {
+      "style": {
+        "realistic": "寫實為主",
+        "anime": "二次元",
+        "2.5d": "2.5D",
+        "3d": "動漫偏3D",
+        "versatile": "動漫強"
+      },
+      "strength": {
+        "anime": "擅長動漫",
+        "photoreal": "擅長真人",
+        "text": "文字準",
+        "design": "海報設計",
+        "detail": "細節多",
+        "fast": "出圖快",
+        "motion": "大動作穩",
+        "camera": "會運鏡",
+        "dialogue": "對口型說話"
+      }
     }
   },
   "media": {

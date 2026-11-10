@@ -34,6 +34,9 @@ interface UiState {
   mobileNavOpen: boolean;
   theaterMode: boolean;
   recentPlayedWorlds: RecentPlayedWorld[];
+  /** The list lives only in this browser. Once it has held anything (or been
+   *  seeded from the server), an empty list means the player cleared it. */
+  recentPlayedSeeded: boolean;
   invitePanelDismissed: boolean;
   /** Community-event promo popups the user has dismissed, keyed by event id.
    *  Per-browser (localStorage) — a different browser/device shows it again.
@@ -47,14 +50,24 @@ interface UiState {
   /** In-play "share this playthrough" overlay. Opened from the composer "+"
    *  menu (sandbox → world-renderer → this store). Transient — not persisted. */
   sharePlaythroughOpen: boolean;
-  /** In-play scene-image gallery. Opened from the play header or the
-   *  fullscreen floating bar. Transient — not persisted. */
+  /** In-play "write your own prompt" dialog. Opened from the 提示词 quick panel
+   *  (sandbox → world-renderer → this store) so the save happens in host UI that
+   *  card code can't fill in. Transient — not persisted. */
+  promptComposerOpen: boolean;
+  /** In-play scene-image gallery. Opened from the play header, the fullscreen
+   *  floating bar, or a card via the bridge. Transient — not persisted. */
   sceneGalleryOpen: boolean;
   /** In-play "support the creator" overlay. Opened by a card calling
    *  api.openSupport() (sandbox → world-renderer → this store), so a card can
    *  put a tip entry in its own UI instead of relying on the play header —
    *  which fullscreen custom-UI cards cover up. Transient — not persisted. */
   tipModalOpen: boolean;
+  /** The Studio's player view has taken the whole viewport. The shell's
+   *  sidebar sits at the root stacking context (z 30) while the Studio lives
+   *  inside `app-shell-content` (z 10), so no z-index of the Studio's own can
+   *  put the player view over the rail — the rail simply has to go, the way
+   *  it does for theater mode on a play page. Transient — not persisted. */
+  studioTakeover: boolean;
   guestContentLevel: ContentLevel;
   guestBlurSensitive: boolean;
   setPlayZoomPercent: (percent: number) => void;
@@ -68,6 +81,7 @@ interface UiState {
   toggleTheaterMode: () => void;
   recordRecentPlayedWorld: (world: RecentPlayedWorldInput) => void;
   removeRecentPlayedWorld: (worldId: string) => void;
+  seedRecentPlayedWorlds: (worlds: RecentPlayedWorld[]) => void;
   dismissInvitePanel: () => void;
   dismissEventPromo: (eventId: string) => void;
   openSessionManager: () => void;
@@ -76,10 +90,13 @@ interface UiState {
   closePersonaManager: () => void;
   openSharePlaythrough: () => void;
   closeSharePlaythrough: () => void;
+  openPromptComposer: () => void;
+  closePromptComposer: () => void;
   openSceneGallery: () => void;
   closeSceneGallery: () => void;
   openTipModal: () => void;
   closeTipModal: () => void;
+  setStudioTakeover: (on: boolean) => void;
   setGuestContentLevel: (level: ContentLevel) => void;
   setGuestBlurSensitive: (blur: boolean) => void;
 }
@@ -124,13 +141,16 @@ export const useUiStore = create<UiState>()(
       mobileNavOpen: false,
       theaterMode: false,
       recentPlayedWorlds: [],
+      recentPlayedSeeded: false,
       invitePanelDismissed: false,
       dismissedEventPromos: [],
       sessionManagerOpen: false,
       personaManagerOpen: false,
       sharePlaythroughOpen: false,
+      promptComposerOpen: false,
       sceneGalleryOpen: false,
       tipModalOpen: false,
+      studioTakeover: false,
       guestContentLevel: "safe" satisfies ContentLevel as ContentLevel,
       guestBlurSensitive: true,
       setPlayZoomPercent: (percent) => set({ playZoomPercent: clampPlayZoom(percent) }),
@@ -156,10 +176,13 @@ export const useUiStore = create<UiState>()(
       closePersonaManager: () => set({ personaManagerOpen: false }),
       openSharePlaythrough: () => set({ sharePlaythroughOpen: true }),
       closeSharePlaythrough: () => set({ sharePlaythroughOpen: false }),
+      openPromptComposer: () => set({ promptComposerOpen: true }),
+      closePromptComposer: () => set({ promptComposerOpen: false }),
       openSceneGallery: () => set({ sceneGalleryOpen: true }),
       closeSceneGallery: () => set({ sceneGalleryOpen: false }),
       openTipModal: () => set({ tipModalOpen: true }),
       closeTipModal: () => set({ tipModalOpen: false }),
+      setStudioTakeover: (on) => set((s) => (s.studioTakeover === on ? s : { studioTakeover: on })),
       setGuestContentLevel: (level) => set({ guestContentLevel: level }),
       setGuestBlurSensitive: (blur) => set({ guestBlurSensitive: blur }),
       recordRecentPlayedWorld: (world) =>
@@ -168,18 +191,25 @@ export const useUiStore = create<UiState>()(
           const deduped = s.recentPlayedWorlds.filter((item) => item.id !== normalized.id);
           return {
             recentPlayedWorlds: [normalized, ...deduped].slice(0, MAX_RECENT_PLAYED_WORLDS),
+            recentPlayedSeeded: true,
           };
         }),
       removeRecentPlayedWorld: (worldId) =>
         set((s) => ({
           recentPlayedWorlds: s.recentPlayedWorlds.filter((item) => item.id !== worldId),
         })),
+      seedRecentPlayedWorlds: (worlds) =>
+        set((s) =>
+          s.recentPlayedSeeded || s.recentPlayedWorlds.length > 0
+            ? { recentPlayedSeeded: true }
+            : { recentPlayedWorlds: worlds.slice(0, MAX_RECENT_PLAYED_WORLDS), recentPlayedSeeded: true }
+        ),
     }),
     {
       name: "yumina-ui",
       // Don't persist the transient persona-manager overlay flag, or it would
       // auto-reopen on the next page load.
-      partialize: ({ personaManagerOpen: _omit, sharePlaythroughOpen: _omit2, tipModalOpen: _omit3, sceneGalleryOpen: _omit4, ...rest }) => rest,
+      partialize: ({ personaManagerOpen: _omit, sharePlaythroughOpen: _omit2, tipModalOpen: _omit3, studioTakeover: _omit4, sceneGalleryOpen: _omit5, promptComposerOpen: _omit6, ...rest }) => rest,
       // Migrate the legacy "r18" guestContentLevel value (persisted before the
       // sensitive-content rename) so old browser caches don't keep round-tripping it.
       // Also drop the retired sidebar-collapse keys so old persisted state can't

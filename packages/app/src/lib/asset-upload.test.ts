@@ -5,8 +5,69 @@ import {
   getUploadMetadata,
   isAnimatedImageFile,
   uploadAssetWithPresignedUrl,
+  registerAssetWithRetry,
 } from "./asset-upload";
 import { createUploadTestPng, PNG_SIGNATURE, pngChunk } from "./test-fixtures/upload-png";
+
+test("cover processing polls the same upload without transferring the source again", async () => {
+  let prepares = 0, transfers = 0, confirms = 0;
+  const result = await uploadAssetWithPresignedUrl({ file: new File(["movie"], "cover.mp4", {type:"video/mp4"}),
+    prepareUrl: "/prepare", registerUrl: "/confirm", normalizedByServer: true,
+    registerBody: ({key}) => ({key, target:"portrait"}),
+    fetchImpl: async (url, options) => {
+      if (url === "/prepare") { prepares++; return Response.json({data:{uploadUrl:"/storage",key:"same-key"}}); }
+      if (url === "/storage") { transfers++; return new Response(null, {status:200}); }
+      assert.deepEqual(JSON.parse(String(options?.body)), {key:"same-key",target:"portrait",processingMode:"async"});
+      return ++confirms === 1 ? Response.json({code:"COVER_PROCESSING"},{status:202}) : Response.json({data:{thumbnailUrl:"poster"}});
+    },
+  });
+  assert.deepEqual(result, {thumbnailUrl:"poster"});
+  assert.equal(prepares,1); assert.equal(transfers,1); assert.equal(confirms,2);
+});
+
+test("existing-asset cover polling propagates errors and cancels its wait without another request", async () => {
+  await assert.rejects(registerAssetWithRetry("/cover", {}, {fetchImpl: async () => Response.json({error:"Use a shorter clip"},{status:413})}), /shorter/);
+  const controller = new AbortController(); let calls=0;
+  const pending = registerAssetWithRetry("/cover", {}, {signal:controller.signal,fetchImpl:async()=>{calls++;return Response.json({code:"COVER_PROCESSING"},{status:202});}});
+  await new Promise(resolve => setImmediate(resolve)); controller.abort();
+  await assert.rejects(pending); assert.equal(calls,1);
+});
+
+test("an interrupted cover confirmation retries its key, while other asset mutations are not replayed", async () => {
+  for (const retryTransient of [true,false]) {
+    let calls=0;
+    const run=registerAssetWithRetry("/cover",{key:"stable"},{retryTransient,fetchImpl:async(_url,options)=>{
+      assert.deepEqual(JSON.parse(String(options?.body)),{key:"stable"});
+      if (++calls===1) throw new TypeError("connection closed after commit");
+      return Response.json({data:{thumbnailUrl:"poster"}});
+    }});
+    if (retryTransient) { assert.deepEqual(await run,{thumbnailUrl:"poster"}); assert.equal(calls,2); }
+    else { await assert.rejects(run); assert.equal(calls,1); }
+  }
+});
+
+test("busy slots wait abortably, while hard hourly limits fail without retries", async () => {
+  for (const code of ["UPLOAD_BUSY", "UPLOAD_LIMIT"]) {
+    const controller=new AbortController(); let calls=0;
+    const run=uploadAssetWithPresignedUrl({file:new File(["a"],"a.txt"),prepareUrl:"/prepare",registerUrl:"/register",registerBody:{},signal:controller.signal,
+      fetchImpl:async()=>{calls++;return Response.json({error:"Upload limit reached",code},{status:429,headers:{"Retry-After":"2"}});} });
+    if (code==="UPLOAD_BUSY") { await new Promise(resolve=>setImmediate(resolve)); controller.abort(); }
+    await assert.rejects(run);
+    assert.equal(calls,1);
+  }
+});
+
+test("failed transfers release only their own prepared reservation, keeping a retry's key separate", async () => {
+  const requests:{url:string;body:unknown}[]=[];
+  await assert.rejects(uploadAssetWithPresignedUrl({file:new File(["a"],"a.txt"),prepareUrl:"/prepare",registerUrl:"/register",releaseUrl:"/release",prepareBody:{requestId:"stable"},registerBody:{},
+    fetchImpl:async(url,options)=>{
+      requests.push({url:String(url),body:typeof options?.body==="string"?JSON.parse(options.body):null});
+      if (url==="/prepare") return Response.json({data:{uploadUrl:"/storage",key:"original-key"}});
+      if (url==="/storage") return new Response("expired",{status:403});
+      return Response.json({data:{released:true}});
+    } }));
+  assert.deepEqual(requests.at(-1),{url:"/release",body:{requestId:"stable",key:"original-key"}});
+});
 
 test("video inference recognizes MP4 and WebM without browser metadata", () => {
   assert.deepEqual(getUploadMetadata(new File(["video"], "scene.MP4")), { type: "video", contentType: "video/mp4" });
@@ -148,7 +209,7 @@ test("large, animated and unreadable PNGs complete the uploader with original by
   }
 });
 
-test("cover resizing runs only for proven still images", async () => {
+test("cover JPEG resizing preserves PNG transparency and animation originals", async () => {
   const originals = ["document", "createImageBitmap"].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
   let decodes = 0;
   Object.defineProperty(globalThis, "document", { configurable: true, value: {
@@ -163,8 +224,8 @@ test("cover resizing runs only for proven still images", async () => {
   } });
   try {
     const unknown = pngFile(true, Buffer.alloc(300 * 1024));
-    const still = pngFile();
-    for (const file of [still, pngFile(true), unknown]) {
+    const still = new File(["jpeg-original-content"], "photo.jpg", { type: "image/jpeg" });
+    for (const file of [still, pngFile(), pngFile(true), unknown]) {
       let uploaded: unknown;
       await uploadAssetWithPresignedUrl({
         file, resizeImageMaxDimension: 100,
@@ -415,4 +476,56 @@ test("isAnimatedImageFile leaves still images to the downscale", async () => {
   assert.equal(await isAnimatedImageFile(riffWebp("VP8X", 0x10)), false);
   assert.equal(await isAnimatedImageFile(pngFile()), false);
   assert.equal(await isAnimatedImageFile(new Blob(["\xff\xd8\xff"], { type: "image/jpeg" })), false);
+});
+
+
+test("busy image registration retries only confirmation with the same payload", async () => {
+  let transfers = 0, registrations = 0;
+  const bodies: unknown[] = [];
+  const result = await uploadAssetWithPresignedUrl({
+    file: new File(["image"], "hero.png", { type: "image/png" }), prepareUrl: "/prepare", registerUrl: "/register",
+    registerBody: { key: "pending", requestId: "stable" },
+    fetchImpl: async (input, init) => {
+      if (input === "/prepare") return Response.json({ data: { uploadUrl: "/storage", key: "pending" } });
+      if (input === "/storage") { transfers++; return new Response(null, { status: 200 }); }
+      registrations++; bodies.push(init?.body);
+      return registrations < 3
+        ? Response.json({ error: "Busy", code: "IMAGE_PROCESSOR_BUSY" }, { status: 503, headers: { "Retry-After": "0" } })
+        : Response.json({ data: { id: "finished" } });
+    },
+  });
+  assert.deepEqual(result, { id: "finished" });
+  assert.equal(transfers, 1);
+  assert.equal(registrations, 3);
+  assert(bodies.every(body => body === bodies[0]));
+});
+
+test("registration busy retry is bounded and other server failures are never replayed", async () => {
+  for (const busy of [true, false]) {
+    let registrations = 0;
+    await assert.rejects(uploadAssetWithPresignedUrl({
+      file: new File(["image"], "hero.png", { type: "image/png" }), prepareUrl: "/prepare", registerUrl: "/register", registerBody: {},
+      fetchImpl: async input => {
+        if (input === "/prepare") return Response.json({ data: { uploadUrl: "/storage", key: "pending" } });
+        if (input === "/storage") return new Response(null, { status: 200 });
+        registrations++;
+        return Response.json({ error: "Unavailable", code: busy ? "IMAGE_PROCESSOR_BUSY" : "OTHER_FAILURE" }, { status: 503, headers: { "Retry-After": "0" } });
+      },
+    }), (error: unknown) => error instanceof AssetUploadError && error.stage === "register" && error.status === 503);
+    assert.equal(registrations, busy ? 11 : 1);
+  }
+});
+
+test("registration timeout cancels a busy retry wait without re-uploading", async () => {
+  let registrations = 0;
+  await assert.rejects(uploadAssetWithPresignedUrl({
+    file: new File(["a"], "a.png", { type: "image/png" }), prepareUrl: "/prepare", registerUrl: "/register", registerBody: {}, registerTimeoutMs: 10,
+    fetchImpl: async input => {
+      if (input === "/prepare") return Response.json({ data: { uploadUrl: "/storage", key: "pending" } });
+      if (input === "/storage") return new Response(null, { status: 200 });
+      registrations++;
+      return Response.json({ error: "Busy", code: "IMAGE_PROCESSOR_BUSY" }, { status: 503, headers: { "Retry-After": "3" } });
+    },
+  }), (error: unknown) => error instanceof AssetUploadError && error.stage === "register");
+  assert.equal(registrations, 1);
 });

@@ -84,15 +84,23 @@ export function TagManagerDialog({ open, onClose }: TagManagerDialogProps) {
   };
 
   /** Re-create a tag exactly as it was, including its colour and entry assignments. */
+  // Restoring a tag touches the tag list, its colour and every entry that
+  // carried it — batched so it lands (and undoes) as one step, not N+2.
   const restoreTag = (tag: string, color: string | null, entryIds: string[]) => {
-    addCustomTag(tag);
-    if (color) setCustomTagColor(tag, color);
-    const entries = useEditorStore.getState().worldDraft.entries;
-    for (const id of entryIds) {
-      const entry = entries.find((e) => e.id === id);
-      if (entry && !entry.tags?.includes(tag)) {
-        updateEntry(id, { tags: [...(entry.tags ?? []), tag] });
+    const store = useEditorStore.getState();
+    store.beginBatch();
+    try {
+      addCustomTag(tag);
+      if (color) setCustomTagColor(tag, color);
+      const entries = useEditorStore.getState().worldDraft.entries;
+      for (const id of entryIds) {
+        const entry = entries.find((e) => e.id === id);
+        if (entry && !entry.tags?.includes(tag)) {
+          updateEntry(id, { tags: [...(entry.tags ?? []), tag] });
+        }
       }
+    } finally {
+      store.commitBatch();
     }
   };
 
@@ -117,11 +125,23 @@ export function TagManagerDialog({ open, onClose }: TagManagerDialogProps) {
       tag,
       color: customTagColors?.[tag] ?? null,
     }));
-    for (const { tag } of removed) removeCustomTag(tag);
+    const store = useEditorStore.getState();
+    store.beginBatch();
+    try {
+      for (const { tag } of removed) removeCustomTag(tag);
+    } finally {
+      store.commitBatch();
+    }
     feedback.undo(
       t("entries.tagManager.cleanedUp", { count: removed.length }),
       () => {
-        for (const { tag, color } of removed) restoreTag(tag, color, []);
+        const s = useEditorStore.getState();
+        s.beginBatch();
+        try {
+          for (const { tag, color } of removed) restoreTag(tag, color, []);
+        } finally {
+          s.commitBatch();
+        }
       }
     );
   };

@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Check,
-  Copy,
   Plus,
   Trash2,
   Music,
@@ -12,6 +11,7 @@ import {
   Search,
   Settings2,
   ArrowLeft,
+  Copy,
   Sparkles,
 } from "lucide-react";
 import { feedback } from "@/lib/feedback";
@@ -23,6 +23,7 @@ import { useEditorStore } from "@/stores/editor";
 import { AssetPicker } from "../asset-picker";
 import { StyledCheckbox } from "../components/styled-checkbox";
 import { BgmConfigPanel } from "../components/bgm-config-panel";
+import { DebouncedInput } from "../components/debounced-field";
 import { NumberInput } from "@/components/ui/number-input";
 import type { AudioTrack } from "@yumina/engine";
 import { TwoTapDeleteButton } from "@/components/ui/two-tap-delete-button";
@@ -57,6 +58,8 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
     const merged = Object.fromEntries(Object.entries({ ...(musicRules ?? {}), ...patch }).filter(([, v]) => v !== undefined));
     updateContinuity({ music: Object.keys(merged).length > 0 ? merged : undefined });
   };
+  const pendingFocus = useEditorStore(s => s.pendingFocus);
+  const clearPendingFocus = useEditorStore(s => s.clearPendingFocus);
 
   const audioTracks = worldDraft.audioTracks ?? [];
 
@@ -68,6 +71,15 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
   const [previewTime, setPreviewTime] = useState(0);
   const [previewDuration, setPreviewDuration] = useState(0);
   const [showPicker, setShowPicker] = useState(false);
+  useEffect(() => {
+    if (pendingFocus?.kind !== "audio") return;
+    if (audioTracks.some((track) => track.id === pendingFocus.id)) {
+      setSelectedId(pendingFocus.id);
+      setView("track");
+      setSearchQuery("");
+    }
+    clearPendingFocus();
+  }, [pendingFocus, audioTracks, clearPendingFocus]);
   const { copied: trackIdCopied, copy: copyTrackId } = useCopyFeedback();
 
   // Stop the preview audio when leaving the section, otherwise it keeps
@@ -115,11 +127,19 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
     }
     if (previewRef.current) previewRef.current.pause();
 
+    // Any failure (asset can't resolve, browser refuses to play) stops the
+    // preview and says so — it used to fail silently and leave the row stuck
+    // on "playing 0:00 / --:--".
+    const failPreview = () => {
+      stopPreview();
+      feedback.error(t("audio.previewFailed", "Couldn't play this track"));
+    };
     let resolvedUrl = url;
     if (url.startsWith("@asset:")) {
       try {
         resolvedUrl = await resolveAssetUrl(url);
       } catch {
+        failPreview();
         return;
       }
     }
@@ -139,8 +159,15 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
     audio.addEventListener("ended", () => {
       if (previewRef.current === audio) stopPreview();
     });
-    audio.play().catch(() => {});
+    audio.addEventListener("error", () => {
+      if (previewRef.current === audio) failPreview();
+    });
     previewRef.current = audio;
+    audio.play().catch((err: unknown) => {
+      // AbortError = a newer preview/stop interrupted this one; not a failure.
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      if (previewRef.current === audio) failPreview();
+    });
     setPreviewing(trackId);
     setPreviewTime(0);
     setPreviewDuration(0);
@@ -221,6 +248,7 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
               {compact && (
                 <button
                   onClick={handleAddTrack}
+                  data-tour="audio-add"
                   className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -230,7 +258,7 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
           </div>
 
           {/* Track cards */}
-          <div className="flex flex-col gap-2 p-5 overflow-y-auto">
+          <div className="flex flex-col gap-2 p-5 overflow-y-auto" data-tour="audio-list">
             {/* World-level BGM config entry — pinned at top of list */}
             <button
               onClick={showBgmConfig}
@@ -366,7 +394,7 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
           !selected && !showBgmPanel && "hidden @[640px]:flex"
         )}>
           {showBgmPanel ? (
-            <BgmConfigPanel />
+            <BgmConfigPanel onBack={() => selectTrack(null)} />
           ) : selected ? (
             <div className="p-8 lg:p-12">
               {/* Back button — narrow mode only */}
@@ -382,10 +410,11 @@ export function AudioSection({ compact, mobileListMode }: { compact?: boolean; m
                 <div className="flex items-center gap-4">
                   <div className="flex-1 space-y-1.5">
                     <label className="text-[13px] font-bold text-foreground">{t("audio.trackTitle")}</label>
-                    <input
+                    <DebouncedInput
                       type="text"
                       value={selected.name}
-                      onChange={(e) => updateAudioTrack(selected.id, { name: e.target.value })}
+                      onCommit={(name) => updateAudioTrack(selected.id, { name })}
+                      syncKey={selected.id}
                       placeholder={t("audio.trackTitlePlaceholder")}
                       className={cn(inputClass, "font-bold")}
                     />

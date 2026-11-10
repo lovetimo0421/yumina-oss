@@ -1,3 +1,4 @@
+import { NARRATIVE_EVIDENCE_RULES } from "./narrative-evidence.js";
 import type { ChatMessage } from "./llm/types.js";
 import { buildSummaryLanguageInstruction, type SessionSummaryLanguage } from "./summary-language.js";
 import { StorySummaryTruncatedError } from "./summary-episode-recovery.js";
@@ -39,6 +40,8 @@ export async function recoverStoryMerge(args: {
 
 export function buildEpisodeSummaryPrompt(args: {
   worldName?: string | null;
+  /** The card author's line on what must survive compression. */
+  focus?: string | null;
   transcript: string;
   language: SessionSummaryLanguage;
   recovery?: boolean;
@@ -48,6 +51,7 @@ export function buildEpisodeSummaryPrompt(args: {
       role: "system",
       content: [
         "You summarize one contiguous chunk of an interactive-fiction roleplay transcript.",
+        NARRATIVE_EVIDENCE_RULES,
         "Your summary will be used later to compact a long-running play session.",
         "Preserve concrete continuity facts with names, places, causes, outcomes, and current status. Do not invent details. Return only valid JSON.",
         "Keep the JSON response concise, including all keys and values. Token, sentence, and list sizes below are writing targets, not strict quotas. Use more space when needed to preserve essential continuity and finish the complete JSON object.",
@@ -63,6 +67,7 @@ export function buildEpisodeSummaryPrompt(args: {
       role: "user",
       content: [
         `World: ${args.worldName || "Unknown"}`,
+        ...(args.focus ? [`Author's note on what must be kept in every summary: ${args.focus}`] : []),
         "Transcript chunk:",
         args.transcript,
         "Return JSON with this exact shape:",

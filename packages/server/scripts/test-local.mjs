@@ -43,6 +43,7 @@ const testArgs = selected.length ? files.sort().map((file) => relative(serverRoo
 // TEST_CONCURRENCY.
 const concurrency = Number(process.env.TEST_CONCURRENCY) || Math.max(2, Math.min(8, availableParallelism() - 2));
 const child = spawn(process.execPath, [
+  "--experimental-test-module-mocks",
   "--import", "tsx", "--import", "./scripts/test-local-environment.mjs",
   "--test", "--test-timeout=120000", `--test-concurrency=${concurrency}`, "--test-reporter=tap", ...testArgs,
 ], { cwd: serverRoot, env: childEnv, stdio: "inherit" });

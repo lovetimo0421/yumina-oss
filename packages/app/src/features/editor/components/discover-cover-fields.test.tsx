@@ -31,7 +31,7 @@ for (const shape of ["portrait", "landscape"] as const) {
         "@/stores/editor": { useEditorStore: store },
         "react-i18next": { useTranslation: () => ({ t: (key: string) => key }) },
         "@/lib/auth-client": { useSession: () => ({ data: { user: { name: "Lovetimo" } } }) },
-        "@/lib/asset-upload": { uploadAssetWithPresignedUrl: async () => uploaded(), getAssetUploadErrorMessage: String },
+        "@/lib/asset-upload": { uploadAssetWithPresignedUrl: async () => uploaded(), registerAssetWithRetry: async () => uploaded(), getAssetUploadErrorMessage: String },
         "@/components/world-cover-previews": { WorldCoverPreview: () => null },
         "../asset-picker": { AssetPicker: ({ onSelect }: { onSelect: (ref: string) => void }) => createElement("button", { onClick: () => onSelect("@asset:chosen") }, "Choose asset") },
         "./cover-crop-dialog-preview": { CoverCropDialog: ({ onSave, error }: { onSave: (value: unknown) => void; error?: string }) => createElement("div", {}, error, createElement("button", { onClick: () => onSave({ activeMode: shape === "portrait" ? "cover" : "gallery", [shape === "portrait" ? "coverCrop" : "landscapeCoverCrop"]: { x: 0, y: 0, zoom: 1, fit: "cover" } }) }, "Save crop")) },

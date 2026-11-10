@@ -30,6 +30,7 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
     playerPrompts: null as null | { boundPromptName: string | null; prompts: unknown[] },
     getModels: async () => ({ models: [] }), selectedModel: "google/gemini-2.5-flash", preferredProvider: "official", mixMode: false, modelPool: [],
     isStreaming: false, pendingChoices: [], readOnly: false, language: "en",
+    realtimeVideo: { onEvent: () => () => {}, openWindow: () => {} },
     composerSendKey: "enter", sendFailureNonce: 0, error: null as string | null,
     sendMessage: (content: string, images: unknown[] = []) => { sent.push(content); sentImages.push(images); },
     stopGeneration: noop, continueLastMessage: noop, restartChat: noop,
@@ -41,7 +42,7 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
   };
   const require = createRequire(import.meta.url);
   const mocks: Record<string, unknown> = {
-    "../sandbox-context": { useYumina: () => api, COMPOSER_DRAFT_EVENT: "synthetic-composer-draft" },
+    "../sandbox-context": { useYumina: () => api, COMPOSER_DRAFT_EVENT: "synthetic-composer-draft", currentVideoState: () => null },
     "./model-picker-modal": {
       ModelPickerModal: ({ open }: { open: boolean }) => open ? createElement("div", { "data-legacy-picker": true }) : null,
       ModelTrigger: ({ onClick }: { onClick: () => void }) => createElement("button", { onClick, "data-model-trigger": true }, "Model"),
@@ -61,12 +62,14 @@ test("the play composer honors keyboard settings on touch-capable desktops", asy
     // Read-aloud is a sibling of the send key, not part of it: mocked so this
     // test stays about what Enter does.
     "./voice-panel": { VoicePanelButton: empty },
+    // The contrast guard measures painted pixels; JSDOM has no layout.
+    "./composer-guard": { useComposerGuard: noop },
     // Composer popovers portal to <body> in the app; inline here is enough.
     "./composer-popover": {
       ComposerPopover: ({ children, popoverRef }: { children: ReactNode; popoverRef: Ref<HTMLDivElement> }) => createElement("div", { ref: popoverRef }, children),
     },
     "./voice-input": { MicButton: empty, VoiceRecordingOverlay: empty, useHoldToTalkKey: noop, useVoiceInput: () => ({}) },
-    // Per-turn pictures (experimental, opt-in): off here, so the menu has no auto switch.
+    // Per-turn pictures: off here, so the menu has no auto switch.
     "./turn-images": { useTurnImageSettings: () => ({ settings: null, setAuto: async () => false, refresh: noop }) },
     "../protocol": { postToParentWindow: noop, wrapMessage: (value: unknown) => value },
     "../../src/lib/chat-image-input": require("./chat-image-input.ts"),

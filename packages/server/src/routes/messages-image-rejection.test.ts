@@ -23,13 +23,13 @@ test("history-image rejection removes only the new turn, releases admission, and
     { id: "deepseek/deepseek-v3.2", context_length: 163840, architecture: { input_modalities: ["text"] } },
     // Simulate a provider capability downgrade after the account selected it.
     { id: "anthropic/claude-sonnet-4.6", context_length: 200000, architecture: { input_modalities: ["text"] } },
-    { id: "google/gemini-2.5-flash", context_length: 1048576, architecture: { input_modalities: ["text", "image"] } },
+    { id: "google/gemini-3.5-flash-lite", context_length: 1048576, architecture: { input_modalities: ["text", "image"] } },
   ] }));
   const inference = t.mock.method(OpenRouterProvider.prototype, "generateStream", async function* () {
     yield { type: "text" as const, content: "I can still see the original image." };
     yield { type: "done" as const, content: "", stopReason: "end_turn", usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 } };
   });
-  await db.insert(modelPrices).values(["deepseek/deepseek-v3.2", "anthropic/claude-sonnet-4.6", "google/gemini-2.5-flash"].map(modelId => ({ modelId, inputPricePerM: 1, outputPricePerM: 1 })));
+  await db.insert(modelPrices).values(["deepseek/deepseek-v3.2", "anthropic/claude-sonnet-4.6", "google/gemini-3.5-flash-lite"].map(modelId => ({ modelId, inputPricePerM: 1, outputPricePerM: 1 })));
   const id = crypto.randomUUID();
   await db.insert(user).values({ id, name: "Image route test", email: `${id}@test.local`, preferences: { preferredProvider: "official" } });
   await db.insert(creditWallets).values({ userId: id, plan: "internal", balance: 100, addonBalance: 0, grokTrialRemaining: 2,
@@ -69,7 +69,7 @@ test("history-image rejection removes only the new turn, releases admission, and
   }
   assert.equal((await db.select().from(usageLogs).where(eq(usageLogs.userId, id))).length, 0);
   assert.equal((await db.select().from(creditTransactions).where(eq(creditTransactions.walletId, (await wallet()).id))).length, 0);
-  const response = await send("google/gemini-2.5-flash");
+  const response = await send("google/gemini-3.5-flash-lite");
   assert.equal(response.status, 200);
   const stream = await response.text();
   assert.match(stream, /event: done/);

@@ -1,3 +1,5 @@
+import type { billBackgroundUsage } from "./background-billing.js";
+
 export class StorySummaryTruncatedError extends Error {
   constructor() {
     super("Summary model reached its output limit before completing the story summary; no summary was saved");
@@ -9,6 +11,8 @@ export interface EpisodeCheckpoint {
   text: string;
   refusalFallbackUsed: boolean;
   split?: true;
+  /** Accepted usage travels with cached output until an atomic summary save bills it. */
+  usage?: Parameters<typeof billBackgroundUsage>[0];
 }
 
 /** Split a truncated episode once. Checkpoints reuse successful siblings and

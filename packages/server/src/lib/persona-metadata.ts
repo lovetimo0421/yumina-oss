@@ -97,3 +97,31 @@ export function applyPersonaMetadataToState(
   const metadata = state.metadata ??= {};
   applyPersonaMetadata({ setMetadata: (key, value) => { metadata[key] = value; } }, persona, account);
 }
+
+/** Identity is prompt configuration, not evidence of events in this chat.
+ * Greeting/rewind snapshots can contain a formerly selected persona. Remove
+ * that block before summarization (and before truncation), without rewriting
+ * stored snapshots or substituting live state into a lagged memory window. */
+export function omitPersonaMetadata(state: unknown): unknown {
+  if (!state || typeof state !== "object" || Array.isArray(state)) return state;
+  const record = state as Record<string, unknown>;
+  if (!record.metadata || typeof record.metadata !== "object" || Array.isArray(record.metadata)) return state;
+  const metadata = { ...record.metadata } as Record<string, unknown>;
+  for (const key of [
+    "personaActive", "personaName", "personaImage", "personaAppearance",
+    "personaPersonality", "personaBackstory", "personaEntries",
+  ]) delete metadata[key];
+  return { ...record, metadata };
+}
+
+/** Summary inputs additionally discard old transcript mirrors; edited raw
+ * messages are authoritative. Stored snapshots and creator variables survive. */
+export function omitSummaryMetadata(state: unknown): unknown {
+  const clean = omitPersonaMetadata(state);
+  if (!clean || typeof clean !== "object" || Array.isArray(clean)) return clean;
+  const record = clean as Record<string, unknown>;
+  if (!record.metadata || typeof record.metadata !== "object" || Array.isArray(record.metadata)) return clean;
+  const metadata = { ...record.metadata } as Record<string, unknown>;
+  for (const key of ["lastMessage", "lastCharMessage", "lastUserMessage", "lastUserMessageAt", "model"]) delete metadata[key];
+  return { ...record, metadata };
+}

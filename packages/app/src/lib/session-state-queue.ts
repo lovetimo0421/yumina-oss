@@ -21,7 +21,7 @@ export interface SessionStatePatch {
 export type SessionStatePatchSender = (patch: SessionStatePatch) => Promise<unknown>;
 
 let chain: Promise<void> = Promise.resolve();
-let scheduled = false;
+let scheduled: object | null = null;
 
 /**
  * Queue a flush. `readPatch` runs at flush time, not call time, so a burst of
@@ -33,14 +33,17 @@ export function queueSessionStatePatch(
   send: SessionStatePatchSender,
 ): void {
   if (scheduled) return; // the pending flush will pick this write up too
-  scheduled = true;
+  const pending = {};
+  scheduled = pending;
   // Never let a link reject: whenSessionStateSettled() awaits this chain before
   // a send, and a poisoned chain would leave the turn stuck at "streaming".
   chain = chain.then(
     () =>
       new Promise<void>((resolve) => {
         queueMicrotask(() => {
-          scheduled = false;
+          // An earlier batch must not clear a later batch queued across an
+          // operation boundary while it was waiting for the chain to advance.
+          if (scheduled === pending) scheduled = null;
           let patch: SessionStatePatch | null = null;
           try {
             patch = readPatch();
@@ -76,6 +79,10 @@ export function queueSessionStateOperation<T>(
   run: (signal: AbortSignal) => Promise<T>,
   timeoutMs = 15_000,
 ): Promise<T> {
+  // Writes after this operation need their own PATCH behind it, even if an
+  // earlier PATCH has not flushed yet. Readers still run at flush time so
+  // confirmed state from earlier operations is never frozen out of the body.
+  scheduled = null;
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
@@ -131,5 +138,5 @@ export async function whenSessionStateSettled(timeoutMs = 4000): Promise<void> {
 /** Test seam — drops any queued work and resets the chain. */
 export function __resetSessionStateQueue(): void {
   chain = Promise.resolve();
-  scheduled = false;
+  scheduled = null;
 }

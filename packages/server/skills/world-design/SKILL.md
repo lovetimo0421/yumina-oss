@@ -431,6 +431,10 @@ Real worlds combine patterns:
 
 When composing: create variables first, then behaviors, then gated entries last. That order lets you reference IDs that already exist.
 
+### Package each mechanic as a MODULE
+
+When a composed system has its own on/off state — a country the player can enter, a route, a chapter, a mini-game phase — put its entries + variables + behaviors + openings into ONE module (write_worldbook, then `{ worldbookId }` on every member; create the module FIRST so members can reference it in the same batch). One activation rule (opening pick or a condition like `location == "kingdom"`) then gates the whole mechanic: entries leave the prompt, variables leave `<game-state>`, behaviors stop firing. This beats copying the same IF condition onto every piece, keeps big cards within budget, and reads as one clean container node on the Studio Blueprint canvas — the creator literally watches you assemble the mechanic as you write it.
+
 ## Pre-Flight Checklist (before writing a system)
 
 Before calling write tools, answer:

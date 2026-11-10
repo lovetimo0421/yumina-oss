@@ -1,4 +1,11 @@
 {
+  "motion": {
+    "uploadHint": "图片限 20 MB；动态封面限 64 MB、60 秒，支持 MP4、WebM。",
+    "processing": "正在优化封面…",
+    "uploading": "正在上传封面…",
+    "play": "播放",
+    "pause": "暂停"
+  },
   "voiceField": {
     "characterLabel": "音色",
     "characterHint": "玩家开语音朗读时，这个角色的台词用这个声音念。不设的话由 AI 按角色自动挑一个。",
@@ -660,9 +667,9 @@
         "sharedHint": "卡本身的词条和变量进每一个情境。每个副本里都有的那个血量是同一个变量，不是四个。",
         "trap": "{{source}} 传不到这里（经 {{via}}）",
         "connections": "读取 {{reads}} 项 · 被 {{gives}} 个情境读取",
-        "reviewConnections": "{{count}} 处间接引用待检查",
-        "memoryCardAlone": "记得整段对话",
-        "memoryCardHint": "没有情境接管时，跑的就是这个 AI；说过的话它全都记得。",
+        "reviewConnections": "{{count}} 条连线传不到这里",
+        "memoryCardAlone": "记得主对话里的每一句",
+        "memoryCardHint": "没有情境接管时，跑的就是这个 AI。它读这张卡的主对话：每个情境里说过的话都在里面，读多远看「历史」设置。界面叫的 AI（比如手机里的每个联系人）各有自己的对话，它看不到。",
         "continuityOn": "智能追踪：开",
         "continuityOff": "智能追踪：关"
       }
@@ -1302,8 +1309,8 @@
       "alwaysSentHint": "勾选了\"始终发送\"的词条，每回合都进 prompt——这是每回合稳定的成本基线。",
       "keywordTriggered": "按关键词触发",
       "keywordTriggeredHint": "关键词命中近期消息时才触发，受 lorebook token 预算上限截断。每回合 0 到此数之间浮动。",
-      "dormant": "休眠",
-      "dormantHint": "启用了但永远不会触发：既没勾选\"始终发送\"、也没设关键词，匹配器会直接跳过。通常是设置遗漏——给它加关键词或勾选始终发送。",
+      "dormant": "待命",
+      "dormantHint": "没勾每回合都发，也没有关键词或条件，自己不会发。待命设定就是这样，等行为用「启用词条」打开它；不是故意的话，给它加关键词或条件。",
       "toggleHint": "点击展开或折叠分类细分",
       "healthHealthy": "token 量正常。",
       "healthCaution": "有点多了，可以检查一下：是不是同一个设定在好几条里都写过？是不是反复在说「不要这样、不要那样」（这反而会让 AI 老想着这件事）？或者写了一些引擎本来就会处理的东西？挑一处删一删就好。",
@@ -1873,7 +1880,7 @@
     "title": "概览",
     "description": "世界公共页面的图库、公告和其他详细信息",
     "importJson": "导入文件",
-    "importJsonDesc": "导入之前导出的卡片（`.json`），或 SillyTavern 角色卡（`.png` / `.json`）。会替换这张卡现在的全部内容。",
+    "importJsonDesc": "导入之前导出的卡片（`.json`），或角色卡（`.png` / `.json`）。会替换这张卡现在的全部内容。",
     "chooseFile": "选择文件",
     "confirmReplaceWorld": "这会用导入的 JSON 替换当前世界的内容（词条、变量、规则、组件等）。世界 ID、封面相册、标签、发布状态会保留。导入后请点击保存以应用更新。是否继续？",
     "importReplacedSaveReminder": "点击保存以更新已发布的世界",
@@ -2604,16 +2611,16 @@
         "budget": "下一步预算",
         "actual": "本轮实际费用",
         "settled": "本轮已结算",
-        "amount": "{{amount}} 蘑菇",
+        "amount": "{{amount}} 蘑菇币",
         "estimateNote": "下一步尚未开始，预估不会扣费。",
-        "settleNote": "本轮尚未扣费；继续后扣除 {{amount}} 蘑菇。",
+        "settleNote": "本轮尚未扣费；继续后扣除 {{amount}} 蘑菇币。",
         "settledNote": "本轮已结算，继续时复用已保存的结果。",
         "topUp": "补充额度",
         "resume": "继续",
         "settleResume": "结算并继续",
         "resuming": "正在继续…",
         "refresh": "刷新",
-        "shortfall": "还差 {{amount}} 蘑菇",
+        "shortfall": "还差 {{amount}} 蘑菇币",
         "errorStale": "内容已修改，请发起新请求，避免覆盖你的改动。",
         "errorActive": "该任务正在运行，请等待状态更新。",
         "errorFailed": "未能恢复任务，已保存的进度仍在，请重试。",
@@ -2657,7 +2664,7 @@
         "billingNote": "每个选中项目生成一张图，按实际生图用量结算，不逐张调用助手。",
         "confirm": "生成 {{count}} 张图片",
         "background": "正在后台生成，可以离开后再回来查看。",
-        "pausedNote": "Mushies 不足，任务已暂停。完成的图片已保存。",
+        "pausedNote": "蘑菇币不足，任务已暂停。完成的图片已保存。",
         "resume": "继续生成剩余图片",
         "retryBinding": "重试图片绑定",
         "retry": "重试 {{count}} 个失败项目",
@@ -3211,7 +3218,15 @@
         "paper": "素纸",
         "night": "夜航",
         "terminal": "终端",
-        "blossom": "绯樱"
+        "blossom": "绯樱",
+        "velvet": "绯页",
+        "harbor": "港湾",
+        "linen": "亚麻",
+        "coolant": "冷屏",
+        "moss": "苔夜",
+        "tape": "磁带",
+        "gilded": "鎏金",
+        "tavern": "酒馆"
       },
       "fontName": {
         "sans": "黑体",
@@ -3238,13 +3253,29 @@
         "portrait-scene": "立绘对话",
         "adventure-hud": "冒险状态",
         "stat-panel": "养成面板",
-        "character-sheet": "角色卡"
+        "character-sheet": "角色卡",
+        "chapter-portrait": "章节立绘",
+        "masthead": "报头",
+        "margin-notes": "页边札记",
+        "status-strip": "底栏终端",
+        "night-card": "夜读卡片",
+        "cassette": "磁带",
+        "art-split": "半屏立绘",
+        "guild-card": "冒险者登记"
       },
       "presetHint": {
         "portrait-scene": "立绘 + 两条状态 + 详情页。讲一个角色的卡用这套。",
         "adventure-hud": "当前位置 + 天数时段 + 两条状态。文字冒险、探索类用这套。",
         "stat-panel": "四条状态 + 金币 + 天数。养成、经营、生存类用这套。",
-        "character-sheet": "玩家自己的名字、身份、位置和剧情阶段。角色扮演用这套。"
+        "character-sheet": "玩家自己的名字、身份、位置和剧情阶段。角色扮演用这套。",
+        "chapter-portrait": "顶部一条章节横幅，右边一栏是立绘、心情和三条状态。",
+        "masthead": "卡名、四条数值和登场人物排在顶部，对话在下面。",
+        "margin-notes": "浅色背景，右边三张便签，分别放标题和地点、四条状态、认识的人。",
+        "status-strip": "输入框下面一条数据栏，显示时间、金币、地点、体力精力和在场的人。",
+        "night-card": "右上角显示第几天，右下角是一张人物卡，放心情、地点、四条状态和认识的人。",
+        "cassette": "输入框下面放一盘磁带，标签上写卡名，旁边是当前章节、地点和心情。",
+        "art-split": "右半边是立绘，卡名和两条状态显示在立绘底部。",
+        "guild-card": "左边一张羊皮纸登记卡，写着玩家的名字、职业、等级、金币和体力精力。"
       },
       "vars": {
         "portrait": "立绘",
@@ -3262,13 +3293,17 @@
         "playerRole": "玩家身份",
         "gender": "性别",
         "age": "玩家年龄",
-        "phase": "剧情阶段"
+        "phase": "剧情阶段",
+        "mood": "心情",
+        "rank": "冒险者等级"
       },
       "varDefaults": {
         "timeOfDay": "清晨",
         "location": "未知之地",
         "playerRole": "旅人",
-        "phase": "序章"
+        "phase": "序章",
+        "mood": "平静",
+        "rank": "铜牌"
       },
       "s": {
         "common": {
@@ -3287,10 +3322,11 @@
           "actionWaitSays": "我没有接话，等对方先开口。",
           "toolRewind": "撤回一轮",
           "toolRegenerate": "重新生成",
-          "toolCopy": "复制"
+          "toolCopy": "复制",
+          "castLabel": "登场"
         },
         "portrait-scene": {
-          "portraitEmpty": "这里放立绘 — 在「卡片信息」里传一张，或用「立绘」变量换人",
+          "portraitEmpty": "放一张立绘\n选中这块，在右边选图",
           "meterPrimary": "好感度",
           "meterSecondary": "体力"
         },
@@ -3315,6 +3351,65 @@
           "phaseLabel": "剧情阶段",
           "meterPrimary": "好感度",
           "meterSecondary": "体力"
+        },
+        "chapter-portrait": {
+          "portraitEmpty": "放一张立绘\n选中这块，在右边选图",
+          "ribbonFormat": "✦ {phase} ✦",
+          "meterPrimary": "好感度",
+          "meterSecondary": "体力",
+          "meterThird": "精力"
+        },
+        "masthead": {
+          "whenFormat": "第 {day} 天 · {timeOfDay}",
+          "goldFormat": "金币 {gold}",
+          "meterPrimary": "体力",
+          "meterSecondary": "精力",
+          "meterThird": "好感度",
+          "meterFourth": "进度"
+        },
+        "margin-notes": {
+          "whenFormat": "第 {day} 天 · {timeOfDay}",
+          "meterPrimary": "好感度",
+          "meterSecondary": "体力",
+          "meterThird": "精力",
+          "meterFourth": "进度"
+        },
+        "status-strip": {
+          "whenLabel": "时间",
+          "whenFormat": "D{day} · {timeOfDay}",
+          "goldLabel": "金币",
+          "placeLabel": "位置",
+          "meterPrimary": "体力",
+          "meterSecondary": "精力"
+        },
+        "night-card": {
+          "clockFormat": "第 {day} 天",
+          "whenFormat": "第 {day} 天 · {timeOfDay}",
+          "meterPrimary": "好感度",
+          "meterSecondary": "体力",
+          "meterThird": "精力",
+          "meterFourth": "进度"
+        },
+        "cassette": {
+          "sideFormat": "A 面 · 第 {day} 天",
+          "whereFormat": "{timeOfDay} · {location}",
+          "noteTitle": "心情",
+          "meterPrimary": "好感度"
+        },
+        "art-split": {
+          "portraitEmpty": "放一张立绘\n选中这块，在右边选图",
+          "meterPrimary": "好感度",
+          "meterSecondary": "体力"
+        },
+        "guild-card": {
+          "guildTitle": "冒险者",
+          "guildSubFormat": "登记于 {location}",
+          "nameLabel": "姓名",
+          "roleLabel": "职业",
+          "rankLabel": "等级",
+          "goldLabel": "金币",
+          "meterPrimary": "体力",
+          "meterSecondary": "精力"
         }
       }
     },
@@ -3446,7 +3541,9 @@
       "randomMax": "最大",
       "randomFromPlaceholder": "一行一个，按下时随机抽一个",
       "randomFromHint": "按下时从上面随机抽一行，写进这个变量。结果由卡决定，不是 AI。",
-      "randomNumberHint": "按下时在这个范围里随机取一个整数，写进这个变量。"
+      "randomNumberHint": "按下时在这个范围里随机取一个整数，写进这个变量。",
+      "pickStartImage": "选一张图放进来",
+      "changeStartImage": "换一张图"
     },
     "style": {
       "none": "无",
@@ -3765,7 +3862,7 @@
       "newPage": "新建",
       "title": "新建 · 选一个模板",
       "tutorTip": "这里是 18 个做好的模板 ✧ 上面是开局页（玩家进故事之前），下面是玩的时候从菜单打开的页面。点一个就加进卡里，每个都能直接玩。现在不想选也没关系，右上角关掉就好，以后随时点「新建」再来。",
-      "sub": "22 个做好的模板（4 个整个界面、18 个单页），都已经接好变量、按钮和给 AI 的说明，加上就能玩。颜色、大小、位置照样可以拖、可以改。",
+      "sub": "30 个做好的模板（12 个整个界面、18 个单页），都已经接好变量、按钮和给 AI 的说明，加上就能玩。颜色、大小、位置照样可以拖、可以改。",
       "groupOpening": "开局 · 玩家进故事之前",
       "blank": "空白页",
       "blankDesc": "什么都没有，自己摆。",
@@ -4559,8 +4656,8 @@
     }
   },
   "unsavedDialog": {
-    "title": "未保存的更改",
-    "description": "如果离开而不保存，您的更改将丢失。",
+    "title": "还没保存",
+    "description": "这张卡还没存过。现在离开，刚才写的就没了。",
     "stay": "留下",
     "leave": "不保存离开",
     "saveAndLeave": "保存并离开",
@@ -4568,7 +4665,11 @@
     "switchDescription": "切换编辑界面前，先把刚才的改动存上。不保存的话，这些改动会丢失。",
     "switchCancel": "取消",
     "switchWithoutSaving": "不保存直接切换",
-    "saveAndSwitch": "保存并切换"
+    "saveAndSwitch": "保存并切换",
+    "saving": "正在保存…",
+    "failedTitle": "没存上",
+    "failedDescription": "刚才的改动没能存到服务器。可以再试一次，或者不保存离开。",
+    "retry": "再试一次"
   },
   "save": {
     "staleWorldToast": "保存失败，请稍后再试",
@@ -5037,10 +5138,14 @@
     "blurb": "玩家从聊天旁边的停靠栏打开的小 App：消息、角色关系、广场、时间……每个 App 的数据放在一个变量里，由 AI 跟着剧情填写。每张卡片上方就是这个 App 的真实样子，你什么都不用写。",
     "add": "加进这张卡",
     "added": "已加入停靠栏",
-    "footnote": "App 里的文字跟着卡的语言走（中文、英文或西班牙语）。在 Bundles 页移除后，按钮、数据和规则会一起删掉。",
+    "footnote": "App 里的文字跟着卡的语言走（中文、英文或西班牙语）。移除 App 时，停靠栏按钮、数据和规则会一起删掉。",
     "sets": "推荐组合——这类卡大多在追踪这些",
     "addSet": "四个一起加",
-    "setAdded": "已全部加入"
+    "setAdded": "已全部加入",
+    "remove": "移除",
+    "removeSet": "四个一起移除",
+    "removed": "已移除「{{name}}」",
+    "varDeleteHint": "这个变量是「{{name}}」App 的数据。删除它会把整个 App 一起移除，停靠栏按钮也会消失。"
   },
   "worldChanges": {
     "title": "更新《{{name}}》？",

@@ -53,6 +53,14 @@ export const GENERATION_TEMPLATES: GenerationTemplateInfo[] = [
     requiresReferenceImage: true,
     durationSeconds: 5,
     etaMinutes: 8,
+  },  {
+    // The video lane: price, wait and inputs depend on the chosen model
+    // (constants/video-models.ts). The three drafts above stay closed.
+    id: "video",
+    kind: "video",
+    priceMushies: 0,
+    requiresReferenceImage: false,
+    etaMinutes: 2,
   },
 ];
 
@@ -61,7 +69,7 @@ export function getGenerationTemplate(id: string): GenerationTemplateInfo | unde
 }
 
 /** Public submission allowlist. Historical video jobs remain readable. */
-export const ENABLED_GENERATION_TEMPLATES = GENERATION_TEMPLATES.filter((t) => t.kind === "image");
+export const ENABLED_GENERATION_TEMPLATES = GENERATION_TEMPLATES.filter((t) => t.kind === "image" || t.id === "video");
 export function getEnabledGenerationTemplate(id: string): GenerationTemplateInfo | undefined {
   return ENABLED_GENERATION_TEMPLATES.find((t) => t.id === id);
 }
@@ -104,28 +112,111 @@ export type SmartImageResolution = typeof SMART_IMAGE_RESOLUTIONS[number];
  *  a run start that the wallet cannot cover.
  *
  *  `aspectRatios` / `resolutions` mirror OpenRouter's per-model
- *  `supported_parameters`, read from /api/v1/images/models on 2026-09-19.
- *  smart-image-capabilities.test.ts re-checks them against that endpoint. */
+ *  `supported_parameters`, read from /api/v1/images/models (2026-09-19, the
+ *  2026-10-08 additions on that day), and for the models only Comfy Router
+ *  serves, each provider's own schema. Every entry drew a real picture through
+ *  our client before it was listed. smart-image-capabilities.test.mjs re-checks
+ *  the OpenRouter ones against that endpoint. */
 export const SMART_IMAGE_4K_COST_FACTOR = 1.5;
 
 export const SMART_IMAGE_MODELS = [
-  { id: SMART_IMAGE_MODEL, key: "seedreamLite", name: "Seedream 5.0 Lite", estimatedCostUsd: 0.035, resolution: "2K", quality: undefined, supportsSeed: true,
-    resolutions: ["2K", "4K"],
-    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "9:21", "2:1", "1:2"] },
-  { id: "bytedance-seed/seedream-5-0-pro", key: "seedreamPro", name: "Seedream 5.0 Pro", estimatedCostUsd: 0.093, resolution: "2K", quality: undefined, supportsSeed: true,
+  // ── Seedream (ByteDance) ──
+  { id: "bytedance-seed/seedream-5-0-flash", key: "seedreamFlash", family: "seedream", name: "Seedream 5.0 Flash", estimatedCostUsd: 0.018, resolution: "2K", quality: undefined, supportsSeed: true, supportsReference: true,
     resolutions: ["1K", "2K"],
     aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "9:21", "2:1", "1:2"] },
-  { id: "google/gemini-3.1-flash-image", key: "nanoBanana2", name: "Nano Banana 2", estimatedCostUsd: 0.14, resolution: "2K", quality: undefined, supportsSeed: false,
+  { id: SMART_IMAGE_MODEL, key: "seedreamLite", family: "seedream", name: "Seedream 5.0 Lite", estimatedCostUsd: 0.035, resolution: "2K", quality: undefined, supportsSeed: true, supportsReference: true,
+    resolutions: ["2K", "4K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "9:21", "2:1", "1:2"] },
+  { id: "bytedance-seed/seedream-5-0-pro", key: "seedreamPro", family: "seedream", name: "Seedream 5.0 Pro", estimatedCostUsd: 0.093, resolution: "2K", quality: undefined, supportsSeed: true, supportsReference: true,
+    resolutions: ["1K", "2K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "9:21", "2:1", "1:2"] },
+  // ── Nano Banana (Google). 2.1 succeeded 2 on 2026-10-06; 2 stays for its 512 tier until Google retires it. ──
+  { id: "google/gemini-nano-banana-2.1", key: "nanoBanana21", family: "nanoBanana", name: "Nano Banana 2.1", estimatedCostUsd: 0.07, resolution: "2K", quality: undefined, supportsSeed: false, supportsReference: true,
+    resolutions: ["1K", "2K", "4K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "4:1", "1:4", "8:1", "1:8"] },
+  { id: "google/gemini-3.1-flash-image", key: "nanoBanana2", family: "nanoBanana", name: "Nano Banana 2", estimatedCostUsd: 0.14, resolution: "2K", quality: undefined, supportsSeed: false, supportsReference: true,
     resolutions: ["512", "1K", "2K", "4K"],
     aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "4:1", "1:4", "8:1", "1:8"] },
-  { id: "google/gemini-3-pro-image", key: "nanoBananaPro", name: "Nano Banana Pro", estimatedCostUsd: 0.24, resolution: "2K", quality: undefined, supportsSeed: false,
+  { id: "google/gemini-3-pro-image", key: "nanoBananaPro", family: "nanoBanana", name: "Nano Banana Pro", estimatedCostUsd: 0.24, resolution: "2K", quality: undefined, supportsSeed: false, supportsReference: true,
     resolutions: ["1K", "2K", "4K"],
     aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9"] },
-  { id: "openai/gpt-image-2", key: "gptImage2", name: "GPT Image 2", estimatedCostUsd: 0.45, resolution: undefined, quality: "high", supportsSeed: false,
-    // No resolution knob at all — this one is sized by `quality`, which we pin high.
+  // ── GPT Image (OpenAI). No resolution knob: these are sized by `quality`.
+  //    2.5's tiers sit one step below 2's, so Flare runs xhigh and Sunburst max. ──
+  { id: "openai/gpt-image-2.5-flare", key: "gptImage25Flare", family: "gptImage", name: "GPT Image 2.5 Flare", estimatedCostUsd: 0.075, resolution: undefined, quality: "xhigh", supportsSeed: false, supportsReference: true,
     resolutions: [],
     aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "21:9"] },
+  { id: "openai/gpt-image-2.5-sunburst", key: "gptImage25Sunburst", family: "gptImage", name: "GPT Image 2.5 Sunburst", estimatedCostUsd: 0.17, resolution: undefined, quality: "max", supportsSeed: false, supportsReference: true,
+    resolutions: [],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "21:9"] },
+  { id: "openai/gpt-image-2", key: "gptImage2", family: "gptImage", name: "GPT Image 2", estimatedCostUsd: 0.45, resolution: undefined, quality: "high", supportsSeed: false, supportsReference: true,
+    resolutions: [],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "21:9"] },
+  // ── FLUX (Black Forest Labs). FLUX 3 at 4K is $0.61 an image, so it stops at 2K. ──
+  { id: "black-forest-labs/flux.2-pro", key: "flux2Pro", family: "flux", name: "FLUX.2 Pro", estimatedCostUsd: 0.045, resolution: undefined, quality: undefined, supportsSeed: true, supportsReference: true,
+    resolutions: [],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "21:9"] },
+  { id: "black-forest-labs/flux.2-max", key: "flux2Max", family: "flux", name: "FLUX.2 Max", estimatedCostUsd: 0.1, resolution: undefined, quality: undefined, supportsSeed: true, supportsReference: true,
+    resolutions: [],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "21:9"] },
+  { id: "black-forest-labs/flux-3-image", key: "flux3", family: "flux", name: "FLUX 3", estimatedCostUsd: 0.1, resolution: "2K", quality: undefined, supportsSeed: false, supportsReference: true,
+    resolutions: ["1K", "2K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "9:21", "2:1", "1:2"] },
+  // ── Qwen Image (Alibaba) ──
+  { id: "qwen/qwen-image-3", key: "qwenImage3", family: "qwenImage", name: "Qwen Image 3", estimatedCostUsd: 0.03, resolution: "2K", quality: undefined, supportsSeed: true, supportsReference: true,
+    resolutions: ["1K", "2K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "2:1", "1:2", "4:1", "1:4"] },
+  { id: "qwen/qwen-image-3-pro", key: "qwenImage3Pro", family: "qwenImage", name: "Qwen Image 3 Pro", estimatedCostUsd: 0.075, resolution: "2K", quality: undefined, supportsSeed: true, supportsReference: true,
+    resolutions: ["1K", "2K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "2:1", "1:2", "4:1", "1:4"] },
+  // ── Grok Imagine (xAI). The plain model is served by Comfy Router only. ──
+  { id: "xai/grok-imagine-image", key: "grokImagine", family: "grokImagine", name: "Grok Imagine", estimatedCostUsd: 0.02, resolution: "2K", quality: undefined, supportsSeed: false, supportsReference: false,
+    resolutions: ["1K", "2K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "2:1", "1:2"] },
+  { id: "x-ai/grok-imagine-image-quality", key: "grokImagineQuality", family: "grokImagine", name: "Grok Imagine Quality", estimatedCostUsd: 0.07, resolution: "2K", quality: undefined, supportsSeed: false, supportsReference: true,
+    resolutions: ["1K", "2K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "2:1", "1:2"] },
+  { id: "x-ai/grok-imagine-image-2.0", key: "grokImagine2", family: "grokImagine", name: "Grok Imagine 2.0", estimatedCostUsd: 0.08, resolution: "2K", quality: "medium", supportsSeed: false, supportsReference: true,
+    resolutions: ["1K", "2K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "2:1", "1:2"] },
+  // ── Served by Comfy Router only: Kling, Luma, Ideogram, Wan ──
+  { id: "kling/kling-image-o1", key: "klingO1", family: "kling", name: "Kling Image O1", estimatedCostUsd: 0.028, resolution: undefined, quality: undefined, supportsSeed: false, supportsReference: true,
+    resolutions: [],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "21:9"] },
+  { id: "luma_2/uni-1", key: "lumaUni1", family: "luma", name: "Luma Uni-1", estimatedCostUsd: 0.043, resolution: undefined, quality: undefined, supportsSeed: false, supportsReference: true,
+    resolutions: [],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "21:9", "2:1", "1:2"] },
+  { id: "luma_2/uni-1-max", key: "lumaUni1Max", family: "luma", name: "Luma Uni-1 Max", estimatedCostUsd: 0.103, resolution: undefined, quality: undefined, supportsSeed: false, supportsReference: true,
+    resolutions: [],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "21:9", "2:1", "1:2"] },
+  { id: "ideogram/ideogram-4-5", key: "ideogram45", family: "ideogram", name: "Ideogram 4.5", estimatedCostUsd: 0.086, resolution: undefined, quality: undefined, supportsSeed: true, supportsReference: true,
+    resolutions: [],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "2:1", "1:2"] },
+  { id: "wan/wan2.5-t2i-preview", key: "wan25", family: "wan", name: "Wan 2.5", estimatedCostUsd: 0.03, resolution: undefined, quality: undefined, supportsSeed: true, supportsReference: false,
+    resolutions: [],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "21:9", "9:21", "2:1", "1:2", "4:1", "1:4"] },
+  // ── Recraft, Krea, Microsoft MAI, Tencent Hunyuan ──
+  { id: "recraft/recraft-v4.1", key: "recraft41", family: "recraft", name: "Recraft V4.1", estimatedCostUsd: 0.035, resolution: undefined, quality: undefined, supportsSeed: false, supportsReference: false,
+    resolutions: [],
+    aspectRatios: ["1:1", "4:3", "3:4", "16:9", "9:16"] },
+  { id: "krea/krea-2-medium-turbo", key: "krea2Turbo", family: "krea", name: "Krea 2 Turbo", estimatedCostUsd: 0.015, resolution: "1K", quality: undefined, supportsSeed: true, supportsReference: false,
+    resolutions: ["1K"],
+    aspectRatios: ["1:1", "4:3", "3:2", "2:3", "16:9", "9:16", "4:5"] },
+  { id: "krea/krea-2-medium", key: "krea2Medium", family: "krea", name: "Krea 2 Medium", estimatedCostUsd: 0.03, resolution: "1K", quality: undefined, supportsSeed: true, supportsReference: false,
+    resolutions: ["1K"],
+    aspectRatios: ["1:1", "4:3", "3:2", "2:3", "16:9", "9:16", "4:5"] },
+  { id: "krea/krea-2-large", key: "krea2Large", family: "krea", name: "Krea 2 Large", estimatedCostUsd: 0.06, resolution: "1K", quality: undefined, supportsSeed: true, supportsReference: false,
+    resolutions: ["1K"],
+    aspectRatios: ["1:1", "4:3", "3:2", "2:3", "16:9", "9:16", "4:5"] },
+  { id: "microsoft/mai-image-2.6", key: "maiImage26", family: "mai", name: "MAI-Image 2.6", estimatedCostUsd: 0.035, resolution: undefined, quality: undefined, supportsSeed: false, supportsReference: true,
+    resolutions: [],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16"] },
+  { id: "tencent/hy-image-v3.5-preview", key: "hunyuan35", family: "hunyuan", name: "HunyuanImage 3.5", estimatedCostUsd: 0.025, resolution: "2K", quality: undefined, supportsSeed: true, supportsReference: true,
+    resolutions: ["1K", "2K"],
+    aspectRatios: ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16", "4:5", "5:4", "2:1", "1:2", "4:1", "1:4"] },
 ] as const;
+export type SmartImageFamily = typeof SMART_IMAGE_MODELS[number]["family"];
+/** Families in picker order; each family's versions follow in SMART_IMAGE_MODELS order, cheapest first. */
+export const SMART_IMAGE_FAMILIES = [...new Set(SMART_IMAGE_MODELS.map(model => model.family))] as SmartImageFamily[];
 export type SmartImageModelId = typeof SMART_IMAGE_MODELS[number]["id"];
 export const SMART_IMAGE_MODEL_IDS = SMART_IMAGE_MODELS.map(model => model.id) as [SmartImageModelId, ...SmartImageModelId[]];
 export function getSmartImageModel(id: string = SMART_IMAGE_MODEL) {
@@ -139,7 +230,7 @@ export function getSmartImageCapabilities(id: string = SMART_IMAGE_MODEL): {
   aspectRatios: SmartImageAspect[];
   resolutions: SmartImageResolution[];
 } {
-  const model = getSmartImageModel(id) ?? SMART_IMAGE_MODELS[0];
+  const model = getSmartImageModel(id) ?? getSmartImageModel(SMART_IMAGE_MODEL)!;
   return {
     aspectRatios: SMART_IMAGE_ASPECTS.filter(ratio => (model.aspectRatios as readonly string[]).includes(ratio)),
     resolutions: SMART_IMAGE_RESOLUTIONS.filter(size => (model.resolutions as readonly string[]).includes(size)),
@@ -150,7 +241,7 @@ export function getSmartImageCapabilities(id: string = SMART_IMAGE_MODEL): {
  *  request names one this model cannot do — a stored recipe, an older draft, or
  *  a model switch that left a 512 selection behind on a model without it. */
 export function resolveSmartImageResolution(id: string | undefined, requested: string | undefined): string | undefined {
-  const model = getSmartImageModel(id) ?? SMART_IMAGE_MODELS[0];
+  const model = getSmartImageModel(id) ?? getSmartImageModel(SMART_IMAGE_MODEL)!;
   if (requested && (model.resolutions as readonly string[]).includes(requested)) return requested;
   return model.resolution;
 }
@@ -183,10 +274,12 @@ export type GenerationJobStatus =
 
 export const IMAGE_SAMPLERS = [
   "euler_ancestral",
+  "res_multistep",
   "euler",
   "dpmpp_2m",
   "dpmpp_2m_sde",
   "dpmpp_sde",
+  "er_sde",
 ] as const;
 export type ImageSampler = (typeof IMAGE_SAMPLERS)[number];
 
@@ -200,7 +293,8 @@ export const IMAGE_ASPECTS = [
 ] as const;
 
 export const ADVANCED_LIMITS = {
-  stepsMin: 10,
+  // Z-Image Turbo (写实) runs at 9 steps.
+  stepsMin: 4,
   stepsMax: 40,
   cfgMin: 1,
   cfgMax: 12,
@@ -280,23 +374,40 @@ export function computeImagePrice(opts: {
 }
 
 // ── Platform styles (multi-checkpoint image generation) ─────────────
-// Each style maps to a checkpoint on the worker volumes. "anime" is the
-// baked-in default (no generation_models row, zero surcharge); the rest are
-// platform models (generation_models.userId = null) seeded from Civitai and
-// distributed by model-sync. Filenames here MUST match the seeded rows.
+// Each style maps to a base model baked into the warm Comfy deployment's
+// build (and imported by the shared pool from `sourceUri` when it overflows
+// there). A style with a `family` is a second base model under that
+// family's card (动漫 · 经典 / 新番): same card, a variant switch.
+export type PlatformStyleArch = "sdxl" | "zimage" | "anima";
+
 export interface PlatformStyleInfo {
   slug: string;
-  /** Worker-side checkpoint filename (models/checkpoints/<filename>). */
+  /** Worker-side model filename: a checkpoint (sdxl) or a diffusion model (zimage). */
   checkpointFilename: string;
+  /** "zimage" = Z-Image Turbo, "anima" = Anima: each with its own text
+   *  encoder and VAE, no SDXL LoRAs. */
+  arch?: PlatformStyleArch;
+  /** Variant of another style's card (that style's slug). */
+  family?: string;
   /** Prompt dialect the enhance layer should emit. */
   dialect: "danbooru" | "prose";
   /** Added to the image price — covers the checkpoint swap's GPU load time. */
   surchargeMushies: number;
   defaultNegative: string;
-  recommended: { steps: number; cfg: number; sampler: ImageSampler };
-  /** Civitai model id the seed script imports (absent for baked-in styles). */
+  /** Tags placed before the creator's words (a style made from a general base). */
+  promptPrefix?: string;
+  recommended: { steps: number; cfg: number; sampler: ImageSampler; scheduler?: string };
+  /** Where the shared Comfy pool imports the file from. */
+  sourceUri?: string;
+  /** Civitai model id (license audit trail). */
   civitaiModelId?: number;
+  /** Offered only when the server lists it (IMAGE_OPT_IN_STYLES): its file
+   *  ships in a newer deployment build than the one serving traffic. */
+  optIn?: boolean;
 }
+
+// Anima's model card negative, plus the sheets and panels it falls into on a lone "1girl, solo".
+const ANIMA_NEGATIVE = "worst quality, low quality, artist name, blurry, jpeg artifacts, chromatic aberration, multiple views, character sheet, reference sheet, split screen, comic";
 
 export const PLATFORM_STYLES: PlatformStyleInfo[] = [
   {
@@ -306,6 +417,52 @@ export const PLATFORM_STYLES: PlatformStyleInfo[] = [
     surchargeMushies: 0,
     defaultNegative: "",
     recommended: { steps: 28, cfg: 5.5, sampler: "euler_ancestral" },
+    sourceUri: "https://huggingface.co/cagliostrolab/animagine-xl-4.0/resolve/main/animagine-xl-4.0.safetensors",
+  },
+  {
+    // 动漫 · 新番: an Illustrious model trained through mid-2026 characters.
+    slug: "anime-new",
+    family: "anime",
+    checkpointFilename: "plat_anime_raehoshi11.safetensors",
+    dialect: "danbooru",
+    surchargeMushies: 10,
+    defaultNegative: "bad quality, worst quality, jpeg artifacts, sketch, bad anatomy, signature, watermark",
+    promptPrefix: "masterpiece, best quality, very aesthetic, absurdres",
+    recommended: { steps: 28, cfg: 6, sampler: "euler_ancestral" },
+    sourceUri: "https://civitai.com/api/download/models/3141506",
+    civitaiModelId: 846917, // Raehoshi illust XL v11.0
+  },
+  {
+    // 动漫 · 剧情: Z-Anime (a Z-Image finetune, Apache-2.0). Reads plain
+    // sentences: actions, several people, signs and scenery come out as
+    // written, where the SDXL styles drop them (bench 2026-10-07). Explicit
+    // content comes out toned down; NSFW 动漫 stays the explicit style.
+    slug: "anime-story",
+    family: "anime",
+    checkpointFilename: "z-anime-distill-8step-fp8.safetensors",
+    arch: "zimage",
+    dialect: "prose",
+    surchargeMushies: 10,
+    defaultNegative: "",
+    recommended: { steps: 8, cfg: 1, sampler: "euler_ancestral", scheduler: "beta" },
+    sourceUri: "https://huggingface.co/SeeSee21/Z-Anime/resolve/main/diffusion_models/z-anime-distill-8step-fp8.safetensors",
+    optIn: true,
+  },
+  {
+    // 动漫 · Anima: CircleStone's anime DiT (commercial use through Comfy's
+    // agreement with its creator). Tags and sentences both; groups, actions
+    // and scenery as written (bench 2026-10-10).
+    slug: "anime-anima",
+    family: "anime",
+    checkpointFilename: "anima-aesthetic-v1.1.safetensors",
+    arch: "anima",
+    dialect: "danbooru",
+    surchargeMushies: 10,
+    defaultNegative: ANIMA_NEGATIVE,
+    promptPrefix: "masterpiece, best quality, newest",
+    recommended: { steps: 30, cfg: 4, sampler: "er_sde", scheduler: "simple" },
+    sourceUri: "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-aesthetic-v1.1.safetensors",
+    optIn: true,
   },
   {
     slug: "nsfw-anime",
@@ -314,47 +471,99 @@ export const PLATFORM_STYLES: PlatformStyleInfo[] = [
     surchargeMushies: 10,
     defaultNegative: "worst quality, bad quality, sketch, jpeg artifacts, signature",
     recommended: { steps: 28, cfg: 6, sampler: "euler_ancestral" },
+    sourceUri: "https://civitai.com/api/download/models/2883731",
     civitaiModelId: 827184, // WAI-NSFW-illustrious-SDXL
   },
   {
+    // NSFW 动漫 · Anima: the same model with its "nsfw" safety tag up front.
+    slug: "nsfw-anima",
+    family: "nsfw-anime",
+    checkpointFilename: "anima-aesthetic-v1.1.safetensors",
+    arch: "anima",
+    dialect: "danbooru",
+    surchargeMushies: 10,
+    defaultNegative: ANIMA_NEGATIVE,
+    promptPrefix: "masterpiece, best quality, newest, nsfw",
+    recommended: { steps: 30, cfg: 4, sampler: "er_sde", scheduler: "simple" },
+    sourceUri: "https://huggingface.co/circlestone-labs/Anima/resolve/main/split_files/diffusion_models/anima-aesthetic-v1.1.safetensors",
+    optIn: true,
+  },
+  {
     slug: "realistic",
-    checkpointFilename: "plat_realistic.safetensors",
+    checkpointFilename: "z_image_turbo_bf16.safetensors",
+    arch: "zimage",
     dialect: "prose",
     surchargeMushies: 10,
-    defaultNegative: "cartoon, anime, illustration, painting, cgi, deformed iris, bad hands",
-    recommended: { steps: 30, cfg: 4.5, sampler: "dpmpp_2m" },
-    civitaiModelId: 133005, // Juggernaut XL
+    defaultNegative: "",
+    recommended: { steps: 9, cfg: 1, sampler: "res_multistep", scheduler: "simple" },
+    sourceUri: "https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors",
   },
   {
     slug: "semireal",
-    checkpointFilename: "plat_semireal.safetensors",
+    checkpointFilename: "plat_semireal_pd10.safetensors",
     dialect: "danbooru",
     surchargeMushies: 10,
     defaultNegative: "worst quality, low quality, watermark",
-    recommended: { steps: 28, cfg: 5, sampler: "dpmpp_2m" },
-    civitaiModelId: 112902, // DreamShaper XL (seed script skips turbo/lightning versions)
+    promptPrefix: "masterpiece, best quality",
+    recommended: { steps: 28, cfg: 6, sampler: "euler_ancestral" },
+    sourceUri: "https://civitai.com/api/download/models/3187704",
+    civitaiModelId: 24350, // PerfectDeliberate v10
   },
   {
+    // RouWei (Illustrious retrain) steered with guofeng tags: ink-wash anime.
     slug: "guofeng",
-    checkpointFilename: "plat_guofeng.safetensors",
-    // The seed script's search resolves to a photo-realistic guofeng model
-    // (GuoFeng Photo Realistic XL) — prose prompts, not tags.
-    dialect: "prose",
+    checkpointFilename: "rouwei_v080Epsilon.safetensors",
+    dialect: "danbooru",
     surchargeMushies: 10,
     defaultNegative: "worst quality, low quality, watermark",
-    recommended: { steps: 30, cfg: 5, sampler: "dpmpp_2m" },
-    civitaiModelId: 844395, // GuoFeng Photo Realistic XL
+    promptPrefix: "masterpiece, best quality, chinese style, chinese clothes, ink wash painting",
+    recommended: { steps: 28, cfg: 5, sampler: "euler_ancestral" },
+    sourceUri: "https://civitai.com/api/download/models/1832460",
+    civitaiModelId: 950531, // RouWei 0.8 epsilon
   },
   {
     slug: "western",
-    checkpointFilename: "plat_western.safetensors",
-    dialect: "prose",
+    checkpointFilename: "plat_western_arthemy3.safetensors",
+    dialect: "danbooru",
     surchargeMushies: 10,
-    defaultNegative: "photo, photorealistic, worst quality, watermark",
-    recommended: { steps: 30, cfg: 5, sampler: "dpmpp_2m" },
-    civitaiModelId: 119229, // ZavyChromaXL
+    defaultNegative: "sketch, lowres, low quality, worst quality, 3D, greyscale",
+    promptPrefix: "best quality, absurdres",
+    recommended: { steps: 30, cfg: 5, sampler: "euler_ancestral", scheduler: "karras" },
+    sourceUri: "https://civitai.com/api/download/models/2715424",
+    civitaiModelId: 2241572, // Arthemy Western Art v3.0
   },
 ];
+
+/** The cards: one per family, variants folded under their family. */
+export function platformStyleFamilies(styles: readonly PlatformStyleInfo[] = PLATFORM_STYLES): { family: string; styles: PlatformStyleInfo[] }[] {
+  const families: { family: string; styles: PlatformStyleInfo[] }[] = [];
+  for (const style of styles) {
+    const key = style.family ?? style.slug;
+    const existing = families.find((f) => f.family === key);
+    if (existing) existing.styles.push(style); else families.push({ family: key, styles: [style] });
+  }
+  return families;
+}
+
+// ── Image quality (标准 / 高清 / 4K) ─────────────────────────────────
+// 高清 redraws a 1.5x upscale at low denoise (the base model adds the detail
+// the first pass had no pixels for); 4K then restores to 2x of that with
+// SeedVR2 7B sharp (one diffusion step, no prompt, faithful to the picture).
+export const IMAGE_QUALITIES = ["standard", "hd", "4k"] as const;
+export type ImageQuality = (typeof IMAGE_QUALITIES)[number];
+export const IMAGE_QUALITY_SPECS: Record<ImageQuality, { scale: number; surchargeMushies: number; extraSeconds: number }> = {
+  standard: { scale: 1, surchargeMushies: 0, extraSeconds: 0 },
+  // Measured on the warm deployment (2026-10-04, RTX Pro 6000, 832x1216 base):
+  // standard ≈7 s, 高清 ≈+4 s, 4K ≈+13 s; priced at ~1 mushie per GPU second.
+  hd: { scale: 1.5, surchargeMushies: 5, extraSeconds: 5 },
+  "4k": { scale: 3, surchargeMushies: 15, extraSeconds: 15 },
+};
+/** Output size for a base size at a quality (multiples of 8). */
+export function imageQualitySize(width: number, height: number, quality: ImageQuality): { width: number; height: number } {
+  const k = IMAGE_QUALITY_SPECS[quality].scale;
+  const r8 = (n: number) => Math.round((n * k) / 8) * 8;
+  return { width: r8(width), height: r8(height) };
+}
 
 export function getPlatformStyle(slug: string): PlatformStyleInfo | undefined {
   return PLATFORM_STYLES.find((s) => s.slug === slug);

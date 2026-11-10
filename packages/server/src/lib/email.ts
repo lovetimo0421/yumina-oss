@@ -165,20 +165,6 @@ function ctaButton(href: string, label: string): string {
     </table>`;
 }
 
-/** Red destructive-action CTA, kept separate so ordinary auth emails stay gold. */
-function dangerCtaButton(href: string, label: string): string {
-    return `
-    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-      <tr>
-        <td align="center" style="padding:4px 0;">
-          <a href="${href}" style="display:inline-block;padding:14px 36px;background:#DC2626;color:#FFFFFF;font-size:14px;font-weight:800;text-decoration:none;border-radius:12px;letter-spacing:0.01em;">
-            ${label}
-          </a>
-        </td>
-      </tr>
-    </table>`;
-}
-
 export function verificationEmailText(url: string, name: string) {
     return `Welcome to Yumina, ${name}!\n\nVerify your email to get started:\n${url}\n\nDidn't sign up? Just ignore this email.`;
 }
@@ -246,6 +232,13 @@ type DeleteAccountEmailCopy = {
     request: (name: string) => string;
     review: string;
     impact: string;
+    retention: string;
+    header: string;
+    warning: string;
+    impactTitle: string;
+    retentionTitle: string;
+    cooldownTitle: string;
+    ignoredTitle: string;
     cta: string;
     copyLink: string;
     expires: string;
@@ -255,12 +248,19 @@ type DeleteAccountEmailCopy = {
 
 const DELETE_ACCOUNT_EMAIL_COPY: Record<DeleteAccountEmailLocale, DeleteAccountEmailCopy> = {
     en: {
+        header: "Important account action · Deletion confirmation",
+        warning: "Confirming deletion permanently removes your account and its content. Opening this link does not delete your account; you must confirm on the secure page.",
+        impactTitle: "What will be deleted",
+        retentionTitle: "Records that may remain",
+        cooldownTitle: "Registering again",
+        ignoredTitle: "Did not request this?",
         subject: "Confirm your Yumina account deletion",
         title: "Permanently delete your account?",
         greeting: (name) => `Hi ${name}. Open the secure page below to review the impact and complete one final confirmation.`,
         request: (name) => `Hi ${name},\n\nYou requested permanent deletion of your Yumina account.`,
         review: "Review and confirm account deletion:",
-        impact: "Your profile, sign-in methods, creations, playthroughs, messages, uploads, remaining plan time, and Mushies will be deleted. Active subscriptions end immediately. Payment processors may retain billing and identity records where legally required, but they will no longer be linked to an active Yumina account. Pseudonymous security logs and limited analytics may remain for required periods, and existing cached copies may stay visible until their previous cache lifetime expires.",
+        impact: "Your profile, sign-in methods, creations, playthroughs, messages, uploads, remaining plan time, and Mushies will be deleted. Active subscriptions end immediately.",
+        retention: "Payment processors may retain billing and identity records where legally required, but they will no longer be linked to an active Yumina account. Pseudonymous security logs and limited analytics may remain for required periods, and existing cached copies may stay visible until their previous cache lifetime expires.",
         cta: "Review account deletion",
         copyLink: "Or copy this link into your browser:",
         expires: "This link expires in 1 hour.",
@@ -268,25 +268,39 @@ const DELETE_ACCOUNT_EMAIL_COPY: Record<DeleteAccountEmailLocale, DeleteAccountE
         ignored: "Didn't request this? Ignore this email and nothing will be deleted.",
     },
     zh: {
+        header: "重要账户操作 · 注销确认",
+        warning: "确认注销后，账户及相关内容将永久删除。打开链接不会直接删除账户，你仍需在安全页面完成最终确认。",
+        impactTitle: "注销影响",
+        retentionTitle: "记录保留说明",
+        cooldownTitle: "重新注册",
+        ignoredTitle: "不是你发起的申请？",
         subject: "确认注销你的 Yumina 账户",
-        title: "确定要永久注销账户吗？",
-        greeting: (name) => `${name}，请打开下方安全页面查看影响并完成最后一次确认。`,
+        title: "请确认永久注销账户",
+        greeting: (name) => `${name}，你好。我们收到了你的注销申请。\n请前往安全页面查看影响，并完成最后一次确认。`,
         request: (name) => `${name}，你好：\n\n你申请了永久注销 Yumina 账户。`,
         review: "查看并确认账户注销：",
-        impact: "你的个人资料、登录方式、创作内容、游玩记录、消息、上传文件、剩余订阅时间和 Mushies 都会被删除。有效订阅将立即终止。支付处理商可能按法律要求保留账单和身份记录，但这些记录将不再关联有效的 Yumina 账户。化名化安全日志和有限分析数据可能在必要期限内保留，已有缓存副本也可能在原缓存期限届满前继续可见。",
-        cta: "查看账户注销",
+        impact: "你的个人资料、登录方式、创作内容、游玩记录、消息、上传文件、剩余订阅时间和 Mushies 都会被删除。有效订阅将立即终止。",
+        retention: "支付处理商可能按法律要求保留账单和身份记录，但这些记录将不再关联有效的 Yumina 账户。化名化安全日志和有限分析数据可能在必要期限内保留，已有缓存副本也可能在原缓存期限届满前继续可见。",
+        cta: "查看注销详情",
         copyLink: "也可以将此链接复制到浏览器：",
         expires: "此链接将在 1 小时后失效。",
         cooldown: "删除后，此邮箱可以立即通过邮箱、Google 或 Discord 重新注册。但重新注册的账户在本次删除后的 3 天内不能再次注销。",
         ignored: "如果这不是你的操作，请忽略此邮件，你的账户不会被删除。",
     },
     "zh-Hant": {
+        header: "重要賬戶操作 · 註銷確認",
+        warning: "確認註銷後，賬戶及相關內容將永久刪除。開啟連結不會直接刪除賬戶，你仍需在安全頁面完成最終確認。",
+        impactTitle: "註銷影響",
+        retentionTitle: "記錄保留說明",
+        cooldownTitle: "重新註冊",
+        ignoredTitle: "不是你發起的申請？",
         subject: "確認註銷你的 Yumina 賬戶",
         title: "確定要永久註銷賬戶嗎？",
         greeting: (name) => `${name}，請開啟下方安全頁面查看影響並完成最後一次確認。`,
         request: (name) => `${name}，你好：\n\n你申請了永久註銷 Yumina 賬戶。`,
         review: "查看並確認賬戶註銷：",
-        impact: "你的個人資料、登入方式、創作內容、遊玩記錄、訊息、上載檔案、剩餘訂閱時間和 Mushies 都會被刪除。有效訂閱將立即終止。付款處理商可能按法律要求保留帳單和身份記錄，但這些記錄將不再連結至有效的 Yumina 賬戶。化名化安全日誌及有限分析資料可能在必要期限內保留，已有快取副本也可能在原快取期限屆滿前繼續可見。",
+        impact: "你的個人資料、登入方式、創作內容、遊玩記錄、訊息、上載檔案、剩餘訂閱時間和 Mushies 都會被刪除。有效訂閱將立即終止。",
+        retention: "付款處理商可能按法律要求保留帳單和身份記錄，但這些記錄將不再連結至有效的 Yumina 賬戶。化名化安全日誌及有限分析資料可能在必要期限內保留，已有快取副本也可能在原快取期限屆滿前繼續可見。",
         cta: "查看賬戶註銷",
         copyLink: "也可以將此連結複製到瀏覽器：",
         expires: "此連結將於 1 小時後失效。",
@@ -294,12 +308,19 @@ const DELETE_ACCOUNT_EMAIL_COPY: Record<DeleteAccountEmailLocale, DeleteAccountE
         ignored: "如果這不是你的操作，請忽略此電郵，你的賬戶不會被刪除。",
     },
     ja: {
+        header: "重要なアカウント操作 · 削除の確認",
+        warning: "削除を確定すると、アカウントと関連コンテンツは完全に削除されます。リンクを開くだけでは削除されません。安全なページで最終確認が必要です。",
+        impactTitle: "削除される内容",
+        retentionTitle: "保持される記録",
+        cooldownTitle: "再登録について",
+        ignoredTitle: "心当たりがありませんか？",
         subject: "Yuminaアカウント削除の確認",
         title: "アカウントを完全に削除しますか？",
         greeting: (name) => `${name}さん、下の安全なページを開き、影響を確認して最後の確認を完了してください。`,
         request: (name) => `${name}さん\n\nYuminaアカウントの完全削除がリクエストされました。`,
         review: "アカウント削除を確認する：",
-        impact: "プロフィール、ログイン方法、作成したコンテンツ、プレイ履歴、メッセージ、アップロード、残りのプラン期間、Mushiesが削除されます。有効なサブスクリプションは直ちに終了します。決済事業者は法令上必要な請求情報や本人確認記録を保持する場合がありますが、有効なYuminaアカウントとの関連付けは解除されます。仮名化されたセキュリティログと限定的な分析情報は必要な期間保持され、既存のキャッシュは以前の有効期限まで表示される場合があります。",
+        impact: "プロフィール、ログイン方法、作成したコンテンツ、プレイ履歴、メッセージ、アップロード、残りのプラン期間、Mushiesが削除されます。有効なサブスクリプションは直ちに終了します。",
+        retention: "決済事業者は法令上必要な請求情報や本人確認記録を保持する場合がありますが、有効なYuminaアカウントとの関連付けは解除されます。仮名化されたセキュリティログと限定的な分析情報は必要な期間保持され、既存のキャッシュは以前の有効期限まで表示される場合があります。",
         cta: "アカウント削除を確認",
         copyLink: "または、このリンクをブラウザにコピーしてください：",
         expires: "このリンクは1時間で期限切れになります。",
@@ -307,12 +328,19 @@ const DELETE_ACCOUNT_EMAIL_COPY: Record<DeleteAccountEmailLocale, DeleteAccountE
         ignored: "心当たりがない場合は、このメールを無視してください。アカウントは削除されません。",
     },
     es: {
+        header: "Acción importante · Confirmación de eliminación",
+        warning: "Al confirmar, se eliminarán permanentemente tu cuenta y su contenido. Abrir el enlace no elimina la cuenta; debes confirmar en la página segura.",
+        impactTitle: "Qué se eliminará",
+        retentionTitle: "Registros que pueden conservarse",
+        cooldownTitle: "Volver a registrarte",
+        ignoredTitle: "¿No solicitaste esto?",
         subject: "Confirma la eliminación de tu cuenta de Yumina",
         title: "¿Eliminar tu cuenta permanentemente?",
         greeting: (name) => `Hola, ${name}. Abre la página segura para revisar las consecuencias y completar una última confirmación.`,
         request: (name) => `Hola, ${name}:\n\nSolicitaste eliminar permanentemente tu cuenta de Yumina.`,
         review: "Revisar y confirmar la eliminación de la cuenta:",
-        impact: "Se eliminarán tu perfil, métodos de inicio de sesión, creaciones, partidas, mensajes, archivos subidos, tiempo restante del plan y Mushies. Las suscripciones activas finalizarán de inmediato. Los procesadores de pago pueden conservar registros de facturación e identidad cuando la ley lo exija, pero dejarán de estar vinculados a una cuenta activa de Yumina. Los registros de seguridad seudónimos y análisis limitados pueden conservarse durante los plazos necesarios, y las copias en caché existentes pueden seguir visibles hasta que caduquen.",
+        impact: "Se eliminarán tu perfil, métodos de inicio de sesión, creaciones, partidas, mensajes, archivos subidos, tiempo restante del plan y Mushies. Las suscripciones activas finalizarán de inmediato.",
+        retention: "Los procesadores de pago pueden conservar registros de facturación e identidad cuando la ley lo exija, pero dejarán de estar vinculados a una cuenta activa de Yumina. Los registros de seguridad seudónimos y análisis limitados pueden conservarse durante los plazos necesarios, y las copias en caché existentes pueden seguir visibles hasta que caduquen.",
         cta: "Revisar la eliminación",
         copyLink: "También puedes copiar este enlace en tu navegador:",
         expires: "Este enlace caduca en 1 hora.",
@@ -340,40 +368,46 @@ export function deleteAccountEmailSubject(locale?: string | null): string {
 
 export function deleteAccountEmailText(url: string, name: string, locale?: string | null) {
     const copy = deleteAccountEmailCopy(locale);
-    return `${copy.request(name)}\n\n${copy.review}\n${url}\n\n${copy.expires} ${copy.impact}\n\n${copy.cooldown}\n\n${copy.ignored}`;
+    return `${copy.request(name)}\n\n${copy.review}\n${url}\n\n${copy.expires} ${copy.impact} ${copy.retention}\n\n${copy.cooldown}\n\n${copy.ignored}`;
 }
 
 export function deleteAccountEmailHtml(url: string, name: string, locale?: string | null) {
-    const copy = deleteAccountEmailCopy(locale);
-    const safeName = escapeHtml(name);
-    return baseTemplate(`
-      <h1 style="margin:0 0 8px;font-size:22px;font-weight:800;color:#FCA5A5;letter-spacing:-0.01em;text-align:center;">
-        ${copy.title}
-      </h1>
-      <p style="margin:0 0 20px;font-size:14px;color:#A09D95;line-height:1.7;text-align:center;">
-        ${copy.greeting(safeName)}
-      </p>
-
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 24px;background:#2A1517;border:1px solid rgba(248,113,113,0.25);border-radius:12px;">
-        <tr>
-          <td style="padding:16px 18px;font-size:12px;color:#FECACA;line-height:1.7;">
-            ${copy.impact}
-            <br><br><strong>${copy.cooldown}</strong>
-          </td>
-        </tr>
-      </table>
-
-      ${dangerCtaButton(url, copy.cta)}
-
-      <p style="margin:24px 0 0;font-size:12px;color:#7A776F;line-height:1.6;text-align:center;">
-        ${copy.copyLink}
-      </p>
-      <p style="margin:6px 0 0;font-size:11px;color:#F87171;line-height:1.5;word-break:break-all;text-align:center;">
-        ${url}
-      </p>
-
-      <p style="margin:28px 0 0;font-size:11px;color:#5C5950;line-height:1.5;text-align:center;">
-        ${copy.expires} ${copy.ignored}
-      </p>
-    `);
+    const normalizedLocale = normalizeDeleteAccountEmailLocale(locale);
+    const copy = deleteAccountEmailCopy(normalizedLocale);
+    const safeUrl = escapeHtml(url);
+    // Keep deletion details out of the shared narrow auth card.
+    return `
+<!doctype html>
+<html lang="${normalizedLocale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>${escapeHtml(copy.subject)}</title>
+<style>
+@media screen and (max-width:680px){.pad{padding-left:24px!important;padding-right:24px!important}.heading{font-size:24px!important}.header-note{font-size:11px!important;letter-spacing:0!important}}
+</style></head>
+<body style="margin:0;padding:0;background:#fffdf9;color:#332b28;font-family:Arial,'PingFang SC','Microsoft YaHei',sans-serif;-webkit-text-size-adjust:100%;">
+<div style="display:none;max-height:0;max-width:0;overflow:hidden;opacity:0;mso-hide:all;">${escapeHtml(copy.expires)} ${escapeHtml(copy.warning)}</div>
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#fffdf9;border-top:4px solid #bc9761;">
+<tr><td class="pad" style="padding:12px 48px;border-bottom:1px solid #e9dfd9;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"><tr><td style="font-family:Georgia,serif;font-size:23px;line-height:28px;font-weight:bold;color:#6d343c;">Yumina<span style="color:#bc9761;">.</span></td><td align="right" class="header-note" style="font-size:12px;line-height:20px;letter-spacing:1px;color:#70645a;font-weight:bold;">${escapeHtml(copy.header)}</td></tr></table>
+</td></tr>
+<tr><td class="pad" align="center" style="padding:20px 48px 18px;text-align:center;">
+<h1 class="heading" style="margin:0 0 8px;font-size:27px;line-height:1.3;font-weight:700;color:#ae2025;">${escapeHtml(copy.title)}</h1>
+<p style="margin:0;font-size:14px;line-height:1.65;color:#554943;">${escapeHtml(copy.greeting(name)).replace(/\n/g, "<br>")}</p>
+<table role="presentation" align="center" cellspacing="0" cellpadding="0" border="0" style="margin:14px auto 0;"><tr><td align="center" bgcolor="#c52b2b" style="background:#c52b2b;border-radius:5px;mso-padding-alt:13px 32px;text-align:center;"><a href="${safeUrl}" style="display:inline-block;padding:13px 32px;border:1px solid #c52b2b;border-radius:5px;color:#fff;text-decoration:none;font-size:15px;font-weight:700;line-height:20px;">${escapeHtml(copy.cta)} &rarr;</a></td></tr></table>
+<p style="margin:7px 0 0;font-size:12px;line-height:1.6;color:#66534d;">${escapeHtml(copy.expires)}</p>
+</td></tr>
+<tr><td class="pad" style="padding:0 48px 16px;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#fff0ed;border-left:3px solid #c52b2b;"><tr><td style="padding:10px 13px;font-size:13px;line-height:1.65;color:#8e2525;">${escapeHtml(copy.warning)}</td></tr></table>
+</td></tr>
+<tr><td class="pad" style="padding:0 48px 16px;">
+<h2 style="margin:0 0 5px;font-size:14px;line-height:1.5;font-weight:700;color:#342a25;">${escapeHtml(copy.impactTitle)}</h2>
+<p style="margin:0;font-size:14px;line-height:1.65;color:#554943;">${escapeHtml(copy.impact)}</p>
+<h2 style="margin:12px 0 5px;font-size:14px;line-height:1.5;font-weight:700;color:#332b28;">${escapeHtml(copy.cooldownTitle)}</h2>
+<p style="margin:0;font-size:13px;line-height:1.65;color:#66564e;">${escapeHtml(copy.cooldown)}</p>
+<h2 style="margin:12px 0 5px;font-size:14px;line-height:1.5;font-weight:700;color:#332b28;">${escapeHtml(copy.retentionTitle)}</h2>
+<p style="margin:0;font-size:13px;line-height:1.65;color:#66564e;">${escapeHtml(copy.retention)}</p>
+<p style="margin:12px 0 0;font-size:13px;line-height:1.65;color:#554943;"><strong style="color:#332b28;">${escapeHtml(copy.ignoredTitle)}</strong><br>${escapeHtml(copy.ignored)}</p>
+</td></tr>
+<tr><td class="pad" style="padding:12px 48px 14px;border-top:1px solid #e9dfd9;">
+<p style="margin:0 0 3px;font-size:12px;line-height:1.6;color:#75625a;">${escapeHtml(copy.copyLink)}</p>
+<p style="margin:0;font-size:12px;line-height:1.6;word-break:break-all;overflow-wrap:anywhere;"><a href="${safeUrl}" style="color:#753c46;text-decoration:underline;word-break:break-all;overflow-wrap:anywhere;">${safeUrl}</a></p>
+</td></tr></table></body></html>`;
 }

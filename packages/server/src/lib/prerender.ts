@@ -13,12 +13,13 @@
  * must stay out of search (adult-rated, private, unknown) get nothing.
  */
 import { and, desc, eq, inArray, or, isNull } from "drizzle-orm";
-import { parseProfileAddress, parseWorldAddress, profileAddressPath } from "@yumina/shared";
+import { getKrewPublicPath, parseProfileAddress, parseWorldAddress, profileAddressPath } from "@yumina/shared";
 import { readPublic } from "../db/index.js";
 import { user, worlds } from "../db/schema.js";
 import { resolveImageCdn } from "./cdn-url.js";
 import { PUBLIC_ORIGIN } from "./env.js";
 import { cleanMarkdown, stripLeadingTitle } from "./seo-text.js";
+import { runWithWorldViewer, worldAudienceCondition } from "./world-publication-access.js";
 import {
   canonicalWorldPath,
   findUserByHandle,
@@ -121,6 +122,8 @@ export function renderHome(cards: WorldCard[]): string {
 
 export function renderWorld(world: AddressedWorld, moreFromCreator: WorldCard[]): string {
   const img = coverUrl(world.thumbnailUrl, 896);
+  const gamePath = getKrewPublicPath(world.gamePath);
+  const play = gamePath ? `<p class="pre-by"><a href="${gamePath}">Play Krew.io</a></p>` : "";
   const creator = creatorHref(world.creatorUsername, world.creatorId);
   const byline = world.creatorName
     ? creator
@@ -142,7 +145,7 @@ export function renderWorld(world: AddressedWorld, moreFromCreator: WorldCard[])
   return (
     `<main class="pre pre-world"><article>` +
     (img ? `<img class="pre-cover" src="${esc(img)}" alt="${esc(world.name)}" width="896" height="1195" />` : "") +
-    `<h1 class="pre-h1">${esc(world.name)}</h1>${byline}<div class="pre-text">${paragraphs}</div>${tagList}` +
+    `<h1 class="pre-h1">${esc(world.name)}</h1>${byline}<div class="pre-text">${paragraphs}</div>${play}${tagList}` +
     `</article>${more}</main>`
   );
 }
@@ -180,7 +183,7 @@ async function topWorlds(limit: number): Promise<WorldCard[]> {
     .select(CARD_COLUMNS)
     .from(worlds)
     .leftJoin(user, eq(worlds.creatorId, user.id))
-    .where(publicWorldFilter)
+    .where(and(publicWorldFilter, worldAudienceCondition(worlds.creatorId)))
     .orderBy(desc(worlds.downloadCount), desc(worlds.updatedAt))
     .limit(limit);
 }
@@ -191,7 +194,7 @@ async function worldsByCreators(creatorIds: string[], limit: number, excludeId?:
     .select(CARD_COLUMNS)
     .from(worlds)
     .leftJoin(user, eq(worlds.creatorId, user.id))
-    .where(and(publicWorldFilter, inArray(worlds.creatorId, creatorIds)))
+    .where(and(publicWorldFilter, inArray(worlds.creatorId, creatorIds), worldAudienceCondition(worlds.creatorId)))
     .orderBy(desc(worlds.downloadCount), desc(worlds.updatedAt))
     .limit(limit + 1);
   return rows.filter((r) => r.id !== excludeId).slice(0, limit);
@@ -223,32 +226,36 @@ export function clearPrerenderCache(): void {
  * empty shell as before. Never throws: a database hiccup means no fragment.
  */
 export async function renderPublicContent(rawPath: string): Promise<string | null> {
-  const path = rawPath.length > 1 ? rawPath.replace(/\/+$/, "") || "/" : rawPath;
-  const hit = cache.get(path);
-  if (hit && hit.until > Date.now()) return hit.html;
+  // Fragments are cached by path and shared with anonymous visitors. Keep
+  // privileged owner/admin content out even on an authenticated page request.
+  return runWithWorldViewer(undefined, async () => {
+    const path = rawPath.length > 1 ? rawPath.replace(/\/+$/, "") || "/" : rawPath;
+    const hit = cache.get(path);
+    if (hit && hit.until > Date.now()) return hit.html;
 
-  try {
-    if (path === "/") {
-      return remember(path, renderHome(await topWorlds(HOME_GRID)), TTL_HOME_MS);
-    }
+    try {
+      if (path === "/") {
+        return remember(path, renderHome(await topWorlds(HOME_GRID)), TTL_HOME_MS);
+      }
 
-    const worldAddress = parseWorldAddress(path);
-    if (worldAddress) {
-      const world = await findWorldByPublicId(worldAddress.publicId);
-      if (!world || !isPubliclyVisible(world) || (world.ageRating ?? "all") !== "all") return remember(path, null, TTL_PAGE_MS);
-      const more = await worldsByCreators([world.creatorId], MORE_FROM_CREATOR, world.id);
-      return remember(path, renderWorld(world, more), TTL_PAGE_MS);
-    }
+      const worldAddress = parseWorldAddress(path);
+      if (worldAddress) {
+        const world = await findWorldByPublicId(worldAddress.publicId);
+        if (!world || !isPubliclyVisible(world) || (world.ageRating ?? "all") !== "all") return remember(path, null, TTL_PAGE_MS);
+        const more = await worldsByCreators([world.creatorId], MORE_FROM_CREATOR, world.id);
+        return remember(path, renderWorld(world, more), TTL_PAGE_MS);
+      }
 
-    const handle = parseProfileAddress(path);
-    if (handle) {
-      const person = await findUserByHandle(handle);
-      if (!person || person.isBanned || person.isSuspended) return remember(path, null, TTL_PAGE_MS);
-      const cards = await worldsByCreators([person.id], CREATOR_GRID);
-      return remember(path, renderCreator(person, cards), TTL_PAGE_MS);
+      const handle = parseProfileAddress(path);
+      if (handle) {
+        const person = await findUserByHandle(handle);
+        if (!person || person.isBanned || person.isSuspended) return remember(path, null, TTL_PAGE_MS);
+        const cards = await worldsByCreators([person.id], CREATOR_GRID);
+        return remember(path, renderCreator(person, cards), TTL_PAGE_MS);
+      }
+    } catch {
+      return null;
     }
-  } catch {
     return null;
-  }
-  return null;
+  });
 }

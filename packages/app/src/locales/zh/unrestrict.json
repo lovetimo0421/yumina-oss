@@ -52,16 +52,33 @@
     "none": "还没有提示词。",
     "hubRow": "去提示词广场找更多",
     "manageInSettings": "在 设置 › 提示词 里管理",
-    "pos": "位置 {{n}}",
+    "pos": "顺序 {{n}}",
     "section": {
-      "system": "System",
-      "inChat": "In-Chat",
-      "final": "Final"
+      "system": "开头",
+      "inChat": "对话中",
+      "final": "最后"
     },
     "sectionFull": {
-      "system": "System（系统提示）",
-      "inChat": "In-Chat（对话中）",
-      "final": "Final（最后）"
+      "system": "开头",
+      "inChat": "对话中",
+      "final": "最后"
+    },
+    "compose": {
+      "title": "写一条自己的提示词",
+      "explain": "写在这里的话，你每次发消息都会一起发给 AI，所有卡都有效。不想用了，在提示词里把开关关掉就行。",
+      "name": "名字",
+      "namePlaceholder": "名字（可以不填）",
+      "content": "内容",
+      "contentPlaceholder": "比如：每次回复都多写一点周围的环境和声音。",
+      "save": "保存",
+      "saved": "已保存，下一条消息开始生效",
+      "failed": "没保存成功，再试一次",
+      "more": "更多设置"
+    },
+    "sectionHint": {
+      "system": "AI 最先读到，和角色设定放在一起。适合写一直有效的规则，比如文风、人称。",
+      "inChat": "插在聊天记录里。下面的数字是从最新一条消息往回数第几条。",
+      "final": "AI 写回复前最后读到，影响最大。适合写一定要遵守的要求。"
     }
   },
   "conflict": {

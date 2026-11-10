@@ -91,7 +91,7 @@ export async function applyIncomingToWorld(args: {
 
   await useEditorStore.getState().loadWorld(targetId);
   const loaded = useEditorStore.getState();
-  if (loaded.serverWorldId !== targetId) throw new ApplyChangesError("load");
+  if (loaded.serverWorldId !== targetId || loaded.loadError) throw new ApplyChangesError("load");
 
   // The card keeps its own title (worlds.name is the display truth and a
   // helper's copy is named "X (1)") and its definition id.

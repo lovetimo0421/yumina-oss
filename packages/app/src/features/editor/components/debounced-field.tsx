@@ -7,7 +7,25 @@ import {
   type ComponentPropsWithoutRef,
   type FocusEvent,
 } from "react";
-import { useEditorStore } from "@/stores/editor";
+import { getEditorDocumentEpoch, useEditorStore } from "@/stores/editor";
+import { FLUSH_PENDING_EDITS_EVENT } from "./flush-pending-edits";
+export { FLUSH_PENDING_EDITS_EVENT, flushPendingEditorFields } from "./flush-pending-edits";
+
+/** A commit that has been typed but not yet sent to the store, bound to the
+ *  callback (and document) that were current when it was typed. */
+interface PendingCommit {
+  next: string;
+  commit: (next: string) => void;
+  epoch: number;
+}
+
+/** Send a pending commit to the item it was typed into — never to a card
+ *  that has replaced it in the meantime. */
+export function runPendingCommit(pending: PendingCommit | null): void {
+  if (!pending) return;
+  if (pending.epoch !== getEditorDocumentEpoch()) return;
+  pending.commit(pending.next);
+}
 
 /**
  * Shared "type into local state, commit on a debounced pause" logic — extracted
@@ -31,17 +49,33 @@ import { useEditorStore } from "@/stores/editor";
  * fires, that timer still commits via the onCommit captured when it was
  * scheduled — i.e. to the item being edited, not the new one. This is the
  * correct, regression-safe behavior and matches the original content textarea.
+ * The same captured commit is what runs when the field unmounts or its item
+ * changes with text still pending, so those no longer drop the last pause of
+ * typing either.
  */
 export function useDebouncedFieldCommit<E extends HTMLInputElement | HTMLTextAreaElement>(
   value: string,
   onCommit: (next: string) => void,
-  options: { delay?: number; transform?: (raw: string) => string; syncKey?: string } = {},
+  options: { delay?: number; transform?: (raw: string) => string; syncKey?: string; forceSyncKey?: string | number } = {},
 ) {
-  const { delay = 300, transform, syncKey } = options;
+  const { delay = 300, transform, syncKey, forceSyncKey } = options;
   const ref = useRef<E>(null);
   const composingRef = useRef(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef<PendingCommit | null>(null);
   const [local, setLocal] = useState(value);
+  const prevSyncKeyRef = useRef(syncKey);
+
+  const cancelPending = () => {
+    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    pendingRef.current = null;
+  };
+  /** Commit what is waiting on the timer, to the item it was typed into. */
+  const flushPending = () => {
+    const pending = pendingRef.current;
+    cancelPending();
+    runPendingCommit(pending);
+  };
 
   // Undo/redo override: a plain worldDraft change is ignored while this field is
   // focused (so typing isn't yanked out), but an explicit undo/redo MUST win or
@@ -49,6 +83,7 @@ export function useDebouncedFieldCommit<E extends HTMLInputElement | HTMLTextAre
   // made Ctrl+Z look dead after fields became debounced.
   const undoEpoch = useEditorStore((s) => s._undoEpoch);
   const prevUndoEpochRef = useRef(undoEpoch);
+  const prevForceSyncKeyRef = useRef(forceSyncKey);
 
   // Resync from the store when the bound value (or the selected item) changes
   // externally — but not while focused/composing, so we don't interrupt typing.
@@ -56,9 +91,22 @@ export function useDebouncedFieldCommit<E extends HTMLInputElement | HTMLTextAre
   // when focused, cancelling any pending debounced commit so the stale local
   // text can't get flushed back on top of the rollback.
   useEffect(() => {
-    if (undoEpoch !== prevUndoEpochRef.current) {
+    if (undoEpoch !== prevUndoEpochRef.current || forceSyncKey !== prevForceSyncKeyRef.current) {
       prevUndoEpochRef.current = undoEpoch;
-      if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+      prevForceSyncKeyRef.current = forceSyncKey;
+      prevSyncKeyRef.current = syncKey;
+      cancelPending();
+      composingRef.current = false;
+      setLocal(value);
+      return;
+    }
+    if (syncKey !== prevSyncKeyRef.current) {
+      // A different item now owns this field. Whatever was typed for the old
+      // one goes to the old one, and the box shows the new item even while it
+      // has focus: keeping the old text on screen meant the next blur
+      // committed it — through the NEW item's onCommit — over the new item.
+      prevSyncKeyRef.current = syncKey;
+      flushPending();
       composingRef.current = false;
       setLocal(value);
       return;
@@ -66,22 +114,35 @@ export function useDebouncedFieldCommit<E extends HTMLInputElement | HTMLTextAre
     const focused = ref.current !== null && document.activeElement === ref.current;
     if (!composingRef.current && !focused) setLocal(value);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, syncKey, undoEpoch]);
+  }, [value, syncKey, undoEpoch, forceSyncKey]);
 
-  // Cancel any pending commit on unmount (mirrors the original; blur flushes the
-  // common case). Only clears the timer — never calls onCommit — so there is no
-  // stale-closure risk.
-  useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current); }, []);
+  // Unmounting with text still on the timer commits it rather than dropping
+  // it: closing a panel or switching tabs within the pause used to lose the
+  // last words typed. It goes through the onCommit captured when it was typed,
+  // and only if the same card is still open.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => flushPending(), []);
+
+  // Save paths ask every field to commit before they read the store.
+  useEffect(() => {
+    const onFlush = () => flushPending();
+    window.addEventListener(FLUSH_PENDING_EDITS_EVENT, onFlush);
+    return () => window.removeEventListener(FLUSH_PENDING_EDITS_EVENT, onFlush);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const scheduleCommit = (next: string) => {
     if (timerRef.current) clearTimeout(timerRef.current);
+    pendingRef.current = { next, commit: onCommit, epoch: getEditorDocumentEpoch() };
     timerRef.current = setTimeout(() => {
+      const pending = pendingRef.current;
       timerRef.current = null;
-      onCommit(next);
+      pendingRef.current = null;
+      runPendingCommit(pending);
     }, delay);
   };
   const flush = (next: string) => {
-    if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
+    cancelPending();
     if (next !== value) onCommit(next);
   };
 
@@ -116,6 +177,14 @@ interface SharedDebouncedProps {
   onCommit: (next: string) => void;
   /** Force a resync when the edited item changes (e.g. the selected entry id). */
   syncKey?: string;
+  /** An authoritative snapshot revision, passed together with `value`.
+   * Unlike syncKey this overrides a focused field. Canvas nodes use the
+   * revision accompanying their data because their props can arrive after
+   * this field's direct undo subscription has already seen the new epoch. */
+  forceSyncKey?: string | number;
+  /** Commit the local buffer before Ctrl/Cmd+S reaches the editor shell.
+   * This leaves focus and the selection untouched. */
+  flushOnSave?: boolean;
   /** Debounce delay in ms (default 300). */
   delay?: number;
   /** Optional per-keystroke transform applied before display + commit (e.g. id sanitization). */
@@ -128,21 +197,29 @@ export function DebouncedInput({
   value,
   onCommit,
   syncKey,
+  forceSyncKey,
+  flushOnSave,
   delay,
   transform,
   onBlur,
+  onKeyDown,
   ...rest
 }: InputBaseProps & SharedDebouncedProps) {
-  const bound = useDebouncedFieldCommit<HTMLInputElement>(value, onCommit, { delay, transform, syncKey });
+  const bound = useDebouncedFieldCommit<HTMLInputElement>(value, onCommit, { delay, transform, syncKey, forceSyncKey });
   return (
     <input
       {...rest}
+      data-editor-undo=""
       ref={bound.ref}
       value={bound.value}
       onChange={bound.onChange}
       onCompositionStart={bound.onCompositionStart}
       onCompositionEnd={bound.onCompositionEnd}
       onBlur={(e: FocusEvent<HTMLInputElement>) => { bound.onBlur(); onBlur?.(e); }}
+      onKeyDown={e => {
+        if (flushOnSave && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "s" && !e.nativeEvent.isComposing) bound.onBlur();
+        onKeyDown?.(e);
+      }}
     />
   );
 }
@@ -153,21 +230,29 @@ export function DebouncedTextarea({
   value,
   onCommit,
   syncKey,
+  forceSyncKey,
+  flushOnSave,
   delay,
   transform,
   onBlur,
+  onKeyDown,
   ...rest
 }: TextareaBaseProps & SharedDebouncedProps) {
-  const bound = useDebouncedFieldCommit<HTMLTextAreaElement>(value, onCommit, { delay, transform, syncKey });
+  const bound = useDebouncedFieldCommit<HTMLTextAreaElement>(value, onCommit, { delay, transform, syncKey, forceSyncKey });
   return (
     <textarea
       {...rest}
+      data-editor-undo=""
       ref={bound.ref}
       value={bound.value}
       onChange={bound.onChange}
       onCompositionStart={bound.onCompositionStart}
       onCompositionEnd={bound.onCompositionEnd}
       onBlur={(e: FocusEvent<HTMLTextAreaElement>) => { bound.onBlur(); onBlur?.(e); }}
+      onKeyDown={e => {
+        if (flushOnSave && (e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "s" && !e.nativeEvent.isComposing) bound.onBlur();
+        onKeyDown?.(e);
+      }}
     />
   );
 }

@@ -10,6 +10,8 @@ export interface ReactionIdRemap {
   entryId: (id: string) => string;
   /** Behavior ids, targeted by the toggle-behavior effect (`@rules.disabled.<id>`). */
   reactionId: (id: string) => string;
+  /** Scenario ids, targeted by 启用/禁用情境 (`@worldbooks.on.<id>`). Unchanged when absent. */
+  worldbookId?: (id: string) => string;
 }
 
 /**
@@ -25,6 +27,14 @@ function remapEffectPath(path: string, remap: ReactionIdRemap): string {
   }
   if (path.startsWith("@rules.disabled.")) {
     return `@rules.disabled.${remap.reactionId(path.slice("@rules.disabled.".length))}`;
+  }
+  // 启用/禁用变量 names a variable too; left alone, an installed bundle's
+  // switch pointed at the bundle's own id and did nothing.
+  if (path.startsWith("@vars.enabled.")) {
+    return `@vars.enabled.${remap.variableId(path.slice("@vars.enabled.".length))}`;
+  }
+  if (path.startsWith("@worldbooks.on.") && remap.worldbookId) {
+    return `@worldbooks.on.${remap.worldbookId(path.slice("@worldbooks.on.".length))}`;
   }
   if (path.startsWith("@")) return path;
   const [root = "", ...rest] = path.split(".");

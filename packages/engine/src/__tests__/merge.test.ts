@@ -131,9 +131,74 @@ describe("mergeWorldDefinition — fields", () => {
     const base = world({ name: "Old", description: "D0" });
     const local = world({ name: "User Name", description: "D0" });
     const server = world({ name: "Old", description: "D-agent" });
-    const { merged } = mergeWorldDefinition(base, local, server);
+    const { merged, conflicts } = mergeWorldDefinition(base, local, server);
     expect(merged.name).toBe("User Name"); // user changed → kept
     expect(merged.description).toBe("D-agent"); // only server changed → taken
+    expect(conflicts).toEqual([]);
+  });
+
+  it("reports different concurrent renames so the caller can recover the server title", () => {
+    const base = world({ name: "Original title" });
+    const local = world({ name: "This page's title" });
+    const server = world({ name: "Other page's title" });
+    const before = structuredClone({ base, local, server });
+    const { merged, conflicts } = mergeWorldDefinition(base, local, server);
+    expect(merged.name).toBe("This page's title");
+    expect(conflicts).toEqual([{ collection: "field", id: "name", reason: "both-edited" }]);
+    expect({ base, local, server }).toEqual(before);
+  });
+
+  it("reports each conflicting top-level field and keeps local values", () => {
+    const base = world({ name: "Original", description: "Original description" });
+    const local = world({ name: "Local", description: "Local description" });
+    const server = world({ name: "Remote", description: "Remote description" });
+    const { merged, conflicts } = mergeWorldDefinition(base, local, server);
+    expect(merged.name).toBe("Local");
+    expect(merged.description).toBe("Local description");
+    expect(conflicts).toEqual([
+      { collection: "field", id: "name", reason: "both-edited" },
+      { collection: "field", id: "description", reason: "both-edited" },
+    ]);
+  });
+
+  it.each([
+    ["Original", "Original", "Original"],
+    ["Original", "Local", "Local"],
+    ["Remote", "Original", "Remote"],
+    ["Shared edit", "Shared edit", "Shared edit"],
+  ])("does not report a conflict for server=%s and local=%s", (serverName, localName, expectedName) => {
+    const { merged, conflicts } = mergeWorldDefinition(
+      world({ name: "Original" }), world({ name: localName }), world({ name: serverName }),
+    );
+    expect(merged.name).toBe(expectedName);
+    expect(conflicts).toEqual([]);
+  });
+
+  it("reports a settings conflict without changing the existing whole-field selection policy", () => {
+    const original = { temperature: 0.7, maxTokens: 2000 } as WorldDefinition["settings"];
+    const localSettings = { ...original, temperature: 0.9 };
+    const { merged, conflicts } = mergeWorldDefinition(
+      world({ settings: original }),
+      world({ settings: localSettings }),
+      world({ settings: { ...original, maxTokens: 3000 } }),
+    );
+    expect(merged.settings).toEqual(localSettings);
+    expect(conflicts).toEqual([{ collection: "field", id: "settings", reason: "both-edited" }]);
+  });
+
+  it("treats identical structural edits as agreement despite key order and omitted undefined keys", () => {
+    const base = world({ coverCrop: { x: 0, y: 0, zoom: 1 } });
+    const local = world({ coverCrop: { x: 10, y: 20, zoom: 1.5 } });
+    const server = world({ coverCrop: { zoom: 1.5, y: 20, x: 10, fit: undefined } });
+    const { merged, conflicts } = mergeWorldDefinition(base, local, server);
+    expect(merged.coverCrop).toEqual(local.coverCrop);
+    expect(conflicts).toEqual([]);
+  });
+
+  it("does not claim a two-sided field conflict when the ancestor is unknown", () => {
+    const { merged, conflicts } = mergeWorldDefinition(null, world({ name: "Local" }), world({ name: "Remote" }));
+    expect(merged.name).toBe("Remote"); // preserve the established no-ancestor policy
+    expect(conflicts).toEqual([]);
   });
 });
 

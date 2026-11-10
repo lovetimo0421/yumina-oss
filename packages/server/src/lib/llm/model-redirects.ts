@@ -9,6 +9,14 @@ export const DEPRECATED_MODEL_REDIRECTS: Record<string, string> = {
   "x-ai/grok-4.1-fast": "x-ai/grok-4.20",
   "x-ai/grok-4.1": "x-ai/grok-4.20",
   "google/gemini-3.1-flash-lite-preview": "google/gemini-3.1-flash-lite",
+  // OpenRouter retires the Gemini 2.5 line on 2026-10-20 and Xiaomi stops
+  // serving MiMo V2.5 on 2026-10-21. Each target keeps the old model's plan
+  // (all free tier); MiMo follows Xiaomi's own mapping at the same price.
+  "google/gemini-2.5-flash-lite": "google/gemini-3.1-flash-lite",
+  "google/gemini-2.5-flash": "google/gemini-3.5-flash-lite",
+  "google/gemini-2.5-pro": "google/gemini-3.5-flash",
+  "xiaomi/mimo-v2.5-pro": "xiaomi/mimo-v2.6-pro",
+  "xiaomi/mimo-v2.5": "xiaomi/mimo-v2.6-flash",
 };
 
 export function applyModelRedirect(model: string): string {

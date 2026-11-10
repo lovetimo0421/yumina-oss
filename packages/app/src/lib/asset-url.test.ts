@@ -1,11 +1,25 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cardImageUrl, thumbnailImageUrl, originalImageUrl, fallbackToOriginalOnError, isAnimatedImageRef } from "./asset-url";
+import { cardImageUrl, thumbnailImageUrl, originalImageUrl, fallbackToOriginalOnError, isAnimatedImageRef, isMotionCoverRef, coverPreviewUrl } from "./asset-url";
 
 // Guards the CF Image Transformations contract (see cardImageUrl doc comment):
 // quality=85 (Cloudflare's default — 82 read visibly worse on DPR-1 monitors),
 // onerror=redirect so a failed transform serves the original, and no
 // double-wrapping so passing an already-transformed URL through is a no-op.
+
+test("normalized videos keep their motion endpoint on local and public hosts", () => {
+  const ref = `/cdn/key/${Buffer.from("worlds/one/thumbnail/a.motion.anim.image").toString("base64url")}`;
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+  try {
+    for (const origin of ["http://localhost:5173", "https://yumina.io"]) {
+      Object.defineProperty(globalThis, "window", {configurable:true,value:{location:{origin}}});
+      assert.equal(isMotionCoverRef(ref), true);
+      assert.equal(coverPreviewUrl(ref), `${origin}${ref}/cover-preview`);
+    }
+    assert.equal(isMotionCoverRef("worlds/one/still.image"), false);
+    assert.equal(isMotionCoverRef("worlds/one/alpha.normalized.anim.image"), false);
+  } finally { if (descriptor) Object.defineProperty(globalThis,"window",descriptor); else Reflect.deleteProperty(globalThis,"window"); }
+});
 
 test("cardImageUrl builds a transform URL at quality=85", () => {
   assert.equal(

@@ -68,22 +68,27 @@
       "description": "永久刪除你的賬戶及相關資料。",
       "button": "註銷賬戶",
       "dialogTitle": "確定要永久註銷賬戶嗎？",
-      "dialogDescription": "在你透過電郵確認前，賬戶仍會保持有效。刪除後可以立即使用同一電郵重新註冊，但新賬戶要到本次刪除滿 3 天後才能再次註銷。",
+      "dialogDescription": "我們會寄送確認郵件。在你透過郵件確認前，帳戶仍可正常使用。",
       "warningTitle": "此操作無法撤銷",
+      "summaryWarnings": {
+        "data": "帳戶、創作內容、聊天記錄及上傳檔案將永久刪除。",
+        "billing": "訂閱立即終止，剩餘時長和蘑菇幣不退款。",
+        "deletionCooldown": "可立即重新註冊，但須等本次刪除滿 3 天才能再次註銷。"
+      },
       "warnings": {
         "identity": "你的個人資料及所有已連結的登入方式都會被刪除。",
         "deletionCooldown": "刪除後可以立即使用同一電郵重新註冊，包括透過 Google 或 Discord 註冊；但新賬戶在本次刪除後的 3 天內不能再次註銷。",
         "content": "你的世界、合集、已發佈內容、遊玩記錄、訊息、角色設定和上載檔案都會被刪除。",
         "community": "其他玩家可能會失去與你所創作內容相關的遊玩記錄、評價或回覆。",
-        "billing": "任何有效訂閱都會立即終止；剩餘訂閱時間和 Mushies 不予退款。",
+        "billing": "任何有效訂閱都會立即終止；剩餘訂閱時間和蘑菇幣不予退款。",
         "records": "付款處理商可能會按法律、會計或防詐騙要求保留帳單及身份記錄，但這些記錄將不再連結至有效的 Yumina 帳戶。",
         "antiAbuse": "為防止濫用及維持服務運作，我們可能在必要期限內保留化名化的安全日誌及有限分析資料。",
         "cache": "已儲存的上傳檔案會被刪除，但瀏覽器或內容傳遞網路中的既有快取可能在原快取期限屆滿前仍然可見。"
       },
-      "pendingEarnings": "如果仍有待結算的創作者收入，賬戶將無法註銷。遇到這種情況請聯絡客服。",
+      "pendingEarnings": "有待結算的創作者收入時無法註銷，請聯絡客服。",
       "confirmLabel": "請輸入 {{target}} 以確認",
       "confirmPlaceholder": "輸入 {{target}}",
-      "acknowledge": "我明白此操作會永久刪除我的賬戶和資料。刪除後可以立即重新註冊，但新賬戶在本次刪除後的 3 天內不能再次註銷。",
+      "acknowledge": "我明白帳戶及資料將被永久刪除，無法恢復。",
       "sendEmail": "傳送確認電郵",
       "sending": "正在傳送...",
       "cancel": "保留我的賬戶",
@@ -100,16 +105,41 @@
       "errors": {
         "confirmationMismatch": "確認文字與目前賬戶不一致。",
         "pendingEarnings": "仍有創作者收入等待結算，請聯絡客服後再註銷賬戶。",
-        "billing": "無法安全取消你的訂閱，請稍後再試或聯絡客服。",
+        "billing": "支付服務未能取消訂閱，註銷已停止。請稍後重試；若持續失敗，請聯絡客服核對訂閱狀態。",
         "creatorAccount": "無法關閉你的創作者收款賬戶，請聯絡客服後再註銷。",
         "notReady": "賬戶註銷功能正在準備中，請幾分鐘後再試。",
         "cooldown": "這個電郵對應的上一個賬戶註銷還未滿 3 天。你可以繼續使用目前賬戶，但暫時不能再次註銷。",
+        "cooldownUntil": "這個電郵的上一個賬戶註銷還不到 3 天，所以目前賬戶要到 {{time}} 之後才能註銷。這不是鎖號，賬戶可以照常使用。",
         "lastAdmin": "最後一個管理員賬戶不能註銷，請先將另一名可信用戶設為管理員。",
         "referral": "有邀請記錄的賬戶需要由客服協助註銷，以防獎勵被重複領取。",
         "protectedHistory": "此帳戶存在有效的安全限制，請聯絡客服協助註銷。",
         "email": "無法傳送確認郵件，請稍後再試。",
         "invalidLink": "此註銷連結無效或已過期，請在賬戶設定中重新申請。",
-        "generic": "暫時無法發起賬戶註銷，請稍後再試。"
+        "generic": "暫時無法發起賬戶註銷，請稍後再試。",
+        "privileged": "特權賬戶必須先轉移管理職責才能註銷，請聯絡客服。",
+        "billingUnavailable": "帳戶有關聯的支付紀錄，但目前服務尚未設定支付清理功能。請聯絡客服恢復設定後再完成註銷。這不代表你正在付費訂閱或已完成收款綁定。",
+        "subscriptionLookup": "暫時無法向支付服務核實訂閱狀態。註銷已停止，請稍後重試或聯絡客服。",
+        "paymentPending": "有一筆付款仍在等待結算。請等待付款完成或失敗後重試；長時間未結束請聯絡客服。",
+        "signIn": "登入已過期，請重新登入後再試。",
+        "origin": "目前頁面未通過安全來源檢查。請從本站設定頁重新開啟註銷操作。",
+        "request": "確認請求格式無效，請重新整理頁面後重試。"
+      },
+      "preflight": {
+        "title": "完成註銷前需要處理的問題",
+        "loading": "正在檢查註銷條件…",
+        "failed": "暫時無法檢查註銷條件，請重試。檢查完成前不能繼續。",
+        "retry": "重新檢查",
+        "emailAllowed": "這些問題會阻止最終註銷，但你仍可接收確認郵件。傳送郵件不會刪除帳戶或取消訂閱。",
+        "emailBlocked": "請先處理以上問題，再傳送確認郵件。帳戶仍可正常使用。",
+        "scope": "這裡列出目前已偵測到的問題。最終確認時還會重新檢查，包括支付服務中的訂閱和付款狀態。",
+        "records": "偵測到的關聯紀錄：{{records}}。這些紀錄本身不表示有有效訂閱或已完成收款設定。",
+        "recordKinds": {
+          "customer": "支付客戶紀錄",
+          "subscription": "訂閱紀錄",
+          "connect": "創作者收款紀錄",
+          "payment": "付款紀錄",
+          "checkout": "結帳紀錄"
+        }
       }
     },
     "connectedAccounts": {
@@ -126,6 +156,25 @@
       "disconnected": "已斷開",
       "connectError": "連線失敗",
       "disconnectError": "斷開失敗"
+    },
+    "connectedApps": {
+      "title": "已連結的應用",
+      "description": "用你的 Yumina 帳號登入過的遊戲模組、應用和 AI。中斷後，它們立刻不能再使用你的帳號。",
+      "loading": "載入中…",
+      "loadError": "載入失敗，請重新整理再試。",
+      "empty": "還沒有連結任何應用。",
+      "verified": "官方",
+      "connectedOn": "{{date}} 連結",
+      "disconnect": "中斷",
+      "disconnecting": "正在中斷…",
+      "disconnectError": "沒有中斷成功，請再試一次。",
+      "scope": {
+        "aiChat": "用你的蘑菇幣對話",
+        "walletRead": "查看餘額",
+        "quests": "任務",
+        "cards": "讀寫你的卡",
+        "profile": "暱稱"
+      }
     },
     "validation": {
       "usernameMinLength": "使用者名稱至少需要 3 個字元",
@@ -149,7 +198,7 @@
     },
     "sensitive": {
       "label": "無限制",
-      "description": "沒有內容限制"
+      "description": "沒有內容限制。模型還是不肯寫的話，可以去提示詞廣場裝「解除限制」。"
     },
     "minorRestriction": "此帳號無法使用「無限制」模式。",
     "audiencePreference": {
@@ -169,8 +218,8 @@
       }
     },
     "blurSensitive": {
-      "title": "模糊不受內容限制的媒體",
-      "description": "在發現頁中，將「無限制」模式下內容的縮圖顯示為模糊狀態。"
+      "title": "模糊敏感封面",
+      "description": "敏感封面預設以朦朧效果隱藏，點擊後僅顯示目前封面。關閉此選項可顯示所有封面，不會更改內容模式。"
     }
   },
   "privacy": {
@@ -247,12 +296,13 @@
     }
   },
   "display": {
-    "experimental": {
-      "title": "實驗性功能",
-      "turnImages": {
-        "title": "劇情插圖",
-        "description": "實驗性功能：給回覆配插圖。前 5 張免費，之後每張 12 蘑菇幣。"
-      }
+    "turnImages": {
+      "title": "劇情插圖",
+      "description": "回覆下方會有「畫出這一幕」按鈕。",
+      "auto": "每則回覆自動畫插圖",
+      "free": "還能免費畫 {{count}} 張，之後每張 {{price}} 蘑菇幣",
+      "price": "每張 {{price}} 蘑菇幣",
+      "unlimited": "包含在你的方案裡"
     },
     "title": "顯示",
     "language": {
@@ -355,6 +405,10 @@
     "sendKey": {
       "title": "按 Enter 傳送",
       "description": "開啟後，Enter 傳送訊息，Shift+Enter 換行；關閉後，Ctrl/⌘+Enter 傳送，Enter 換行。此設定會儲存到本裝置。"
+    },
+    "sceneVideo": {
+      "title": "影遊（實驗性）",
+      "description": "打開後，遊玩頁的選單和帶影片螢幕的卡裡會出現影遊。兩種看法：即時拍、跟著劇情走（約每分鐘 5,800 蘑菇幣）；或每則回覆拍成一部帶配音的短片，寫完幾分鐘後出片（每則約 100–1,400 蘑菇幣）。"
     }
   },
   "wallpaper": {

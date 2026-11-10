@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { mediaRequest, SessionMediaError, type MediaLibrary, type MediaDetail, type MediaReference } from "@/lib/session-media";
 import { LibraryAssetsTab } from "./library-assets-tab";
 const button = "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm transition-colors hover:bg-accent disabled:opacity-40";
-const select = "min-h-10 max-w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground";
+const select = "min-h-10 max-w-full rounded-lg border border-primary/20 bg-primary/[0.025] px-3 py-2 text-sm text-foreground transition-colors hover:border-primary/30 hover:bg-primary/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary [&_option]:bg-card [&_option]:text-foreground";
 const size = (bytes: number) => bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 export function LibraryResourcesTab(props: {
     highlightedAssetId?: string;
@@ -18,7 +18,7 @@ export function LibraryResourcesTab(props: {
     useEffect(() => { if (props.highlightedAssetId)
         setSection("assets"); }, [props.highlightedAssetId]);
     const nav = <div className="flex flex-wrap gap-2" role="group" aria-label={t("tabs.assets")}>
-    {(["assets", "media"] as const).map(key => <button key={key} onClick={() => setSection(key)} aria-pressed={section === key} className={`${button} ${section === key ? "!border-primary/50 !bg-primary/10 !text-primary" : "text-muted-foreground"}`}>
+    {(["assets", "media"] as const).map(key => <button key={key} onClick={() => setSection(key)} aria-pressed={section === key} className={`inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-primary/50 bg-primary/10 px-3 py-2 text-sm text-primary transition-colors hover:border-primary hover:bg-primary/15 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${section === key ? "font-medium" : ""}`}>
       {key === "assets" ? <Folder size={16}/> : <Images size={16}/>}{key === "assets" ? t("media.assets", "Creative assets") : t("media.title", "Save images")}</button>)}
   </div>;
     return section === "assets" ? <LibraryAssetsTab {...props} resourceNav={nav}/> : <LibrarySessionMedia key={session?.user.id ?? "guest"} resourceNav={nav}/>;

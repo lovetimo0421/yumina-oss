@@ -9,6 +9,8 @@ import { eq, sql, and, isNull, or } from "drizzle-orm";
 import { getModelPrice } from "./model-price-cache.js";
 import type { PlanId } from "./plan-config.js";
 import { PLANS, planMeetsMinimum, normalizePlan, STRIPE_PRICE_TO_PLAN } from "./plan-config.js";
+// LedgerDatabase: generation's refund path passes its own transaction so the
+// at-most-once `refunded` guard and the payout commit together.
 import { insertHashedTransaction, type LedgerDatabase } from "./transaction-hash.js";
 import { env } from "./env.js";
 import { withTimeout } from "./with-timeout.js";
@@ -25,7 +27,7 @@ import {
 import { bonusCompatibilityEnabled, cyclePlanConfig, expireWalletBonus, prepareWalletSpend, recordSpendAllocation, recordCyclePolicy } from "./free-credit-policy.js";
 import { isV2Signup, shouldMigrateToV2 } from "./plan-config-v2.js";
 import { hasDropWork, initialDropAmount, releaseDueDrops, settleUndeliveredDrops, startDropCycle } from "./plan-drops.js";
-import { getAvailableCredits, heldCreditsForWallet, studioCreditReservationsEnabled } from "./credit-reservations.js";
+import { getAvailableCredits, heldCreditsForWallet, creditHoldProtectionEnabled, protectedCreditsForWallet } from "./credit-reservations.js";
 import { FREE_CREDIT_CYCLE_MS, globalCreditResetAtOrAfter, isFreeCreditCycle } from "./credit-reset-time.js";
 
 // ─── Types ──────────────────────────────────────────────────────────
@@ -452,7 +454,7 @@ export async function checkBalance(userId: string): Promise<{
         .where(eq(creditWallets.userId, userId));
       wallet = await syncPlan(userId, "free");
       const effectiveWallet = await withEffectiveEventPlan(wallet);
-      const balance = studioCreditReservationsEnabled() ? (await getAvailableCredits(userId)).availableCredits : effectiveWallet.balance;
+      const balance = creditHoldProtectionEnabled() ? (await getAvailableCredits(userId)).availableCredits : effectiveWallet.balance;
       return { ok: balance > 0, balance, wallet: effectiveWallet };
     }
   }
@@ -492,7 +494,7 @@ export async function checkBalance(userId: string): Promise<{
   // After a long absence the current cycle can already be past a later drop.
   if (await hasDropWork(refreshed) && (await releaseDueDrops(userId)).length > 0) refreshed = await ensureWallet(userId);
   const effectiveWallet = await withEffectiveEventPlan(refreshed);
-  const balance = studioCreditReservationsEnabled() ? (await getAvailableCredits(userId)).availableCredits : effectiveWallet.balance;
+  const balance = creditHoldProtectionEnabled() ? (await getAvailableCredits(userId)).availableCredits : effectiveWallet.balance;
   return { ok: balance > 0, balance, wallet: effectiveWallet };
 }
 
@@ -502,8 +504,11 @@ export async function checkBalance(userId: string): Promise<{
 export async function validateModelAccess(
   plan: PlanId,
   modelId: string,
+  admissionPrice?: import("./model-price-cache.js").ModelPriceEntry,
 ): Promise<{ allowed: boolean; reason?: string }> {
-  const price = await getModelPrice(modelId);
+  // Native admission supplies the exact locked catalog row, avoiding stale
+  // cache fallback and a global query escaping its owning transaction.
+  const price = admissionPrice?.modelId === modelId ? admissionPrice : await getModelPrice(modelId);
   if (!price) {
     return {
       allowed: false,
@@ -567,7 +572,7 @@ export async function getModelCostRates(
  * credit purchases means even a 2x over-estimate on aborts still
  * leaves positive margin.
  */
-const CONSERVATIVE_CHARS_PER_TOKEN = 2.0;
+export const CONSERVATIVE_CHARS_PER_TOKEN = 2.0;
 
 /** Estimate token count from character count (conservative — never under-counts). */
 export function estimateTokensFromChars(chars: number): number {
@@ -596,12 +601,17 @@ export function estimateCreditsFromChars(
  * Handles tiered pricing (e.g., Grok models charge 2x above context threshold).
  * Returns credits rounded up to 1 decimal place.
  */
+/** Studio agent platform fee. Chat models carry their own markup_multiplier
+ * (flat 1.20 since 2026-09-14); Studio turns are charged 1.10 instead. */
+export const STUDIO_AGENT_MARKUP = 1.1;
+
 export async function calculateCost(
   modelId: string,
   promptTokens: number,
   completionTokens: number,
   opts?: {
-    skipMarkup?: boolean;
+    /** Replaces the model's own markup_multiplier (e.g. STUDIO_AGENT_MARKUP). */
+    markup?: number;
     /** Actual USD-denominated account charge returned as OpenRouter `usage.cost`. */
     providerCostUsd?: number;
   },
@@ -609,7 +619,7 @@ export async function calculateCost(
   const price = await getModelPrice(modelId);
   const providerCostUsd = normalizeProviderCostUsd(opts?.providerCostUsd);
   if (providerCostUsd !== undefined) {
-    const markup = opts?.skipMarkup ? 1.0 : (price?.markupMultiplier ?? 1.0);
+    const markup = opts?.markup ?? price?.markupMultiplier ?? 1.0;
     return providerCostUsdToCredits(providerCostUsd, markup);
   }
 
@@ -629,11 +639,48 @@ export async function calculateCost(
   }
 
   const rawCostDollars = (promptTokens * inputPrice + completionTokens * outputPrice) / 1_000_000;
-  const markup = opts?.skipMarkup ? 1.0 : (price.markupMultiplier ?? 1.0);
+  const markup = opts?.markup ?? price.markupMultiplier ?? 1.0;
   return providerCostUsdToCredits(rawCostDollars, markup);
 }
 
 // ─── Credit Deduction ───────────────────────────────────────────────
+
+function insufficientCreditsBalance(err: unknown): number | null {
+  if (!(err instanceof Error) || err.message !== "INSUFFICIENT_CREDITS") return null;
+  const balance = (err as { balance?: unknown }).balance;
+  return typeof balance === "number" ? balance : null;
+}
+
+/**
+ * Charge for a generation that already happened. When the unreserved balance
+ * can't cover the full cost, charge what is left instead, so the wallet reaches
+ * 0 and the next preflight stops the player. Swallowing the failure would hand
+ * out the reply for free and leave the wallet positive for the next one.
+ * Retries with the balance from each failure, since a concurrent charge can
+ * shrink it between attempts. Returns null when nothing was left to charge.
+ */
+export async function deductCreditsUpToBalance(
+  userId: string,
+  credits: number,
+  referenceId: string,
+  description: string,
+): Promise<DeductionResult | null> {
+  try {
+    return await deductCredits(userId, credits, referenceId, description);
+  } catch (err) {
+    let remaining = insufficientCreditsBalance(err);
+    if (remaining === null) throw err;
+    for (let attempt = 0; attempt < 3 && remaining > 0; attempt++) {
+      try {
+        return await deductCredits(userId, remaining, referenceId, `${description} (clamped to balance)`);
+      } catch (clampErr) {
+        remaining = insufficientCreditsBalance(clampErr);
+        if (remaining === null) throw clampErr;
+      }
+    }
+    return null;
+  }
+}
 
 /**
  * Atomically deduct credits from the user's wallet.
@@ -677,7 +724,7 @@ export async function deductCredits(
     if (!locked) throw new Error("INSUFFICIENT_CREDITS");
     const [prior] = await tx.select().from(creditTransactions).where(and(eq(creditTransactions.walletId,locked.id),eq(creditTransactions.referenceId,referenceId),eq(creditTransactions.type,transactionType))).limit(1);
     if (prior) return { creditsDeducted: -prior.amount, newBalance: locked.balance, newAddonBalance: locked.addonBalance, transactionId: prior.id };
-    const held = studioCreditReservationsEnabled() ? await heldCreditsForWallet(locked.id, tx) : 0;
+    const held = creditHoldProtectionEnabled() ? await protectedCreditsForWallet(locked.id, tx) : 0;
     if (locked.balance - held < credits) throw Object.assign(new Error("INSUFFICIENT_CREDITS"), {
       userId, credits, referenceId, balance: Math.max(0, locked.balance - held),
     });
@@ -725,6 +772,11 @@ export async function deductCredits(
   });
 }
 
+/**
+ * Return previously deducted credits to the wallet (e.g. a failed generation
+ * job). Callers are responsible for at-most-once semantics — guard with a
+ * `refunded` flag on the referenced row before calling.
+ */
 export async function refundCredits(
   userId: string,
   credits: number,
@@ -766,6 +818,7 @@ export async function refundCredits(
     }, tx);
   };
   // Already inside a caller's transaction — reuse it rather than nesting.
+  // Same reason as deductCredits: ask what the handle is, not which one it is.
   if (isTransaction(database)) return run(database);
   await database.transaction(run);
 }
@@ -1096,7 +1149,7 @@ export async function syncPlan(
   const periodChanged = locked.periodStart.getTime() !== periodStart.getTime();
   if (isV2 && (!additive || cycleReset || periodChanged)) await startDropCycle(tx, wallet.id, periodStart);
   const description = additive
-    ? `Upgrade to ${newPlan} — +${grantAmount} mushies${cycleReset ? " (new billing cycle)" : grantFraction < 1 ? " (prorated for remaining cycle)" : ""}${isV2 ? " (drop 1)" : ""}`
+    ? `${cycleReset && normalizePlan(locked.plan) === newPlan ? `Early ${newPlan} renewal` : `Upgrade to ${newPlan}`} — +${grantAmount} mushies${cycleReset ? " (new billing cycle)" : grantFraction < 1 ? " (prorated for remaining cycle)" : ""}${isV2 ? " (drop 1)" : ""}`
     : isV2 ? `${newPlan} plan — ${cycleGrant} of ${config.monthlyCredits} monthly mushies (drop 1)${migrate ? " — moved to the 2026-09 lineup" : ""}` : `${newPlan} plan — ${config.monthlyCredits} monthly mushies`;
 
   // A zero-amount additive grant (delta-only admin flip to the same or a lower
@@ -1134,6 +1187,80 @@ export async function syncPlan(
     periodEnd,
   };
   });
+}
+
+const WECHAT_MONTH_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** Is the wallet still inside a paid plan's cycle (a WeChat month, a gift, a card sub)? */
+export function paidCycleActive(
+  wallet: Pick<CreditWallet, "plan" | "periodEnd" | "planExpiresAt">,
+  now: Date = new Date(),
+): boolean {
+  if (normalizePlan(wallet.plan) === "free") return false;
+  if (wallet.periodEnd.getTime() <= now.getTime()) return false;
+  return !wallet.planExpiresAt || wallet.planExpiresAt.getTime() > now.getTime();
+}
+
+/**
+ * The tier a membership purchase of `target` would cut short, or null.
+ *
+ * A WeChat month or a gift plan has no Stripe subscription to schedule a
+ * downgrade on: a purchase replaces the wallet's plan on the spot. Buying a
+ * LOWER tier mid-cycle therefore threw the rest of the higher one away — its
+ * remaining days and its undelivered drops (2026-10-14: WeChat Platinum →
+ * Gold, 6,800 mushies gone). Lower tiers stay closed until the current one
+ * ends; more mushies come from packs.
+ */
+export function higherPlanStillActive(
+  wallet: Pick<CreditWallet, "plan" | "periodEnd" | "planExpiresAt">,
+  target: PlanId,
+  now: Date = new Date(),
+): PlanId | null {
+  const current = normalizePlan(wallet.plan);
+  if (!paidCycleActive(wallet, now) || planMeetsMinimum(target, current)) return null;
+  return current;
+}
+
+/**
+ * Book one paid WeChat month (a one-time payment, no subscription).
+ *
+ * An early same-plan renewal (the plans page allows it within 14 days of
+ * expiry) restarts the cycle NOW and keeps the days already paid for:
+ * periodEnd = old periodEnd + 30 days, every mushie held stays, and a
+ * version-2 wallet's undelivered drops are paid out first — the same rules as
+ * a cycle-reset upgrade (owner 2026-10-04). It used to start the new cycle at
+ * the old periodEnd, which put periodStart in the future while drop 1 landed
+ * today: the forge counted burn from a date that had not come yet, the quest
+ * cycle never turned over, and drops 2/3 slipped by the stacked days.
+ */
+export async function fulfillWechatPlanPurchase(
+  userId: string,
+  plan: PlanId,
+  referenceId: string,
+  now: Date = new Date(),
+): Promise<"early_renewal" | "renewal" | "plan_change"> {
+  const wallet = await ensureWallet(userId);
+  const isSamePlan = wallet.plan === plan && wallet.subscriptionSource === "wechat";
+  if (isSamePlan && wallet.periodEnd > now) {
+    await syncPlan(userId, plan, {
+      additive: true, cycleReset: true, source: "wechat", referenceId,
+      periodStart: now, periodEnd: new Date(wallet.periodEnd.getTime() + WECHAT_MONTH_MS),
+    });
+    return "early_renewal";
+  }
+  const periodEnd = new Date(now.getTime() + WECHAT_MONTH_MS);
+  if (isSamePlan) {
+    await refreshMonthlyCredits(userId, { periodStart: now, periodEnd, referenceId }, { now });
+    return "renewal";
+  }
+  // A switch inside a paid cycle restarts it like a card upgrade does: the
+  // plan being left pays out its undelivered drops first. Without the reset the
+  // new cycle silently dropped them (and the checkout guard keeps lower tiers
+  // closed; this also covers a session opened before that guard).
+  await syncPlan(userId, plan, {
+    additive: true, cycleReset: paidCycleActive(wallet, now), periodStart: now, periodEnd, referenceId, source: "wechat",
+  });
+  return "plan_change";
 }
 
 // ─── Pending Plan Management ────────────────────────────────────────

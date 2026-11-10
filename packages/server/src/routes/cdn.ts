@@ -2,10 +2,12 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { sql } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { isS3Configured, getObject } from "../lib/s3.js";
+import { isS3Configured, getObject, getObjectBufferLimited, headObject, putObject, deleteObject } from "../lib/s3.js";
 import { Readable } from "node:stream";
 import { publicAssetCacheControl } from "../lib/public-asset-cache.js";
 import { isPublicCdnKey, resolvePublicCdnKey } from "../lib/cdn-key-policy.js";
+import { createCoverPreviewService } from "../lib/cover-preview.js";
+import { readObjectBodyLimited } from "../lib/read-object-limited.js";
 
 // In-memory LRU cache: assetId → s3Key
 // Assets are immutable, so the mapping never changes.
@@ -32,6 +34,40 @@ function setCachedS3Key(assetId: string, s3Key: string): void {
 }
 
 const cdnRoutes = new Hono();
+const coverPreviews = createCoverPreviewService({
+  head: headObject,
+  write: putObject,
+  remove: deleteObject,
+  read: async (key, limit, headerOnly) => {
+    if (!headerOnly) return getObjectBufferLimited(key, limit);
+    const object = await getObject(key, { range: `bytes=0-${limit - 1}`, signal: AbortSignal.timeout(15_000) });
+    return readObjectBodyLimited(object.body as AsyncIterable<Uint8Array> & { destroy?: () => void }, object.contentLength, limit);
+  },
+});
+
+async function coverPreview(c: Context, key: string | null, video: boolean): Promise<Response> {
+  if (!key || !isPublicCdnKey(key)) return c.json({ error: "Asset not found" }, 404);
+  applyCdnCors(c);
+  c.header("Cache-Control", "no-store");
+  try {
+    const preview = await coverPreviews.get(key);
+    if (!video) return c.json({ kind: preview.kind });
+    if (preview.kind !== "video" || !preview.key) return c.json({ error: "Preview not ready" }, 404);
+    return streamS3Object(c, preview.key, "Cover preview stream error:");
+  } catch {
+    return c.json({ error: "Asset not found" }, 404);
+  }
+}
+
+function decodedPublicKey(value: string): string | null {
+  const key = Buffer.from(value, "base64url").toString("utf-8");
+  return value.length <= 4096 && isPublicCdnKey(key) ? key : null;
+}
+
+cdnRoutes.get("/key/:encodedKey/cover-preview", c => coverPreview(c, decodedPublicKey(c.req.param("encodedKey")), false));
+cdnRoutes.get("/key/:encodedKey/cover-preview.mp4", c => coverPreview(c, decodedPublicKey(c.req.param("encodedKey")), true));
+cdnRoutes.get("/:assetId/cover-preview", async c => coverPreview(c, await assetKey(c.req.param("assetId")), false));
+cdnRoutes.get("/:assetId/cover-preview.mp4", async c => coverPreview(c, await assetKey(c.req.param("assetId")), true));
 
 // Allowed S3 key prefixes (defense-in-depth against arbitrary key access)
 
@@ -124,6 +160,7 @@ export async function streamS3Object(
   s3Key: string,
   errorLogPrefix: string,
   readObject: typeof getObject = getObject,
+  options: { preserveBytes?: boolean } = {},
 ): Promise<Response> {
   const range = c.req.header("range");
   try {
@@ -153,7 +190,10 @@ export async function streamS3Object(
     // long-lived response would then be cached under that URL for everyone.
     // Doing it safely means a Cloudflare-side rule (strip inbound Via, or set a
     // secret header), so it stays out of this change.
-    c.header("Cache-Control", publicAssetCacheControl(s3Key));
+    // Material data (normal/roughness maps) must not be recompressed by an
+    // intermediary. The explicit original route keeps the same deletion-aware TTL.
+    const cacheControl = publicAssetCacheControl(s3Key);
+    c.header("Cache-Control", options.preserveBytes ? `${cacheControl}, no-transform` : cacheControl);
     c.header("X-Content-Type-Options", "nosniff");
     c.header("Accept-Ranges", "bytes");
     if (etag) c.header("ETag", etag);
@@ -183,20 +223,31 @@ export async function streamS3Object(
 
 // GET /cdn/:assetId — public, permanent URL for any asset
 // No auth required — UUID is unguessable. CDN-friendly cache headers.
-cdnRoutes.get("/:assetId", async (c) => {
+async function serveAssetById(c: Context, assetId: string, preserveBytes = false): Promise<Response> {
   if (!isS3Configured()) {
     return c.json({ error: "Asset storage not configured" }, 503);
   }
 
-  const assetId = c.req.param("assetId");
+  const s3Key = await assetKey(assetId);
 
-  // Check in-memory cache first
-  const s3Key = await resolvePublicCdnKey(getCachedS3Key(assetId) ?? null, async () => {
-    // Single query across both tables
+  if (!s3Key || !isPublicCdnKey(s3Key)) {
+    return c.json({ error: "Asset not found" }, 404);
+  }
+
+  return streamS3Object(c, s3Key, "CDN proxy error:", getObject, { preserveBytes });
+}
+
+async function assetKey(assetId: string): Promise<string | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(assetId)) return null;
+  return resolvePublicCdnKey(getCachedS3Key(assetId) ?? null, async () => {
+    // Single query across the asset tables; a deleted library file that saved
+    // versions still reference keeps serving from retention.
     const result = await db.execute(sql`
       SELECT url FROM assets WHERE id = ${assetId}
       UNION ALL
       SELECT url FROM user_assets WHERE id = ${assetId}
+      UNION ALL
+      SELECT url FROM retained_user_asset_files WHERE asset_id = ${assetId}
       LIMIT 1
     `);
 
@@ -204,11 +255,11 @@ cdnRoutes.get("/:assetId", async (c) => {
     return rows[0]?.url ?? null;
   }, (key) => setCachedS3Key(assetId, key));
 
-  if (!s3Key || !isPublicCdnKey(s3Key)) {
-    return c.json({ error: "Asset not found" }, 404);
-  }
+}
 
-  return streamS3Object(c, s3Key, "CDN proxy error:");
-});
+cdnRoutes.get("/:assetId", (c) => serveAssetById(c, c.req.param("assetId")));
+// A distinct path keeps original bytes separate from previously optimized cache
+// entries, including installations whose cache key ignores query parameters.
+cdnRoutes.get("/:assetId/original", (c) => serveAssetById(c, c.req.param("assetId"), true));
 
 export { cdnRoutes };

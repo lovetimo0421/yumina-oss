@@ -24,6 +24,8 @@
  * belongs to the caller to detect and report, not to this function.
  */
 
+import type { StoryMemoryResolution } from "./story-memory.js";
+
 /** Never hand the matcher a negative budget. */
 const MIN_LOREBOOK_BUDGET = 0;
 
@@ -41,7 +43,7 @@ export interface LorebookBudgetInput {
    * plan it resolves to 64,000, the budget computes to zero, and every
    * triggered entry is dropped. Only a deliberate number reserves room.
    */
-  storyMemorySource: "chosen" | "new-account-default" | "carried-over";
+  storyMemorySource: StoryMemoryResolution["source"];
   /** World setting, percent of the window. Defaults to all of it. */
   budgetPercent?: number;
   /** World setting, absolute ceiling. 0 or absent = none. */

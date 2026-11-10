@@ -1,10 +1,15 @@
 import { sql } from "drizzle-orm";
+import { nativeGameIdFromPath, nativeGamePlaytimeQuery } from "./native-game-playtime-query.js";
 
 /** Current recorded playtime for the same language family as the comment feed.
  * Aggregate once per author, regardless of how many comments they have posted.
  * Preview sessions are not public playtime. No message contents are read.
  */
-export function reviewPlaytimeQuery(worldId: string, userIds: string[]) {
+export function reviewPlaytimeQuery(worldId: string, userIds: string[], gamePath?: string | null) {
+  const gameId = nativeGameIdFromPath(gamePath);
+  if (gameId) {
+    return sql`SELECT user_id,seconds FROM (${nativeGamePlaytimeQuery(sql`${gameId}`,userIds)}) native_time`;
+  }
   return sql`
     SELECT ps.user_id, SUM(GREATEST(ps.playtime_seconds, 0))::double precision AS seconds
     FROM play_sessions ps

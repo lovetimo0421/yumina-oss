@@ -1,29 +1,39 @@
+import { createHash } from "node:crypto";
 import { bodyLimit } from "hono/body-limit";
+import { decisionRoutes } from "./decisions.js";
 import { normalizeImageCompletion, imagePromptChars } from "../lib/chat-images.js";
 import { assertImageModel } from "../lib/llm/image-capability.js";
 import { turnNeedsVision } from "../lib/llm/fallback-models.js";
 import type { ImageCompletionMessage } from "@yumina/shared";
 import { recordWallHit } from "../lib/wall-events.js";
 import { usageObservation } from "../lib/usage-observation.js";
+import { buildSessionCompletionMessages, resolveSessionCompletionSettings, sessionCompletionSettingsSchema } from "../lib/completion-session-context.js";
 /**
  * Raw LLM completions endpoint — lightweight proxy for side calls from custom UI.
  *
- * Skips: PromptBuilder, ResponseParser, state effects, message persistence.
+ * Opt-in context:'session' shares narrative prompt assembly and preferences.
+ * Always skips: ResponseParser, state effects, message persistence.
  * Reuses: auth, provider resolution, credit check, rate limiting.
  *
  * POST /api/sessions/:sessionId/completions
  */
 
-import { RETIRED_PLAY_MODEL_IDS } from "@yumina/shared";
+import { RETIRED_PLAY_MODEL_IDS, parseCompletionResponseFormat, type CompletionResponseFormat } from "@yumina/shared";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { eq, and } from "drizzle-orm";
 import { db } from "../db/index.js";
-import { playSessions, worlds } from "../db/schema.js";
+import { playSessions, worlds, worldPendingEdits } from "../db/schema.js";
+import { viewerSeesWorkingCopy } from "../lib/working-copy.js";
 import { recordUsageLog } from "../lib/usage-log.js";
+import { bumpWorldMessageCount } from "../lib/world-message-counter.js";
 import { registerStream } from "../lib/stream-registry.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { resolveProviderForModel } from "../lib/resolve-provider.js";
+import { classifyGenerationFailure } from "../lib/turn-failure-codes.js";
+import { planFallbackModel } from "../lib/plan-model-gate.js";
+import { loadPlayerAiConfig } from "../lib/player-ai-config.js";
+import { DEFAULT_STORY_SUMMARY_MODEL } from "../lib/session-compaction.js";
 import {
   checkSideCallRateLimit,
   acquireConcurrency,
@@ -32,7 +42,7 @@ import {
 } from "../middleware/rate-limit.js";
 import {
   checkBalance,
-  deductCredits,
+  deductCreditsUpToBalance,
   calculateCost,
   validateModelAccess,
   getModelCostRates,
@@ -40,21 +50,27 @@ import {
   estimateTokensFromChars,
 } from "../lib/credit-service.js";
 import { PLANS } from "../lib/plan-config.js";
-import type { ChatMessage } from "../lib/llm/types.js";
+import type { ChatMessage, GenerateParams } from "../lib/llm/types.js";
 import { captureServerEvent } from "../lib/analytics.js";
 import type { AppEnv } from "../lib/types.js";
 import {
+  AUTHOR_SAMPLING_LIMITS,
+  clampToRange,
   LorebookMatcher,
+  estimateTokens,
   filterEntriesByActiveWorldbooks,
   migrateWorldDefinition,
   type WorldDefinition,
   type WorldEntry,
 } from "@yumina/engine";
 import { DEFAULT_MODEL } from "@yumina/shared";
+import { actorContextRoutes } from "./actor-context.js";
 
 const completionRoutes = new Hono<AppEnv>();
 
 completionRoutes.use("/*", authMiddleware);
+completionRoutes.route("/", decisionRoutes);
+completionRoutes.route("/", actorContextRoutes);
 
 const MAX_MESSAGES = 50;
 const MAX_CONTENT_CHARS = 50_000;
@@ -85,9 +101,30 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
     maxTokens?: number;
     temperature?: number;
     includeLorebook?: IncludeLorebookMode;
+    worldbookIds?: import('@yumina/shared').SideCompletionWorldbookIds;
+    context?: 'session';
+    overrides?: import('@yumina/shared').AiGenerationConfig;
+    responseFormat?: unknown;
+    /** "card": the card's code named this model (the parent tells it apart
+     *  from the player's own pick). Only then does a plan miss fall back. */
+    modelSource?: "card";
   }>();
 
   // ── Validate input ──
+  if (body.context !== undefined && body.context !== 'session') {
+    return c.json({ error: 'context must be "session" when provided' }, 400);
+  }
+  if (body.worldbookIds !== undefined && body.context !== 'session') {
+    return c.json({ error: 'worldbookIds requires context: "session"' }, 400);
+  }
+  const sessionSettings = body.context === 'session' ? sessionCompletionSettingsSchema.safeParse(body) : undefined;
+  if (sessionSettings && !sessionSettings.success) {
+    return c.json({ error: 'Invalid session completion settings', details: sessionSettings.error.flatten() }, 400);
+  }
+  let responseFormat: CompletionResponseFormat | undefined;
+  try { responseFormat = parseCompletionResponseFormat(body.responseFormat); }
+  catch (error) { return c.json({ error: error instanceof Error ? error.message : "Invalid responseFormat" }, 400); }
+  const responseFormatChars = responseFormat ? JSON.stringify(responseFormat).length : 0;
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     return c.json({ error: "messages array is required" }, 400);
   }
@@ -97,7 +134,7 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   let providerMessages: ChatMessage[];
   try { providerMessages = await normalizeImageCompletion(body.messages); }
   catch (error) { return c.json({ error: error instanceof Error ? error.message : "Invalid images" }, 400); }
-  const totalChars = providerMessages.reduce((sum, m) => sum + (typeof m.content === "string" ? m.content.length : m.content.reduce((n, p) => n + (p.type === "text" ? p.text.length : 0), 0)), 0);
+  const totalChars = responseFormatChars + providerMessages.reduce((sum, m) => sum + (typeof m.content === "string" ? m.content.length : m.content.reduce((n, p) => n + (p.type === "text" ? p.text.length : 0), 0)), 0);
   if (totalChars > MAX_CONTENT_CHARS) {
     return c.json({ error: `Total content too long (max ${MAX_CONTENT_CHARS.toLocaleString()} chars)` }, 400);
   }
@@ -106,7 +143,9 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   // Pull worldId in the same query so a later includeLorebook resolution
   // doesn't need a second round-trip.
   const [session] = await db
-    .select({ id: playSessions.id, userId: playSessions.userId, worldId: playSessions.worldId })
+    .select({ id: playSessions.id, userId: playSessions.userId, worldId: playSessions.worldId, ephemeral: playSessions.ephemeral,
+      ...(body.context === 'session' ? { state: playSessions.state, sessionPersona: playSessions.sessionPersona, personaLocked: playSessions.personaLocked } : {}),
+    })
     .from(playSessions)
     .where(and(eq(playSessions.id, sessionId), eq(playSessions.userId, currentUser.id)));
 
@@ -130,13 +169,17 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
     .where(eq(worlds.id, session.worldId));
   const isProtectedWorld = worldRow?.allowCustomApi === false && worldRow.creatorId !== currentUser.id;
 
-  const model = body.model ?? DEFAULT_MODEL;
+  let model = body.model ?? DEFAULT_MODEL;
   const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld, allowRetiredForAccessCheck: true });
   if (!resolved) {
     if (isProtectedWorld) {
       return c.json({ error: "This world requires the official Yumina API. Switch to it before playing this world.", code: "PROTECTED_WORLD" }, 403);
     }
     return c.json({ error: "No API key available for this model" }, 400);
+  }
+
+  if (responseFormat?.type === "json_schema" && resolved.providerName !== "openrouter") {
+    return c.json({ error: "This provider does not support JSON Schema side completions.", code: "UNSUPPORTED_RESPONSE_FORMAT" }, 400);
   }
 
   if (!resolved.isByok && RETIRED_PLAY_MODEL_IDS.has(model)) {
@@ -152,17 +195,25 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   // Side calls have NO Sonnet trial. Without a plan gate, a card could fire
   // premium-model side calls that drain a free user's credits (the model the
   // card picks is billed directly). Gate by the fresh wallet plan the same way
-  // the main chat does. Cards should catch MODEL_NOT_ALLOWED and retry with a
-  // cheaper model.
+  // the main chat does. A model the card's code named that the plan can't run
+  // falls back to the player's own chat model (or the default summary model),
+  // the same rule as a card's own AIs. The player's own pick gets MODEL_NOT_ALLOWED.
   let walletBalance = Infinity; // BYOK and unlimited plans are not credit-gated
+  let memoryCap: number | null = null; // the plan's context cap; BYOK is uncapped like chat
   if (!resolved.isByok) {
     const walletCheck = await checkBalance(currentUser.id);
+    memoryCap = walletCheck.wallet.memoryCap;
     if (!walletCheck.ok) {
       return c.json({ error: "Insufficient credits", code: "INSUFFICIENT_CREDITS" }, 402);
     }
     const modelAccess = await validateModelAccess(walletCheck.wallet.plan, model);
     if (!modelAccess.allowed) {
-      return c.json({ error: modelAccess.reason, code: "MODEL_NOT_ALLOWED" }, 403);
+      // The player's own pick is refused, like the chat; a card's pick falls back.
+      const fallback = body.modelSource === "card" ? await planFallbackModel(
+        walletCheck.wallet.plan, (await loadPlayerAiConfig(currentUser.id)).selectedModel, DEFAULT_STORY_SUMMARY_MODEL,
+      ) : null;
+      if (!fallback) return c.json({ error: modelAccess.reason, code: "MODEL_NOT_ALLOWED" }, 403);
+      model = fallback;
     }
     if (!(PLANS[walletCheck.wallet.plan] ?? PLANS.free).unlimited) {
       walletBalance = walletCheck.balance;
@@ -174,10 +225,29 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   // assembled from enabled entries. This mirrors what the main chat's
   // PromptBuilder does, but in stripped-down form (no chat-history depth, no
   // post-history zone) since side calls own their own message list.
-  const lorebookSystem = await resolveLorebookSystemMessage(
+  let generationSettings: Partial<GenerateParams> = {};
+  if (body.context === 'session' && sessionSettings?.success) {
+    const worldDef = await loadWorldDef(session.worldId, currentUser.id);
+    if (!worldDef) return c.json({ error: 'World not found' }, 404);
+    const knownBooks = new Set(worldDef.worldbooks?.map(book => book.id));
+    if (sessionSettings.data.worldbookIds?.some(id => !knownBooks.has(id))) {
+      return c.json({ error: 'worldbookIds must reference existing worldbooks' }, 400);
+    }
+    generationSettings = resolveSessionCompletionSettings(sessionSettings.data, worldDef);
+    providerMessages = await buildSessionCompletionMessages({
+      session: { ...session, state: session.state ?? {}, sessionPersona: session.sessionPersona ?? null, personaLocked: session.personaLocked ?? false },
+      account: currentUser, world: worldDef, model, messages: providerMessages,
+      settings: sessionSettings.data, json: responseFormat?.type === 'json_object', memoryCap,
+    });
+  }
+  const lorebookSystem = body.context === 'session' ? null : await resolveLorebookSystemMessage(
     body.includeLorebook,
     session.worldId,
     providerMessages.map(m => ({ role: m.role, content: typeof m.content === "string" ? m.content : m.content.filter(p => p.type === "text").map(p => p.text).join("\n") })),
+    currentUser.id,
+    memoryCap === null ? Infinity : Math.max(0, memoryCap
+      - Math.min(body.maxTokens ?? DEFAULT_MAX_TOKENS, MAX_MAX_TOKENS)
+      - Math.ceil(imagePromptChars(providerMessages) / 3)),
   );
 
   // ── Build provider messages ──
@@ -205,7 +275,7 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
   // expensive prompt at platform expense. Prompt-only estimate, same semantics
   // as messages.ts / MidStreamTracker.exceedsAtStart().
   if (walletBalance !== Infinity) {
-    const promptChars = imagePromptChars(providerMessages);
+    const promptChars = imagePromptChars(providerMessages) + responseFormatChars;
     const rates = await getModelCostRates(model, estimateTokensFromChars(promptChars));
     if (estimateCreditsFromChars(rates, promptChars, 0) >= walletBalance) {
       recordWallHit({ userId: currentUser.id, balance: walletBalance, model, endpoint: "side-completion", stage: "prompt_too_long" });
@@ -230,7 +300,8 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
 
   // ── Stream ──
   const maxTokens = Math.min(body.maxTokens ?? DEFAULT_MAX_TOKENS, MAX_MAX_TOKENS);
-  const temperature = Math.max(0, Math.min(body.temperature ?? 1.0, 2));
+  // The card's code picks this temperature: an author value, clamped like every other.
+  const temperature = clampToRange(body.temperature ?? 1.0, AUTHOR_SAMPLING_LIMITS.temperature);
   const abortController = new AbortController();
   const abortFromRequest = () => abortController.abort();
   c.req.raw.signal.addEventListener("abort", abortFromRequest, { once: true });
@@ -250,16 +321,25 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
     let providerCostUsd: number | undefined;
     let providerRequestId: string | undefined;
     let streamAborted = false;
+    let generationDone = false;
 
     try {
       for await (const chunk of resolved.provider.generateStream({
-        conversationId: `play:${sessionId}`,
+        // Stateful custom adapters must not share one actor's private context
+        // with another scope or the ordinary chat. JSON avoids delimiter
+        // collisions; sorting gives the same book set one stable identity.
+        conversationId: sessionSettings?.success && sessionSettings.data.worldbookIds !== undefined
+          ? `play:${sessionId}:side-books:${createHash('sha256').update(JSON.stringify([...sessionSettings.data.worldbookIds].sort())).digest('hex')}`
+          : `play:${sessionId}`,
         model,
         messages: providerMessages,
         maxTokens,
         temperature,
+        ...generationSettings,
+        responseFormat,
         signal: abortController.signal,
       })) {
+        if (chunk.type === "error") throw new Error(chunk.content || "Generation failed");
         if (chunk.type === "text") {
           fullContent += chunk.content;
           await stream.writeSSE({
@@ -269,12 +349,14 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
         }
 
         if (chunk.type === "done") {
+          generationDone = true;
           promptTokens = chunk.usage?.promptTokens ?? 0;
           completionTokens = chunk.usage?.completionTokens ?? 0;
           providerCostUsd = chunk.usage?.providerCostUsd;
           providerRequestId = chunk.usage?.providerRequestId;
         }
       }
+      if (!generationDone) throw new Error("Generation ended before completion");
     } catch (err: any) {
       streamAborted = true;
       if (err?.name !== "AbortError") {
@@ -286,9 +368,10 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
           session_id: sessionId,
           endpoint: "completions",
         });
+        const failure = classifyGenerationFailure(err?.message ?? "Generation failed", { isByok: resolved.isByok });
         await stream.writeSSE({
           event: "error",
-          data: JSON.stringify({ error: err?.message ?? "Generation failed" }),
+          data: JSON.stringify({ error: failure.message, code: failure.code ?? undefined }),
         });
       }
     } finally {
@@ -305,11 +388,12 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
         id: usageLogId,
         userId: currentUser.id,
         sessionId,
+        analyticsWorldId: session.worldId,
         model,
         promptTokens,
         completionTokens,
         totalTokens: promptTokens + completionTokens,
-        endpoint: "side-completion",
+        endpoint: fullContent.trim() ? "side-completion" : "side-completion_empty",
         apiKeyTier: resolved.apiKeyTier,
         generationTimeMs: Date.now() - startTime,
       });
@@ -321,7 +405,7 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
             providerCostUsd,
           });
           if (cost > 0) {
-            await deductCredits(
+            await deductCreditsUpToBalance(
               currentUser.id,
               cost,
               usageLogId,
@@ -329,42 +413,19 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
             );
           }
         } catch (err) {
-          const failedBalance = (err instanceof Error && err.message === "INSUFFICIENT_CREDITS")
-            ? (err as any).balance : null;
-          if (typeof failedBalance !== "number" || failedBalance <= 0) {
-            console.error("[Credit] Side completion deduction failed:", err instanceof Error ? err.message : err);
-          } else {
-            // Cost exceeded balance. deductCredits is all-or-nothing, and swallowing
-            // the failure left the wallet positive — checkBalance kept admitting
-            // streams the user could never pay for. Clamp instead: drain the
-            // remaining balance to 0 so the next preflight rejects. Retry with the
-            // balance from each failure, since a concurrent stream's deduction can
-            // shrink it between attempts.
-            let remaining = failedBalance;
-            for (let attempt = 0; attempt < 3 && remaining > 0; attempt++) {
-              try {
-                await deductCredits(
-                  currentUser.id,
-                  remaining,
-                  usageLogId,
-                  `Side LLM call (clamped to balance): ${model} — ${promptTokens + completionTokens} tokens`,
-                );
-                remaining = 0;
-              } catch (clampErr) {
-                const b = (clampErr instanceof Error && clampErr.message === "INSUFFICIENT_CREDITS")
-                  ? (clampErr as any).balance : null;
-                if (typeof b !== "number") {
-                  console.error("[Credit] Side completion clamped deduction failed:", clampErr instanceof Error ? clampErr.message : clampErr);
-                  break;
-                }
-                remaining = b;
-              }
-            }
-          }
+          console.error("[Credit] Side completion deduction failed:", err instanceof Error ? err.message : err);
         }
       }
     }
 
+    // A custom world can advance without a typed message. Count its completed
+    // AI response once using the normal world/source counter, without creating
+    // chat messages or counting internal decision checks and testing sessions.
+    if (!streamAborted && !abortController.signal.aborted && fullContent.trim() && !session.ephemeral) {
+      bumpWorldMessageCount(session.worldId);
+    }
+
+    if (streamAborted || abortController.signal.aborted || c.req.raw.signal.aborted) return;
     await stream.writeSSE({
       event: "done",
       data: JSON.stringify({
@@ -377,32 +438,51 @@ completionRoutes.post("/sessions/:sessionId/completions", bodyLimit({ maxSize: 2
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-/** Tiny per-process cache for migrated world definitions used by lorebook
- *  injection. The main chat has a richer cache in messages.ts; this one is
- *  intentionally separate to avoid cross-route coupling and stays small since
- *  side calls only fire when a card UI is mounted. */
-const sideCallWorldCache = new Map<string, { worldDef: WorldDefinition; expiresAt: number }>();
-const SIDE_CALL_CACHE_TTL = 5 * 60_000; // 5 minutes — same as main chat
+/** Cache migration work, never the decision about which revision a viewer sees.
+ * Probe current metadata on every call; keep approved and working copies apart. */
+const sideCallWorldCache = new Map<string, { worldDef: WorldDefinition; updatedAt: number; expiresAt: number }>();
+const SIDE_CALL_CACHE_TTL = 5 * 60_000;
 const SIDE_CALL_CACHE_MAX = 100;
 
-async function loadWorldDef(worldId: string): Promise<WorldDefinition | null> {
-  const cached = sideCallWorldCache.get(worldId);
-  if (cached && cached.expiresAt > Date.now()) return cached.worldDef;
-  if (cached) sideCallWorldCache.delete(worldId);
-
-  const [row] = await db
-    .select({ schema: worlds.schema })
-    .from(worlds)
-    .where(eq(worlds.id, worldId));
-  if (!row?.schema) return null;
+function cachedSideWorld(key: string, updatedAt: Date | null): WorldDefinition | undefined {
+  const cached = sideCallWorldCache.get(key);
+  if (updatedAt && cached?.updatedAt === updatedAt.getTime() && cached.expiresAt > Date.now()) return cached.worldDef;
+  sideCallWorldCache.delete(key);
+}
+function cacheSideWorld(key: string, row: { schema: Record<string, unknown>; updatedAt: Date | null }): WorldDefinition {
   const worldDef = migrateWorldDefinition(row.schema as unknown as WorldDefinition);
-
   if (sideCallWorldCache.size >= SIDE_CALL_CACHE_MAX) {
     const oldest = sideCallWorldCache.keys().next().value;
     if (oldest) sideCallWorldCache.delete(oldest);
   }
-  sideCallWorldCache.set(worldId, { worldDef, expiresAt: Date.now() + SIDE_CALL_CACHE_TTL });
+  // Cache the version read with the schema, not the earlier metadata probe.
+  if (row.updatedAt) sideCallWorldCache.set(key, { worldDef, updatedAt: row.updatedAt.getTime(), expiresAt: Date.now() + SIDE_CALL_CACHE_TTL });
   return worldDef;
+}
+
+async function loadWorldDef(worldId: string, viewerId: string): Promise<WorldDefinition | null> {
+  const [meta] = await db.select({ updatedAt: worlds.updatedAt, status: worlds.status, creatorId: worlds.creatorId })
+    .from(worlds).where(eq(worlds.id, worldId)).limit(1);
+  if (!meta) return null;
+  if (viewerSeesWorkingCopy(meta.status, meta.creatorId, viewerId)) {
+    const key = `working:${worldId}`;
+    const [pending] = await db.select({ updatedAt: worldPendingEdits.updatedAt })
+      .from(worldPendingEdits).where(eq(worldPendingEdits.worldId, worldId)).limit(1);
+    if (pending) {
+      const cached = cachedSideWorld(key, pending.updatedAt);
+      if (cached) return cached;
+      const [full] = await db.select({ schema: worldPendingEdits.schema, updatedAt: worldPendingEdits.updatedAt })
+        .from(worldPendingEdits).where(eq(worldPendingEdits.worldId, worldId)).limit(1);
+      if (full) return cacheSideWorld(key, full);
+    }
+    sideCallWorldCache.delete(key);
+  }
+  const key = `live:${worldId}`;
+  const cached = cachedSideWorld(key, meta.updatedAt);
+  if (cached) return cached;
+  const [full] = await db.select({ schema: worlds.schema, updatedAt: worlds.updatedAt })
+    .from(worlds).where(eq(worlds.id, worldId)).limit(1);
+  return full ? cacheSideWorld(key, full) : null;
 }
 
 /** Build the lorebook system message. Returns null when the caller didn't
@@ -411,11 +491,14 @@ async function resolveLorebookSystemMessage(
   mode: IncludeLorebookMode | undefined,
   worldId: string,
   messages: Array<{ role: string; content: string }>,
+  viewerId: string,
+  /** Lore tokens left under the player's plan memory cap. */
+  tokenBudget: number,
 ): Promise<string | null> {
   if (!mode) return null;
   const resolvedMode: "all" | "matched" = mode === "matched" ? "matched" : "all";
 
-  const worldDef = await loadWorldDef(worldId);
+  const worldDef = await loadWorldDef(worldId, viewerId);
   if (!worldDef) return null;
   const allEntries = worldDef.entries ?? [];
   if (allEntries.length === 0) return null;
@@ -438,7 +521,7 @@ async function resolveLorebookSystemMessage(
       sideEntries,
       recent,
       sideState,
-      Infinity,
+      tokenBudget,
       worldDef.settings,
       undefined,
       worldDef.loreUiBindings,
@@ -455,13 +538,18 @@ async function resolveLorebookSystemMessage(
 
   // Render: name + content per entry, separated by blank lines. Section
   // headers would only confuse a side LLM that's playing one specific role.
-  const blocks = chosen
-    .map((e) => {
-      const heading = e.name ? `【${e.name}】` : "";
-      return heading ? `${heading}\n${e.content}` : e.content;
-    })
-    .filter(Boolean);
-  return blocks.join("\n\n");
+  const blocks: string[] = [];
+  let used = 0;
+  for (const e of chosen) {
+    const heading = e.name ? `【${e.name}】` : "";
+    const block = heading ? `${heading}\n${e.content}` : e.content;
+    if (!block) continue;
+    // Entries stay whole: stop at the first one past the plan's memory cap.
+    used += estimateTokens(block);
+    if (used > tokenBudget) break;
+    blocks.push(block);
+  }
+  return blocks.length ? blocks.join("\n\n") : null;
 }
 
 export { completionRoutes };

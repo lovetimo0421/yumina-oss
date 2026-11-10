@@ -26,15 +26,15 @@ function getOrigin(): string {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ASSET_REF_RE = /^@asset:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
-export function resolveImageCdn(url: string | null | undefined): string | null {
+export function resolveImageCdn(url: string | null | undefined, origin = getOrigin()): string | null {
   if (!url) return null;
   if (url.startsWith("http")) return url;
   if (url.startsWith("data:") || url.startsWith("blob:")) return null;
   // @asset:UUID references → extract the UUID and route to /cdn/:assetId
   const assetMatch = ASSET_REF_RE.exec(url);
-  if (assetMatch) return `${getOrigin()}/cdn/${assetMatch[1]}`;
+  if (assetMatch) return `${origin}/cdn/${assetMatch[1]}`;
   // Bare asset IDs (UUIDs) → /cdn/:assetId (DB lookup for S3 key)
-  if (UUID_RE.test(url)) return `${getOrigin()}/cdn/${url}`;
+  if (UUID_RE.test(url)) return `${origin}/cdn/${url}`;
   // S3 keys (e.g. "worlds/abc.jpg") → /cdn/key/:encodedKey
-  return `${getOrigin()}/cdn/key/${Buffer.from(url, "utf-8").toString("base64url")}`;
+  return `${origin}/cdn/key/${Buffer.from(url, "utf-8").toString("base64url")}`;
 }

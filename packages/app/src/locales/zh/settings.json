@@ -68,22 +68,27 @@
       "description": "永久删除你的账户及相关数据。",
       "button": "注销账户",
       "dialogTitle": "确定要永久注销账户吗？",
-      "dialogDescription": "在你通过邮件确认前，账户仍会保持有效。删除后可以立即使用同一邮箱重新注册，但新账户要到本次删除满 3 天后才能再次注销。",
+      "dialogDescription": "我们会发送确认邮件。在你通过邮件确认前，账户仍可正常使用。",
       "warningTitle": "此操作无法撤销",
+      "summaryWarnings": {
+        "data": "账户、创作内容、聊天记录及上传文件将永久删除。",
+        "billing": "订阅立即终止，剩余时长和蘑菇币不退款。",
+        "deletionCooldown": "可立即重新注册，但须等本次删除满 3 天才能再次注销。"
+      },
       "warnings": {
         "identity": "你的个人资料及所有已绑定的登录方式都会被删除。",
         "deletionCooldown": "删除后可以立即使用同一邮箱重新注册，包括通过 Google 或 Discord 注册；但新账户在本次删除后的 3 天内不能再次注销。",
         "content": "你的世界、合集、已发布内容、游玩记录、消息、角色设定和上传文件都会被删除。",
         "community": "其他玩家可能会失去与你所创作内容关联的游玩记录、评价或回复。",
-        "billing": "任何有效订阅都会立即终止；剩余订阅时间和 Mushies 不予退款。",
+        "billing": "任何有效订阅都会立即终止；剩余订阅时间和蘑菇币不予退款。",
         "records": "支付处理商可能会按法律、会计或防欺诈要求保留账单及身份记录，但这些记录将不再关联到有效的 Yumina 账户。",
         "antiAbuse": "为防止滥用和维持服务运行，我们可能在必要期限内保留化名化的安全日志及有限分析数据。",
         "cache": "已存储的上传文件会被删除，但浏览器或内容分发网络中的既有缓存可能在原缓存期限届满前仍然可见。"
       },
-      "pendingEarnings": "如果仍有待结算的创作者收入，账户将无法注销。遇到这种情况请联系客服。",
+      "pendingEarnings": "有待结算的创作者收入时无法注销，请联系客服。",
       "confirmLabel": "请输入 {{target}} 以确认",
       "confirmPlaceholder": "输入 {{target}}",
-      "acknowledge": "我明白此操作会永久删除我的账户和数据。删除后可以立即重新注册，但新账户在本次删除后的 3 天内不能再次注销。",
+      "acknowledge": "我明白账户及数据将被永久删除，无法恢复。",
       "sendEmail": "发送确认邮件",
       "sending": "正在发送...",
       "cancel": "保留我的账户",
@@ -100,16 +105,41 @@
       "errors": {
         "confirmationMismatch": "确认文字与当前账户不一致。",
         "pendingEarnings": "仍有创作者收入等待结算，请联系客服后再注销账户。",
-        "billing": "无法安全取消你的订阅，请稍后重试或联系客服。",
+        "billing": "支付服务未能取消订阅，注销已停止。请稍后重试；若持续失败，请联系客服核对订阅状态。",
         "creatorAccount": "无法关闭你的创作者收款账户，请联系客服后再注销。",
         "notReady": "账户注销功能正在准备中，请几分钟后再试。",
         "cooldown": "这个邮箱对应的上一个账户注销还未满 3 天。你可以继续使用当前账户，但暂时不能再次注销。",
+        "cooldownUntil": "这个邮箱的上一个账户注销还不到 3 天，所以当前账户要到 {{time}} 之后才能注销。这不是锁号，账户可以照常使用。",
         "lastAdmin": "最后一个管理员账户不能注销，请先将另一名可信用户设为管理员。",
         "referral": "有邀请记录的账户需要由客服协助注销，以防奖励被重复领取。",
         "protectedHistory": "此账户存在有效的安全限制，请联系客服协助注销。",
         "email": "无法发送确认邮件，请稍后再试。",
         "invalidLink": "此注销链接无效或已过期，请在账户设置中重新申请。",
-        "generic": "暂时无法发起账户注销，请稍后重试。"
+        "generic": "暂时无法发起账户注销，请稍后重试。",
+        "privileged": "特权账户必须先转移管理职责才能注销，请联系客服。",
+        "billingUnavailable": "账户有关联的支付记录，但当前服务尚未配置支付清理功能。请联系客服恢复配置后再完成注销。这不代表你正在付费订阅或已完成收款绑定。",
+        "subscriptionLookup": "暂时无法向支付服务核实订阅状态。注销已停止，请稍后重试或联系客服。",
+        "paymentPending": "有一笔付款仍在等待结算。请等待付款完成或失败后重试；长时间未结束请联系客服。",
+        "signIn": "登录已过期，请重新登录后再试。",
+        "origin": "当前页面未通过安全来源检查。请从本站设置页重新打开注销操作。",
+        "request": "确认请求格式无效，请刷新页面后重试。"
+      },
+      "preflight": {
+        "title": "完成注销前需要处理的问题",
+        "loading": "正在检查注销条件…",
+        "failed": "暂时无法检查注销条件，请重试。检查完成前不能继续。",
+        "retry": "重新检查",
+        "emailAllowed": "这些问题会阻止最终注销，但你仍可接收确认邮件。发送邮件不会删除账户或取消订阅。",
+        "emailBlocked": "请先处理以上问题，再发送确认邮件。账户仍可正常使用。",
+        "scope": "这里列出当前已检测到的问题。最终确认时还会重新检查，包括支付服务中的订阅和付款状态。",
+        "records": "检测到的关联记录：{{records}}。这些记录本身不表示有有效订阅或已完成收款设置。",
+        "recordKinds": {
+          "customer": "支付客户记录",
+          "subscription": "订阅记录",
+          "connect": "创作者收款记录",
+          "payment": "付款记录",
+          "checkout": "结账记录"
+        }
       }
     },
     "connectedAccounts": {
@@ -126,6 +156,25 @@
       "disconnected": "已断开",
       "connectError": "连接失败",
       "disconnectError": "断开失败"
+    },
+    "connectedApps": {
+      "title": "已连接的应用",
+      "description": "用你的 Yumina 账号登录过的游戏模组、应用和 AI。断开后，它们立刻不能再使用你的账号。",
+      "loading": "加载中…",
+      "loadError": "加载失败，请刷新再试。",
+      "empty": "还没有连接任何应用。",
+      "verified": "官方",
+      "connectedOn": "{{date}} 连接",
+      "disconnect": "断开",
+      "disconnecting": "正在断开…",
+      "disconnectError": "没断开，请再试一次。",
+      "scope": {
+        "aiChat": "用你的蘑菇币对话",
+        "walletRead": "查看余额",
+        "quests": "任务",
+        "cards": "读写你的卡",
+        "profile": "昵称"
+      }
     },
     "validation": {
       "usernameMinLength": "用户名至少需要 3 个字符",
@@ -149,7 +198,7 @@
     },
     "sensitive": {
       "label": "无限制",
-      "description": "没有内容限制"
+      "description": "没有内容限制。模型还是不肯写的话，可以去提示词广场装「解除限制」。"
     },
     "minorRestriction": "此账号无法使用「无限制」模式。",
     "audiencePreference": {
@@ -169,8 +218,8 @@
       }
     },
     "blurSensitive": {
-      "title": "模糊不受内容限制的媒体",
-      "description": "在发现页中，将「无限制」模式下内容的缩略图显示为模糊状态。"
+      "title": "模糊敏感封面",
+      "description": "敏感封面默认以朦胧效果隐藏，点击后仅显示当前封面。关闭此选项可显示所有封面，不会更改内容模式。"
     }
   },
   "privacy": {
@@ -247,12 +296,13 @@
     }
   },
   "display": {
-    "experimental": {
-      "title": "实验性功能",
-      "turnImages": {
-        "title": "剧情插图",
-        "description": "实验性功能：给回复配插图。前 5 张免费，之后每张 12 蘑菇币。"
-      }
+    "turnImages": {
+      "title": "剧情插图",
+      "description": "回复下方会有「画出这一幕」按钮。",
+      "auto": "每条回复自动画插图",
+      "free": "还能免费画 {{count}} 张，之后每张 {{price}} 蘑菇币",
+      "price": "每张 {{price}} 蘑菇币",
+      "unlimited": "包含在你的套餐里"
     },
     "title": "显示",
     "language": {
@@ -355,6 +405,10 @@
     "sendKey": {
       "title": "按 Enter 发送",
       "description": "开启后，Enter 发送消息，Shift+Enter 换行；关闭后，Ctrl/⌘+Enter 发送，Enter 换行。此设置会保存到本设备。"
+    },
+    "sceneVideo": {
+      "title": "影游（实验性）",
+      "description": "打开后，游玩页的菜单和带影片屏幕的卡里会出现影游。两种看法：实时拍、跟着剧情走（约每分钟 5,800 蘑菇币）；或每条回复拍成一部带配音的短片，写完几分钟后出片（每条约 100–1,400 蘑菇币）。"
     }
   },
   "wallpaper": {

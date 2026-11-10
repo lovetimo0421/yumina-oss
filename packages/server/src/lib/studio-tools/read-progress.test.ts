@@ -85,6 +85,14 @@ describe("read-progress: paginating a large file is progress, not a spiral", () 
     ]);
     assert.deepEqual(verdicts.map((v) => v.kind), ["progress", "progress", "progress"]);
   });
+
+  // "What does each version say": one entry id, read in three language versions.
+  it("treats the same id in another language variant as another thing to read", () => {
+    const inVariant = (variant: string): ToolCall => ({ id: `tc${seq++}`, type: "function",
+      function: { name: "read_entities", arguments: JSON.stringify({ ids: ["intro"], variant }) } });
+    const verdicts = run([[read(["intro"])], [inVariant("en")], [inVariant("es")]]);
+    assert.deepEqual(verdicts.map((v) => v.kind), ["progress", "progress", "progress"]);
+  });
 });
 
 describe("read-progress: the genuine loop still ends the run", () => {

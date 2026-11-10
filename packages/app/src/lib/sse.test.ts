@@ -255,3 +255,49 @@ test("HTTP failures expose their status for auth-loss recovery", async () => {
     globalThis.fetch = realFetch;
   }
 });
+
+// Launch QA: sending while offline sat in "generating" forever and never
+// recovered. An offline send must fail at once without a request, and going
+// offline mid-stream must end the stream instead of waiting out the 2-minute
+// idle deadline.
+test("offline: a send fails at once without a request; going offline mid-stream ends it", async () => {
+  const realNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const realWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const win = new EventTarget();
+  Object.defineProperty(globalThis, "window", { configurable: true, writable: true, value: win });
+  let online = false;
+  Object.defineProperty(globalThis, "navigator", { configurable: true, get: () => ({ onLine: online }) });
+  let fetches = 0;
+  try {
+    globalThis.fetch = (async () => { fetches++; return new Promise<Response>(() => {}); }) as typeof fetch;
+    const metas: Array<{ origin: string }> = [];
+    const offlineSend = collect();
+    connectSSE("http://test.local/api/x", { method: "POST", body: {}, callbacks: {
+      ...offlineSend.callbacks,
+      onError: (e: string, meta?: { origin: string }) => { offlineSend.errors.push(e); if (meta) metas.push(meta); },
+    } });
+    await settle();
+    assert.equal(fetches, 0);
+    assert.equal(offlineSend.errors.length, 1);
+    assert.equal(metas[0]!.origin, "offline");
+
+    online = true;
+    const midStream = collect();
+    const midMetas: Array<{ origin: string }> = [];
+    connectSSE("http://test.local/api/x", { method: "POST", body: {}, callbacks: {
+      ...midStream.callbacks,
+      onError: (e: string, meta?: { origin: string }) => { midStream.errors.push(e); if (meta) midMetas.push(meta); },
+    } });
+    await settle();
+    assert.equal(fetches, 1);
+    online = false;
+    win.dispatchEvent(new Event("offline"));
+    await settle();
+    assert.equal(midStream.errors.length, 1, "exactly one terminal report");
+    assert.equal(midMetas[0]!.origin, "connection", "the server may still finish: recovery decides");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (realNavigator) Object.defineProperty(globalThis, "navigator", realNavigator); else Reflect.deleteProperty(globalThis, "navigator");
+    if (realWindow) Object.defineProperty(globalThis, "window", realWindow); else Reflect.deleteProperty(globalThis, "window");
+  }
+});

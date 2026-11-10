@@ -66,9 +66,8 @@ test("post-deletion repeat-deletion cooldown is localized everywhere it is shown
   for (const locale of locales) {
     const deletion = flatten(loadDeleteAccount(locale));
     for (const key of [
-      "dialogDescription",
       "warnings.deletionCooldown",
-      "acknowledge",
+      "summaryWarnings.deletionCooldown",
       "emailSentDescription",
       "finalConfirmationDescription",
       "errors.cooldown",

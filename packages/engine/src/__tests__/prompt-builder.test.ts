@@ -878,8 +878,54 @@ describe("PromptBuilder", () => {
       });
 
       const result = pb.buildStaticFormatBlock(world);
-      expect(result).toContain("[variableId: operation value]");
-      expect(result).toContain("[hp: -10]");
+      expect(result).toContain("[hp: +1]");
+      expect(result).toContain("[hp: -1]");
+      // Models copied the placeholder word literally ([variable: mood: …]).
+      expect(result).not.toMatch(/variableId/i);
+    });
+
+    it("builds the examples from this world's own AI-writable variables", () => {
+      const world = createMockWorld({
+        variables: [
+          createMockVariable({ id: "heart", name: "Heart", type: "number", defaultValue: 0 }),
+          createMockVariable({ id: "location", name: "Location", type: "string", defaultValue: "", options: ["Great Hall", "Library"] }),
+          createMockVariable({ id: "secrets", name: "Secrets", type: "json", defaultValue: [] }),
+          createMockVariable({ id: "locked", name: "Locked", type: "number", defaultValue: 0, aiAccess: "read" }),
+        ],
+      });
+      const block = pb.buildStaticFormatBlock(world);
+      const format = block.slice(block.indexOf("<directive-format>"), block.indexOf("</directive-format>"));
+      expect(format).toContain("[heart: +1]");
+      expect(format).toContain('[location: set "Great Hall"]');
+      expect(format).toContain('[location: append ", …"]');
+      expect(format).toContain('[secrets: push "new item"]');
+      expect(format).not.toContain("[locked:");
+      // No generic ids the card does not have.
+      expect(format).not.toMatch(/\[(hp|gold|npcs|inventory|hasKey|items):/);
+      expect(format).not.toMatch(/variableId/i);
+    });
+
+    it("uses an object variable's first field for the dot-path example, and stays byte-stable", () => {
+      const world = createMockWorld({
+        variables: [
+          createMockVariable({ id: "npc", name: "NPC", type: "json", defaultValue: { trust: 10, mood: "calm" } }),
+          createMockVariable({ id: "met", name: "Met", type: "boolean", defaultValue: false }),
+        ],
+      });
+      const block = pb.buildStaticFormatBlock(world);
+      expect(block).toContain("[npc.trust: set 10]");
+      expect(block).toContain('[npc: merge {"trust": 10}]');
+      expect(block).toContain("[met: toggle]");
+      expect(pb.buildStaticFormatBlock(world)).toBe(block);
+    });
+
+    it("falls back to generic examples only when no example type is writable", () => {
+      const world = createMockWorld({
+        variables: [createMockVariable({ id: "x", name: "X", type: "weird" as never, defaultValue: 0 })],
+      });
+      const block = pb.buildStaticFormatBlock(world);
+      expect(block).toContain("[hp: -10]");
+      expect(block).not.toMatch(/variableId/i);
     });
 
     it("does not include JSON format instructions", () => {
@@ -2381,5 +2427,140 @@ describe("story memory: the conversation always keeps a floor", () => {
     const world = msg("system", "W".repeat(400));
     const out = await pb.buildMessageHistoryAsync([world], yieldControl, 10, 1, 0);
     expect(out).toEqual([world]);
+  });
+});
+
+describe("history trimming steps, so a cached conversation stays cached", () => {
+  const pb = new PromptBuilder();
+  const yieldControl = () => Promise.resolve();
+  // CJK-aware model: one CJK char is one token, so sizes are exact.
+  const MODEL = "google/gemini-2.5-flash";
+  const tokensOf = (list: ChatMessage[]) => list.reduce((n, m) => n + estimateTokens(m.content, MODEL), 0);
+  const msg = (role: ChatMessage["role"], tag: string, tokens: number): ChatMessage =>
+    ({ role, content: `${tag}${"字".repeat(Math.max(0, tokens - Math.ceil(tag.length / 4)))}` });
+
+  // A deterministic conversation: ~300-token player turns, ~1,200-token replies
+  // (±40%), about 1.5k tokens a turn.
+  const conversation = (turns: number): ChatMessage[] => {
+    let seed = 7;
+    const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const out: ChatMessage[] = [];
+    for (let t = 0; t < turns; t++) {
+      out.push(msg("user", `u${t}:`, Math.round(300 * (0.6 + 0.8 * rand()))));
+      out.push(msg("assistant", `a${t}:`, Math.round(1200 * (0.6 + 0.8 * rand()))));
+    }
+    return out;
+  };
+
+  // The behaviour this replaced: newest first until the budget is spent.
+  const slidingStart = (history: ChatMessage[], budget: number) => {
+    let total = 0;
+    for (let i = history.length - 1; i >= 0; i--) {
+      const t = estimateTokens(history[i]!.content, MODEL);
+      if (total + t > budget && i < history.length - 1) return i + 1;
+      total += t;
+    }
+    return 0;
+  };
+
+  /** Replays a growing conversation turn by turn, the way the send path
+   *  calls the trimmer: the history up to the message just typed, plus this
+   *  turn's injected lore at the end, its cost added to the allowance. */
+  async function replay(storyMemory: number, opts: { lore?: boolean; window?: number } = {}) {
+    const convo = conversation(200);
+    let seed = 3;
+    const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const turns: Array<{ start: number; oldStart: number; kept: number; oldKept: number; budget: number }> = [];
+    for (let t = 1; t < 200 && turns.length < 60; t++) {
+      // Through the player's message of turn t; `window` imitates the server's
+      // row cap, whose oldest loaded row slides every turn.
+      const upTo = 2 * t + 1;
+      const from = opts.window ? Math.max(0, upTo - opts.window) : 0;
+      const history = convo.slice(from, upTo);
+      const lore = opts.lore ? Array.from({ length: Math.floor(rand() * 3) }, (_, i) => msg("system", `lore${t}.${i}:`, Math.round(200 + 1500 * rand()))) : [];
+      const budget = storyMemory + tokensOf(lore);
+      if (tokensOf(history) + tokensOf(lore) <= budget) continue;
+      const out = await pb.buildMessageHistoryAsync([...history, ...lore], yieldControl, undefined, 0, 0, MODEL, budget, storyMemory);
+      const oldStart = from + slidingStart([...history, ...lore], budget);
+      expect(out.slice(out.length - lore.length)).toEqual(lore);
+      const keptChat = out.slice(0, out.length - lore.length);
+      turns.push({
+        start: convo.indexOf(keptChat[0]!),
+        oldStart,
+        kept: tokensOf(keptChat),
+        oldKept: tokensOf(convo.slice(oldStart, upTo)),
+        budget: storyMemory,
+      });
+    }
+    const breaks = (key: "start" | "oldStart") => turns.filter((turn, i) => i > 0 && turn[key] !== turns[i - 1]![key]).length;
+    const mean = (key: "kept" | "oldKept") => turns.reduce((n, turn) => n + turn[key], 0) / turns.length;
+    return { turns, breaks: breaks("start"), oldBreaks: breaks("oldStart"), kept: mean("kept"), oldKept: mean("oldKept") };
+  }
+
+  it("keeps a history that fits exactly as it was", async () => {
+    const history = conversation(6);
+    const total = tokensOf(history);
+    expect(await pb.buildMessageHistoryAsync(history, yieldControl, undefined, 0, 0, MODEL, total, 16_000)).toEqual(history);
+    expect(await pb.buildMessageHistoryAsync(history, yieldControl, total, 0, 0, MODEL)).toEqual(history);
+  });
+
+  it("still keeps the newest message when it alone is over the budget", async () => {
+    const history = [...conversation(30), msg("user", "huge:", 9_000)];
+    const out = await pb.buildMessageHistoryAsync(history, yieldControl, undefined, 0, 0, MODEL, 4_000, 4_000);
+    expect(out).toEqual([history[history.length - 1]]);
+  });
+
+  for (const storyMemory of [16_000, 60_000]) {
+    it(`holds the start of a ${storyMemory}-token story memory still for most turns`, async () => {
+      const run = await replay(storyMemory, { lore: true });
+      expect(run.turns).toHaveLength(60);
+      // The old window moved on every turn once it was full.
+      expect(run.oldBreaks).toBeGreaterThanOrEqual(55);
+      // Now it moves about once per third of a budget of new turns.
+      expect(run.breaks).toBeLessThanOrEqual(storyMemory === 16_000 ? 24 : 8);
+      for (let i = 1; i < run.turns.length; i++) {
+        expect(run.turns[i]!.start).toBeGreaterThanOrEqual(run.turns[i - 1]!.start);
+      }
+      for (const turn of run.turns) expect(turn.kept).toBeLessThanOrEqual(storyMemory);
+      // The price: a step's worth less history at worst, about half on average.
+      expect(run.kept / run.oldKept).toBeGreaterThan(0.75);
+      expect(Math.min(...run.turns.map((turn) => turn.kept))).toBeGreaterThan(storyMemory * 0.55);
+    });
+  }
+
+  it("holds still when the overall ceiling governs and the world's size changes per turn", async () => {
+    // An account with no story memory chosen: the budget is what the world
+    // leaves of the plan, and triggered lore moves the world every turn.
+    const MAX_CONTEXT = 64_000;
+    const convo = conversation(200);
+    let seed = 5;
+    const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+    const starts: number[] = [];
+    const oldStarts: number[] = [];
+    let kept = 0;
+    let oldKept = 0;
+    for (let t = 1; t < 200 && starts.length < 60; t++) {
+      const history = convo.slice(0, 2 * t + 1);
+      const world = msg("system", `w${t}:`, Math.round(8_000 + 6_000 * rand()));
+      const maxTokens = MAX_CONTEXT - 4_000;
+      const budget = maxTokens - tokensOf([world]);
+      if (tokensOf(history) <= budget) continue;
+      const out = await pb.buildMessageHistoryAsync([world, ...history], yieldControl, maxTokens, 1, 0, MODEL, MAX_CONTEXT, MAX_CONTEXT);
+      expect(tokensOf(out.slice(1))).toBeLessThanOrEqual(budget);
+      starts.push(convo.indexOf(out[1]!));
+      oldStarts.push(slidingStart(history, budget));
+      kept += tokensOf(out.slice(1));
+      oldKept += tokensOf(history.slice(oldStarts[oldStarts.length - 1]!));
+    }
+    const breaks = (list: number[]) => list.filter((start, i) => i > 0 && start !== list[i - 1]).length;
+    expect(breaks(oldStarts)).toBeGreaterThanOrEqual(50);
+    expect(breaks(starts)).toBeLessThanOrEqual(15);
+    expect(kept / oldKept).toBeGreaterThan(0.8);
+  });
+
+  it("holds still when the loaded window's oldest row slides every turn", async () => {
+    const run = await replay(16_000, { window: 80 });
+    expect(run.oldBreaks).toBeGreaterThanOrEqual(55);
+    expect(run.breaks).toBeLessThanOrEqual(30);
   });
 });

@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "@tanstack/react-router";
-import { X, Search, Loader2, Clock, Star, Lock, Unlock, Key, Sparkles, Layers, Shuffle, Plus, ArrowLeft, ChevronDown, Info, Check, Globe, Cpu } from "lucide-react";
+import { X, Search, Loader2, Clock, Star, Lock, Unlock, Key, Sparkles, Layers, Shuffle, Plus, ArrowLeft, ChevronDown, Info, Check, Globe, Cpu, Image as ImageIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useTransientFlag } from "@/hooks/use-transient-flag";
 import {
@@ -24,7 +24,7 @@ import { LocalModelPickerView, isLikelyPhone } from "@/features/local-model/loca
 import { isLocalModelId } from "@/features/local-model/enabled-flag";
 import {
   PLAY_MODELS, STUDIO_MODELS, STUDIO_MODEL_IDS, STUDIO_RECOMMENDED_MODEL, MODEL_POPULARITY_SEED, type ModelPopularitySnapshot,
-  PLAN_HIERARCHY, MAX_PINNED_MODELS, formatAvgCost, formatModelId, type CostTier, type StudioModel,
+  PLAN_HIERARCHY, MAX_PINNED_MODELS, formatAvgCost, formatModelId, groupPlayModels, type CostTier, type StudioModel,
 } from "@yumina/shared";
 import {
   fetchApiKeyModelProfiles,
@@ -47,6 +47,8 @@ interface ModelBrowserProps {
   onSelect: (modelId: string) => void;
   selectedModel: string;
   studioMode?: boolean;
+  /** Ordinary-chat trials do not apply to sandbox side completions. */
+  allowChatTrial?: boolean;
   /** Use the current BYOK configuration without offering provider or mix changes. */
   privateOnly?: boolean;
   /** Select a secondary model without changing the active provider or mix mode. */
@@ -65,6 +67,9 @@ interface ModelBrowserProps {
    * this chat; omit outside a chat to show the fleet-wide range.
    */
   contextTokens?: number | null;
+  /** The model the open card's author recommends (settings.recommendedModel):
+   *  marked in the list, never chosen for the player. */
+  recommendedModel?: string;
 }
 
 const TIERS: CostTier[] = ["budget", "standard", "premium", "ultra"];
@@ -112,6 +117,7 @@ export function ModelBrowser({
   onSelect,
   selectedModel,
   studioMode,
+  allowChatTrial = true,
   privateOnly: privateOnlyProp = false,
   selectionOnly = false,
   allowProviderSwitch = false,
@@ -119,6 +125,7 @@ export function ModelBrowser({
   selecting = false,
   onOpenSettings,
   allowLocalSelection = false,
+  recommendedModel,
 }: ModelBrowserProps) {
   const { models, recentlyUsed, loading, fetchModels } = useModelsStore();
   // Stars live only in the BYOK picker, so it reads the BYOK-scoped list. The
@@ -313,7 +320,7 @@ export function ModelBrowser({
   return createPortal(
     <>
       <div className="fixed inset-0 z-[1200] flex items-center justify-center" onClick={onClose}>
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+        <div className="absolute inset-0 modal-backdrop" />
 
       <div
         onClick={(e) => e.stopPropagation()}
@@ -347,8 +354,10 @@ export function ModelBrowser({
         ) : isOfficialMode && !studioMode && !privateOnly ? (
           <OfficialView
             selectedModel={selectedModel}
+            allowChatTrial={allowChatTrial}
             userPlan={userPlan}
             contextTokens={contextTokens}
+            recommendedModel={recommendedModel}
             onSelect={handleSelect}
             onClose={onClose}
             providerSwitch={compactProviderSwitch}
@@ -707,11 +716,13 @@ function MixConfigView({
 /* ── Official picker (tier tabs, warm cards) ── */
 
 function OfficialView({
-  selectedModel, userPlan, onSelect, onClose, providerSwitch, onMixMode, contextTokens = null,
+  selectedModel, userPlan, onSelect, onClose, providerSwitch, onMixMode, contextTokens = null, allowChatTrial, recommendedModel,
 }: {
   selectedModel: string;
+  allowChatTrial: boolean;
   userPlan: string;
   contextTokens?: number | null;
+  recommendedModel?: string;
   onSelect: (id: string) => void;
   onClose: () => void;
   providerSwitch: React.ReactNode;
@@ -768,11 +779,15 @@ function OfficialView({
     infoTrigger.current = event.currentTarget;
     setInfo(current => current === kind ? null : kind);
   };
-  const getDesc = (m: (typeof PLAY_MODELS)[number]) => t(`aiProvider.models.${m.descKey?.split(".").pop()}` as any, { ns: "profile", defaultValue: "" }) || formatModelId(m.id);
-  const models = orderOfficialModels(PLAY_MODELS, {
+  const getDesc = (m: (typeof PLAY_MODELS)[number]) => m.descKey
+    ? t(m.descKey as any, { ns: "profile", defaultValue: "" })
+    : "";
+  // Same-price versions of one series share a row; the row sits where its
+  // best-ranked version would have, and a filter keeps only matching versions.
+  const groups = groupPlayModels(orderOfficialModels(PLAY_MODELS, {
     tier: activeTier, query, sort, pinned: pinnedModels, favoritesOnly,
     recent: recentlyUsed, description: getDesc, popularityScores: popularity.scores,
-  });
+  }));
   const cost = (m: (typeof PLAY_MODELS)[number]) => {
     if (m.avgCostMushies === 0) return t("modelBrowser.free");
     if (m.avgCostMushiesByPeriod) {
@@ -810,44 +825,60 @@ function OfficialView({
           {(["all", ...TIERS] as const).map(tier => {
             const meta = TIER_META[tier === "all" ? "premium" : tier];
             return <button type="button" key={tier} onClick={() => setActiveTier(tier)} aria-pressed={activeTier === tier} className={cn("flex h-9 min-w-0 items-center justify-center gap-1 rounded-[10px] border px-0.5 text-xs transition-colors motion-reduce:transition-none max-[390px]:gap-0.5 max-[390px]:text-[11px] [@media(pointer:coarse)]:h-11", meta.color, activeTier === tier ? `${meta.bg} ${meta.border} shadow-md ${meta.glow}` : "border-white/[0.08] bg-white/[0.02] hover:bg-white/[0.05]")}>
-            <span className="truncate">{tier === "all" ? t("modelBrowser.tabAll") : t(`modelBrowser.tier${tier.charAt(0).toUpperCase()+tier.slice(1)}` as any)}</span><span className="text-[10px] opacity-60">{tier === "all" ? PLAY_MODELS.length : PLAY_MODELS.filter(m => m.tier === tier).length}</span>
+            <span className="truncate">{tier === "all" ? t("modelBrowser.tabAll") : t(`modelBrowser.tier${tier.charAt(0).toUpperCase()+tier.slice(1)}` as any)}</span><span className="text-[10px] opacity-60">{groupPlayModels(tier === "all" ? PLAY_MODELS : PLAY_MODELS.filter(m => m.tier === tier)).length}</span>
           </button>;
           })}
         </div>
         <button type="button" aria-pressed={favoritesOnly} aria-label={t("modelBrowser.favoritesOnly")} title={t("modelBrowser.favoritesOnly")} onClick={() => setFavoritesOnly(v=>!v)} className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg hover:bg-white/5 [@media(pointer:coarse)]:h-11",favoritesOnly ? "bg-gold/10 text-gold" : "text-white/55")}><Star className={cn("h-4 w-4", favoritesOnly && "fill-current")} /></button>
       </div>
       <div className="flex min-h-8 shrink-0 items-center justify-between gap-1 px-5 text-[11px] text-white/55" aria-live="polite">
-        <span>{pinLimitHit ? t("modelBrowser.pinLimit",{max:MAX_PINNED_MODELS}) : t("modelBrowser.modelsFound",{count:models.length})}</span>
+        <span>{pinLimitHit ? t("modelBrowser.pinLimit",{max:MAX_PINNED_MODELS}) : t("modelBrowser.modelsFound",{count:groups.length})}</span>
         {sort === "popular" && <button type="button" onClick={e=>showInfo("popularity",e)} aria-label={t("modelBrowser.popularityInfoTitle")} title={t("modelBrowser.popularityInfoTitle")} aria-expanded={info === "popularity"} className="flex h-8 w-8 shrink-0 items-center justify-center rounded hover:text-white"><Info className="h-3 w-3" /></button>}
       </div>
       <div ref={listRef} data-testid="official-model-list" className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 pb-3 max-[390px]:px-2">
-        {models.map(m => {
-          const isSelected = !isMixActive && selectedModel === m.id;
-          const hasGrokTrial = m.id === "anthropic/claude-sonnet-4.6" && grokTrialRemaining > 0;
+        {groups.map(group => {
+          const variants = group.variants;
+          const family = variants.length > 1;
+          // The row stands for the selected version, else the card's pick, else the newest.
+          const active = variants.find(v => v.model.id === selectedModel) ?? variants.find(v => v.model.id === recommendedModel) ?? variants[0]!;
+          const m = active.model;
+          const isSelected = !isMixActive && variants.some(v => v.model.id === selectedModel);
+          const hasGrokTrial = allowChatTrial && m.id === "anthropic/claude-sonnet-4.6" && grokTrialRemaining > 0;
           const locked = !hasGrokTrial && !canAccessPlan(m.minPlan,userPlan);
           const meta = TIER_META[m.tier as CostTier];
-          return <div key={m.id} className={cn("mb-1.5 flex min-h-[68px] w-full items-center rounded-[13px] border transition-colors motion-reduce:transition-none",isSelected ? `${meta.border} ${meta.bg} shadow-md ${meta.glow}` : "border-white/[0.07] bg-white/[0.02]",!locked && !isSelected && "hover:border-white/15 hover:bg-white/[0.04]",locked && "opacity-60")}>
-            <button type="button" disabled={locked} aria-pressed={isSelected} onClick={() => onSelect(m.id)} title={(() => {const stats=statsById.get(m.id);if(!stats)return undefined;const estimate=estimateReplyCost(stats,contextTokens);return t(estimate.scaled?"modelBrowser.costForThisChat":"modelBrowser.costRange",{typical:formatCostEstimate(estimate.typical),heavy:formatCostEstimate(estimate.heavy)});})()} className="flex min-w-0 flex-1 items-center gap-3 rounded-xl py-2.5 pl-3.5 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 max-[390px]:gap-2 max-[390px]:pl-2.5">
+          const pinned = variants.filter(v => pinnedModels.includes(v.model.id)).map(v => v.model.id);
+          return <div key={group.key} data-model-row={group.key} className={cn("mb-1.5 flex min-h-[68px] w-full flex-col rounded-[13px] border transition-colors motion-reduce:transition-none",isSelected ? `${meta.border} ${meta.bg} shadow-md ${meta.glow}` : "border-white/[0.07] bg-white/[0.02]",!locked && !isSelected && "hover:border-white/15 hover:bg-white/[0.04]",locked && "opacity-60")}>
+            <div className="flex w-full items-center">
+            <button type="button" disabled={locked} aria-pressed={isSelected} onClick={() => onSelect(m.id)} title={(() => {const stats=statsById.get(m.id);if(!stats)return undefined;const estimate=estimateReplyCost(stats,contextTokens);return t(estimate.scaled?"modelBrowser.costForThisChat":"modelBrowser.costRange",{typical:formatCostEstimate(estimate.typical),heavy:formatCostEstimate(estimate.heavy)});})()} className={cn("flex min-w-0 flex-1 items-center gap-3 rounded-xl pl-3.5 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 max-[390px]:gap-2 max-[390px]:pl-2.5", family ? "pb-1 pt-2.5" : "py-2.5")}>
               <span aria-hidden="true" className={cn("h-2 w-2 shrink-0 rounded-full",meta.dot,isSelected ? "opacity-100 ring-4 ring-white/5" : "opacity-70")} />
               <div className="min-w-0 flex-1">
               <div className="flex items-baseline justify-between gap-2">
                 <span className="min-w-0 flex-1 text-sm font-medium text-white/90 [overflow-wrap:anywhere]">{m.name}</span>
+                {m.supportsImages && <span title={t("modelBrowser.supportsImages")} className="shrink-0 self-center text-white/45"><ImageIcon aria-label={t("modelBrowser.supportsImages")} className="h-3.5 w-3.5" /></span>}
                 {isSelected && !locked && <Check aria-hidden="true" className={cn("h-3 w-3 shrink-0 self-center",meta.color)} />}
                 <span className={cn("shrink-0 whitespace-nowrap text-[11px] tabular-nums",m.avgCostMushies === 0 ? "text-emerald-400/80" : "text-gold/75")}>{cost(m)}</span>
               </div>
-              <p className="mt-1 text-xs leading-snug text-white/55">{getDesc(m)}</p>
-              {(locked || hasGrokTrial || m.badge) && <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
+              <p className="mt-1 text-xs leading-snug text-white/55 [overflow-wrap:anywhere]">{getDesc(m)}</p>
+              {(locked || hasGrokTrial || m.badge || variants.some(v => v.model.id === recommendedModel)) && <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
+                {variants.some(v => v.model.id === recommendedModel) && <span className="rounded bg-primary/15 px-1.5 py-0.5 text-primary" data-author-recommended>{t("modelBrowser.authorRecommended")}</span>}
                 {locked && <span className="inline-flex items-center gap-1 rounded bg-white/[0.06] px-1.5 py-0.5 text-white/60"><Lock className="h-3 w-3" />{t(`planName.${m.minPlan}` as never,{ns:"common"})}</span>}
                 {hasGrokTrial && <span className="rounded bg-amber-400/10 px-1.5 py-0.5 text-amber-400">{t("modelBrowser.freeTriesLeft",{count:grokTrialRemaining})}</span>}
                 {m.badge && !locked && <span className="rounded bg-gold/10 px-1.5 py-0.5 text-gold/80">{m.badge}</span>}
               </div>}
               </div>
             </button>
-            <button type="button" aria-pressed={pinnedModels.includes(m.id)} aria-label={t(pinnedModels.includes(m.id)?"modelBrowser.unpinFromQuickSelect":"modelBrowser.pinToQuickSelect")+`: ${m.name}`} onClick={() => {if(pinnedModels.includes(m.id))unpinModel(m.id,"official");else if(!pinModel(m.id,"official"))setPinLimitNonce(n=>n+1);}} className="mr-1 flex h-10 w-8 shrink-0 items-center justify-center rounded-lg text-white/50 hover:bg-white/5 hover:text-gold focus-visible:ring-2 focus-visible:ring-primary [@media(pointer:coarse)]:h-11"><Star className={cn("h-4 w-4",pinnedModels.includes(m.id)&&"fill-gold text-gold")} /></button>
+            <button type="button" aria-pressed={pinned.length > 0} aria-label={t(pinned.length > 0?"modelBrowser.unpinFromQuickSelect":"modelBrowser.pinToQuickSelect")+`: ${family ? group.name : m.name}`} onClick={() => {if(pinned.length > 0)pinned.forEach(id => unpinModel(id,"official"));else if(!pinModel(m.id,"official"))setPinLimitNonce(n=>n+1);}} className="mr-1 flex h-10 w-8 shrink-0 items-center justify-center rounded-lg text-white/50 hover:bg-white/5 hover:text-gold focus-visible:ring-2 focus-visible:ring-primary [@media(pointer:coarse)]:h-11"><Star className={cn("h-4 w-4",pinned.length > 0&&"fill-gold text-gold")} /></button>
             {!statsById.get(m.id) && <DeepSeekPricingInfo modelId={m.id} modelName={m.name} copy={deepSeekPricingCopy} className="mr-1" />}
+            </div>
+            {family && <div role="group" aria-label={t("modelBrowser.versions",{name:group.name})} className="flex flex-wrap gap-1 pb-2.5 pl-[34px] pr-3 max-[390px]:pl-[26px]">
+              {variants.map(v => {
+                const current = !isMixActive && v.model.id === selectedModel;
+                return <button type="button" key={v.model.id} disabled={locked} aria-pressed={current} aria-label={v.model.name} onClick={() => onSelect(v.model.id)} className={cn("min-w-[34px] rounded-md border px-2 py-0.5 text-[11px] tabular-nums transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 [@media(pointer:coarse)]:min-h-8", current ? `${meta.border} ${meta.bg} ${meta.color}` : v === active ? "border-white/20 bg-white/[0.06] text-white/80" : "border-white/[0.08] text-white/55", !locked && !current && "hover:border-white/20 hover:text-white/85")}>{v.label}</button>;
+              })}
+            </div>}
           </div>;
         })}
-        {models.length === 0 && <p className="py-8 text-center text-xs text-white/55">{t("modelBrowser.noMatches")}</p>}
+        {groups.length === 0 && <p className="py-8 text-center text-xs text-white/55">{t("modelBrowser.noMatches")}</p>}
       </div>
       <div className="flex min-h-10 shrink-0 items-center justify-between gap-2 border-t border-white/[0.08] px-[18px] py-2.5 text-[11px] text-white/50">
         <button type="button" onClick={e=>showInfo("cost",e)} aria-expanded={info === "cost"} className="flex items-center gap-1 rounded hover:text-white/80">{t("modelBrowser.compactCostUnit")}<Info className="h-3 w-3" /></button>
@@ -1128,6 +1159,11 @@ function StudioView({
     return all;
   }, [models]);
   const recommended = studioModels.find((m) => m.id === STUDIO_RECOMMENDED_MODEL);
+  // Same-price versions of one series share a row, as in the Play picker. The
+  // recommended model keeps its own card above, so it is left out of the rows.
+  const groups = useMemo(() => groupPlayModels(studioModels
+    .filter((m) => m.id !== STUDIO_RECOMMENDED_MODEL)
+    .map((m) => STUDIO_META_MAP.get(m.id) ?? { id: m.id, name: m.name, scope: "studio" as const, inputPrice: 0, outputPrice: 0 })), [studioModels]);
 
   return (
     <>
@@ -1192,15 +1228,17 @@ function StudioView({
               </div>
             )}
             <SectionLabel>{t("modelBrowser.allModels")}</SectionLabel>
-            {studioModels.filter((m) => m.id !== STUDIO_RECOMMENDED_MODEL).map((m) => {
-              const isSelected = selectedModel === m.id;
-              const meta = STUDIO_META_MAP.get(m.id);
-              const tier = m.tier ? TIER_META[m.tier] : null;
+            {groups.map((group) => {
+              const family = group.variants.length > 1;
+              const meta = (group.variants.find((v) => v.model.id === selectedModel) ?? group.variants[0]!).model;
+              const isSelected = group.variants.some((v) => v.model.id === selectedModel);
+              const tier = meta.tier ? TIER_META[meta.tier] : null;
               return (
                 <div
-                  key={m.id}
+                  key={group.key}
+                  data-model-row={group.key}
                   className={cn(
-                    "group/row flex w-full items-center rounded-xl border transition-all",
+                    "group/row flex w-full flex-col rounded-xl border transition-all",
                     isSelected && tier
                       ? `${tier.border} ${tier.bg} shadow-md ${tier.glow}`
                       : isSelected
@@ -1208,24 +1246,25 @@ function StudioView({
                         : "border-white/[0.06] bg-white/[0.02] hover:border-white/10 hover:bg-white/[0.04]",
                   )}
                 >
+                  <div className="flex w-full items-center">
                   <button
                     type="button"
-                    onClick={() => onSelect(m.id)}
-                    className="group flex min-w-0 flex-1 items-center gap-3 rounded-xl p-3.5 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25"
+                    onClick={() => onSelect(meta.id)}
+                    className={cn("group flex min-w-0 flex-1 items-center gap-3 rounded-xl p-3.5 pr-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25", family && "pb-1")}
                   >
                     {tier && <div className={cn("h-2.5 w-2.5 shrink-0 rounded-full", tier.dot, isSelected ? "opacity-100" : "opacity-50")} />}
                     <div className="flex-1 min-w-0">
                       <span className={cn("text-sm font-medium", isSelected ? "text-white" : "text-white/80")}>
-                        {meta?.name ?? m.name}
+                        {family ? group.name : meta.name}
                       </span>
-                      {meta?.avgCostMushiesByPeriod ? (
+                      {meta.avgCostMushiesByPeriod ? (
                         <div className="mt-0.5 text-[10px] text-gold/50">
                           {t("modelBrowser.avgCostByPeriod", {
                             peak: formatAvgCost(meta.avgCostMushiesByPeriod.peak),
                             offPeak: formatAvgCost(meta.avgCostMushiesByPeriod.offPeak),
                           })}
                         </div>
-                      ) : meta && (
+                      ) : meta.inputPrice + meta.outputPrice > 0 && (
                         <div className="mt-0.5 text-[10px] text-white/25">
                           ${meta.inputPrice}/M in · ${meta.outputPrice}/M out
                         </div>
@@ -1235,11 +1274,18 @@ function StudioView({
                     {isSelected && !tier && <div className="h-2.5 w-2.5 shrink-0 rounded-full bg-primary shadow-lg shadow-primary/30" />}
                   </button>
                   <DeepSeekPricingInfo
-                    modelId={m.id}
-                    modelName={meta?.name ?? m.name}
+                    modelId={meta.id}
+                    modelName={meta.name}
                     copy={deepSeekPricingCopy}
                     className="mr-2"
                   />
+                  </div>
+                  {family && <div role="group" aria-label={t("modelBrowser.versions", { name: group.name })} className="flex flex-wrap gap-1 pb-2.5 pl-[42px] pr-3">
+                    {group.variants.map((v) => {
+                      const current = v.model.id === selectedModel;
+                      return <button type="button" key={v.model.id} aria-pressed={current} aria-label={v.model.name} onClick={() => onSelect(v.model.id)} className={cn("min-w-[34px] rounded-md border px-2 py-0.5 text-[11px] tabular-nums transition-colors motion-reduce:transition-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/25 [@media(pointer:coarse)]:min-h-8", current && tier ? `${tier.border} ${tier.bg} ${tier.color}` : current ? "border-primary/30 bg-primary/10 text-white" : v.model === meta ? "border-white/20 bg-white/[0.06] text-white/80" : "border-white/[0.08] text-white/55 hover:border-white/20 hover:text-white/85")}>{v.label}</button>;
+                    })}
+                  </div>}
                 </div>
               );
             })}

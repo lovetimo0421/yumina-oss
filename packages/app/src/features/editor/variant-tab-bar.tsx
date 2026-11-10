@@ -6,7 +6,7 @@ import { feedback } from "@/lib/feedback";
 import { cn } from "@/lib/utils";
 import { useEditorStore } from "@/stores/editor";
 import { useWorldsStore } from "@/stores/worlds";
-import { LANGUAGE_SHORT } from "@/lib/languages";
+import { LANGUAGE_LABELS, LANGUAGE_SHORT, currentVariantTrigger, variantRowLabels } from "@/lib/languages";
 import { LanguageSelectDialog } from "@/components/language-select-dialog";
 import {
   DropdownMenu,
@@ -32,7 +32,10 @@ function langBadge(language: string | null): string | null {
   return LANGUAGE_SHORT[language] ?? language.toUpperCase();
 }
 
-export function VariantTabBar({ compact = false }: { compact?: boolean }) {
+export function VariantTabBar({ compact = false, destination = "/app/worlds/$worldId/edit" }: {
+  compact?: boolean;
+  destination?: "/app/worlds/$worldId/edit" | "/app/studio/$worldId";
+}) {
   const { t } = useTranslation(["editor", "common"]);
   const router = useRouter();
 
@@ -116,11 +119,11 @@ export function VariantTabBar({ compact = false }: { compact?: boolean }) {
 
     if (newWorldId) {
       router.navigate({
-        to: "/app/worlds/$worldId/edit",
+        to: destination,
         params: { worldId: newWorldId },
       });
     }
-  }, [creating, saving, loadingWorld, variants.length, router, t]);
+  }, [creating, saving, loadingWorld, variants, router, t, destination]);
 
   // Change language on a variant via PATCH + store update
   const handleChangeLanguage = useCallback(async (lang: string | null) => {
@@ -174,11 +177,11 @@ export function VariantTabBar({ compact = false }: { compact?: boolean }) {
       }
 
       router.navigate({
-        to: "/app/worlds/$worldId/edit",
+        to: destination,
         params: { worldId },
       });
     },
-    [serverWorldId, loadingWorld, saving, router],
+    [serverWorldId, loadingWorld, saving, router, destination],
   );
 
   const startRename = useCallback((variantId: string, currentLabel: string) => {
@@ -274,11 +277,16 @@ export function VariantTabBar({ compact = false }: { compact?: boolean }) {
 
         useWorldsStore.getState().invalidate();
 
-        if (variantId === serverWorldId) {
+        // A deletion response can arrive after a variant switch. Only clear
+        // the draft if it is still the card that was successfully deleted.
+        if (variantId === useEditorStore.getState().serverWorldId) {
           const other = variants.find((v) => v.id !== variantId);
           if (other) {
+            const editor = useEditorStore.getState();
+            editor.stopAutosave();
+            editor.clearDraft();
             router.navigate({
-              to: "/app/worlds/$worldId/edit",
+              to: destination,
               params: { worldId: other.id },
             });
           }
@@ -291,7 +299,7 @@ export function VariantTabBar({ compact = false }: { compact?: boolean }) {
         setDeleting(null);
       }
     },
-    [deleting, variants, serverWorldId, router, deleteFailed],
+    [deleting, variants, serverWorldId, router, deleteFailed, destination],
   );
 
   performDeleteRef.current = performDelete;
@@ -327,6 +335,7 @@ export function VariantTabBar({ compact = false }: { compact?: boolean }) {
     }
   }
   const multipleLanguages = langGroups.length > 1;
+  const rowLabels = variantRowLabels(tabs);
 
   if (compact) {
     const current = tabs.find((variant) => variant.id === serverWorldId) ?? tabs[0] ?? null;
@@ -384,6 +393,17 @@ export function VariantTabBar({ compact = false }: { compact?: boolean }) {
                     <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
                       {currentBadge ?? t("variantBar.noLanguage", "Lang")}
                     </span>
+                    {/* The language by name, and — once there is more than one
+                        version — which one this is: a lone 「中」 chip did not
+                        say it was the way to add an English version. */}
+                    {/* On a phone the chip alone: the name beside it needs the room. */}
+                    <span className="max-w-[14rem] truncate text-xs text-foreground/80 max-sm:hidden">
+                      {hasMultipleVariants
+                        ? currentVariantTrigger(tabs, serverWorldId, currentLabel, currentLabel)
+                        : current.language
+                          ? `${LANGUAGE_LABELS[current.language] ?? current.language} · ${t("variantBar.languageVersions")}`
+                          : t("variantBar.languageVersions")}
+                    </span>
                     <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   </>
                 )}
@@ -404,7 +424,7 @@ export function VariantTabBar({ compact = false }: { compact?: boolean }) {
                   )}
                   {group.items.map((variant) => {
                     const isActive = variant.id === serverWorldId;
-                    const label = displayLabel(variant);
+                    const label = rowLabels.get(variant.id) ?? displayLabel(variant);
                     const badge = langBadge(variant.language);
                     const isDeleting = deleting === variant.id;
                     const showPrimaryStar = variant.isPrimaryVariant && group.items.length >= 2;

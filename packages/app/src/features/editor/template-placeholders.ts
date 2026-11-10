@@ -9,6 +9,12 @@ import type { WorldEntry } from "@yumina/engine";
 
 export const TEMPLATE_CONTENT_TAG_PREFIX = "template-content:";
 
+/** Tags the platform uses as plumbing (placeholder lookup, the simple
+ * editor's section binding) rather than as creator-facing labels. */
+export function isInternalEntryTag(tag: string): boolean {
+  return tag.startsWith(TEMPLATE_CONTENT_TAG_PREFIX) || tag.startsWith("chat:");
+}
+
 /** Maps the tag key (e.g. "chat-character") to the i18n path for the
  * placeholder body. Anything not in this map is left without a placeholder. */
 const TEMPLATE_I18N: Record<string, string> = {
@@ -20,7 +26,16 @@ const TEMPLATE_I18N: Record<string, string> = {
   "world-npcA": "world.entries.npcA.content",
   "world-npcB": "world.entries.npcB.content",
   "world-narrativeStyle": "world.entries.narrativeStyle.content",
+  "chat-greeting": "chat.entries.greeting.content",
+  "world-greeting": "world.entries.greeting.content",
+  // The entry an AI is born with: who it is, which only it reads.
+  "ai-self": "ai.self.content",
 };
+
+/** The templates-content i18n path holding a template key's guidance text. */
+export function templateContentI18nPath(key: string): string | null {
+  return TEMPLATE_I18N[key] ?? null;
+}
 
 export function getTemplateContentKey(entry: Pick<WorldEntry, "tags">): string | null {
   const tag = entry.tags?.find((t) => t.startsWith(TEMPLATE_CONTENT_TAG_PREFIX));

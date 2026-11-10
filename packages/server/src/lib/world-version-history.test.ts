@@ -8,7 +8,12 @@ import { MAX_AUTO_VERSIONS_PER_WORLD, MAX_VERSIONS_PER_WORLD } from "@yumina/sha
 import { user, worlds, worldPendingEdits, worldReviewSubmissions, worldVersions } from "../db/schema.js";
 import {
   captureAutomaticVersion,
+  captureEditCheckpoint,
   capturePublishVersion,
+  EDIT_CHECKPOINT_DAYS,
+  EDIT_CHECKPOINT_INTERVAL_MS,
+  editCheckpointsToDrop,
+  MAX_EDIT_CHECKPOINTS,
   lockVersionWorld,
   makeVersionLive,
   restoreVersionDraft,
@@ -372,5 +377,41 @@ describe("world version history with PostgreSQL", { concurrency: false }, () => 
       assert.equal((await database.select().from(worldPendingEdits)).length, 0);
       assert.equal((await database.select().from(worldVersions)).length, 1);
     } finally { await pg.exec("ALTER TABLE world_pending_edits DROP CONSTRAINT fail_preserve"); }
+  });
+
+  it("keeps one autosave checkpoint per editing stretch, in its own budget", async () => {
+    const world = await worldRow();
+    const start = new Date("2026-03-01T00:00:00Z");
+    const at = (ms: number) => new Date(start.getTime() + ms);
+    const material = (text: string) => ({ schema: schema(text), thumbnailUrl: "current.webp", ageRating: "all" });
+    assert.ok(await transact((tx) => captureEditCheckpoint(tx, world, material("v0"), start)));
+    // Saves within the interval leave the first checkpoint as the marker.
+    assert.equal(await transact((tx) => captureEditCheckpoint(tx, world, material("v0b"), at(60_000))), null);
+    // Nothing changed since the last checkpoint: nothing new to keep.
+    assert.equal(await transact((tx) => captureEditCheckpoint(tx, world, material("v0"), at(EDIT_CHECKPOINT_INTERVAL_MS + 1))), null);
+    for (let i = 1; i <= MAX_EDIT_CHECKPOINTS + 2; i++) {
+      assert.ok(await transact((tx) => captureEditCheckpoint(tx, world, material(`v${i}`), at(i * (EDIT_CHECKPOINT_INTERVAL_MS + 1)))));
+    }
+    // All within one UTC day: the newest MAX are kept, the older same-day ones go.
+    const rows = await database.select().from(worldVersions).where(eq(worldVersions.source, "autosave"));
+    assert.equal(rows.length, MAX_EDIT_CHECKPOINTS);
+    assert.equal(rows[0]?.schema.name, world.name);
+    // Publish history keeps its own cap: automatic captures never prune checkpoints.
+    for (let i = 0; i < MAX_AUTO_VERSIONS_PER_WORLD + 1; i++) {
+      await transact((tx) => captureAutomaticVersion(tx, world, "backup", { ...material(`b${i}`) }));
+    }
+    assert.equal((await database.select().from(worldVersions).where(eq(worldVersions.source, "autosave"))).length, MAX_EDIT_CHECKPOINTS);
+  });
+
+  it("thins older checkpoints to the last of each day, within the window", () => {
+    const now = new Date("2026-03-31T12:00:00Z");
+    const hours = (h: number) => new Date(now.getTime() - h * 3_600_000);
+    // Newest first, as the caller reads them: the recent run, then three a day
+    // for the days before, then one far outside the window.
+    const recent = Array.from({ length: MAX_EDIT_CHECKPOINTS }, (_, i) => ({ id: `r${i}`, createdAt: hours(i * 0.25) }));
+    const older = [2, 3, 4].flatMap((d) => [0, 1, 2].map((k) => ({ id: `d${d}-${k}`, createdAt: hours(d * 24 + k) })));
+    const ancient = { id: "old", createdAt: hours((EDIT_CHECKPOINT_DAYS + 2) * 24) };
+    const drop = editCheckpointsToDrop([...recent, ...older, ancient], now);
+    assert.deepEqual(drop, ["d2-1", "d2-2", "d3-1", "d3-2", "d4-1", "d4-2", "old"]);
   });
 });

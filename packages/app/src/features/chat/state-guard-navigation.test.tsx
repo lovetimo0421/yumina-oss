@@ -123,6 +123,7 @@ test("guard backdrop and real Memory picker isolate correction provider from the
     assert.ok(guard());
     await act(async () => guard().querySelector<HTMLButtonElement>('[data-hint-anchor="model"]')!.click());
     await act(async () => button("Yumina API", picker()!).click());
+    await act(async () => button("Budget", picker()!).click());
     const official = [...picker()!.querySelectorAll<HTMLButtonElement>("button")].find((item) => !item.disabled && item.textContent?.includes("Yumina Free"));
     assert.ok(official, "official free model is selectable alongside BYOK models");
     await act(async () => official.click());
@@ -154,7 +155,7 @@ test("local Guard's real picker exposes only BYOK even for imported official pre
     const { YuminaContext } = await h.vite.ssrLoadModule("/sandbox/sandbox-context.tsx");
     const catalogs: unknown[] = [];
     const writes: unknown[] = [];
-    let stored = { enabled: true, model: "official::google/gemini-2.5-flash-lite", officialModels: false };
+    let stored = { enabled: true, model: "official::google/gemini-3.1-flash-lite", officialModels: false };
     const api = { language: "en", sessionId: "local-guard-chat", messages: [], readOnly: false,
       selectedModel: "custom/story", preferredProvider: "official", userPlan: "free", mixMode: false, modelPool: [],
       getStateGuardSettings: async () => stored,

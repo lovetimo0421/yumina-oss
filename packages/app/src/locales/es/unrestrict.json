@@ -52,16 +52,33 @@
     "none": "Aún no tienes prompts.",
     "hubRow": "Buscar más en la Plaza de prompts",
     "manageInSettings": "Gestionar en Ajustes › Prompts",
-    "pos": "pos {{n}}",
+    "pos": "orden {{n}}",
     "section": {
-      "system": "System",
-      "inChat": "In-Chat",
-      "final": "Final"
+      "system": "Al inicio",
+      "inChat": "En el chat",
+      "final": "Al final"
     },
     "sectionFull": {
-      "system": "System (prompt de sistema)",
-      "inChat": "In-Chat (en el chat)",
-      "final": "Final"
+      "system": "Al inicio",
+      "inChat": "En el chat",
+      "final": "Al final"
+    },
+    "compose": {
+      "title": "Escribe tu propio prompt",
+      "explain": "Lo que escribas aquí se envía a la IA con cada mensaje tuyo, en todas las tarjetas. Para dejar de usarlo, apágalo en Prompts.",
+      "name": "Nombre",
+      "namePlaceholder": "Nombre (opcional)",
+      "content": "Prompt",
+      "contentPlaceholder": "p. ej.: Describe un poco más el entorno y los sonidos en cada respuesta.",
+      "save": "Guardar",
+      "saved": "Guardado. Se aplica desde tu próximo mensaje.",
+      "failed": "No se pudo guardar. Inténtalo de nuevo.",
+      "more": "Más ajustes"
+    },
+    "sectionHint": {
+      "system": "La IA lo lee primero, junto con la ficha del personaje. Sirve para reglas que siempre aplican, como el estilo o la persona narrativa.",
+      "inChat": "Va dentro del historial del chat. El número de abajo cuenta hacia atrás desde el mensaje más reciente.",
+      "final": "Es lo último que lee la IA antes de responder, así que es lo que más pesa. Sirve para reglas que debe cumplir sí o sí."
     }
   },
   "conflict": {

@@ -22,13 +22,18 @@ import {
   makeChatT,
   parseFailureCode,
   FALLBACK_MODEL_ID,
+  type ChatStringKey,
 } from "./i18n";
 import type { SandboxMessage } from "./types";
-import { resolveSpeaker, stripLeadingSpeakerTag, isPartialLeadingSpeakerTag } from "./speaker";
+import { classifyChatError, errorDetail, type ChatErrorCode } from "./error-codes";
+import { aiFrameIds, resolveSpeaker, stripLeadingSpeakerTag, isPartialLeadingSpeakerTag } from "./speaker";
+import { splitBySpeaker } from "./speaker-split";
 import { RefusalBar, isRefusedReply } from "./player-prompts";
 import { TurnImageState } from "./turn-image-state";
 import { TurnImageCard } from "./turn-image-card";
-import { splitTurnImages } from "./turn-image-embeds";
+import { PortraitViewer, usePortraitViewer } from "./portrait-viewer";
+import { splitTurnImages, splitTurnVideos } from "./turn-image-embeds";
+import { cleanDisplayText } from "@yumina/engine";
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -36,30 +41,6 @@ function cn(...inputs: ClassValue[]) {
 
 function trimFixed(n: number, digits: number): string {
   return n.toFixed(digits).replace(/\.?0+$/, "");
-}
-
-// ── Strip directives (inlined from @/lib/strip-directives) ─────────
-// Strips state-change directives from streaming text so they never show.
-
-const DIR_STANDARD =
-  /\[([\w\p{L}\p{N}.$-]+):\s*(set|add|subtract|multiply|toggle|append|\+|-|\*)?\s*("(?:[^"\\]|\\.)*"|[\w\p{L}\p{N}.$-]+)?\]/gu;
-const DIR_AUDIO =
-  /\[audio:\s*([\w\p{L}\p{N}-]+)\s+(play|stop|crossfade|volume)(?:\s+([\d.]+))?(?:\s+chain:([\w\p{L}\p{N}-]+))?\]/gu;
-const DIR_JSON =
-  /\[([\w\p{L}\p{N}.$-]+):\s*(set|merge|push|delete)\s+(\{[\s\S]*?\}|\[[\s\S]*?\])\]/gu;
-const DIR_UPDATE_VAR = /<UpdateVariable>[\s\S]*?<\/UpdateVariable>/gi;
-const DIR_STRUCTURAL_XML =
-  /^\s*<\/?(maintext|option|sum|Analysis|UpdateVariable|JSONPatch|status_current_variable)\s*>\s*$/gim;
-const DIR_TRAILING = /\[[\w\p{L}\p{N}.$-]+:[^\]]*$/u;
-
-function stripDirectives(text: string): string {
-  return text
-    .replace(DIR_UPDATE_VAR, "")
-    .replace(DIR_AUDIO, "")
-    .replace(DIR_JSON, "")
-    .replace(DIR_STANDARD, "")
-    .replace(DIR_STRUCTURAL_XML, "")
-    .replace(DIR_TRAILING, "");
 }
 
 // ── Props ──────────────────────────────────────────────────────────
@@ -74,8 +55,16 @@ interface MessageBubbleProps {
   swipeControls?: React.ReactNode;
   rendererComponent?: React.ComponentType<Record<string, unknown>> | null;
   variables?: Record<string, unknown>;
+  /** Moves when the card's `renderBubble` closure is replaced, i.e. when the
+   *  card's own component state changed. Given only to the bubbles a card can
+   *  still act on (the opening, the newest message), so a button there that
+   *  toggles card state redraws without redrawing the whole transcript. */
+  rendererEpoch?: number;
   messageIndex?: number;
   showRoleLabel?: boolean;
+  /** This is the session's opening. Handed to the message renderer, which may
+   *  draw the opening differently (a card's message style can). */
+  isGreeting?: boolean;
   /** Retry only makes sense for the trailing turn — `continueLastMessage`
    *  generates a reply for the newest message, not an arbitrary one. */
   isLastMessage?: boolean;
@@ -93,6 +82,26 @@ interface MessageBubbleProps {
   onCancelEdit?: () => void;
 }
 
+/** Localized copy for a classified failure (see error-codes.ts). */
+const FAILURE_TEXT_KEYS: Record<ChatErrorCode, ChatStringKey> = {
+  NO_API_KEY: "errNoApiKey",
+  MODEL_UNAVAILABLE: "errModelUnavailable",
+  NO_CREDITS: "errNoCredits",
+  PRIVATE_API_BALANCE: "errPrivateApiBalance",
+  UPSTREAM_BALANCE: "errUpstreamBalance",
+  RATE_LIMITED: "errRateLimited",
+  CONTEXT_TOO_LONG: "errContextTooLong",
+  UPSTREAM_BUSY: "upstreamBusy",
+  UPSTREAM_TIMEOUT: "errUpstreamTimeout",
+  UPSTREAM_UNAVAILABLE: "upstreamBusy",
+  CONNECTION_LOST: "turnInterrupted",
+  OFFLINE: "errOffline",
+  SERVER_RESTART: "errServerRestart",
+  EMPTY_REPLY: "errEmptyReply",
+  CONTENT_BLOCKED: "contentBlocked",
+  FREE_POOL_EXHAUSTED: "freePoolExhausted",
+};
+
 // ── Component ──────────────────────────────────────────────────────
 
 const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleInner({
@@ -107,6 +116,7 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
   variables,
   messageIndex,
   showRoleLabel = true,
+  isGreeting,
   isLastMessage,
   isEditing,
   isSavingEdit,
@@ -129,14 +139,22 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
   // While the tag itself is still arriving (`[spea`) show nothing yet: the
   // label would otherwise flash "Narrator" for a token before the face lands.
   const holdingSpeakerTag = isStreaming && isPartialLeadingSpeakerTag(rawContent);
-  const displayContent = isStreaming
-    ? holdingSpeakerTag ? "" : stripDirectives(stripLeadingSpeakerTag(rawContent))
-    : rawContent;
+  // The engine's display cleaner (the parser's own clean text), the same one
+  // the host uses. Stored content already went through the parser on the
+  // server; cleaning it again only drops what an older parser missed, so old
+  // chats stop showing it. The game-state keys are the world's variable ids.
+  const variableIdsKey = variables ? Object.keys(variables).join("\u0001") : "";
+  const displayContent = useMemo(() => {
+    const variableIds = variableIdsKey ? variableIdsKey.split("\u0001") : undefined;
+    if (!isStreaming) return cleanDisplayText(rawContent, { variableIds, replyRules: api.replyRules });
+    return holdingSpeakerTag ? "" : cleanDisplayText(stripLeadingSpeakerTag(rawContent), { variableIds, replyRules: api.replyRules, streaming: true });
+  }, [rawContent, isStreaming, holdingSpeakerTag, variableIdsKey, api.replyRules]);
   // A card's own renderer gets the reply without per-turn pictures; the host
   // draws them under its bubble (see turn-image-embeds.ts).
   const rendererText = useMemo(() => {
     const shown = splitTurnImages(displayContent);
-    return { content: shown.text, rawContent: splitTurnImages(rawContent).text, embeds: shown.embeds };
+    // A reply's short film rides in its text too; the film window plays it (turn-video.ts).
+    return { content: splitTurnVideos(shown.text).text, rawContent: splitTurnVideos(splitTurnImages(rawContent).text).text, embeds: shown.embeds };
   }, [displayContent, rawContent]);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
   const [rawExpanded, setRawExpanded] = useState(false);
@@ -157,10 +175,14 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
       case "UPSTREAM_UNAVAILABLE": return t("upstreamBusy");
       case "MODEL_FALLBACK_REQUIRED": return t("upstreamBusy");
       case "CONTENT_FILTER":      return t("contentBlocked");
-      default:
-        return isContentBlockedError(failure.text)
-          ? t("contentBlocked")
-          : failure.text || t("generationFailed");
+      default: {
+        if (isContentBlockedError(failure.text)) return t("contentBlocked");
+        const known = classifyChatError(failure.text, failure.code);
+        if (known) return t(FAILURE_TEXT_KEYS[known]);
+        // Unknown: a localized line, the raw detail kept for support.
+        const detail = errorDetail(failure.text);
+        return detail ? t("generationFailedDetail", { detail }) : t("generationFailed");
+      }
     }
   }, [failure, t]);
   // Retrying only reaches the server for the trailing turn, and firing it
@@ -208,10 +230,21 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
   const speakerSource = isStreaming
     ? (streamingContent ?? "")
     : (activeSwipe?.rawContent ?? message.content);
-  const speaker = useMemo(
-    () => (isUser || isSystem ? null : resolveSpeaker(api.entries, speakerSource)),
-    [api.entries, isUser, isSystem, speakerSource],
+  const aiFrames = useMemo(() => aiFrameIds(api.worldbooks), [api.worldbooks]);
+  // The card asked for one bubble per speaker: the characters it has, by name.
+  const characterFaces = useMemo(() => new Map(
+    api.entries.filter((e) => (e as { role?: string }).role === "character" && e.enabled !== false)
+      .map((e) => [e.name, { portrait: (e as { portrait?: string | null }).portrait ?? null }] as const),
+  ), [api.entries]);
+  const speakerSegments = useMemo(
+    () => (api.speakerBubbles && !isUser && !isSystem && !isStreaming ? splitBySpeaker(displayContent, [...characterFaces.keys()]) : null),
+    [api.speakerBubbles, isUser, isSystem, isStreaming, displayContent, characterFaces],
   );
+  const speaker = useMemo(
+    () => (isUser || isSystem ? null : resolveSpeaker(api.entries, speakerSource, aiFrames, api.worldbooks)),
+    [api.entries, api.worldbooks, aiFrames, isUser, isSystem, speakerSource],
+  );
+  const portraitViewer = usePortraitViewer();
 
   // Auto-resize edit textarea
   useLayoutEffect(() => {
@@ -284,17 +317,33 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
         dimmed && "opacity-50",
       )}
     >
+      {portraitViewer.open && <PortraitViewer portrait={portraitViewer.open} t={t} onClose={portraitViewer.close} />}
       <div className={cn("w-full min-w-0", isUser && "play-user-message-shell")}>
         {/* Name label — a character portrait + name when the world says who is
             speaking, otherwise the plain role label on role changes. */}
         {speaker ? (
           <div className="play-message-speaker mb-1.5 flex items-center gap-2">
-            {speaker.portrait && (
+            {speaker.video && (speaker.video.idle || speaker.video.speaking) ? (
+              // The talking clip plays while this line is still being written;
+              // after that the idle loop takes over.
+              <video
+                key={isStreaming && speaker.video.speaking ? "speaking" : "idle"}
+                src={(isStreaming && speaker.video.speaking) || speaker.video.idle || speaker.video.speaking || undefined}
+                poster={speaker.portrait ?? undefined}
+                autoPlay
+                muted
+                loop
+                playsInline
+                {...portraitViewer.faceProps({ src: speaker.portrait ?? "", video: speaker.video.idle || speaker.video.speaking, name: speaker.name }, t)}
+                className="h-8 w-8 shrink-0 cursor-zoom-in rounded-full border border-border object-cover"
+              />
+            ) : speaker.portrait && (
               <img
                 src={speaker.portrait}
                 alt=""
                 draggable={false}
-                className="h-8 w-8 shrink-0 rounded-full border border-border object-cover"
+                {...portraitViewer.faceProps({ src: speaker.portrait, name: speaker.name }, t)}
+                className="h-8 w-8 shrink-0 cursor-zoom-in rounded-full border border-border object-cover"
               />
             )}
             <p className="play-message-role flex items-center text-xs font-medium text-primary/70">
@@ -413,14 +462,14 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                     <line x1="18" y1="6" x2="6" y2="18" />
                     <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>{" "}
-                  Cancel
-                  <kbd className="ml-1 text-[10px] text-muted-foreground/40">
+                  {t("cancel")}
+                  <kbd className="ml-1 text-[10px] text-muted-foreground/40 [@media(hover:none)]:hidden">
                     Esc
                   </kbd>
                 </button>
                 <button
                   onClick={onSaveEdit}
-                  disabled={isSavingEdit}
+                  disabled={isSavingEdit || api.isStreaming}
                   className="flex h-7 items-center gap-1.5 rounded-md bg-primary/15 px-3 text-xs font-medium text-primary transition-colors hover:bg-primary/25 active:bg-primary/25 disabled:pointer-events-none disabled:opacity-60 [@media(hover:none)]:min-h-10"
                 >
                   {/* Check icon (inline SVG) */}
@@ -435,9 +484,9 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                   >
                     <polyline points="20 6 9 17 4 12" />
                   </svg>{" "}
-                  {isSavingEdit ? "Saving..." : "Save"}
-                  <kbd className="ml-1 text-[10px] text-primary/40">
-                    Ctrl+Enter
+                  {isSavingEdit ? t("saving") : t("save")}
+                  <kbd className="ml-1 text-[10px] text-primary/40 [@media(hover:none)]:hidden">
+                    {/Mac|iPhone|iPad/.test(navigator.platform) ? "⌘↵" : "Ctrl+Enter"}
                   </kbd>
                 </button>
               </div>
@@ -476,6 +525,13 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                   renderMarkdown={renderMarkdown}
                   isStreaming={!!isStreaming}
                   variables={variables ?? {}}
+                  // Additive: renderers that predate these ignore them. They
+                  // let a renderer key per-message state (a revealed thought)
+                  // to the message and swipe, and act only on the newest turn.
+                  messageId={message.id}
+                  swipeIndex={activeSwipeIdx}
+                  isLastMessage={!!isLastMessage}
+                  isGreeting={!!isGreeting}
                 />
               </MessageRendererBoundary>
               {rendererText.embeds.length > 0 && (
@@ -483,6 +539,26 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
                   {rendererText.embeds.map((embed) => <TurnImageCard key={embed} embed={embed} message={message} api={api} t={t} />)}
                 </div>
               )}
+            </div>
+          ) : speakerSegments ? (
+            // One reply, several people: a bubble each, with their face.
+            <div onClick={handleClick} className="flex flex-col gap-2" data-speaker-split="">
+              {speakerSegments.map((seg, i) => {
+                const who = seg.speaker ? characterFaces.get(seg.speaker) : null;
+                return seg.speaker ? (
+                  <div key={i} className="flex items-start gap-2" data-speaker={seg.speaker}>
+                    {who?.portrait
+                      ? <img src={who.portrait} alt="" draggable={false} {...portraitViewer.faceProps({ src: who.portrait, name: seg.speaker }, t)} className="mt-0.5 h-7 w-7 shrink-0 cursor-zoom-in rounded-full border border-border object-cover" />
+                      : <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-muted text-[11px] font-semibold">{seg.speaker.slice(0, 1)}</span>}
+                    <div className="min-w-0 flex-1">
+                      <p className="play-message-role mb-0.5 text-xs font-medium text-primary/70">{seg.speaker}</p>
+                      <div className="rounded-xl border border-border/60 bg-muted/30 px-3 py-1.5" dangerouslySetInnerHTML={{ __html: renderMessage(seg.text) }} />
+                    </div>
+                  </div>
+                ) : (
+                  <div key={i} dangerouslySetInnerHTML={{ __html: renderMessage(seg.text) }} />
+                );
+              })}
             </div>
           ) : (
             <>
@@ -622,7 +698,7 @@ const MessageBubbleInner: React.FC<MessageBubbleProps> = function MessageBubbleI
  * This is critical for performance: during streaming, only the active
  * streaming bubble re-renders, not the 500 completed messages above it.
  */
-export const MessageBubble = React.memo(MessageBubbleInner, (prev, next) => {
+export function messageBubblePropsEqual(prev: MessageBubbleProps, next: MessageBubbleProps): boolean {
   // Return true = skip re-render (props are equal)
   if (prev.message.id !== next.message.id) return false;
   if (prev.message.content !== next.message.content) return false;
@@ -634,7 +710,16 @@ export const MessageBubble = React.memo(MessageBubbleInner, (prev, next) => {
   if (prev.isEditing !== next.isEditing) return false;
   if (prev.editContent !== next.editContent) return false;
   if (prev.rendererComponent !== next.rendererComponent) return false;
+  // A card's renderer reads both: game state through `variables`, its own
+  // component state through the closure behind `rendererEpoch`. Without them a
+  // played card's "show the input" button flipped its state and the bubble
+  // never drew it (the editor preview draws the opening another way, so it
+  // worked there).
+  // `variables` is the store's object, replaced once per state change.
+  if (prev.variables !== next.variables) return false;
+  if (prev.rendererEpoch !== next.rendererEpoch) return false;
   if (prev.messageIndex !== next.messageIndex) return false;
+  if (prev.isGreeting !== next.isGreeting) return false;
   // Swipe: check by active swipe index (content changes on swipe)
   if (prev.message.activeSwipeIndex !== next.message.activeSwipeIndex) return false;
   if (prev.message.modelFallback !== next.message.modelFallback) return false;
@@ -644,5 +729,7 @@ export const MessageBubble = React.memo(MessageBubbleInner, (prev, next) => {
   // children/swipeControls elements, which this comparator can't diff.
   if (prev.actionsKey !== next.actionsKey) return false;
   return true;
-});
+}
+
+export const MessageBubble = React.memo(MessageBubbleInner, messageBubblePropsEqual);
 import { ModelFallbackBadge } from "./model-fallback-card";

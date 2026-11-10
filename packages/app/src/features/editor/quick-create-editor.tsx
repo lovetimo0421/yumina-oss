@@ -1,8 +1,8 @@
+import i18n from "@/lib/i18n";
 import { useStoryNavigation } from "@/hooks/use-story-navigation";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
-  Save,
   Loader2,
   Plus,
   Trash2,
@@ -14,6 +14,7 @@ import {
   User,
   Wand2,
   MoreVertical,
+  PanelsTopLeft,
   Upload,
   Download,
   GraduationCap,
@@ -29,7 +30,6 @@ import {
   ChevronRight,
   GripVertical,
   Compass,
-  Maximize2,
   Music,
   Layers,
   Box,
@@ -37,11 +37,10 @@ import {
   FileCode,
   Lock,
   AlertCircle,
-  Check,
 } from "lucide-react";
 import { feedback } from "@/lib/feedback";
 import { FieldError } from "@/components/ui/field-error";
-import { useTransientFlag } from "@/hooks/use-transient-flag";
+import { MediaGuidelinesNote } from "@/components/media-guidelines-note";
 import { useRouter } from "@tanstack/react-router";
 import { useAuthGuard } from "@/hooks/use-auth-guard";
 import { cn } from "@/lib/utils";
@@ -53,22 +52,28 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useEditorStore } from "@/stores/editor";
-import { MAX_WORLD_DESCRIPTION } from "@yumina/shared";
+import { adoptOwnWriteToken, useEditorStore } from "@/stores/editor";
+import { MAX_WORLD_DESCRIPTION, isDefaultWorldName } from "@yumina/shared";
 import type { WorldEntry } from "@yumina/engine";
+import { isPlaceholderCharacterName } from "@yumina/engine";
+import { isTemplateDescription } from "@/lib/world-templates";
 import { useUiStore } from "@/stores/ui";
 import {
   getAssetUploadErrorMessage,
   uploadAssetWithPresignedUrl,
 } from "@/lib/asset-upload";
 
-import { BundleCreator, BundleImporter, ImportBundleModal, WorldPublishModal } from "@/edition/slots";
+import { BundleCreator, BundleImporter, BundlesSection, ImportBundleModal, WorldPublishModal } from "@/edition/slots";
 import { getEditionInfo, useEdition } from "@/edition/edition";
 import { ExportCardMenu } from "./export-card-menu";
 import { UpdateNotifyDialog } from "./update-notify-dialog";
+import { SaveStatus } from "./save-status";
 import { ReviewStateControl } from "./review-state-control";
 import { GuestEditorReadOnly } from "./components/guest-editor-readonly";
-import { BundlesSection } from "@/edition/slots";
+import { DebouncedInput, DebouncedTextarea, flushPendingEditorFields } from "./components/debounced-field";
+import { DescriptionField } from "./components/description-field";
+import { LANGUAGE_OPTIONS } from "@/lib/languages";
+import { prepareStudioEntry } from "./editor-entry";
 import { AssetPicker } from "./asset-picker";
 import { EntryPortraitField } from "./components/entry-portrait-field";
 import { VoiceField } from "./components/voice-field";
@@ -97,51 +102,23 @@ const VersionHistoryDialog = lazy(() =>
     default: m.VersionHistoryDialog,
   }))
 );
+const EditorTour = lazy(() =>
+  importWithChunkRecovery(() => import("./tour/editor-tour")).then((m) => ({ default: m.EditorTour }))
+);
+import { isEditorTourDone } from "./tour/tour-state";
 import type { YuminaBundle } from "@yumina/engine";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
-/* ─── Editor mode persistence ─── */
-
-const EDITOR_MODE_KEY = "yumina-editor-mode";
-
-export function saveEditorMode(worldId: string, mode: "simple" | "advanced") {
-  try {
-    const data = JSON.parse(localStorage.getItem(EDITOR_MODE_KEY) || "{}");
-    data[worldId] = mode;
-    localStorage.setItem(EDITOR_MODE_KEY, JSON.stringify(data));
-  } catch {
-    /* ignore */
-  }
-}
-
-export function getEditorMode(worldId: string): "simple" | "advanced" | null {
-  try {
-    const data = JSON.parse(localStorage.getItem(EDITOR_MODE_KEY) || "{}");
-    return data[worldId] ?? null;
-  } catch {
-    return null;
-  }
-}
-
-const GLOBAL_MODE_KEY = "yumina-editor-mode-global";
-
-export function getGlobalEditorMode(): "simple" | "advanced" | null {
-  try {
-    const val = localStorage.getItem(GLOBAL_MODE_KEY);
-    return val === "simple" || val === "advanced" ? val : null;
-  } catch {
-    return null;
-  }
-}
-
-export function saveGlobalEditorMode(mode: "simple" | "advanced") {
-  try {
-    localStorage.setItem(GLOBAL_MODE_KEY, mode);
-  } catch {
-    /* ignore */
-  }
-}
+// Re-exported so the existing `@/features/editor/quick-create-editor` imports
+// keep working; the implementation lives in lib/editor-mode.ts, where it can
+// be tested without loading this 2800-line component.
+import { getEditorMode, getGlobalEditorMode, rememberEditorChoice, saveEditorMode, saveGlobalEditorMode } from "./lib/editor-mode";
+import { VisualSurfaceSwitch } from "./visual-surface-switch";
+import { useBlueprintAccess } from "@/lib/blueprint-access";
+import { saveEditorSurface } from "@/lib/editor-surface";
+import { simpleArchetypeLabelOf, simpleArchetypeOf } from "./lib/simple-archetype";
+export { getEditorMode, getGlobalEditorMode, saveEditorMode, saveGlobalEditorMode };
 
 /* ─── Tag conventions ─── */
 
@@ -256,28 +233,37 @@ function useIsMobileSimpleEditor() {
    QuickCreateEditor
    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 
+/** A stable empty list: `?? []` inside a selector is a new array every call. */
+const NO_AUDIO_TRACKS: NonNullable<import("@yumina/engine").WorldDefinition["audioTracks"]> = [];
+
 export function QuickCreateEditor({
   onOpenFullEditor,
   onBack,
+  autoTour = false,
 }: {
   onOpenFullEditor: () => void;
   onBack: () => void;
+  /** Create route: the card was made this session, so the first-visit tour
+   *  may auto-open even after the draft's first auto-save. */
+  autoTour?: boolean;
 }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { t } = useTranslation("editor") as { t: (key: string) => string };
   const router = useRouter();
   const navigateToStory = useStoryNavigation();
-  const worldDraft = useEditorStore((s) => s.worldDraft);
+  // Only what the shell itself shows. Subscribing to the whole worldDraft
+  // re-rendered the header, menus and every section below on each keystroke.
+  const worldName = useEditorStore((s) => s.worldDraft.name);
   const serverWorldId = useEditorStore((s) => s.serverWorldId);
   const saving = useEditorStore((s) => s.saving);
-  const isDirty = useEditorStore((s) => s.isDirty);
-  // R3: the Save button says "Saved" for a moment instead of a toast.
-  const lastSavedAt = useEditorStore((s) => s.lastSavedAt);
-  const justSaved = useTransientFlag(lastSavedAt);
   const setField = useEditorStore((s) => s.setField);
   const saveDraft = useEditorStore((s) => s.saveDraft);
   const pendingEdit = useEditorStore((s) => s.pendingEdit);
   const guestMode = useEditorStore((s) => s.guestMode);
+  // The same test the publish gate runs, read here so the editor can say it
+  // early instead of letting the card reach the publish dialog still wearing
+  // its template's name.
+  const nameIsStillDefault = isDefaultWorldName(worldName);
   const { requireAuth } = useAuthGuard();
   const isMobileEditor = useIsMobileSimpleEditor();
 
@@ -287,7 +273,13 @@ export function QuickCreateEditor({
   const [showUpdateNotify, setShowUpdateNotify] = useState(false);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
   const [showPublishModal, setShowPublishModal] = useState(false);
-  const initRef = useRef(false);
+  // First-visit guided tour for the simple editor. Auto-pops only on a fresh,
+  // never-saved draft (the create flow) — same rule as the advanced shell —
+  // and can be replayed from the ⋮ menu.
+  const [showTour, setShowTour] = useState(
+    () => !isEditorTourDone("simple") && (autoTour || !useEditorStore.getState().serverWorldId)
+  );
+  const tourActive = showTour && !guestMode;
 
   // Any owned variant (incl. a 副) can be published / submitted for review — a
   // draft variant must have a review path. (Was gated by tab position, which hid
@@ -296,21 +288,9 @@ export function QuickCreateEditor({
   const canPublishHere = features.publishing;
   const bundlesEnabled = features.bundles;
 
-  // Archetype: heuristic from entries. Toggle is exposed in the UI as a small switch.
-  const derivedArchetype = useMemo<"chat" | "world">(() => {
-    const charCount = worldDraft.entries.filter(
-      (e) => !e.presetId && e.role === "character"
-    ).length;
-    return charCount >= 2 ? "world" : "chat";
-  }, [worldDraft.entries]);
-
-  const archetype: "chat" | "world" = derivedArchetype;
-
-  useEffect(() => {
-    if (initRef.current) return;
-    initRef.current = true;
-    // Don't auto-create a greeting — the greeting card has its own empty state.
-  }, []);
+  // Archetype: heuristic from entries. The selector returns a string, so an
+  // edit that leaves the character count alone does not re-render the shell.
+  const archetype = useEditorStore((s) => simpleArchetypeOf(s.worldDraft.entries, s.worldDraft.worldbooks));
 
   const ensureServerWorldId = async (): Promise<string | null> => {
     let id = serverWorldId;
@@ -340,7 +320,7 @@ export function QuickCreateEditor({
         if (existing) {
           useUiStore.getState().recordRecentPlayedWorld({
             id,
-            name: worldDraft.name || "Untitled World",
+            name: useEditorStore.getState().worldDraft.name || t("shell.untitledWorld"),
             thumbnailUrl: null,
           });
           navigateToStory(existing.id);
@@ -360,7 +340,7 @@ export function QuickCreateEditor({
       const { data } = await res.json();
       useUiStore.getState().recordRecentPlayedWorld({
         id,
-        name: worldDraft.name || "Untitled World",
+        name: useEditorStore.getState().worldDraft.name || t("shell.untitledWorld"),
         thumbnailUrl: null,
       });
       navigateToStory(data.id);
@@ -377,11 +357,21 @@ export function QuickCreateEditor({
     });
   };
 
+  // The 画布 switch, turned on. Straight to the canvas, phones included (the /edit
+  // redirect would keep a phone on the classic editor). The card is recorded
+  // as advanced (local choice and draft field, which the canvas's next save
+  // carries) so leaving the canvas later lands on classic, not back here.
+  // The field is set only after the save, so /edit's own canvas redirect
+  // cannot fire mid-save; if it fires now it goes to the same place.
   const handleEnterStudio = async () => {
     if (guestMode) { requireAuth("create worlds"); return; }
+    flushPendingEditorFields();
     try {
-      const id = await ensureServerWorldId();
-      if (id) router.navigate({ to: "/app/studio/$worldId", params: { worldId: id } });
+      const id = await prepareStudioEntry(useEditorStore.getState);
+      if (!id) { feedback.error(t("shell.failedEnterStudio")); return; }
+      rememberEditorChoice(id, "visual");
+      useEditorStore.getState().setField("editorMode", "advanced");
+      await router.navigate({ to: "/app/studio/$worldId", params: { worldId: id } });
     } catch (err) {
       console.error(err);
       feedback.error(t("shell.failedEnterStudio"));
@@ -390,6 +380,8 @@ export function QuickCreateEditor({
 
   const handleSave = async () => {
     if (guestMode) { requireAuth("create worlds"); return; }
+    // Commit the field being typed in first, or the save misses its last pause.
+    flushPendingEditorFields();
     setField("editorMode", "simple");
     const success = await saveDraft();
     if (success) {
@@ -435,13 +427,43 @@ export function QuickCreateEditor({
     setShowBundleCreator(true);
   };
 
+  /**
+   * The one way out to the advanced editor — the header toggle, the ⋮ menu,
+   * the promo card and the "switch" link under 更多 all come here.
+   *
+   * With unsaved edits on a saved card the switch saves too. Advanced can
+   * open on the canvas, which is a route change, and a route change with
+   * unsaved edits is stopped by the leave guard — the page used to sit on a
+   * spinner forever when the creator chose to stay. The mode is written
+   * before the save starts, so the save carries it and nothing changes under
+   * it; the route holds its redirect while `saving` is true and navigates once
+   * the save lands clean. A failed save still switches: the route falls back
+   * to the classic editor if the guard stops it, and the draft is not lost.
+   *
+   * A card that was never saved (the create flow) has no canvas to go to, so
+   * nothing is saved on its behalf here.
+   */
   const handleSwitchToAdvanced = () => {
+    flushPendingEditorFields();
     const store = useEditorStore.getState();
     store.setField("editorMode", "advanced");
     const id = store.serverWorldId;
     if (id) saveEditorMode(id, "advanced");
     saveGlobalEditorMode("advanced");
+    // Synchronous with the save below: the route must see `saving` in the
+    // same render that shows it the new mode, or it redirects before it.
     onOpenFullEditor();
+    if (!id || !store.isDirty || store.guestMode || store.readOnlyInspect) return;
+    // It reports its own failure; the route decides where to land either way.
+    void useEditorStore.getState().saveDraft();
+  };
+
+  // 完整模式 in the ⋮ menu. 完整 is the advanced mode with the canvas turned
+  // off, so it is the same way out with the surface recorded first.
+  const blueprintAllowed = useBlueprintAccess();
+  const handleSwitchToClassic = () => {
+    saveEditorSurface("classic");
+    handleSwitchToAdvanced();
   };
 
   useEffect(() => {
@@ -462,6 +484,7 @@ export function QuickCreateEditor({
       }
       if ((e.ctrlKey || e.metaKey) && e.key === "s") {
         e.preventDefault();
+        flushPendingEditorFields();
         const state = useEditorStore.getState();
         if (!state.saving) {
           state.setField("editorMode", "simple");
@@ -494,51 +517,47 @@ export function QuickCreateEditor({
             >
               <ArrowLeft className="h-4 w-4" />
             </button>
+            {/* 画布, off — the same pill, same place, in every editor. */}
+            {blueprintAllowed && (
+              <VisualSurfaceSwitch
+                on={false}
+                onToggle={() => { void handleEnterStudio(); }}
+                disabled={saving}
+                tour="qc-mode-toggle"
+                className="h-9 rounded-xl"
+              />
+            )}
             <input
               type="text"
-              value={worldDraft.name}
+              value={nameIsStillDefault ? "" : worldName}
               onChange={(e) => setField("name", e.target.value)}
               placeholder={t("quickCreate.namePlaceholder")}
               readOnly={guestMode}
               aria-readonly={guestMode}
               tabIndex={guestMode ? -1 : undefined}
-              autoFocus={!guestMode && !worldDraft.name}
+              autoFocus={!guestMode && !worldName}
+              title={nameIsStillDefault ? t("quickCreate.nameStillDefault") : undefined}
               className={cn(
-                "min-w-0 flex-1 bg-transparent text-base font-semibold text-foreground placeholder:text-muted-foreground/35 focus:outline-none",
+                "min-w-0 flex-1 bg-transparent text-base font-semibold placeholder:text-muted-foreground/35 focus:outline-none",
+                nameIsStillDefault ? "text-muted-foreground/60" : "text-foreground",
                 guestMode && "cursor-not-allowed opacity-60",
               )}
             />
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              title="Save (Ctrl+S)"
-              className="relative inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-gold px-3 text-xs font-semibold text-black transition-opacity disabled:opacity-40"
-            >
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : justSaved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-              {justSaved && !saving ? t("shell.saved") : t("shell.save")}
-              {isDirty && !saving && (
-                <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full border-2 border-background bg-amber-500" />
-              )}
-            </button>
+            <SaveStatus onSave={handleSave} data-tour="qc-save" className="h-9" />
           </div>
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              onClick={handleEnterStudio}
-              disabled={saving || (!serverWorldId && !worldDraft.name)}
-              className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-xl bg-primary/10 px-2.5 text-xs font-semibold text-primary disabled:opacity-40"
-            >
-              <Wand2 className="h-3.5 w-3.5" /> {t("shell.enterStudio")}
-            </button>
+          <div className="mt-2 flex items-center justify-end gap-2">
             {canPublishHere && (
-              <ReviewStateControl
-                onPublish={handlePublishClick}
-                size="sm"
-                disabled={saving || (!serverWorldId && !worldDraft.name)}
-                className="h-9"
-              />
+              <span data-tour="publish-control" className="inline-flex shrink-0">
+                <ReviewStateControl
+                  onPublish={handlePublishClick}
+                  size="sm"
+                  disabled={saving || (!serverWorldId && !worldName)}
+                  className="h-9"
+                />
+              </span>
             )}
             {!canPublishHere && (
-              <ExportCardMenu worldId={serverWorldId} worldName={worldDraft.name} size="sm" disabled={saving} />
+              <ExportCardMenu worldId={serverWorldId} worldName={worldName} size="sm" disabled={saving} />
             )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -550,7 +569,7 @@ export function QuickCreateEditor({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuItem onClick={handlePlayWorld} disabled={saving || (!serverWorldId && !worldDraft.name)}>
+                <DropdownMenuItem onClick={handlePlayWorld} disabled={saving || (!serverWorldId && !worldName)}>
                   <Play className="mr-2 h-4 w-4" />
                   {t("shell.play")}
                 </DropdownMenuItem>
@@ -580,8 +599,14 @@ export function QuickCreateEditor({
                   {t("shell.creatorGuide")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={handleSwitchToAdvanced}>
-                  {t("quickCreate.advancedMode")}
+                <DropdownMenuItem onClick={() => setShowTour(true)}>
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  {t("tour.replay")}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleSwitchToClassic} disabled={saving} data-editor-menu-mode="classic">
+                  <PanelsTopLeft className="mr-2 h-4 w-4" />
+                  {t("shell.menuClassicMode")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -594,6 +619,11 @@ export function QuickCreateEditor({
           </GuestEditorReadOnly>
         </main>
 
+        {tourActive && (
+          <Suspense fallback={null}>
+            <EditorTour variant="simple" mobile={isMobileEditor} onClose={() => setShowTour(false)} />
+          </Suspense>
+        )}
         {mountedDialogs(
           showBundleCreator, setShowBundleCreator,
           showImportModal, setShowImportModal,
@@ -601,7 +631,7 @@ export function QuickCreateEditor({
           showUpdateNotify, setShowUpdateNotify,
           showVersionHistory, setShowVersionHistory,
           showPublishModal, setShowPublishModal,
-          serverWorldId, worldDraft.name, !!pendingEdit
+          serverWorldId, worldName, !!pendingEdit
         )}
       </div>
     );
@@ -616,35 +646,39 @@ export function QuickCreateEditor({
           <button onClick={onBack} className="hover-surface rounded-lg p-1.5 text-muted-foreground">
             <ArrowLeft className="h-4 w-4" />
           </button>
+          {/* 画布, off. The 完整 editor carries the same pill in the same place,
+              off; the canvas carries it on. */}
+          {blueprintAllowed && (
+            <VisualSurfaceSwitch
+              on={false}
+              onToggle={() => { void handleEnterStudio(); }}
+              disabled={saving}
+              tour="qc-mode-toggle"
+            />
+          )}
           <input
             type="text"
-            value={worldDraft.name}
+            value={nameIsStillDefault ? "" : worldName}
             onChange={(e) => setField("name", e.target.value)}
             placeholder={t("quickCreate.namePlaceholder")}
             readOnly={guestMode}
             aria-readonly={guestMode}
             tabIndex={guestMode ? -1 : undefined}
-            autoFocus={!guestMode && !worldDraft.name}
+            autoFocus={!guestMode && !worldName}
+            title={nameIsStillDefault ? t("quickCreate.nameStillDefault") : undefined}
             className={cn(
-              "min-w-0 flex-1 bg-transparent text-lg font-semibold text-foreground placeholder:text-muted-foreground/30 focus:outline-none",
+              "min-w-0 flex-1 bg-transparent text-lg font-semibold placeholder:text-muted-foreground/30 focus:outline-none",
+              // A card carries its template's name until someone types over it,
+              // and the title sits where a page heading sits — so even greyed,
+              // 「角色聊天」 read as a name already given. Un-renamed, the field
+              // shows empty with the placeholder asking for one, as the canvas
+              // does; it uses the same test the publish gate uses, so the two
+              // can never disagree.
+              nameIsStillDefault ? "text-muted-foreground/60" : "text-foreground",
               guestMode && "cursor-not-allowed opacity-60",
             )}
           />
           <div className="flex items-center gap-2">
-            <div className="flex shrink-0 items-center rounded-lg border border-border bg-card p-0.5">
-              <span
-                aria-pressed="true"
-                className="cursor-default select-none rounded-md bg-gold/15 px-3 py-1 text-xs font-semibold text-gold"
-              >
-                {t("quickCreate.simpleMode")}
-              </span>
-              <button
-                onClick={handleSwitchToAdvanced}
-                className="rounded-md px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
-              >
-                {t("quickCreate.advancedMode")}
-              </button>
-            </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button className="hover-surface rounded-lg p-1.5 text-muted-foreground" title={t("shell.moreActions")}>
@@ -652,6 +686,13 @@ export function QuickCreateEditor({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                {/* The rail that holds the big Play button is hidden below lg
+                    (768–1023px), and this menu was the only other place to
+                    look — so Play lives here too, like the mobile menu. */}
+                <DropdownMenuItem onClick={handlePlayWorld} disabled={saving || (!serverWorldId && !worldName)}>
+                  <Play className="mr-2 h-4 w-4" />
+                  {t("shell.play")}
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   onClick={handleOpenVersionHistory}
                   disabled={!serverWorldId}
@@ -671,35 +712,28 @@ export function QuickCreateEditor({
                       <Upload className="mr-2 h-4 w-4" />
                       {t("shell.exportBundle")}
                     </DropdownMenuItem>
+                    <DropdownMenuSeparator />
                   </>
                 )}
+                <DropdownMenuItem onClick={() => setShowTour(true)}>
+                  <Sparkles className="mr-2 h-4 w-4" />
+                  {t("tour.replay")}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleSwitchToClassic} disabled={saving} data-editor-menu-mode="classic">
+                  <PanelsTopLeft className="mr-2 h-4 w-4" />
+                  {t("shell.menuClassicMode")}
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-            <button
-              onClick={handleEnterStudio}
-              disabled={saving || (!serverWorldId && !worldDraft.name)}
-              className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-2 text-sm font-medium text-primary transition-colors hover:bg-primary/20 disabled:opacity-40"
-            >
-              <Wand2 className="h-3.5 w-3.5" />
-              {t("shell.enterStudio")}
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              title="Save (Ctrl+S)"
-              className="relative flex items-center gap-2 rounded-lg bg-gold px-4 py-2 text-sm font-semibold text-black transition-opacity disabled:opacity-40"
-            >
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : justSaved ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
-              {justSaved && !saving ? t("shell.saved") : t("shell.save")}
-              {isDirty && !saving && (
-                <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-amber-500" />
-              )}
-            </button>
+            <SaveStatus onSave={handleSave} data-tour="qc-save" size="md" />
             {canPublishHere && (
-              <ReviewStateControl onPublish={handlePublishClick} size="md" disabled={saving} />
+              <span data-tour="publish-control" className="inline-flex">
+                <ReviewStateControl onPublish={handlePublishClick} size="md" disabled={saving} />
+              </span>
             )}
             {!canPublishHere && (
-              <ExportCardMenu worldId={serverWorldId} worldName={worldDraft.name} size="md" disabled={saving} />
+              <ExportCardMenu worldId={serverWorldId} worldName={worldName} size="md" disabled={saving} />
             )}
           </div>
         </div>
@@ -723,17 +757,17 @@ export function QuickCreateEditor({
             <div className="mb-3 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground/50">
               {t("simple.nav.jumpTo")}
             </div>
-            <JumpAnchor n="1" label={t("simple.nav.cover")} accent="cyan" />
-            <JumpAnchor n="2" label={t("simple.nav.character")} accent="fuchsia" />
+            <JumpAnchor n="1" label={t("simple.nav.cover")} accent="cyan" target="qc-cover" />
+            <JumpAnchor n="2" label={t("simple.nav.character")} accent="fuchsia" target="qc-character" />
             {archetype === "chat" && (
               <>
-                <JumpAnchor n="3" label={t("simple.nav.worldview")} accent="cyan" />
-                <JumpAnchor n="4" label={t("simple.nav.dialogueStyle")} accent="violet" />
+                <JumpAnchor n="3" label={t("simple.nav.worldview")} accent="cyan" target="qc-worldview" />
+                <JumpAnchor n="4" label={t("simple.nav.dialogueStyle")} accent="violet" target="qc-style" />
               </>
             )}
-            <JumpAnchor n={archetype === "chat" ? "5" : "3"} label={t("simple.nav.settings")} accent="amber" />
-            <JumpAnchor n={archetype === "chat" ? "6" : "4"} label={t("simple.nav.greeting")} accent="emerald" />
-            <JumpAnchor n={archetype === "chat" ? "7" : "5"} label={t("simple.nav.description")} accent="rose" />
+            <JumpAnchor n={archetype === "chat" ? "5" : "3"} label={t("simple.nav.settings")} accent="amber" target="qc-settings" />
+            <JumpAnchor n={archetype === "chat" ? "6" : "4"} label={t("simple.nav.greeting")} accent="emerald" target="qc-greeting" />
+            <JumpAnchor n={archetype === "chat" ? "7" : "5"} label={t("simple.nav.description")} accent="rose" target="qc-about" />
           </div>
           <div className="border-t border-border p-4">
             <a
@@ -747,7 +781,8 @@ export function QuickCreateEditor({
             </a>
             <button
               onClick={handlePlayWorld}
-              disabled={saving || (!serverWorldId && !worldDraft.name)}
+              disabled={saving || (!serverWorldId && !worldName)}
+              data-tour="qc-play"
               className="group relative flex w-full items-center justify-center gap-3 overflow-hidden rounded-2xl bg-gold py-4 text-lg font-black text-black shadow-[0_0_20px_rgba(201,162,94,0.3)] transition-all hover:-translate-y-0.5 hover:shadow-[0_0_30px_rgba(201,162,94,0.4)] disabled:opacity-40"
             >
               <div className="absolute inset-0 translate-x-[-100%] bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-700 ease-in-out group-hover:translate-x-[100%]" />
@@ -758,6 +793,11 @@ export function QuickCreateEditor({
         </aside>
       </div>
 
+      {tourActive && (
+        <Suspense fallback={null}>
+          <EditorTour variant="simple" mobile={false} onClose={() => setShowTour(false)} />
+        </Suspense>
+      )}
       {mountedDialogs(
         showBundleCreator, setShowBundleCreator,
         showImportModal, setShowImportModal,
@@ -765,7 +805,7 @@ export function QuickCreateEditor({
         showUpdateNotify, setShowUpdateNotify,
         showVersionHistory, setShowVersionHistory,
         showPublishModal, setShowPublishModal,
-        serverWorldId, worldDraft.name, !!pendingEdit
+        serverWorldId, worldName, !!pendingEdit
       )}
     </div>
   );
@@ -781,7 +821,7 @@ function ScrollBody({ archetype, onOpenFullEditor }: { archetype: "chat" | "worl
   const isChat = archetype === "chat";
   return (
     <div className="mx-auto w-full max-w-3xl space-y-6 px-4 py-6 md:px-6 md:py-10">
-      <ArchetypeLabel archetype={archetype} />
+      <ArchetypeLabel />
 
       <CoverSection />
       <CharactersSection />
@@ -799,9 +839,12 @@ function ScrollBody({ archetype, onOpenFullEditor }: { archetype: "chat" | "worl
 }
 
 /* ─── Archetype label (passive — no toggle) ─── */
-function ArchetypeLabel({ archetype }: { archetype: "chat" | "world" }) {
+function ArchetypeLabel() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { t } = useTranslation("editor") as { t: (key: string) => string };
+  // A blank project has no character yet and is not a character chat.
+  const archetype = useEditorStore((s) => simpleArchetypeLabelOf(s.worldDraft.entries, s.worldDraft.worldbooks));
+  if (!archetype) return null;
   const Icon = archetype === "chat" ? MessageCircle : Users;
   return (
     <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-card/30 px-4 py-2 text-xs text-muted-foreground">
@@ -817,7 +860,7 @@ function ArchetypeLabel({ archetype }: { archetype: "chat" | "world" }) {
 function CoverSection() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { t } = useTranslation("editor") as { t: (key: string) => string };
-  const worldDraft = useEditorStore((s) => s.worldDraft);
+  const avatar = useEditorStore((s) => s.worldDraft.avatar);
   const serverWorldId = useEditorStore((s) => s.serverWorldId);
   const saveDraft = useEditorStore((s) => s.saveDraft);
   const setField = useEditorStore((s) => s.setField);
@@ -847,7 +890,7 @@ function CoverSection() {
     try {
       const id = await ensureWorldId();
       if (!id) return;
-      const data = await uploadAssetWithPresignedUrl<{ thumbnailUrl: string }>({
+      const data = await uploadAssetWithPresignedUrl<{ thumbnailUrl: string; previousUpdatedAt?: string | null; updatedAt?: string }>({
         file,
         preferredType: "image",
         prepareUrl: `${apiBase}/api/worlds/${id}/thumbnail`,
@@ -855,6 +898,7 @@ function CoverSection() {
         registerBody: ({ key }) => ({ key }),
       });
       // The thumbnail swaps in place — nothing to announce.
+      adoptOwnWriteToken(id, data);
       setField("avatar", data.thumbnailUrl);
     } catch (err) {
       setError(getAssetUploadErrorMessage(err));
@@ -864,15 +908,16 @@ function CoverSection() {
   };
 
   return (
-    <Card n={1} icon={Camera} title={t("simple.cover.title")} hint={t("simple.cover.hint")} accent="cyan" optional>
+    <Card n={1} icon={Camera} title={t("simple.cover.title")} hint={t("simple.cover.hint")} accent="cyan" optional anchor="qc-cover">
+      <MediaGuidelinesNote className="mb-4" />
       <div className="flex items-center gap-5">
         <button
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
           className="group relative flex h-32 w-32 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-card transition-colors hover:border-cyan-400/40"
         >
-          {worldDraft.avatar ? (
-            <img src={worldDraft.avatar} alt="" className="h-full w-full object-cover" />
+          {avatar ? (
+            <img src={avatar} alt="" className="h-full w-full object-cover" />
           ) : (
             <ImageIcon className="h-8 w-8 text-muted-foreground/30 transition-transform group-hover:scale-110" />
           )}
@@ -896,7 +941,7 @@ function CoverSection() {
             className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:border-cyan-400/40 hover:bg-cyan-500/5 disabled:opacity-40"
           >
             <Camera className="h-3.5 w-3.5" />
-            {worldDraft.avatar ? t("simple.cover.replace") : t("simple.cover.upload")}
+            {avatar ? t("simple.cover.replace") : t("simple.cover.upload")}
           </button>
           <FieldError id="simple-cover-error" message={error} />
         </div>
@@ -955,11 +1000,16 @@ function CharactersSection() {
 
   const [openIds, setOpenIds] = useState<Set<string>>(() => new Set());
 
+  // Open the first character whenever none of the open ones still exists —
+  // not only on an empty set: after every character is deleted, the ids of
+  // the deleted ones linger, and a character added outside this section (the
+  // tour's 「给角色起名」 step, the assistant) stayed collapsed with no name
+  // field to type into.
   useEffect(() => {
-    if (characters.length > 0 && openIds.size === 0) {
-      setOpenIds(new Set([characters[0]!.id]));
-    }
-  }, [characters, openIds.size]);
+    if (characters.length === 0) return;
+    if (characters.some((c) => openIds.has(c.id))) return;
+    setOpenIds(new Set([characters[0]!.id]));
+  }, [characters, openIds]);
 
   const toggleOpen = (id: string) =>
     setOpenIds((prev) => {
@@ -990,6 +1040,7 @@ function CharactersSection() {
           : t("simple.character.hintMulti")
       }
       accent="fuchsia"
+      anchor="qc-character"
     >
       <div className="space-y-3">
         {characters.map((c, idx) => {
@@ -1097,11 +1148,15 @@ function CharacterForm({
           <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
             {t("simple.character.name")}
           </label>
-          <input
+          {/* The template's 「角色」 shows as an empty box asking for a name,
+              as the canvas does — left as is, the AI called her 「角色」. */}
+          <DebouncedInput
             type="text"
-            value={entry.name}
-            onChange={(e) => updateEntry(entryId, { name: e.target.value })}
+            value={isPlaceholderCharacterName(entry.name) ? "" : entry.name}
+            syncKey={entryId}
+            onCommit={(name) => { if (name.trim() || !isPlaceholderCharacterName(entry.name)) updateEntry(entryId, { name }); }}
             placeholder={t("simple.character.namePlaceholder")}
+            data-tour="qc-char-name"
             className="w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-fuchsia-400/30"
           />
         </div>
@@ -1116,10 +1171,15 @@ function CharacterForm({
           </TwoTapDeleteButton>
         )}
       </div>
+      {/* The square alone doesn't say what a portrait is for; once one is
+          set, the picture explains itself and the line goes. */}
+      {!entry.portrait && (
+        <p className="-mt-2 text-[11px] leading-relaxed text-muted-foreground">{t("simple.character.portraitEmptyHint")}</p>
+      )}
       <VoiceField
         variant="compact"
         label={t("voiceField.characterLabel")}
-        title={t("voiceField.character", { name: entry.name })}
+        title={t("blueprint.voice.character", { name: entry.name })}
         value={entry.voice}
         onChange={(voice) => updateEntry(entryId, { voice })}
       />
@@ -1132,11 +1192,15 @@ function CharacterForm({
           {GENDER_VALUES.map((g) => (
             <button
               key={g}
-              onClick={() =>
+              onClick={() => {
+                // Read the committed content, not this render's: the persona
+                // box below commits on a pause, and its blur lands just
+                // before this click.
+                const content = useEditorStore.getState().worldDraft.entries.find((e) => e.id === entryId)?.content ?? entry.content;
                 updateEntry(entryId, {
-                  content: setGenderInContent(entry.content, gender === g ? null : g, cardLanguage, i18n.language),
-                })
-              }
+                  content: setGenderInContent(content, gender === g ? null : g, cardLanguage, i18n.language),
+                });
+              }}
               className={cn(
                 "rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all",
                 gender === g
@@ -1154,10 +1218,12 @@ function CharacterForm({
         <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
           {t("simple.character.persona")}
         </label>
-        <textarea
+        <DebouncedTextarea
           value={entry.content}
-          onChange={(e) => updateEntry(entryId, { content: e.target.value })}
+          syncKey={entryId}
+          onCommit={(content) => updateEntry(entryId, { content })}
           rows={8}
+          data-tour="qc-persona"
           placeholder={placeholder || t("simple.character.personaFallback")}
           className="w-full resize-none rounded-xl border border-border bg-background/60 px-4 py-3 text-sm leading-relaxed placeholder:whitespace-pre-line placeholder:text-muted-foreground/35 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-fuchsia-400/30"
         />
@@ -1178,6 +1244,7 @@ function TaggedSingleSection({
   accent,
   placeholder,
   rows = 8,
+  anchor,
 }: {
   tag: string;
   defaultName: string;
@@ -1189,6 +1256,7 @@ function TaggedSingleSection({
   accent: Accent;
   placeholder: string;
   rows?: number;
+  anchor?: string;
 }) {
   const entries = useEditorStore((s) => s.worldDraft.entries);
   const addEntry = useEditorStore((s) => s.addEntry);
@@ -1224,10 +1292,11 @@ function TaggedSingleSection({
   const effectivePlaceholder = templatePlaceholder || placeholder;
 
   return (
-    <Card n={n} icon={icon} title={title} hint={hint} accent={accent} optional>
-      <textarea
+    <Card n={n} icon={icon} title={title} hint={hint} accent={accent} optional anchor={anchor}>
+      <DebouncedTextarea
         value={value}
-        onChange={(e) => handleChange(e.target.value)}
+        syncKey={tag}
+        onCommit={handleChange}
         rows={rows}
         placeholder={effectivePlaceholder}
         className={cn(
@@ -1245,6 +1314,7 @@ function WorldviewSection() {
   return (
     <TaggedSingleSection
       tag={TAG_WORLDVIEW}
+      anchor="qc-worldview"
       defaultName={t("simple.worldview.defaultName")}
       role="scenario"
       n={3}
@@ -1264,6 +1334,7 @@ function DialogueStyleSection() {
   return (
     <TaggedSingleSection
       tag={TAG_DIALOGUE_STYLE}
+      anchor="qc-style"
       defaultName={t("simple.dialogueStyle.defaultName")}
       role="style"
       n={4}
@@ -1355,6 +1426,7 @@ function SettingsSection({ archetype }: { archetype: "chat" | "world" }) {
       hint={isChat ? t("simple.settings.hintChat") : t("simple.settings.hintWorld")}
       accent="amber"
       optional={isChat}
+      anchor="qc-settings"
     >
       <div className="space-y-3">
         {settingEntries.map((entry, idx) => (
@@ -1496,6 +1568,7 @@ function GreetingSection({ archetype }: { archetype: "chat" | "world" }) {
       title={t("simple.greeting.title")}
       hint={t("simple.greeting.hint")}
       accent="emerald"
+      anchor="qc-greeting"
     >
       <div className="mb-3 flex flex-wrap items-center gap-1.5">
         {Array.from({ length: tabCount }, (_, i) => (
@@ -1529,10 +1602,15 @@ function GreetingSection({ archetype }: { archetype: "chat" | "world" }) {
         </button>
       </div>
 
-      <textarea
+      <DebouncedTextarea
         value={active?.content ?? ""}
-        onChange={(e) => handleChange(e.target.value)}
+        // Keyed by tab, not by greeting id: typing into the empty tab creates
+        // the greeting, and an id change there would read as "another item"
+        // and reset the box mid-sentence.
+        syncKey={`greeting-${clampedIndex}`}
+        onCommit={handleChange}
         rows={9}
+        data-tour="qc-greeting-text"
         placeholder={placeholder}
         className={cn(
           "w-full resize-y rounded-xl border border-border bg-background/60 px-4 py-3 font-mono text-sm leading-relaxed placeholder:whitespace-pre-line placeholder:text-muted-foreground/35 focus:border-transparent focus:outline-none focus:ring-2",
@@ -1619,10 +1697,17 @@ function DescriptionSection({ archetype }: { archetype: "chat" | "world" }) {
       hint={t("simple.description.hint")}
       accent="rose"
       optional
+      anchor="qc-about"
     >
-      <textarea
+      {/* A template's own blurb (「一对一角色扮演」) is shown as what it is —
+          the text the card really carries, greyed, with a 还是模板 tag —
+          rather than as an empty box over a blurb that would still go out. */}
+      {isTemplateDescription(description) && (
+        <span data-qc-blurb-template className="mb-1.5 inline-block rounded border border-dashed border-zinc-500/60 px-1.5 text-[11px] leading-[16px] text-zinc-300">{t("simple.description.stillTemplate")}</span>
+      )}
+      <DescriptionField
         value={description ?? ""}
-        onChange={(e) => setField("description", e.target.value)}
+        onCommit={(next) => setField("description", next)}
         rows={4}
         // Was hard-capped at 200 here while the API/DB accept
         // MAX_WORLD_DESCRIPTION — simple mode was the only thing enforcing it.
@@ -1634,6 +1719,7 @@ function DescriptionSection({ archetype }: { archetype: "chat" | "world" }) {
         }
         className={cn(
           "w-full resize-none rounded-xl border border-border bg-background/60 px-4 py-3 text-sm leading-relaxed placeholder:text-muted-foreground/35 focus:border-transparent focus:outline-none focus:ring-2",
+          isTemplateDescription(description) && "text-muted-foreground/60",
           ACCENT_CLASSES.rose.focusRing
         )}
       />
@@ -1657,8 +1743,6 @@ function AdvancedPromoCard({ onOpenFullEditor }: { onOpenFullEditor: () => void 
   const { t } = useTranslation("editor") as { t: (key: string) => string };
   const router = useRouter();
   const guestMode = useEditorStore((s) => s.guestMode);
-  const serverWorldId = useEditorStore((s) => s.serverWorldId);
-  const saveDraft = useEditorStore((s) => s.saveDraft);
   const { requireAuth } = useAuthGuard();
   const [studioError, setStudioError] = useState<string | null>(null);
 
@@ -1669,33 +1753,28 @@ function AdvancedPromoCard({ onOpenFullEditor }: { onOpenFullEditor: () => void 
     { icon: FileCode, text: t("simple.advancedPromo.bulletCustomUi") },
   ];
 
-  const handleSwitch = () => {
-    // Persist the preference, then hand off to the route's switch callback —
-    // the mode is route-local state, so setting the store field alone does
-    // nothing once the page has resolved its mode.
-    const store = useEditorStore.getState();
-    store.setField("editorMode", "advanced");
-    saveGlobalEditorMode("advanced");
-    onOpenFullEditor();
-  };
+  // The shell's switch (handleSwitchToAdvanced) — it records the mode and
+  // saves before the route can leave for the canvas.
+  const handleSwitch = () => onOpenFullEditor();
 
   const handleStudio = async () => {
     if (guestMode) { requireAuth("create worlds"); return; }
     setStudioError(null);
-    let id = serverWorldId;
-    if (!id) {
-      await saveDraft();
-      id = useEditorStore.getState().serverWorldId;
+    try {
+      const id = await prepareStudioEntry(useEditorStore.getState);
+      if (!id) {
+        setStudioError(t(useEditorStore.getState().serverWorldId ? "shell.failedEnterStudio" : "simple.needWorldName"));
+        return;
+      }
+      await router.navigate({ to: "/app/studio/$worldId", params: { worldId: id } });
+    } catch (err) {
+      console.error(err);
+      setStudioError(t("shell.failedEnterStudio"));
     }
-    if (!id) {
-      setStudioError(t("simple.needWorldName"));
-      return;
-    }
-    router.navigate({ to: "/app/studio/$worldId", params: { worldId: id } });
   };
 
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.08] via-card/60 to-card/60 backdrop-blur-sm">
+    <div data-tour="qc-advanced-promo" className="relative overflow-hidden rounded-2xl border border-primary/25 bg-gradient-to-br from-primary/[0.08] via-card/60 to-card/60 backdrop-blur-sm">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-32 bg-gradient-to-b from-primary/[0.12] to-transparent" />
       <div className="relative p-5 md:p-6">
         <div className="mb-1 flex items-center gap-2.5">
@@ -1759,6 +1838,7 @@ function MoreDisclosure({ onOpenFullEditor }: { onOpenFullEditor: () => void }) 
   const [uploading, setUploading] = useState(false);
   const [removingIdx, setRemovingIdx] = useState<number | null>(null);
   const [galleryError, setGalleryError] = useState<string | null>(null);
+  const [marketOpened, setMarketOpened] = useState(false);
   const galleryRef = useRef<HTMLInputElement>(null);
 
   const ensureWorldId = async (): Promise<string | null> => {
@@ -1789,7 +1869,8 @@ function MoreDisclosure({ onOpenFullEditor }: { onOpenFullEditor: () => void }) 
         registerBody: ({ key }) => ({ key }),
       });
       // The new tile appears in the grid below — nothing to announce.
-      setGalleryImages([...galleryImages, data.url]);
+      // The store, not this render's copy: two uploads in flight each append.
+      setGalleryImages([...useEditorStore.getState().galleryImages, data.url]);
     } catch (err) {
       setGalleryError(getAssetUploadErrorMessage(err));
     } finally {
@@ -1801,6 +1882,7 @@ function MoreDisclosure({ onOpenFullEditor }: { onOpenFullEditor: () => void }) 
     if (!serverWorldId) return;
     setRemovingIdx(i);
     setGalleryError(null);
+    const removedUrl = useEditorStore.getState().galleryImages[i];
     try {
       const res = await fetch(`${apiBase}/api/worlds/${serverWorldId}/gallery/${i}`, {
         method: "DELETE",
@@ -1811,7 +1893,7 @@ function MoreDisclosure({ onOpenFullEditor }: { onOpenFullEditor: () => void }) 
         return;
       }
       // The tile leaves the grid — that is the confirmation.
-      setGalleryImages(galleryImages.filter((_, idx) => idx !== i));
+      setGalleryImages(useEditorStore.getState().galleryImages.filter((url) => url !== removedUrl));
     } catch {
       setGalleryError(t("simple.removeFailed"));
     } finally {
@@ -1828,7 +1910,10 @@ function MoreDisclosure({ onOpenFullEditor }: { onOpenFullEditor: () => void }) 
       <div className="mt-4 space-y-6">
         {/* Marketplace — collapsed by default (heavy to render); hosted-only. */}
         {getEditionInfo().features.bundles && (
-        <details className="group/mkt overflow-hidden rounded-2xl border border-primary/25 bg-card/60">
+        <details
+          className="group/mkt overflow-hidden rounded-2xl border border-primary/25 bg-card/60"
+          onToggle={(e) => { if (e.currentTarget.open) setMarketOpened(true); }}
+        >
           <summary className="flex cursor-pointer items-center gap-3 border-b border-border/60 bg-primary/[0.04] px-4 py-2.5 hover:bg-primary/[0.06]">
             <ChevronRight className="h-4 w-4 text-primary transition-transform group-open/mkt:rotate-90" />
             <Compass className="h-4 w-4 text-primary" />
@@ -1837,9 +1922,13 @@ function MoreDisclosure({ onOpenFullEditor }: { onOpenFullEditor: () => void }) 
               {t("simple.more.marketplace.hint")}
             </span>
           </summary>
-          <div className="max-h-[420px] overflow-y-auto">
-            <BundlesSection />
-          </div>
+          {/* A closed <details> still mounts its children, and BundlesSection
+              fetches the hub on mount — so it waits for the first open. */}
+          {marketOpened && (
+            <div className="max-h-[420px] overflow-y-auto">
+              <BundlesSection />
+            </div>
+          )}
         </details>
         )}
 
@@ -1853,6 +1942,7 @@ function MoreDisclosure({ onOpenFullEditor }: { onOpenFullEditor: () => void }) 
             <h4 className="text-sm font-semibold">{t("simple.more.gallery.title")}</h4>
             <span className="text-[11px] text-muted-foreground/60">{t("simple.more.gallery.hint")}</span>
           </div>
+          <MediaGuidelinesNote className="mb-3" />
           <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
             {galleryImages.map((url, i) => (
               <div key={i} className="group relative aspect-video overflow-hidden rounded-lg border border-border bg-card">
@@ -1905,29 +1995,17 @@ function MoreDisclosure({ onOpenFullEditor }: { onOpenFullEditor: () => void }) 
             className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="">—</option>
-            <option value="en">English</option>
-            <option value="zh">中文</option>
-            <option value="ja">日本語</option>
-            <option value="ko">한국어</option>
-            <option value="es">Español</option>
-            <option value="fr">Français</option>
-            <option value="de">Deutsch</option>
-            <option value="pt">Português</option>
-            <option value="ru">Русский</option>
+            {LANGUAGE_OPTIONS.map((o) => (
+              <option key={o.code} value={o.code}>{o.label}</option>
+            ))}
           </select>
         </div>
 
         <p className="text-center text-[11px] text-muted-foreground/60">
           <button
             type="button"
-            onClick={() => {
-              // Same handoff as AdvancedPromoCard — the route owns the mode,
-              // so store writes alone never flipped the editor (old bug).
-              const store = useEditorStore.getState();
-              store.setField("editorMode", "advanced");
-              saveGlobalEditorMode("advanced");
-              onOpenFullEditor();
-            }}
+            // The shell's switch, same as AdvancedPromoCard.
+            onClick={() => onOpenFullEditor()}
             className="text-primary hover:underline"
           >
             {t("simple.more.switchToAdvanced")}
@@ -1996,10 +2074,11 @@ function SettingEntryCard({
             <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
               {t("simple.settings.entryTitle")}
             </label>
-            <input
+            <DebouncedInput
               type="text"
               value={entry.name}
-              onChange={(e) => onUpdate({ name: e.target.value })}
+              syncKey={entry.id}
+              onCommit={(name) => onUpdate({ name })}
               placeholder={t("simple.settings.entryTitlePlaceholder")}
               className="w-full rounded-lg border border-border bg-background/60 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-amber-400/30"
             />
@@ -2008,9 +2087,10 @@ function SettingEntryCard({
             <label className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
               {t("simple.settings.entryContent")}
             </label>
-            <textarea
+            <DebouncedTextarea
               value={entry.content}
-              onChange={(e) => onUpdate({ content: e.target.value })}
+              syncKey={entry.id}
+              onCommit={(content) => onUpdate({ content })}
               rows={8}
               placeholder={templatePlaceholder || t("simple.settings.entryContentFallback")}
               className="w-full resize-none rounded-lg border border-border bg-background/60 px-3 py-2 text-sm leading-relaxed placeholder:whitespace-pre-line placeholder:text-muted-foreground/35 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-amber-400/30"
@@ -2104,7 +2184,13 @@ function VisualLayerSection() {
 
   const handleUninstallBundle = (slug: string) => {
     if (!rootComponent) return;
-    updateRootComponent({ files: uninstallBundle(files, slug) });
+    // A bundle installed the usual way has a record of what it brought; going
+    // through it takes the variables and rules too. Only removing the files
+    // left an app's data and rules behind on the card.
+    const store = useEditorStore.getState();
+    const record = (store.worldDraft.installedBundles ?? []).find((b) => b.slug === slug);
+    if (record) store.removeInstalledBundle(record.installId);
+    else updateRootComponent({ files: uninstallBundle(files, slug) });
   };
 
   const [showAddFile, setShowAddFile] = useState(false);
@@ -2245,41 +2331,46 @@ function FileEditorCard({
 
   return (
     <div className={cn("overflow-hidden rounded-xl border bg-background/40", accentClasses.border)}>
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-accent/30"
-      >
-        <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform", expanded && "rotate-90")} />
-        <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", accentClasses.iconBg, accentClasses.iconText)}>
-          <FileCode className="h-3.5 w-3.5" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-mono text-sm font-semibold">{filename}</div>
-          <div className="truncate text-[11px] text-muted-foreground/60">
-            {lines} {t("simple.more.visual.lines")} · {content.length.toLocaleString()} {t("simple.more.visual.chars")}
-            {subtitleKey && ` · ${t(subtitleKey)}`}
+      {/* Delete sits beside the toggle, not inside it: a button in a button
+          is invalid HTML and React warns about it on every render. */}
+      <div className="flex w-full items-center hover:bg-accent/30">
+        <button
+          type="button"
+          onClick={() => setExpanded(!expanded)}
+          className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5 text-left"
+        >
+          <ChevronRight className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground/50 transition-transform", expanded && "rotate-90")} />
+          <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-lg", accentClasses.iconBg, accentClasses.iconText)}>
+            <FileCode className="h-3.5 w-3.5" />
           </div>
-        </div>
-        {readOnly && <Lock className="h-3.5 w-3.5 text-muted-foreground/40" />}
+          <div className="min-w-0 flex-1">
+            <div className="truncate font-mono text-sm font-semibold">{filename}</div>
+            <div className="truncate text-[11px] text-muted-foreground/60">
+              {lines} {t("simple.more.visual.lines")} · {content.length.toLocaleString()} {t("simple.more.visual.chars")}
+              {subtitleKey && ` · ${t(subtitleKey)}`}
+            </div>
+          </div>
+          {readOnly && <Lock className="h-3.5 w-3.5 text-muted-foreground/40" />}
+        </button>
         {onDelete && !readOnly && (
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
+            onClick={() => {
               if (confirm(t("simple.more.visual.confirmDelete", { name: filename }))) onDelete();
             }}
-            className="shrink-0 rounded-md p-1 text-muted-foreground/30 hover:bg-destructive/10 hover:text-destructive"
+            className="mr-3 shrink-0 rounded-md p-1 text-muted-foreground/30 hover:bg-destructive/10 hover:text-destructive"
             title={t("simple.character.delete")}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
         )}
-      </button>
+      </div>
       {expanded && (
         <div className="border-t border-border/60 bg-background/30 p-3">
-          <textarea
+          <DebouncedTextarea
             value={content}
-            onChange={(e) => onChange(e.target.value)}
+            syncKey={path}
+            onCommit={onChange}
             rows={Math.min(Math.max(lines + 1, 6), 24)}
             spellCheck={false}
             readOnly={readOnly}
@@ -2460,7 +2551,7 @@ function AddFilePrompt({
 function SimpleBgmCard() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { t } = useTranslation("editor") as { t: (key: string, opts?: Record<string, unknown>) => string };
-  const audioTracks = useEditorStore((s) => s.worldDraft.audioTracks ?? []);
+  const audioTracks = useEditorStore((s) => s.worldDraft.audioTracks ?? NO_AUDIO_TRACKS);
   const bgmPlaylist = useEditorStore((s) => s.worldDraft.bgmPlaylist);
   const serverWorldId = useEditorStore((s) => s.serverWorldId);
   const saveDraft = useEditorStore((s) => s.saveDraft);
@@ -2681,6 +2772,7 @@ function Card({
   hint,
   accent,
   optional,
+  anchor,
   children,
 }: {
   n: number;
@@ -2689,6 +2781,8 @@ function Card({
   hint?: string;
   accent: Accent;
   optional?: boolean;
+  /** Stable id for the right-rail jump list and the guided tour's spotlight. */
+  anchor?: string;
   children: React.ReactNode;
 }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -2696,6 +2790,8 @@ function Card({
   const a = ACCENT_CLASSES[accent];
   return (
     <div
+      id={anchor}
+      data-tour={anchor}
       className={cn(
         "relative overflow-hidden rounded-2xl border border-border bg-card/60 backdrop-blur-sm transition-all",
         a.ring
@@ -2747,10 +2843,13 @@ function Card({
  * Settings card list takes its place, and each entry has its own placeholder. */
 
 /* ─── Jump anchor (right rail) ─── */
-function JumpAnchor({ n, label, accent }: { n: string; label: string; accent: Accent }) {
+function JumpAnchor({ n, label, accent, target }: { n: string; label: string; accent: Accent; target: string }) {
   const a = ACCENT_CLASSES[accent];
   return (
-    <button className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+    <button
+      onClick={() => document.getElementById(target)?.scrollIntoView({ block: "start", behavior: "smooth" })}
+      className="group flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+    >
       <span
         className={cn(
           "flex h-5 w-5 items-center justify-center rounded-md text-[10px] font-bold",
@@ -2803,7 +2902,7 @@ function mountedDialogs(
       {showUpdateNotify && serverWorldId && (
         <UpdateNotifyDialog
           worldId={serverWorldId}
-          worldName={worldName || "Untitled World"}
+          worldName={worldName || i18n.t("shell.untitledWorld", { ns: "editor" })}
           held={hasPendingEdit}
           onClose={() => setShowUpdateNotify(false)}
         />
@@ -2831,6 +2930,3 @@ function mountedDialogs(
     </>
   );
 }
-
-// Keep imports happy (used inside future expand-textarea feature)
-void Maximize2;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveWhenPreset, buildWhenForPreset } from "./when-preset-logic";
+import { resolveWhenPreset, buildWhenForPreset, describeWhenValues } from "./when-preset-logic";
 import type { WhenPresetLike } from "./when-preset-logic";
 
 // Mirrors the two turn:complete presets from behaviors-section.tsx —
@@ -60,4 +60,25 @@ test("resolveWhenPreset maps a pattern with a turnCount match to 'Every N turns'
 
 test("resolveWhenPreset returns null for unknown event types", () => {
   assert.equal(resolveWhenPreset(presets, { eventType: "nope" }), null);
+});
+
+test("describeWhenValues names the variable instead of printing its id", () => {
+  const crossed: WhenPresetLike = {
+    id: "var-crossed",
+    eventType: "state:crossed",
+    fields: [
+      { name: "variableId", type: "variable" },
+      { name: "direction", type: "select", options: [{ value: "drops-below", label: "跌破" }, { value: "rises-above", label: "升过" }] },
+      { name: "threshold", type: "number" },
+    ],
+  };
+  const vars = [{ id: "3f2a9c1e-0000-4000-8000-000000000000", name: "好感度" }];
+  assert.deepEqual(
+    describeWhenValues(crossed, {
+      variableId: { operator: "eq", value: "3f2a9c1e-0000-4000-8000-000000000000" },
+      direction: { operator: "eq", value: "drops-below" },
+      threshold: { operator: "eq", value: 20 },
+    }, vars),
+    ["好感度", "跌破", "20"],
+  );
 });

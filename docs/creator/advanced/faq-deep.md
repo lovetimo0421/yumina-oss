@@ -2,7 +2,7 @@
 
 # FAQ
 
-> Answers to the most common questions you'll run into while creating.
+> Common questions from creators.
 
 ---
 
@@ -10,32 +10,27 @@
 
 ### Q: Do I need to know how to code?
 
-No. Most creators use the visual editor and Studio AI to build everything. Custom UI is the only feature that involves code, and Studio AI can generate that for you too.
+No. Most creators build everything on the canvas, with help from the Creation assistant. The player interface can be built from templates without code. Hand-written interface code and code behaviors are the only features that involve code, and the Creation assistant can write those for you too.
 
 ### Q: What's the minimum I need to create a world?
 
-Three steps: 1) click **Create** to make a new world; 2) in **Lorebook**, create a `character` entry with the character's profile and turn on **Always Send**; 3) in **First Message**, write an opening line. Click **Save** and you're ready to chat. Variables, rules, and custom UI are all optional.
+Three steps: 1) click **Create**, choose **Blank Project** and pick **Canvas**; 2) write the character's profile in **Character and world** (sent to the AI every turn); 3) write an opening in **Greeting**. Click **Save** and you can play. Variables, behaviors and a custom interface are all optional. See [Canvas basics](/creator/canvas).
 
 ### Q: How long does it take to build a world?
 
-A simple character with a few variables takes 10-15 minutes with Studio AI. A complex world with custom UI, audio, and detailed mechanics can take a few hours to a few days.
+A simple character with a few variables takes 10-15 minutes with the Creation assistant. A complex world with custom UI, audio, and detailed mechanics can take a few hours to a few days.
 
 ### Q: Which AI models does Yumina support?
 
-Out of the box Yumina ships a curated lineup across four cost tiers:
+Yumina offers a curated lineup in four cost tiers: Budget, Standard, Premium and Ultra. Premium and Ultra models need a higher plan. The lineup changes often; see the [Player Guide: AI Settings](/guide/04-ai-settings).
 
-- **Budget** — default is **Claude 3 Haiku** (~5 mushies / message). Also DeepSeek V4 Flash, V3.2, Gemini 2.5 Flash Lite, Yumina Free.
-- **Standard** — Gemini 3 Flash, DeepSeek V4 Pro, etc.
-- **Premium** (Gold plan+) — Claude Haiku 4.5, Grok 4.20, Gemini 3.1 Pro.
-- **Ultra** (Platinum+) — Claude Sonnet 4.6, Claude Opus 4.7.
+The model is chosen by the player at play time. In an AI's settings you can give that AI its own model; if the player can't use it, it falls back to the player's choice. See [AIs](/creator/ais#model).
 
-The model is chosen by the player at play time — see the [Player Guide: AI Settings](/guide/04-ai-settings) for the full list and selection notes.
-
-You can also bring your own key (Settings → AI Configuration → Private Key) for **Anthropic, OpenAI, Google, OpenRouter, Ollama**, or any OpenAI-compatible endpoint — one-click presets for DeepSeek, xAI (Grok), Mistral, Groq, Together, Fireworks, Moonshot. BYOK uncaps the context size and bills directly to your provider instead of mushies.
+Players can also bring their own key (Settings → AI Configuration → Private API Key) for **Anthropic, OpenAI, Google, OpenRouter, Ollama**, or any OpenAI-compatible endpoint — one-click presets for DeepSeek, xAI (Grok), Mistral, Groq, Together, Fireworks, Moonshot. BYOK uncaps the context size and bills directly to the provider instead of mushies. You can turn this off for your card under **Custom API Keys** in the publish dialog.
 
 ### Q: Where is my world data stored?
 
-Your world data is saved on Yumina's server. You can export a world JSON file from the **Overview** section of the editor as a local backup anytime.
+Your world data is saved on Yumina's server. You can download a world JSON file as a local backup anytime: **My Library → My Projects**, select the card, **Download**.
 
 ---
 
@@ -43,79 +38,75 @@ Your world data is saved on Yumina's server. You can export a world JSON file fr
 
 ### Q: I have too many entries. How do I organize them?
 
-Use folders. The editor supports creating folders to group entries by logic — by character, by scene, by function. Folders are purely an organizational tool and don't affect runtime behavior. Also make good use of the `tags` field for filtering and searching. See the "Folder organization" section in [Entries & Lorebook](./entries-deep).
+Use folders. **Panels → Lorebook** lets you create folders to group entries by logic — by character, by scene, by function. Folders are purely an organizational tool and don't affect runtime behavior. Tags help with filtering and searching too. If whole groups of lore only apply in one place or chapter, they may belong in a [scenario](/creator/modules). See [Folder organization](./entries-deep#folder-organization).
 
 ### Q: Keyword triggering isn't working. How do I debug?
 
-Check these common causes: 1) verify the entry's `enabled` is `true`; 2) check that `lorebookScanDepth` is large enough — the default only scans the last 2 messages, so keywords in earlier messages won't be found; 3) if you're using secondary keywords (`secondaryKeywords`), make sure the logic is set correctly; 4) if `matchWholeWords` is on, note that Chinese text generally doesn't need whole-word matching. See the "Keyword matching" section in [Entries & Lorebook](./entries-deep).
+Check these common causes: 1) the entry isn't disabled, isn't dragged off the card (**Not in play**), and its scenario is open; 2) **Keyword scan depth** (Context → Advanced) is large enough — the default only scans the last 2 messages, so keywords in earlier messages won't be found; 3) if you're using **Secondary Keywords**, make sure the logic is set correctly; 4) if **Whole Word** is on, note that Chinese and Japanese text generally doesn't need it. In a [playtest](/creator/playtest), **This turn → What the AI got** ends with **Not sent this time**, which lists the entries that weren't sent. See [Designing good keyword lists](./entries-deep#designing-good-keyword-lists).
 
-### Q: What's the difference between alwaysSend entries and keyword-triggered ones?
+### Q: What's the difference between always-sent entries and keyword-triggered ones?
 
-`alwaysSend: true` entries are included in every prompt no matter what the player says — good for core character profiles and foundational world rules that need to be in effect at all times. Keyword-triggered entries only activate when matching words appear in recent messages — good for specific scenes, locations, NPCs, and other on-demand content. The fundamental difference is "always-on" vs. "on-demand." Using both strategically can save a huge amount of token budget. See [Entries & Lorebook](./entries-deep).
+Entries with **Always Send** on (the **Character and world** block) are included in every prompt no matter what the player says — good for core character profiles and foundational world rules. Keyword lore only goes out when matching words appear in recent messages — good for specific scenes, locations, NPCs, and other on-demand content. Using both well saves a lot of token budget. See [Writing Great Entries](./entries-deep).
 
 ### Q: How do I write effective example dialogue?
 
-Use `<START>` to separate different dialogue segments, and `{{user}}:` and `{{char}}:` to mark speakers. Each example should demonstrate the character's unique speech style, tone, and reactions — not just information exchange. Two or three high-quality examples are worth far more than ten mediocre ones. Set the entry's role to `example` and section to `examples`. See the "Example dialogue format" section in [Entries & Lorebook](./entries-deep).
+Use `<START>` to separate different dialogue segments, and `{{user}}:` and `{{char}}:` to mark speakers. Each example should demonstrate the character's unique speech style, tone, and reactions — not just information exchange. Two or three high-quality examples are worth far more than ten mediocre ones. Set the entry's **Inject into** to **Example dialogue**. See [Example dialogue](./entries-deep#example-dialogue).
 
 ---
 
 ## Variables & Directives
 
-### Q: The AI isn't writing directives in the right format. What do I do?
+### Q: The AI isn't changing a variable properly. What do I do?
 
-The engine already automatically tells the AI the directive format, so the problem usually isn't "the AI doesn't know the format" — it's "the AI isn't sure when to use it." A few fixes: 1) make the trigger conditions in `behaviorRules` more specific — "subtract when the player takes damage; deduct 10–30 per hit" is better than "subtract when hurt"; 2) add a reminder entry in the `post-history` section telling the AI not to forget to output directives; 3) lower `temperature` (e.g., 0.5–0.7) to make the AI follow rules more reliably; 4) different models vary significantly in directive compliance — switching models is also worth trying. See [AI Directives & Macros](./directives-macros).
+The engine already tells the AI the directive format, so the problem usually isn't "the AI doesn't know the format" — it's "the AI isn't sure when to use it." A few fixes: 1) turn on **Precise tracking** for the variable if its type allows it, so a dedicated helper decides the change after every reply instead of the story AI; 2) make the **Behavior Rules** more specific — "subtract when the player takes damage; deduct 10–30 per hit" is better than "subtract when hurt"; 3) add an **At the end** entry reminding the AI to write directives; 4) lower the temperature (e.g., 0.5–0.7) to make the AI follow rules more reliably; 5) models vary a lot in directive compliance, so switching models is also worth trying. See [AI Directives & Macros](./directives-macros).
 
 ### Q: A variable suddenly has a weird value. How do I debug?
 
-First look at what directives the AI wrote in its raw reply — sometimes the AI writes operations you didn't anticipate. Then check if any rules are quietly modifying this variable in the background (via `modify-variable` actions). For number variables, confirm you've set reasonable `min` and `max` values — the engine auto-clamps out-of-range values. If you still can't find it, check every rule and entry in the editor that references this variable.
+Play a turn in a [playtest](/creator/playtest) and look at **This turn → Each value**: it says whether the AI, Precise tracking, a behavior, a button or a formula changed the value, or why a change was blocked. Then check whether any behaviors change this variable (**Change variable** effects). For number variables, confirm you've set a sensible **Range** — the engine clamps out-of-range values.
 
 ### Q: How do I use JSON-type variables?
 
-JSON variables can store complex data structures — objects, arrays, nested structures. The most common uses are inventory (JSON array) and character relationship networks (JSON object). Operations include `merge` (merge object), `push` (append to array), `delete` (remove a key or element), and dot-notation for deep nested paths like `[relationships.aria.trust: +10]`. See the "Nested JSON paths" section in [Variables](./variables-deep).
+On the canvas this type is called **List / table**. It stores complex data — objects, arrays, nested structures. The most common uses are inventory (JSON array) and character relationship networks (JSON object). Operations include `merge` (merge object), `push` (append to array), `delete` (remove a key or element), and dot-notation for deep nested paths like `[relationships.aria.trust: +10]`. See [Nested paths for JSON variables](./directives-macros#nested-paths-for-json-variables).
 
 ### Q: How many variables can I have? Is there a limit?
 
-No hard limit at the engine level. But every variable's current value is included in the prompt sent to the AI, so too many variables eat up token budget and shorten the conversation history the AI can "see." In practice, most worlds work fine with 5–20 variables. If you need to store a lot of data, consider packing related data into one JSON variable — more efficient than a pile of individual variables.
+No hard limit at the engine level. But by default every variable the AI can see is included in the prompt each turn, so too many variables eat up token budget. **Variables shown to the AI** (Context → Advanced) can be set to **Only changed** or **None**, and variables set to **Engine only** cost the AI nothing. In practice, most worlds work fine with 5–20 variables. If you need to store a lot of data, consider packing related data into one List / table variable.
 
 ---
 
-## Rules engine
+## Behaviors
 
 ### Q: A behavior isn't triggering. How do I debug?
 
-Check these in order: 1) is the behavior enabled — was it disabled by another behavior? 2) is the WHEN trigger type correct — e.g., if you chose "variable crosses threshold" but the variable never crossed that threshold; 3) do all the ONLY IF conditions pass (check whether `conditionLogic` is `"all"` or `"any"`); 4) is it in cooldown (`cooldownTurns`); 5) has it reached max fire count (`maxFireCount`). See the "Evaluation flow" section in [Rules Engine](./rules-deep).
+Start a [playtest](/creator/playtest): **This turn → Each behavior** says whether each one fired, and if not, what's missing (how far a value is from the threshold, cooling down, used up, its scenario isn't open). Otherwise, check these in order: 1) is the behavior enabled — was it disabled by another behavior? 2) is **When it fires** right — e.g., you chose **Variable crosses threshold** but the variable never crossed that value; 3) do the **ONLY IF** conditions pass (check whether all or any must hold), and is a **STOP WHEN** condition holding; 4) is it in its cooldown; 5) has it reached **Max fires**; 6) is **Chance to fire** below 100. See [How the engine processes behaviors](./rules-deep#how-the-engine-processes-behaviors).
 
 ### Q: When multiple behaviors trigger at once, what order do they execute in?
 
-Sorted by `priority` from highest to lowest. Behaviors with higher numbers are evaluated and executed first. For example, a "death check" behavior at priority 100 runs before a "low health warning" at priority 50. If two behaviors have the same priority, they execute in their definition order. Give important behaviors higher priority values. See the "Priority" section in [Rules Engine](./rules-deep).
+Sorted by **Priority** from highest to lowest. For example, a "death check" behavior at priority 100 runs before a "low health warning" at priority 50. If two behaviors have the same priority, they run in the order they're listed in the card. Give important behaviors higher priority values. See [Priority](./rules-deep#priority).
 
 ### Q: Can behaviors control each other?
 
-Yes — this is one of the most powerful features of the rules engine. The "enable/disable behavior" action can turn other behaviors on or off. Typical pattern: Behavior A listens for a "enter dungeon" keyword and, when triggered, enables Behavior B (a monster encounter rule that starts disabled). When the player leaves the dungeon, Behavior A disables B again. You can build "dormant until activated" behavior chains. See the "Rule cross-control" section in [Rules Engine](./rules-deep).
+Yes. The **Enable/disable behavior** effect turns other behaviors on or off. Typical pattern: Behavior A listens for an "enter dungeon" keyword and, when triggered, enables Behavior B (a monster encounter behavior whose **Enabled** switch starts off). When the player leaves the dungeon, Behavior A disables B again. See [Dungeon activation chains](./rules-deep#dungeon-activation-chains).
 
-### Q: How do cooldownTurns and maxFireCount work together?
+### Q: How do cooldown and max fires work together?
 
-`cooldownTurns` controls the interval — after a behavior fires, it waits this many turns before it can fire again. Good for "shouldn't trigger too often" scenarios, like reminding about hunger no more than once every 5 turns. `maxFireCount` controls the total — a behavior can fire at most this many times ever, then never again. Good for one-time events like tutorial hints. Both can be used simultaneously: a "hidden plot hint" behavior set to `cooldownTurns: 10` + `maxFireCount: 3` means it hints at most 3 times, with at least 10 turns between hints.
+**Cooldown** controls the interval — after a behavior fires, it waits this many turns before it can fire again. Good for "shouldn't trigger too often" cases, like reminding about hunger no more than once every 5 turns. **Max fires** controls the total — a behavior can fire at most this many times ever, then never again. Good for one-time events like tutorial hints. Both can be used together: a "hidden plot hint" behavior with cooldown 10 and max fires 3 hints at most 3 times, with at least 10 turns between hints.
 
 ---
 
-## Components & Rendering
+## Interface
 
 ### Q: I can't code TSX. Can I still build custom UI?
 
-You can try. A few starting points: 1) use **Enter Studio** in the editor, and have the AI Assistant generate code for you; 2) describe your desired effect to an external AI (like Claude) and have it generate the TSX code, then paste it into the editor; 3) copy-paste from the template examples in the docs and adjust colors and text. The editor compiles in real time and shows errors at the bottom (**Compile Status**), so you can adjust as you go. See [Custom UI Guide](./custom-ui-deep).
+Yes. A few starting points: 1) the [Player interface](/creator/player-view) editor builds opening pages, status panels, inventories and maps from templates, no code needed; 2) ask the Creation assistant to write interface code for you; 3) describe your desired effect to an external AI (like Claude) and have it write the TSX code, or connect it with **Connect your AI** so it edits the card directly; 4) copy-paste from the template examples in the docs and adjust colors and text. **Panels → Front End Code** shows **OK** when the code compiles, or **Error** with the message. See [Custom UI Guide](./custom-ui-deep).
 
 ### Q: What's the Root Component? Do I need one?
 
-The Root Component is the entry point for your world's UI — a file called `index.tsx` under the **Custom UI** section in the editor. It's optional: if you don't define one, the engine uses the default (`return <Chat />`), which gives you the standard chat experience. You define a Root Component when you want to customize anything visual — custom message bubbles (pass `renderBubble` to `<Chat />`), side panels (compose `<Chat />` with your own divs), or a fully custom layout (use `<MessageList />` and `<MessageInput />` directly). See [Custom UI Guide](./custom-ui-deep).
-
-### Q: Where do built-in components (stat-bar, inventory, etc.) display?
-
-Built-in components (stat-bar, text-display, image-panel, inventory-grid, etc.) display in a header bar above the chat window. Component order is controlled by the `order` field — lower numbers appear first. If you need something more flexible — a sidebar, full-screen layout, or a different header entirely — build it in the **Root Component** instead, where you have full control via TSX. See [Custom UI Guide](./custom-ui-deep).
+The Root Component is the entry point for your world's interface code — a file called `index.tsx` in **Panels → Front End Code**. It's optional: if you don't define one, the engine uses the default (`return <Chat />`), which gives you the standard chat experience. You write a Root Component when you want to customize anything visual in code — custom message bubbles (pass `renderBubble` to `<Chat />`), side panels (compose `<Chat />` with your own divs), or a fully custom layout (use `<MessageList />` and `<MessageInput />` directly). See [Custom UI Guide](./custom-ui-deep).
 
 ### Q: My old world has a "Message Renderer." Do I need to change it?
 
-No — legacy worlds keep working. On import, the engine auto-migrates the old `messageRenderer` field into your Root Component and the editor shows a **Legacy** badge. The old `customUI[]` array with `surface: "message" | "app"` components also still works. When you're ready to modernize, move the renderer code into `index.tsx` under **Custom UI** and pass it as `<Chat renderBubble={...} />`. See [Custom UI Guide](./custom-ui-deep).
+No — legacy worlds keep working. On import, the engine auto-migrates the old `messageRenderer` field into your Root Component and the editor shows a **Legacy** badge. The old `customUI[]` array with `surface: "message" | "app"` components also still works. When you're ready to modernize, move the renderer code into `index.tsx` in **Panels → Front End Code** and pass it as `<Chat renderBubble={...} />`. See [Custom UI Guide](./custom-ui-deep).
 
 ---
 
@@ -123,15 +114,15 @@ No — legacy worlds keep working. On import, the engine auto-migrates the old `
 
 ### Q: Can I still make changes after publishing?
 
-Yes. After publishing, you can go back to the editor and modify world content at any time — saving takes effect immediately and new players see the latest version. To temporarily take it down, change status to `unpublished` and active players will see a read-only notice. Note: if you modify variable definitions (like deleting a variable), the engine automatically handles backward compatibility for existing players' saves — new variables get filled with default values, deleted ones are filtered out. Nothing breaks for existing players. See [Publishing, Exporting & Bundles](./publishing-deep).
+Yes. Keep editing as usual. Saved changes become **Unpublished changes**; players still see the live version until you submit the update from the publish menu and it passes review. Players who already started a game keep the version they started with. To take the world down, unpublish it from the publish menu; players with existing sessions then see it as "No longer available." If you change variable definitions (like deleting a variable), existing saves are handled automatically — new variables get their starting values, deleted ones are filtered out. See [Publishing](/creator/publishing#updating-a-published-world).
 
 ### Q: How do I get more players to discover my world?
 
-Key points: 1) upload an attractive thumbnail — worlds without covers almost never get clicked in Hub; 2) write a compelling description explaining what the world is and what makes it fun; 3) add 3–5 relevant tags — think about what players would search for; 4) write a great opening message (greeting) — first impressions determine whether players keep playing; 5) play through it yourself before publishing to make sure the experience is smooth. See the "Pre-publish checklist" in [Publishing, Exporting & Bundles](./publishing-deep).
+Key points: 1) upload an attractive cover — worlds without covers almost never get clicked; 2) write a compelling description explaining what the world is and what makes it fun; 3) add relevant tags — think about what players would search for; 4) write a great opening — first impressions decide whether players keep playing; 5) play through it yourself before publishing to make sure the experience is smooth. See the "Pre-publish checklist" in [Publishing, Exporting & Bundles](./publishing-deep#example-1-pre-publish-checklist).
 
 ### Q: What's the difference between a Bundle and a full world export?
 
-A full world export is the complete `WorldDefinition` JSON — every entry, variable, rule, component, and setting, nothing left out. Good for backups or sharing an entire world with someone. A Bundle is a "component pack" — you cherry-pick a subset of content (like a combat rules system + related variables + components) and package it. Others can install this package into their own worlds. Simply: a full export is "the whole car"; a Bundle is "the engine assembly." See the "Bundle system" section in [Publishing, Exporting & Bundles](./publishing-deep).
+A full world export is the complete `WorldDefinition` JSON — every entry, variable, behavior, interface file, and setting. Good for backups or sharing an entire world with someone. A Bundle is a subset you pick (like a combat system's behaviors + related variables + its interface) that others can install into their own worlds. See [Bundle system](./publishing-deep#bundle-system).
 
 ---
 
@@ -169,6 +160,6 @@ Yes. Each world's public page has a Supporters list (named tippers only — anon
 
 ### Q: I unpublished a world. Do I keep the tips I earned from it?
 
-Yes. Tips and mushie gifts are tied to your creator account, not the world. Unpublishing or even deleting a world doesn't reverse past earnings. Anyone who tipped you while it was up has already paid, and that's settled.
+Yes. Tips and mushie gifts are tied to your creator account, not the world. Unpublishing or even deleting a world doesn't reverse past earnings. Anyone who tipped you while it was up has already paid.
 
 </div>

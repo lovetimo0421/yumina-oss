@@ -83,7 +83,7 @@ export function ImageLightbox({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[200] overflow-hidden bg-black/90"
+      className="fixed inset-0 z-[200] overflow-hidden modal-backdrop"
       role="dialog"
       aria-modal="true"
       onClick={onClose}

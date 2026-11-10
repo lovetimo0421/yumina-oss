@@ -70,7 +70,8 @@ interface UserPromptsState {
   createFolder: (name: string) => Promise<void>;
   updateFolder: (id: string, data: { name?: string; enabled?: boolean }) => Promise<void>;
   deleteFolder: (id: string) => Promise<void>;
-  importPrompts: (json: unknown) => Promise<void>;
+  /** A Yumina export or a SillyTavern preset; fileName names the preset's folder. */
+  importPrompts: (json: unknown, fileName?: string) => Promise<void>;
   /** Bind a model family to exactly one prompt (or clear it with promptId=null).
    *  The server sets auto_models on the chosen prompt and removes the family from
    *  any other prompt, then returns the full list which replaces ours. */
@@ -326,9 +327,10 @@ export const useUserPromptsStore = create<UserPromptsState>((set, get) => ({
     }
   },
 
-  importPrompts: async (json) => {
+  importPrompts: async (json, fileName) => {
     try {
-      const res = await fetch(`${apiBase}/api/user-prompts/import`, {
+      const query = fileName ? `?name=${encodeURIComponent(fileName)}` : "";
+      const res = await fetch(`${apiBase}/api/user-prompts/import${query}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",

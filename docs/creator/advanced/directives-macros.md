@@ -2,11 +2,15 @@
 
 # AI Directives & Macros
 
-The AI writes a story. Embedded in that story are tiny instructions — `[health: -15]`, `[gold: +50]` — that the engine strips out before the player sees anything. The player reads a clean narrative while the game state quietly shifts behind the scenes.
+The AI writes a story. Embedded in that story are short instructions — `[health: -15]`, `[gold: +50]` — that the engine strips out before the player sees anything. The player reads a clean narrative while the game state changes behind the scenes.
 
-This is the directive system: the bridge between storytelling and mechanics. And macros are its companion — placeholders like `{{char}}` and `{{user}}` that make your entries adapt automatically to context.
+Macros work the other way: placeholders like `{{char}}` and `{{user}}` in your entries that the engine fills in before the AI reads them.
 
-If you haven't read [Variables — What the AI Tracks](/creator/variables) yet, start there. Directives only make sense once you understand what they're changing.
+If you haven't read [Variables](/creator/variables) yet, start there. Directives only make sense once you understand what they're changing.
+
+::: tip Which variables use directives
+Variables with **Precise tracking** on (new Number and Switch variables start with it on) are changed by the tracking helper after each reply, not by directives. The AI sees them as read-only, and any directive it writes for them is dropped. Directives are how the AI changes everything else it's allowed to write: variables with Precise tracking off, Text without Allowed values, and List / table variables. Variables set to **AI read-only** or **Engine only** under **AI access** ignore directives too.
+:::
 
 ---
 
@@ -23,9 +27,9 @@ The goblin's claw rakes across your forearm, drawing a hot line of pain.
 [health: -15]
 ```
 
-The engine sees `[health: -15]`, subtracts 15, clamps to the min/max bounds, and removes the directive from the text. The player sees only the story. The status panel updates silently.
+The engine sees `[health: -15]`, subtracts 15, clamps to the min/max bounds, and removes the directive from the text. The player sees only the story, and the status panel updates.
 
-This separation is what makes the system reliable. The AI handles the fiction. The engine handles the math.
+The AI never has to do the arithmetic or remember the bounds; the engine does both.
 
 ---
 
@@ -141,21 +145,21 @@ If you're writing behavior rules for the AI, tell it which format to use. Most w
 
 ## How the engine processes AI output
 
-When the AI sends back a response, the engine runs it through a parsing pipeline before the player sees anything. Understanding this pipeline helps you debug situations where directives aren't being picked up.
+When the AI sends back a response, the engine runs it through a parsing pipeline before the player sees anything. Knowing the order helps you debug directives that aren't being picked up.
 
 **Step 1 — Strip thinking tags.** Some models (like Gemini) output internal reasoning in `<thinking>...</thinking>` tags. The engine removes these first.
 
-**Step 2 — Extract JSON Patch blocks.** The engine scans for `<UpdateVariable>` XML blocks and converts them to internal effect operations.
+**Step 2 — Extract JSON Patch blocks.** The engine scans for `<UpdateVariable>` XML blocks and converts them to internal effect operations. Directives that some models wrap in a fenced `json` code block are picked up at this stage too.
 
 **Step 3 — Extract audio directives.** Anything matching `[audio: ...]` is pulled out and queued for the audio system.
 
-**Step 4 — Extract JSON directives.** Bracket directives containing JSON values (`merge`, `push`, `set` with objects/arrays) are extracted. These are parsed first because their JSON payloads could contain characters that confuse the simpler regex.
+**Step 4 — Extract JSON directives.** Bracket directives with a JSON value (`set`, `merge`, `push`, `delete`) are extracted. These are parsed first because their JSON payloads could contain characters that confuse the simpler regex. `[image: …]` embeds are left alone.
 
 **Step 5 — Extract standard directives.** Everything matching `[var: op value]` — the add, subtract, set, toggle, and other simple operations.
 
 **Step 6 — Clean the text.** All extracted directives are removed. Extra blank lines are collapsed. The result is clean narrative text plus a list of effects.
 
-The player sees the clean text. The engine applies the effects to update game state. Then rules evaluate (checking if any conditions are now met), and the cycle completes.
+After that, any [Reply processing](/creator/reply-rules) rules run on the clean text. The engine applies the effects (along with what Precise tracking decided) and checks behaviors. The player sees the clean text.
 
 ::: details Why parsing order matters
 JSON directives are extracted before standard directives because a directive like `[stats: merge {"health": 50, "mana": 30}]` contains colons and numbers that the standard regex would misinterpret. By handling JSON patterns first, the engine avoids false matches.
@@ -171,7 +175,7 @@ Full reference → [World Spec: Variables](/world-spec/variables)
 
 Macros are placeholders you write in entries that the engine replaces with real values before sending to the AI. They look like this: `{{char}}`, `{{user}}`, `{{turnCount}}`.
 
-The core idea: write your entries once, and they adapt to any context. Change the character's name, and every `{{char}}` updates automatically. The player picks a persona, and `{{user}}` follows.
+Write your entries once, and they adapt to context. Change the character's name, and every `{{char}}` updates automatically. The player picks a persona, and `{{user}}` follows.
 
 ### Essential macros
 
@@ -227,11 +231,11 @@ Players create personas from the **Profile page → persona carousel** — named
 | `{{persona_appearance}}` | Physical description |
 | `{{persona_personality}}` | Character traits |
 | `{{persona_backstory}}` | History and origin |
-| `{{persona}}` | All four fields combined |
+| `{{persona}}` | All four fields combined, plus any extra entries on the persona |
 
-**Tip**: drop `{{persona}}` into a System Presets entry called "About the Player" and the AI will always know who the player is roleplaying as. When they switch personas, the AI catches up automatically.
+**Tip**: drop `{{persona}}` into a **Character and world** entry called "About the Player" and the AI will always know who the player is roleplaying as. When they switch personas, the AI catches up automatically.
 
-`{{user}}` checks for an active persona first — if one exists, it uses the persona name. Otherwise it falls back to the world's `playerName` field. Old entries that use `{{user}}` work seamlessly with the persona system.
+`{{user}}` uses the active persona's name, or the player's username when no persona is active. If neither is known, it falls back to the card's default player name, then to "Player".
 
 ### Utility macros
 
@@ -242,7 +246,7 @@ Players create personas from the **Profile page → persona carousel** — named
 
 ### Variable fallback
 
-If a macro name doesn't match any built-in macro, the engine checks if it matches a variable ID. If you have a variable called `mood` with a current value of "suspicious", then `{{mood}}` expands to "suspicious".
+If a macro name doesn't match any built-in macro, the engine checks if it matches a variable ID. If you have a variable with the ID `mood` and a current value of "suspicious", then `{{mood}}` expands to "suspicious". This only works for IDs made of plain letters, digits and underscores: `{{player_hp}}` works, `{{player-hp}}` doesn't. Variables added on the canvas get a random ID with hyphens, so give the variable a plain **ID** under **Advanced** in its settings before using it as a macro.
 
 If it matches neither a built-in macro nor a variable, the engine leaves `{{xxx}}` as-is. No errors, no crashes.
 
@@ -268,13 +272,13 @@ The player sees a combat scene. The numbers do the bookkeeping.
 
 ### Relationship progression with conditional entries
 
-Pair a number variable (`aria-trust`, 0-100) with entries gated on thresholds. The AI updates trust through directives, and the entry system automatically adjusts what the AI knows about the character's behavior at each stage:
+Pair a number variable (`aria-trust`, 0-100) with entries gated on thresholds (Conditional lore on the canvas). The AI updates trust through directives, and the entry system automatically adjusts what the AI knows about the character's behavior at each stage:
 
 - Entry "Aria — Guarded" (condition: `aria-trust < 30`): formal, keeps distance
 - Entry "Aria — Warming" (condition: `aria-trust >= 30 AND < 60`): shares opinions, occasional smile
 - Entry "Aria — Close" (condition: `aria-trust >= 60`): vulnerable, protective, inside jokes
 
-The AI uses directives to move the number: `[aria-trust: +5]` after a kind interaction. The entry system decides which version of Aria the AI sees. Neither system knows about the other — they communicate through the variable.
+The AI uses directives to move the number: `[aria-trust: +5]` after a kind interaction. (With Precise tracking on, the tracking helper moves it instead.) The entry system decides which version of Aria the AI sees. Neither system knows about the other — they communicate through the variable.
 
 ### Dynamic scene descriptions with macros
 
@@ -306,13 +310,13 @@ to determine success. Roll: {{roll::1d20}}. 15+ = success,
 10-14 = partial success, below 10 = failure.
 ```
 
-The AI receives an actual number and can narrate accordingly. This shifts judgment from "AI's discretion" to dice — fairer and more game-like.
+The AI receives an actual number and can narrate accordingly, so the outcome comes from the dice instead of the AI's judgment.
 
 ---
 
 ## Common mistakes
 
-**Directives in the wrong place.** The AI should write directives at the end of its narrative response, not in the middle of a sentence. If directives appear inline, the parsing still works, but it's harder to debug. In your behavior rules, you can instruct the AI: "Place all directives at the end of your response."
+**Directives in the wrong place.** The engine already tells the AI to put directives at the end of its reply. If a model writes them inline anyway, the parsing still works, but it's harder to debug.
 
 **Expecting the AI to do math.** The AI writes `[health: -15]`. The engine does the subtraction. Don't write behavior rules like "calculate the new health value" — the AI just needs to emit the right directive and the engine handles the arithmetic, including min/max clamping.
 

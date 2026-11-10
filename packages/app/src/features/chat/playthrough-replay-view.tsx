@@ -389,6 +389,7 @@ export function PlaythroughReplayView({ playthroughId, returnContext }: { playth
         entries={worldDef?.entries ?? []}
         loreUiBindings={worldDef?.loreUiBindings ?? []}
         worldbooks={worldDef?.worldbooks ?? []}
+        replyRules={worldDef?.replyRules}
       />
     </div>
   );

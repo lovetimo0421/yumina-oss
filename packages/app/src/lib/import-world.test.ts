@@ -100,7 +100,7 @@ test("standalone world_info with empty name/description imports as a worldbook",
   const file = fileFromBytes(bytes, "aethel_world_info.json", "application/json");
   const { world, coverImage } = await parseImportedFile(file);
 
-  assert.equal(world.name, "Imported Worldbook");
+  assert.equal(world.name, "Imported lorebook");
   assert.equal(world.entries.length, 2);
   assert.deepEqual(
     world.entries.map((entry) => entry.name),
@@ -168,6 +168,21 @@ test("parseImportedFileFlexible detects a world JSON as a world", async () => {
     assert.equal(result.world.name, "My World");
     assert.equal(result.coverImage, null);
   }
+});
+
+test("a Chinese card imported as JSON or PNG gets the same Chinese titles and one named character", async () => {
+  const { TAVERN_V2 } = await import("./__fixtures__/tavern-cards");
+  const jsonFile = fileFromBytes(new TextEncoder().encode(JSON.stringify(TAVERN_V2)), "linwu.json", "application/json");
+  const pngFile = fileFromBytes(writePngTextChunk(tinyPng(), "chara", utf8ToBase64(JSON.stringify(TAVERN_V2))), "linwu.png", "image/png");
+  const fromJson = (await parseImportedFile(jsonFile)).world;
+  const fromPng = (await parseImportedFile(pngFile)).world;
+  for (const world of [fromJson, fromPng]) {
+    const names = world.entries.map((e) => e.name);
+    assert.deepEqual(world.entries.filter((e) => e.role === "character").map((e) => e.name), ["林雾"]);
+    assert.ok(names.includes("故事背景"), names.join(","));
+    assert.ok(names.includes("开场白 2"), names.join(","));
+  }
+  assert.deepEqual(fromJson.entries.map((e) => e.name), fromPng.entries.map((e) => e.name));
 });
 
 test("an export's origin stamp is read off the file and never kept in the card", async () => {

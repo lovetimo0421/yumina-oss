@@ -18,7 +18,10 @@ import type { StreamChunk } from "./types.js";
  * when the provider can't be named.
  */
 
-const MODEL = "deepseek/deepseek-v4-flash";
+// v4-pro, not v4-flash: v4-flash carries a static OpenInference ignore
+// (EMPTY_REPLY_HOSTS) that would blur what these tests pin down — the dynamic
+// exclusion. The static rule has its own tests below.
+const MODEL = "deepseek/deepseek-v4-pro";
 
 function sseResponse(payloads: unknown[]): Response {
   const body = payloads.map((p) => `data: ${JSON.stringify(p)}\n`).join("\n") + "\n";
@@ -180,11 +183,75 @@ test("non-streaming BYOK also preserves OpenRouter account routing", async () =>
   }
 });
 
+test("caller-ignored hosts are sent on the first try and kept alongside retry exclusions", async () => {
+  const mock = withMockedFetch([
+    () => emptyReply("DeepInfra"),
+    () => reply("summary", "Baidu"),
+  ]);
+  try {
+    await collect(new OpenRouterProvider("k").generateStream(params({ ignoreProviders: ["gmicloud"] })));
+    const [first, second] = mock.bodies();
+    assert.deepEqual(first!.provider, { ignore: ["gmicloud"] });
+    assert.deepEqual(second!.provider, { ignore: ["gmicloud", "deepinfra"] });
+  } finally {
+    mock.restore();
+  }
+  const nonStream = withMockedFetch([() => nonStreamReply("summary")]);
+  try {
+    await collect(new OpenRouterProvider("k").generateStream(params({ ignoreProviders: ["gmicloud"], stream: false })));
+    assert.deepEqual(nonStream.bodies()[0]!.provider, { ignore: ["gmicloud"] });
+  } finally {
+    nonStream.restore();
+  }
+  // A player's own OpenRouter key keeps its account routing untouched.
+  const byok = withMockedFetch([() => reply("summary", "GMICloud")]);
+  try {
+    await collect(createByokProvider("openrouter", "k").generateStream(params({ ignoreProviders: ["gmicloud"] })));
+    assert.equal(byok.bodies()[0]!.provider, undefined);
+  } finally {
+    byok.restore();
+  }
+});
+
 test("a turn that produced text never excludes its provider", async () => {
   const mock = withMockedFetch([() => reply("all good", "DeepInfra")]);
   try {
     await collect(new OpenRouterProvider("k").generateStream(params()));
     assert.equal(mock.bodies().length, 1, "a healthy turn must not retry at all");
+  } finally {
+    mock.restore();
+  }
+});
+
+test("a CamelCase display name is excluded by its real slug, not a lower-cased guess", async () => {
+  // Local replay 2026-10-19: OpenInference returned empty, the retry sent
+  // ignore ["openinference"], OpenRouter accepted the unknown slug silently,
+  // and OpenInference served the retry again — 10 of 14 turns failed.
+  const mock = withMockedFetch([
+    () => emptyReply("OpenInference"),
+    () => emptyReply("AtlasCloud"),
+    () => reply("the story continues", "Baidu"),
+  ]);
+  try {
+    await collect(new OpenRouterProvider("k").generateStream(params()));
+    const [, second, third] = mock.bodies();
+    assert.deepEqual(second!.provider, { ignore: ["open-inference"] });
+    assert.deepEqual(third!.provider, { ignore: ["open-inference", "atlas-cloud"] });
+  } finally {
+    mock.restore();
+  }
+});
+
+test("v4-flash skips OpenInference from the first attempt and keeps it skipped on retry", async () => {
+  const mock = withMockedFetch([
+    () => emptyReply("AtlasCloud"),
+    () => reply("the story continues", "Baidu"),
+  ]);
+  try {
+    await collect(new OpenRouterProvider("k").generateStream(params({ model: "deepseek/deepseek-v4-flash" })));
+    const [first, second] = mock.bodies();
+    assert.deepEqual(first!.provider, { ignore: ["open-inference"] });
+    assert.deepEqual(second!.provider, { ignore: ["atlas-cloud", "open-inference"] });
   } finally {
     mock.restore();
   }

@@ -47,6 +47,7 @@
           var search = new URLSearchParams(window.location.search);
           page = search.get("view") === "favorites" ? "library-favorites" : search.get("worldId") ? "library-detail" : "library-main";
         } else if (/^\/app\/profile\/?$/.test(path)) page = "profile-main";
+        else if (/^\/app\/profile\/ai\/?$/.test(path)) page = "profile-ai";
         else if (/^\/app\/settings\/?$/.test(path)) page = "settings-main";
         else if (/^\/app\/admin(?:\/|$)/.test(path) && !/^\/app\/admin\/world-inspect(?:\/|$)/.test(path)) page = "admin-main";
         else if (/^\/app\/worlds\/create\/?$/.test(path)) page = "create-picker";

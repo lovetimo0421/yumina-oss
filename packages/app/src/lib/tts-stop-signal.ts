@@ -32,6 +32,7 @@ export function consumeTtsUserStop(): boolean {
 // never loaded, nothing is speaking and there is nothing to stop.
 
 let _halt: (() => void) | null = null;
+let _haltGeneration = 0;
 
 /** Called once by tts-playback when the module loads. */
 export function registerTtsHalt(fn: () => void): void {
@@ -40,5 +41,15 @@ export function registerTtsHalt(fn: () => void): void {
 
 /** Stop every voice readout (queue, in-flight manual synth, playback). */
 export function haltTts(): void {
+  _haltGeneration++;
   _halt?.();
+}
+
+/** A stop can arrive before tts-playback has ever loaded and registered its
+ * halt handler. Discard that import's pending request rather than starting
+ * a new readout after the interruption. */
+export async function loadTtsUnlessHalted<T>(loader: () => Promise<T>): Promise<T | null> {
+  const generation = _haltGeneration;
+  const loaded = await loader();
+  return generation === _haltGeneration ? loaded : null;
 }

@@ -1,12 +1,13 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import type { IDockviewPanelProps } from "dockview-react";
 import { Check, AlertCircle, FileCode, Pencil, Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { feedback } from "@/lib/feedback";
 import { useEditorStore } from "@/stores/editor";
-import { bundleTSX } from "../lib/tsx-bundler";
+import { bundleTSX } from "@/lib/tsx/tsx-bundler";
 import { normalizeCardFileName, starterCardFile } from "../lib/card-file-names";
 import { CopyErrorButton } from "@/components/copy-error-button";
+import { confirmAction } from "@/components/ui/global-confirm-dialog";
 
 const COMPILE_DEBOUNCE_MS = 500;
 
@@ -85,6 +86,13 @@ function CompileStatusBadge({
   );
 }
 
+// The jump-to-line mailbox moved to @/lib/code-jump: the module page in the
+// normal editor is one of its senders, and that editor cannot import a panel
+// out of the experimental canvas. Re-exported so existing callers still find
+// it beside the panel that reads it.
+export { setPendingCodeJump } from "@/lib/code-jump";
+import { peekPendingCodeJump, takePendingCodeJump } from "@/lib/code-jump";
+
 // ── Root component editor ────────────────────────────────────────────
 // Multi-file editor for worlds with rootComponent.files
 
@@ -95,13 +103,60 @@ function RootComponentCodeView() {
 
   const entryFile = rootComponent?.entryFile ?? "index.tsx";
   const files = rootComponent?.files ?? {};
-  const [activeFile, setActiveFile] = useState<string>(entryFile);
+  const [activeFile, setActiveFile] = useState<string>(
+    () => peekPendingCodeJump()?.file ?? entryFile,
+  );
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  /** A jump waiting for the file switch to render. Consumed by the layout
+   *  effect below, which needs the textarea to already hold the right text
+   *  before it can compute an offset into it. */
+  const jumpRef = useRef<{ file: string; line: number } | null>(null);
+  /** Bumped per request so a second jump into the file already on screen still
+   *  re-runs the effect — `activeFile` alone would not change. */
+  const [jumpTick, setJumpTick] = useState(0);
 
   // If active file was deleted, fall back to entry file
   const fileExists = activeFile in files;
   useEffect(() => {
     if (!fileExists) setActiveFile(entryFile);
   }, [fileExists, entryFile]);
+
+  // Arriving from the inspector: claim the parked request, and keep listening
+  // so a second "open the code" lands while the panel is already open.
+  useEffect(() => {
+    const claim = (jump: { file: string; line: number } | null) => {
+      if (!jump) return;
+      jumpRef.current = jump;
+      const known = useEditorStore.getState().worldDraft.rootComponent?.files ?? {};
+      if (jump.file in known) setActiveFile(jump.file);
+      setJumpTick((n) => n + 1);
+    };
+    claim(takePendingCodeJump());
+    const onOpen = (event: Event) => {
+      const detail = (event as CustomEvent<{ file?: string; line?: number }>).detail;
+      if (detail?.file) claim({ file: detail.file, line: detail.line ?? 1 });
+    };
+    window.addEventListener("yumina:studio-open-code", onOpen);
+    return () => window.removeEventListener("yumina:studio-open-code", onOpen);
+  }, []);
+
+  useLayoutEffect(() => {
+    const jump = jumpRef.current;
+    if (!jump || activeFile !== jump.file) return;
+    jumpRef.current = null;
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const lines = textarea.value.split("\n");
+    const index = Math.min(Math.max(jump.line - 1, 0), lines.length - 1);
+    const start = lines.slice(0, index).reduce((n, l) => n + l.length + 1, 0);
+    // Selecting the line IS the highlight. A textarea has no decorations to
+    // draw on, and a selection is both visible and immediately editable —
+    // which is what someone who just jumped to a line wants next.
+    textarea.focus();
+    textarea.setSelectionRange(start, start + lines[index].length);
+    const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight) || 16;
+    textarea.scrollTop = Math.max(0, index * lineHeight - textarea.clientHeight / 3);
+  }, [activeFile, jumpTick]);
 
   if (!rootComponent) return (
     <div className="flex h-full w-full items-center justify-center text-muted-foreground/50">
@@ -226,8 +281,8 @@ function RootComponentCodeView() {
           )}
           {safeActiveFile !== entryFile && (
             <button
-              onClick={() => {
-                if (!window.confirm(t("studio.codeView.confirmDelete"))) return;
+              onClick={async () => {
+                if (!await confirmAction(t("studio.codeView.confirmDelete"), { tone: "destructive" })) return;
                 const newFiles = { ...files };
                 delete newFiles[safeActiveFile];
                 updateRootComponent({ files: newFiles });
@@ -243,6 +298,7 @@ function RootComponentCodeView() {
 
         {/* Code textarea */}
         <textarea
+          ref={textareaRef}
           value={activeFileCode}
           onChange={(e) => {
             updateRootComponent({

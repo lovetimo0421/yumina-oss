@@ -63,19 +63,25 @@ export const feedback = {
   },
 
   /** Unanchored failure (network, stream). Field validation never comes here. */
-  error(text: string, action?: FeedbackAction): () => void {
-    guard(text);
+  error(text: string, action?: FeedbackAction, options?: { expanded?: boolean; id?: string }): () => void {
+    // Full save diagnostics may contain multiple field errors and instructions.
+    // They must not pass through the one-line copy policy.
+    if (!options?.expanded) guard(text);
     captureHubEvent("feedback_pill_shown", { kind: "error", text: forAnalytics(text) });
     const id = toast.custom(
       (t) => (
         <Pill
           kind="error"
           text={text}
+          expanded={options?.expanded}
+          showClose={options?.expanded}
           action={
             action && {
               label: action.label,
               onClick: () => {
-                toast.dismiss(t);
+                // A fast save rejection updates this same ID. Starting its exit
+                // animation here would hide the new error; success retires it.
+                if (!options?.expanded) toast.dismiss(t);
                 action.onClick();
               },
             }
@@ -83,7 +89,10 @@ export const feedback = {
           onClose={() => toast.dismiss(t)}
         />
       ),
-      { duration: durationFor("error") },
+      {
+        duration: options?.expanded ? Infinity : durationFor("error"),
+        ...(options?.id ? { id: options.id } : {}),
+      },
     );
     return dismissAfter(id);
   },
@@ -180,8 +189,12 @@ export const feedback = {
           onClose={() => toast.dismiss(t)}
         />
       ),
-      // Sonner spreads options over its generated ID. An undefined ID would
-      // replace it, leaving the close handlers pointing at a different toast.
+      // No `id` key unless there is an id. Sonner 2's `custom()` picks an id,
+      // hands it to the render callback, then spreads these options over it —
+      // an explicit `id: undefined` wins that spread, `create()` mints a
+      // second id, and the `t` every button here dismisses names a toast that
+      // does not exist. The pill's X and its action both did nothing, and each
+      // new persistent pill stacked under the last.
       { duration: durationFor("persistent"), ...(opts?.id ? { id: opts.id } : {}) },
     );
     return dismissAfter(id);

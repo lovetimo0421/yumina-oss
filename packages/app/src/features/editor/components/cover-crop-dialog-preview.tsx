@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import ReactCrop, { type PercentCrop } from "react-image-crop";
 import "react-image-crop/dist/ReactCrop.css";
-import { Check, Maximize2, Minimize2, Move, RotateCcw, X } from "lucide-react";
+import { Check, Maximize2, Minimize2, Move, RotateCcw, X, Play, Pause } from "lucide-react";
 import {
   DEFAULT_COVER_CROP,
   MAX_CROP_SIZE,
@@ -14,7 +14,8 @@ import {
   type CoverCropSettings,
 } from "@/lib/cover-crop";
 import { DISCOVER_COVER_ASPECTS } from "@/lib/discover-world-artwork";
-import { resolveImageUrl } from "@/lib/asset-url";
+import { resolveImageUrl, isMotionCoverRef } from "@/lib/asset-url";
+import { CoverCropMedia } from "./cover-crop-media";
 import { WorldCoverPreviews, type CoverPreviewDetails, type CoverPlacementPreview } from "@/components/world-cover-previews";
 
 interface CoverCropDialogProps {
@@ -110,6 +111,9 @@ export function CoverCropDialog({
   const [sourceAspect, setSourceAspect] = useState<number | null>(null);
   const activeTargetAspect = getTargetAspect(mode);
   const activeSrc = mode === "gallery" ? landscapeSrc : src;
+  const [motionPlaying, setMotionPlaying] = useState(false);
+  const hasMotion = isMotionCoverRef(activeSrc);
+  useEffect(() => setMotionPlaying(false), [activeSrc]);
   const activeCrop = { ...clampCoverCrop((mode === "cover" ? coverCrop : landscapeCoverCrop ?? fallbackLandscapeCrop) ?? DEFAULT_COVER_CROP), fit: "cover" as const };
   const wholeImage = false;
   const safeSourceAspect = sourceAspect ?? activeTargetAspect;
@@ -241,6 +245,12 @@ export function CoverCropDialog({
             </button>
           </div>
 
+          {hasMotion && <button type="button" onClick={() => setMotionPlaying(value => !value)} aria-pressed={motionPlaying}
+            className="mb-3 inline-flex w-fit items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs">
+            {motionPlaying ? <Pause size={14}/> : <Play size={14}/>}
+            {t(motionPlaying ? "motion.pause" : "motion.play")}
+          </button>}
+
           <div className="flex flex-col gap-4 lg:grid lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_320px]">
             <div className="relative z-0 flex items-start justify-center overflow-hidden lg:min-h-0 lg:items-center">
               <div className="isolate w-full rounded-xl border border-primary/25 bg-card/60 p-3 shadow-inner">
@@ -254,7 +264,7 @@ export function CoverCropDialog({
                     onChange={(_, percentCrop) => handlePercentCropChange(percentCrop)}
                     className="max-h-[48dvh] max-w-full sm:max-h-[56dvh]"
                   >
-                    <img
+                    <CoverCropMedia playing={hasMotion && motionPlaying}
                       key={`${mode}:${activeSrc}`}
                       src={resolveImageUrl(activeSrc)}
                       alt=""
@@ -334,7 +344,7 @@ export function CoverCropDialog({
               </div>}
 
               <div className="space-y-3 rounded-lg border border-border bg-card p-3">
-                <WorldCoverPreviews placements={placements} details={details} src={src} landscapeSrc={landscapeSrc}
+                <WorldCoverPreviews motion={hasMotion ? motionPlaying : undefined} placements={placements} details={details} src={src} landscapeSrc={landscapeSrc}
                   coverCrop={mode === "cover" ? activeCrop : coverCrop}
                   landscapeCoverCrop={mode === "gallery" ? activeCrop : landscapeCoverCrop ?? fallbackLandscapeCrop} />
               </div>

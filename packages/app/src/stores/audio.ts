@@ -4,7 +4,8 @@ import { filterResumableAudioEffects } from "@yumina/engine";
 // Relative (not "@/") so the store is importable under the Node test runner,
 // which resolves modules without Vite's path-alias config.
 import { resolveAssetUrl } from "../lib/asset-url";
-import { setElVolume, getElVolume } from "../lib/media-volume";
+import { setElVolume, getElVolume, releaseMediaElement } from "../lib/media-volume";
+import { createVoicePlaybackMonitor, type VoicePlaybackFrame } from "../lib/voice-playback-performance";
 
 /** Extended evaluation context for conditional BGM */
 export interface BGMEvalContext {
@@ -30,6 +31,18 @@ interface PlaylistState {
   shuffleOrder: string[];
 }
 
+export interface VoicePlayback {
+  key: string;
+  status: "loading" | "playing" | "blocked";
+  progress?: number;
+  /** Measured output RMS, 0–1, when requested and supported by the browser. */
+  level?: number;
+}
+
+export type VoicePlaybackResult =
+  | { ok: true }
+  | { ok: false; reason: "playback-blocked" | "playback-error" | "cancelled" | "timeout" };
+
 interface AudioState {
   tracks: AudioTrack[];
   activeTracks: Map<string, ActiveTrack>;
@@ -37,13 +50,16 @@ interface AudioState {
   bgmVolume: number;
   sfxVolume: number;
   muted: boolean;
+  /** A realtime film is playing with sound: the world's music sits under it (BGM/ambient 35%,
+   *  effects 60%) and voice readout stays silent so two voices never talk over each other. */
+  filmHold: boolean;
   /** Voice readout (TTS) volume — its own category, NOT bgm/sfx. */
   voiceVolume: number;
   /** Live voice-readout state (null = idle). Mirrored to the sandbox UI
    *  channel so per-message speaker buttons can render loading/playing.
    *  `progress` is 0–1 playback position (absent until duration is known),
    *  updated at 2Hz — drives the progress ring on the speaker button. */
-  voicePlayback: { key: string; status: "loading" | "playing"; progress?: number } | null;
+  voicePlayback: VoicePlayback | null;
 
   // Playlist state
   playlist: BGMPlaylist | null;
@@ -72,14 +88,15 @@ interface AudioState {
   /** Mark a voice readout as loading/playing/idle (idle = null). Set to
    *  "loading" by the synth orchestrator BEFORE the network round-trip so the
    *  triggering button can show a spinner. */
-  setVoicePlayback: (p: { key: string; status: "loading" | "playing"; progress?: number } | null) => void;
+  setVoicePlayback: (p: VoicePlayback | null) => void;
   /** Play a synthesized voice readout URL. One voice at a time — a new play
    *  replaces the current one. Ducks BGM/ambient while speaking. Deliberately
    *  NOT gated by the world-audio kill switch (that means "the world's
    *  BGM/SFX", not the player's readout voice). */
-  playVoice: (key: string, url: string) => void;
+  playVoice: (key: string, url: string, opts?: { failIfBlocked?: boolean; timeoutMs?: number; measureLevel?: boolean }) => Promise<VoicePlaybackResult>;
   stopVoice: () => void;
   toggleMute: () => void;
+  setFilmHold: (on: boolean) => void;
   resumeFromState: (activeAudio: unknown) => void;
   cleanup: () => void;
 
@@ -106,6 +123,10 @@ const _maxDurationTimers = new Map<string, ReturnType<typeof setTimeout>>();
 // latest intent per id so a cancelled or superseded play cannot start later.
 let _playIntentSerial = 0;
 const _latestPlayIntents = new Map<string, number>();
+
+// Async world loads must not re-install audio after the owning view left.
+let _audioScope = 0;
+export function getAudioScope(): number { return _audioScope; }
 
 function beginPlayIntent(id: string): number {
   const intent = ++_playIntentSerial;
@@ -164,6 +185,7 @@ export function setWorldAudioEnabled(enabled: boolean): void {
 // return; this makes it explicit instead of incidental.
 const _pendingUnlockAudios = new Set<HTMLAudioElement>();
 const _cancelledAudios = new WeakSet<HTMLAudioElement>();
+const _playObservers = new WeakMap<HTMLAudioElement, { playing: () => void; rejected: (error: unknown) => void }>();
 let _unlockListenerAttached = false;
 
 // Old Android WebView (Chrome ≤ 49) and some iOS versions return undefined
@@ -174,13 +196,14 @@ function safePlay(audio: HTMLAudioElement): void {
     const p = audio.play();
     if (p && typeof p.then === "function") {
       void p.then(
-        () => { _pendingUnlockAudios.delete(audio); },
-        () => { registerPendingUnlock(audio); },
+        () => { _pendingUnlockAudios.delete(audio); _playObservers.get(audio)?.playing(); },
+        (error) => { _playObservers.get(audio)?.rejected(error); registerPendingUnlock(audio); },
       );
     } else if (!audio.paused) {
       _pendingUnlockAudios.delete(audio);
+      _playObservers.get(audio)?.playing();
     }
-  } catch { registerPendingUnlock(audio); }
+  } catch (error) { _playObservers.get(audio)?.rejected(error); registerPendingUnlock(audio); }
 }
 
 function retryPendingUnlocks() {
@@ -194,21 +217,7 @@ function retryPendingUnlocks() {
       continue;
     }
 
-    try {
-      const p = audio.play();
-      if (p && typeof p.then === "function") {
-        void p.then(
-          () => { _pendingUnlockAudios.delete(audio); },
-          () => { registerPendingUnlock(audio); },
-        );
-      } else if (!audio.paused) {
-        _pendingUnlockAudios.delete(audio);
-      }
-    } catch {
-      // Keep the element queued. A later touchend/click may be the first
-      // gesture the mobile browser actually accepts for audible playback.
-      registerPendingUnlock(audio);
-    }
+    safePlay(audio);
   }
 }
 
@@ -305,7 +314,29 @@ function matchesKeywords(text: string | undefined, keywords: string[] | undefine
 let _voiceAudio: HTMLAudioElement | null = null;
 let _voiceSerial = 0;
 let _voiceDuckOriginals: Map<string, number> | null = null;
+// A new readout cancels only voice restore fades, preserving unrelated fades.
+const _voiceRestoreIntervals = new Set<ReturnType<typeof setInterval>>();
 let _voiceProgressTimer: ReturnType<typeof setInterval> | null = null;
+let _voiceMonitor: ReturnType<typeof createVoicePlaybackMonitor> | null = null;
+/** Settles the current readout's receipt and releases its element. */
+let _disposeVoice: ((result: VoicePlaybackResult) => void) | null = null;
+let _voiceFrame: VoicePlaybackFrame | null = null;
+const _voiceFrameListeners = new Set<(frame: VoicePlaybackFrame) => void>();
+
+/** Small output frames bypass React/store snapshots and the full UI channel. */
+export function onVoicePlaybackFrame(cb: (frame: VoicePlaybackFrame) => void): () => void {
+  _voiceFrameListeners.add(cb);
+  if (_voiceFrame) {
+    try { cb(_voiceFrame); } catch { /* same isolation as subsequent frames */ }
+  }
+  return () => { _voiceFrameListeners.delete(cb); };
+}
+function emitVoiceFrame(frame: VoicePlaybackFrame): void {
+  _voiceFrame = Object.freeze(frame);
+  for (const cb of [..._voiceFrameListeners]) {
+    try { cb(_voiceFrame); } catch { /* one subscriber cannot stop playback */ }
+  }
+}
 
 function stopVoiceProgressTicker(): void {
   if (_voiceProgressTimer) {
@@ -314,12 +345,13 @@ function stopVoiceProgressTicker(): void {
   }
 }
 
-function computeVoiceVolume(s: { voiceVolume: number; masterVolume: number; muted: boolean }): number {
-  return s.voiceVolume * s.masterVolume * (s.muted ? 0 : 1);
+function computeVoiceVolume(s: { voiceVolume: number; masterVolume: number; muted: boolean; filmHold?: boolean }): number {
+  return s.voiceVolume * s.masterVolume * (s.muted || s.filmHold ? 0 : 1);
 }
 
 /** Lower BGM/ambient to 20% while a voice line plays. */
 function duckForVoice(): void {
+  cancelVoiceRestoreFades();
   if (_voiceDuckOriginals) return; // already ducked (voice replaced mid-line)
   const s = useAudioStore.getState();
   const originals = new Map<string, number>();
@@ -332,6 +364,15 @@ function duckForVoice(): void {
     }
   }
   if (originals.size > 0) _voiceDuckOriginals = originals;
+}
+
+/** Retire the prior voice's restore without cancelling unrelated track fades. */
+function cancelVoiceRestoreFades(): void {
+  for (const timer of _voiceRestoreIntervals) {
+    clearInterval(timer);
+    _activeFadeIntervals.delete(timer);
+  }
+  _voiceRestoreIntervals.clear();
 }
 
 /** Fade BGM/ambient back to their pre-voice volumes over 1s. */
@@ -350,38 +391,61 @@ function restoreVoiceDuck(): void {
     const step = (targetVol - startVol) / steps;
     let cur = 0;
     const fadeTimer = setInterval(() => {
+      if (!_voiceRestoreIntervals.has(fadeTimer) || useAudioStore.getState().activeTracks.get(tid)?.audio !== at.audio) {
+        clearInterval(fadeTimer);
+        _voiceRestoreIntervals.delete(fadeTimer);
+        _activeFadeIntervals.delete(fadeTimer);
+        return;
+      }
       cur++;
       setElVolume(at.audio, cur >= steps ? targetVol : startVol + step * cur);
       if (cur >= steps) {
         clearInterval(fadeTimer);
+        _voiceRestoreIntervals.delete(fadeTimer);
         _activeFadeIntervals.delete(fadeTimer);
       }
     }, FADE_INTERVAL);
+    _voiceRestoreIntervals.add(fadeTimer);
     _activeFadeIntervals.add(fadeTimer);
   }
 }
 
-/** Tear the voice element down without the duck-restore fade (stopAll path —
- *  the BGM it would fade back is being stopped in the same breath). */
-function teardownVoiceElement(): void {
+/** Tear the voice element down. Without `restoreDuck` there is no duck-restore
+ *  fade (stopAll path — the BGM it would fade back is being stopped in the
+ *  same breath); with it, BGM/ambient fade back to their pre-voice volumes. */
+function teardownVoiceElement(restoreDuck = false): void {
+  _disposeVoice?.({ ok: false, reason: "cancelled" });
   _voiceSerial++;
+  retireVoiceElement();
+  if (restoreDuck) restoreVoiceDuck();
+  else {
+    cancelVoiceRestoreFades();
+    _voiceDuckOriginals = null;
+  }
+}
+
+function retireVoiceElement(): void {
   stopVoiceProgressTicker();
+  _voiceMonitor?.dispose();
+  _voiceMonitor = null;
   if (_voiceAudio) {
+    _playObservers.delete(_voiceAudio);
     _cancelledAudios.add(_voiceAudio);
     _pendingUnlockAudios.delete(_voiceAudio);
     _voiceAudio.pause();
     _voiceAudio.src = "";
+    releaseMediaElement(_voiceAudio);
     _voiceAudio = null;
   }
-  _voiceDuckOriginals = null;
 }
 
 function getCategoryVolume(type: "bgm" | "sfx" | "ambient", state: { bgmVolume: number; sfxVolume: number }): number {
   return type === "sfx" ? state.sfxVolume : state.bgmVolume;
 }
 
-function computeVolume(trackVol: number, type: "bgm" | "sfx" | "ambient", state: { bgmVolume: number; sfxVolume: number; masterVolume: number; muted: boolean }): number {
-  return trackVol * getCategoryVolume(type, state) * state.masterVolume * (state.muted ? 0 : 1);
+function computeVolume(trackVol: number, type: "bgm" | "sfx" | "ambient", state: { bgmVolume: number; sfxVolume: number; masterVolume: number; muted: boolean; filmHold?: boolean }): number {
+  const underFilm = state.filmHold ? (type === "sfx" ? 0.6 : 0.35) : 1;
+  return trackVol * getCategoryVolume(type, state) * state.masterVolume * (state.muted ? 0 : underFilm);
 }
 
 export const useAudioStore = create<AudioState>((set, get) => ({
@@ -393,6 +457,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   voiceVolume: 1,
   voicePlayback: null,
   muted: false,
+  filmHold: false,
   playlist: null,
   playlistState: { currentIndex: 0, isPlaying: false, gapTimer: null, shuffleOrder: [] },
   conditionalRules: [],
@@ -822,12 +887,15 @@ export const useAudioStore = create<AudioState>((set, get) => ({
     // Pause in place — keep the element AND its activeTracks entry so
     // resumeTrack can continue from the same position. (stopTrack, by
     // contrast, destroys the element via src="" and drops the entry.)
+    _cancelledAudios.add(active.audio);
+    _pendingUnlockAudios.delete(active.audio);
     active.audio.pause();
   },
 
   resumeTrack: (id) => {
     const active = get().activeTracks.get(id);
     if (!active || !active.audio.paused) return;
+    _cancelledAudios.delete(active.audio);
     safePlay(active.audio);
   },
 
@@ -838,6 +906,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
       setElVolume(active.audio, computeVolume(active.volume, active.type, state));
     }
     if (_voiceAudio) setElVolume(_voiceAudio, computeVoiceVolume(state));
+    _voiceMonitor?.refresh();
   },
 
   setBgmVolume: (volume) => {
@@ -863,65 +932,155 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   setVoiceVolume: (volume) => {
     set({ voiceVolume: Math.max(0, Math.min(1, volume)) });
     if (_voiceAudio) setElVolume(_voiceAudio, computeVoiceVolume(get()));
+    _voiceMonitor?.refresh();
   },
 
   setVoicePlayback: (p) => set({ voicePlayback: p }),
 
-  playVoice: (key, url) => {
+  playVoice: (key, url, opts = {}) => {
+    _disposeVoice?.({ ok: false, reason: "cancelled" });
     const serial = ++_voiceSerial;
     // Retire the current voice element (keep duck state — we still need it).
-    if (_voiceAudio) {
-      _cancelledAudios.add(_voiceAudio);
-      _pendingUnlockAudios.delete(_voiceAudio);
-      _voiceAudio.pause();
-      _voiceAudio.src = "";
-      _voiceAudio = null;
-    }
+    retireVoiceElement();
 
     const audio = new Audio(url);
     audio.preload = "auto";
     setElVolume(audio, computeVoiceVolume(get()));
 
-    const finish = () => {
-      if (serial !== _voiceSerial) return; // superseded by a newer voice/stop
+    let resolve!: (result: VoicePlaybackResult) => void;
+    const receipt = new Promise<VoicePlaybackResult>((done) => { resolve = done; });
+    let settled = false;
+    let started = false;
+    let deadline: ReturnType<typeof setTimeout> | null = null;
+    let monitor: ReturnType<typeof createVoicePlaybackMonitor> | null = null;
+    let meterStarted = false;
+    let meterContext: AudioContext | null = null;
+    let meterStream: MediaStream | null = null;
+    let meterSource: MediaStreamAudioSourceNode | null = null;
+    let analyser: AnalyserNode | null = null;
+    let samples: Uint8Array<ArrayBuffer> | null = null;
+    const closeMeter = () => {
+      meterSource?.disconnect(); meterSource = null;
+      analyser?.disconnect(); analyser = null; samples = null;
+      meterStream?.getTracks().forEach((track) => track.stop()); meterStream = null;
+      void meterContext?.close().catch(() => {}); meterContext = null;
+    };
+    const startMeter = async () => {
+      if (!opts.measureLevel || meterStarted) return;
+      meterStarted = true;
+      // Capture a copy, never route the media element into Web Audio: routing
+      // is irreversible and can silence CDN media without CORS or conflict
+      // with the iOS volume graph. Unsupported browsers omit the level.
+      const capture = (audio as HTMLAudioElement & { captureStream?: () => MediaStream; mozCaptureStream?: () => MediaStream });
+      const captureStream = capture.captureStream ?? capture.mozCaptureStream;
+      const Ctx = typeof window !== "undefined" ? window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext : undefined;
+      if (!captureStream || !Ctx) return;
+      try {
+        const context = new Ctx();
+        meterContext = context;
+        await context.resume();
+        if (settled || serial !== _voiceSerial || context.state !== "running") { closeMeter(); return; }
+        meterStream = captureStream.call(audio);
+        meterSource = context.createMediaStreamSource(meterStream);
+        analyser = context.createAnalyser();
+        analyser.fftSize = 512;
+        meterSource.connect(analyser);
+        samples = new Uint8Array(analyser.fftSize);
+      } catch { closeMeter(); }
+    };
+    const dispose = (result: VoicePlaybackResult) => {
+      if (settled) return;
+      settled = true;
+      if (deadline) clearTimeout(deadline);
       stopVoiceProgressTicker();
-      _voiceAudio = null;
+      closeMeter();
+      monitor?.dispose();
+      if (_voiceMonitor === monitor) _voiceMonitor = null;
+      _playObservers.delete(audio);
+      _cancelledAudios.add(audio);
+      _pendingUnlockAudios.delete(audio);
+      audio.removeEventListener("playing", playing);
+      audio.removeEventListener("waiting", waiting);
+      audio.removeEventListener("ended", ended);
+      audio.removeEventListener("error", failed);
+      audio.pause();
+      audio.src = "";
+      releaseMediaElement(audio);
+      if (_voiceAudio === audio) _voiceAudio = null;
+      if (_disposeVoice === dispose) _disposeVoice = null;
+      resolve(result);
+    };
+    const finish = (result: VoicePlaybackResult) => {
+      if (serial !== _voiceSerial || settled) return;
+      dispose(result);
       restoreVoiceDuck();
       set({ voicePlayback: null });
     };
-    audio.addEventListener("ended", finish);
-    audio.addEventListener("error", finish);
+    const playing = () => {
+      if (serial !== _voiceSerial || settled) return;
+      started = true;
+      duckForVoice();
+      set({ voicePlayback: { key, status: "playing" } });
+      void startMeter();
+    };
+    const waiting = () => {
+      if (serial === _voiceSerial && !settled) set({ voicePlayback: { key, status: "loading" } });
+    };
+    const ended = () => finish(started ? { ok: true } : { ok: false, reason: "playback-error" });
+    const failed = () => finish({ ok: false, reason: "playback-error" });
+    audio.addEventListener("playing", playing);
+    audio.addEventListener("waiting", waiting);
+    audio.addEventListener("ended", ended);
+    audio.addEventListener("error", failed);
+    _playObservers.set(audio, { playing, rejected: (error) => {
+      if (serial !== _voiceSerial || settled) return;
+      if ((error as { name?: string })?.name !== "NotAllowedError") { failed(); return; }
+      if (opts.failIfBlocked) { finish({ ok: false, reason: "playback-blocked" }); return; }
+      restoreVoiceDuck();
+      set({ voicePlayback: { key, status: "blocked" } });
+    } });
+    _disposeVoice = dispose;
 
+    // Duck right away (the line is about to speak) and own the element: the
+    // output monitor publishes small frames to the card from the first tick.
     duckForVoice();
     _voiceAudio = audio;
-    set({ voicePlayback: { key, status: "playing" } });
+    monitor = createVoicePlaybackMonitor(audio, key, serial, emitVoiceFrame);
+    _voiceMonitor = monitor;
+    set({ voicePlayback: { key, status: "loading" } });
+    if (opts.timeoutMs !== undefined) {
+      deadline = setTimeout(() => finish({ ok: false, reason: "timeout" }), Math.max(1, opts.timeoutMs));
+    }
 
-    // Progress ticker (2Hz): drives the ring on the speaker button. Only
-    // publishes once duration metadata is known; harmless to run while the
-    // element is still buffering or queued behind the iOS unlock.
+    // Progress ticker: 2Hz drives the ring on the speaker button; waitForEnd
+    // conversations also publish the output level at ~15Hz. Ordinary readouts
+    // never create a capture stream or AudioContext.
     stopVoiceProgressTicker();
     _voiceProgressTimer = setInterval(() => {
-      if (serial !== _voiceSerial) {
-        stopVoiceProgressTicker();
-        return;
-      }
-      const duration = audio.duration;
-      if (!Number.isFinite(duration) || duration <= 0) return;
-      const progress = Math.min(1, audio.currentTime / duration);
+      if (serial !== _voiceSerial) return;
       const current = get().voicePlayback;
-      if (current?.key === key && current.status === "playing" && current.progress !== progress) {
-        set({ voicePlayback: { key, status: "playing", progress } });
+      if (current?.key !== key || current.status !== "playing") return;
+      const duration = audio.duration;
+      const progress = Number.isFinite(duration) && duration > 0 ? Math.min(1, Math.floor(audio.currentTime * 2) / 2 / duration) : undefined;
+      let level: number | undefined;
+      if (analyser && samples && meterContext?.state === "running") {
+        analyser.getByteTimeDomainData(samples);
+        let sum = 0;
+        for (const value of samples) sum += ((value - 128) / 128) ** 2;
+        level = Math.round(Math.min(1, Math.sqrt(sum / samples.length) * 4) * 100) / 100;
+        if (computeVoiceVolume(get()) === 0 || audio.paused) level = 0;
       }
-    }, 500);
+      if (current.progress !== progress || current.level !== level) set({ voicePlayback: { ...current, progress, level } });
+    }, opts.measureLevel ? 66 : 500);
 
     // safePlay routes a rejected .play() through the iOS pending-unlock queue,
     // so a blocked autoplay retries on the next real gesture.
     safePlay(audio);
+    return receipt;
   },
 
   stopVoice: () => {
-    teardownVoiceElement();
-    restoreVoiceDuck();
+    teardownVoiceElement(true);
     if (get().voicePlayback) set({ voicePlayback: null });
   },
 
@@ -934,6 +1093,18 @@ export const useAudioStore = create<AudioState>((set, get) => ({
       setElVolume(active.audio, computeVolume(active.volume, active.type, s));
     }
     if (_voiceAudio) setElVolume(_voiceAudio, computeVoiceVolume(s));
+    _voiceMonitor?.refresh();
+  },
+
+  setFilmHold: (on) => {
+    if (get().filmHold === on) return;
+    set({ filmHold: on });
+    const s = get();
+    for (const [, active] of s.activeTracks) {
+      setElVolume(active.audio, computeVolume(active.volume, active.type, s));
+    }
+    if (_voiceAudio) setElVolume(_voiceAudio, computeVoiceVolume(s));
+    _voiceMonitor?.refresh();
   },
 
   resumeFromState: (activeAudio) => {
@@ -956,6 +1127,7 @@ export const useAudioStore = create<AudioState>((set, get) => ({
   },
 
   cleanup: () => {
+    _audioScope++;
     const state = get();
     if (state.playlistState.gapTimer) clearTimeout(state.playlistState.gapTimer);
     get().stopAll();

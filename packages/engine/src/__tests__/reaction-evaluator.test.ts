@@ -38,6 +38,28 @@ describe("ReactionEvaluator", () => {
       expect(result.legacyEffects[0]!.variableId).toBe("counter");
     });
 
+    it("fires a custom behaviour without running the effects its form hides", () => {
+      const reactions: Reaction[] = [{
+        id: "r1",
+        name: "Coded",
+        when: { eventType: "turn:complete" },
+        conditions: [],
+        conditionLogic: "all",
+        then: [{ type: "set", path: "gold", value: 5, operation: "add" }],
+        priority: 0,
+        enabled: true,
+        custom: true,
+      }];
+
+      const result = evaluator.evaluate(
+        { type: "turn:complete", turnCount: 1 },
+        reactions, [], makeState()
+      );
+
+      expect(result.firedIds).toContain("r1");
+      expect(result.legacyEffects).toHaveLength(0);
+    });
+
     it("does not fire when event type doesn't match", () => {
       const reactions: Reaction[] = [{
         id: "r1",

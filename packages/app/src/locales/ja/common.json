@@ -1,4 +1,19 @@
 {
+  "mediaGuidelines": {
+    "effectiveNotice": "新ルールは2026年10月24日23:59（米国太平洋時間）に発効します。",
+    "publicTitle": "カバーとプレビューのルール",
+    "assetsTitle": "素材を使う前に",
+    "profileTitle": "公開プロフィール画像のルール",
+    "limited": "制限あり：",
+    "limitless": "無制限：",
+    "limitedRule": "ゲーム内を含むすべての素材を、職場でも見られる、性的な示唆のない内容にしてください。",
+    "limitlessPublicRule": "カバーとプレビューに裸体、性行為、生々しい残酷描写は禁止です。プライベートな部位は透けない衣服で覆ってください。",
+    "limitlessAssetsRule": "許可された成人向けメディアは年齢制限のあるゲーム内でのみ使用してください。公開カバーやプレビューは非露骨な内容にしてください。",
+    "profileSafe": "アカウント画像とバナーは、職場でも見られる、性的な示唆のない内容にしてください。",
+    "profileExplicit": "ワールドが無制限でも、裸体、性行為、生々しい残酷描写は禁止です。",
+    "blurRule": "ぼかしや修正線は例外になりません。",
+    "fullRules": "画像ルールの詳細"
+  },
   "imageViewer": {
     "zoomOut": "縮小",
     "resetZoom": "ズームをリセット",
@@ -22,13 +37,14 @@
     "partner": "紹介アナリティクス",
     "messages": "メッセージ",
     "installApp": "アプリをインストール",
-    "prompts": "プロンプト"
+    "prompts": "プロンプト",
+    "updates": "更新履歴"
   },
   "tabTitle": {
     "home": "Yumina",
     "discover": "発見",
     "community": "コミュニティ",
-    "bundles": "バンドル",
+    "bundles": "モジュールとプロンプト",
     "create": "作成",
     "library": "ライブラリ",
     "quests": "クエスト",
@@ -39,7 +55,8 @@
     "creator": "クリエイター",
     "signIn": "ログイン",
     "createAccount": "アカウント作成",
-    "krew": "Krew.io"
+    "krew": "Krew.io",
+    "updates": "更新履歴"
   },
   "mobile": {
     "menu": "メニュー",
@@ -53,13 +70,17 @@
   },
   "search": {
     "hub": "ワールド、キャラクター、ストーリーを検索...",
-    "library": "ライブラリを検索..."
+    "library": "ライブラリを検索...",
+    "bundles": "カードモジュール、作者、機能を検索..."
   },
   "aria": {
     "showSidebar": "サイドバーを表示",
     "hideSidebar": "サイドバーを隠す",
     "closeNav": "ナビゲーションメニューを閉じる",
-    "openNav": "ナビゲーションメニューを開く"
+    "openNav": "ナビゲーションメニューを開く",
+    "pagination": "ページ送り",
+    "prevPage": "前のページ",
+    "nextPage": "次のページ"
   },
   "auth": {
     "signInToContinue": "続行するにはログインしてください",
@@ -83,7 +104,10 @@
       "sendMessages": "メッセージを送る",
       "viewSensitiveContent": "Limitlessコンテンツを見る",
       "writeReviews": "レビューを書く"
-    }
+    },
+    "signUpToContinue": "登録して続ける",
+    "signUpFree": "無料で登録",
+    "haveAccountSignIn": "アカウントをお持ちの方はログイン"
   },
   "hint": {
     "sidebarCollapse": "左端にカーソルを合わせるとメニューが表示されます"
@@ -126,7 +150,7 @@
   "notifications": {
     "settings": "通知設定",
     "socialEventAnnouncement": "YUMINA シェアイベントのルールが更新されました。イベント詳細をご確認ください。",
-    "socialEventInitialApproved": "SNS投稿が初回審査を通過し、{{amount}} Mushies が付与されました。",
+    "socialEventInitialApproved": "SNS投稿が初回審査を通過し、{{amount}} マッシーが付与されました。",
     "socialEventNeedsChanges": "イベント投稿の修正が必要です。審査内容を確認してください。",
     "socialEventInitialRejected": "イベント投稿は初回審査を通過しませんでした。",
     "socialEventDisqualified": "イベント投稿は失格となりました。",
@@ -216,23 +240,23 @@
     "tipRefunded": "{{amount}} の投げ銭が返金されました",
     "wechatRenewalReminder": "プランの期限が近づいています — タップして更新",
     "reviewSubmitted": "作品「{{worldName}}」を審査に申請しました。24 時間以内に通知します。",
-    "reviewApproved": "作品「{{worldName}}」が承認され、Discover に公開されました。",
+    "reviewApproved": "作品「{{worldName}}」が承認され、「発見」に公開されました。",
     "reviewRejected": "作品「{{worldName}}」は修正が必要です（{{reason}}）。",
     "reviewRejectedWithDetail": "作品「{{worldName}}」は修正が必要です（{{reason}}）：{{detail}}",
     "reviewPendingAdmin": "{{author}} が「{{worldName}}」を審査に申請しました",
     "eventSubmissionPending": "{{name}} が「{{eventTitle}}」に作品を応募しました",
     "achievementEarned": "実績解除：{{title}}（{{tier}}）",
     "referralReward": "友達招待の報酬を受け取りました。",
-    "referralMushiesReward": "友達招待の報酬：{{amount}} Mushie が残高に追加されました。",
+    "referralMushiesReward": "友達招待の報酬：{{amount}} マッシーが残高に追加されました。",
     "referralGoldReward": "友達招待の報酬：Gold 会員が {{days}} 日間、自動的に有効になりました。",
     "creatorCommunityPost": "{{name}}さんがコミュニティに投稿しました：{{title}}",
     "generationCompleted": "AI生成が完了しました",
-    "generationFailed": "生成に失敗しました——マッシュは返金済みです",
+    "generationFailed": "生成に失敗しました——マッシーは返金済みです",
     "newReviewWithComment": "{{reviewer}} があなたの {{worldName}} カードを {{rating}} 星と評価し、コメントしました：{{comment}}",
     "newReviewCommentOnly": "{{reviewer}} があなたの {{worldName}} カードにコメントしました：{{comment}}",
     "newComment": "{{commenter}} が {{worldName}} にコメントしました",
     "platformAnnouncement": "運営からのお知らせ：{{title}}",
-    "socialEventVerifiedSettlementFloor": "イベントの最終審査が完了しました。公開投稿を確認できました。今回は拡散実績ランクによる追加報酬はありませんが、最終審査完了報酬として {{amount}} Mushies を付与しました。シェアとお待ちいただいたことに感謝します！",
+    "socialEventVerifiedSettlementFloor": "イベントの最終審査が完了しました。公開投稿を確認できました。今回は拡散実績ランクによる追加報酬はありませんが、最終審査完了報酬として {{amount}} マッシーを付与しました。シェアとお待ちいただいたことに感謝します！",
     "newFriend": "You and {{name}} are now friends",
     "newFriendNoName": "You made a new friend",
     "friendInvite": "{{name}} invited you to play {{worldName}}",
@@ -287,7 +311,8 @@
     },
     "giftBonusExpires": "ボーナス {{amount}} の有効期限：{{date}}",
     "promptPackApproved": "プロンプト「{{packTitle}}」が承認され、プロンプト広場に公開されました",
-    "promptPackRejected": "プロンプト「{{packTitle}}」は承認されませんでした。理由はライブラリ › プロンプトで確認できます"
+    "promptPackRejected": "プロンプト「{{packTitle}}」は承認されませんでした。理由はライブラリ › プロンプトで確認できます",
+    "planGiftReceived": "{{days}} 日間の {{plan}} プランギフトが届きました。"
   },
   "time": {
     "justNow": "たった今",
@@ -477,7 +502,7 @@
   "languageLabel": "言語",
   "creatorHub": "クリエイターハブ",
   "openingStandalone": "スタンドアロンのクリエイターサイトを開いています...",
-  "loadingStudio": "Studio を読み込み中...",
+  "loadingStudio": "エディターを開いています…",
   "friends": {
     "title": "Friends",
     "subtitle": "People you follow who follow you back",
@@ -517,5 +542,126 @@
       "popupFailed": "サインインが完了しませんでした。このウィンドウを閉じてもう一度お試しください。",
       "backToGame": "Krew.io に戻る"
     }
+  },
+  "planAlert": {
+    "cancelsOn": "サブスクリプションは {{date}} に解約されます。それまでは現在の特典を利用できます。",
+    "downgradesOn": "プランは {{date}} にダウングレードされます。",
+    "giftExpiresOn": "ギフトプランは {{date}} に期限切れになります。",
+    "dismiss": "閉じる"
+  },
+  "studioNotYours": "このワールドは編集できません。開けるのは自分が作ったカードだけです。",
+  "studioLoadFailed": "このワールドを読み込めませんでした。接続を確認してもう一度お試しください。",
+  "backToMyWorlds": "自分のワールド",
+  "userMute": {
+    "until": "{{date}} まで発言制限中",
+    "permanent": "無期限の発言制限中",
+    "help": "発言制限中は投稿、コメント、更新の公開、ダイレクトメッセージの送信ができません。閲覧や物語のプレイは引き続き可能です。"
+  },
+  "communityMutedPermanent": "コミュニティとコメントへの投稿が永久に停止されています。",
+  "notFound": {
+    "title": "ページが見つかりません",
+    "description": "リンクが間違っているか、ページが移動した可能性があります。",
+    "back": "戻る",
+    "home": "発見へ戻る",
+    "library": "ライブラリへ戻る"
+  },
+  "macroYou": "あなた",
+  "sensitiveCover": {
+    "hidden": "カバーは非表示です",
+    "description": "センシティブな内容を含む場合があります。",
+    "show": "このカバーを表示",
+    "settings": "画像の設定",
+    "hide": "カバーを隠す"
+  },
+  "updates": {
+    "title": "更新履歴",
+    "intro": "Yumina の最近の変更です。",
+    "filterLabel": "エリアで絞り込む",
+    "all": "すべて",
+    "empty": "まだ更新はありません。",
+    "emptyArea": "このエリアの更新はまだありません。",
+    "error": "更新履歴を読み込めませんでした。",
+    "retry": "再試行",
+    "unrestrictedOnly": "制限解除",
+    "internal": "社内",
+    "internalNote": "管理者なので「社内」の付いたチーム向けの項目も表示されています。ほかの人には見えません。",
+    "copyLink": "リンクをコピー",
+    "copied": "リンクをコピーしました",
+    "admin": {
+      "new": "新しい更新",
+      "edit": "編集",
+      "hide": "非表示",
+      "unhide": "再表示",
+      "delete": "削除",
+      "restore": "リポジトリの版に戻す",
+      "history": "履歴",
+      "badgeHidden": "非表示中",
+      "badgeEdited": "Web で編集済み",
+      "badgeWebOnly": "Web で追加",
+      "confirmDelete": "この更新を完全に削除しますか？変更履歴は残ります。",
+      "confirmRestore": "Web での変更を破棄して、リポジトリの版に戻しますか？",
+      "actionFailed": "うまくいきませんでした。もう一度お試しください。",
+      "editorNew": "新しい更新",
+      "editorEdit": "更新を編集",
+      "fromFileNote": "この項目はリポジトリから来ています。保存すると Web 版が優先されます。いつでもリポジトリの版に戻せます。",
+      "date": "日付",
+      "slug": "短い名前（リンクに使用）",
+      "slugHint": "小文字・数字・ハイフン。例: new-editor",
+      "link": "リンク",
+      "audience": "公開範囲",
+      "audiencePublic": "全員",
+      "audienceInternal": "チームのみ（社内）",
+      "audienceUnrestricted": "制限解除ユーザー",
+      "areas": "エリア",
+      "entryTitle": "タイトル",
+      "body": "本文（Markdown、1 行ずつ · で始める）",
+      "preview": "プレビュー",
+      "previewEmpty": "本文を書くとここにプレビューが表示されます。",
+      "required": "必須",
+      "translate": "繁体字・スペイン語・日本語を自動翻訳",
+      "translating": "翻訳中…",
+      "translateNeeds": "先に中国語と英語のタイトルと本文を入力してください。",
+      "translated": "翻訳を入力しました。保存前に確認してください。",
+      "translateOverwrite": "繁体字・スペイン語・日本語の既存の内容を置き換えます。続けますか？",
+      "translateFailed": "翻訳に失敗しました：{{message}}",
+      "save": "保存",
+      "saving": "保存中…",
+      "cancel": "キャンセル",
+      "loadingEntry": "読み込み中…",
+      "errDate": "有効な日付を選んでください。",
+      "errAudience": "公開範囲を選んでください。",
+      "errAreas": "エリアを 1 つ以上選んでください。",
+      "errTitle": "{{lang}} のタイトルは必須です。",
+      "errBody": "{{lang}} の本文は必須です。",
+      "errId": "短い名前が無効か、すでに使われています（小文字・数字・ハイフン）。",
+      "errConflict": "ほかの人がこの項目を変更しました。閉じて開き直してから編集してください。",
+      "errGeneric": "保存できませんでした。もう一度お試しください。",
+      "historyTitle": "変更履歴",
+      "historyEmpty": "この項目はまだ Web で変更されていません。",
+      "actCreate": "作成",
+      "actEdit": "編集",
+      "actHide": "非表示",
+      "actUnhide": "再表示",
+      "actRestore": "リポジトリの版に戻した",
+      "actDelete": "削除",
+      "more": "その他の操作",
+      "style": "表示スタイル",
+      "highlightToggle": "注目：タイトルを少し大きくし、発見ページで 1 回だけお知らせ",
+      "kindStandard": "通常",
+      "kindRoundup": "改善と修正のまとめ（コンパクト、4 件で折りたたみ）",
+      "copyLink": "リンクをコピー"
+    },
+    "new": "NEW",
+    "expandAll": "すべて表示（{{count}} 件）",
+    "collapse": "折りたたむ",
+    "footer": "更新履歴は 2026 年 9 月から記録しています",
+    "bannerNew": "NEW",
+    "bannerView": "見る",
+    "bannerDismiss": "閉じる",
+    "unseen": "新しい更新があります",
+    "showEarlier": "以前の更新を見る · {{count}} 件",
+    "subtitle": "すべての変更を、ここに記録しています。",
+    "statLatest": "最終更新",
+    "statCount": "{{month}}から <b>{{count}}</b> 件の更新"
   }
 }

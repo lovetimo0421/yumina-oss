@@ -107,6 +107,31 @@
           "body": "Turning it off leaves everything written so far intact. Reinstall later and it picks the same notes back up."
         }
       ]
+    },
+    "live-canon": {
+      "name": "Lore Shift (Beta)",
+      "shortDescription": "Update author-approved story state and lore while you play. Changes stay in this session.",
+      "longDescription": "Lore Shift gives a running story a small, author-controlled editing layer. Use Story State for facts such as age, location, counters, or flags so the card's existing rules can react. Use Session Lore for prose facts and author-approved lore corrections.\n\nEvery change belongs only to the current play session. The author's original card and other players' stories are never changed. If the author closes editing, Lore Shift shows an explanation instead of exposing the editor or its data.",
+      "tags": {
+        "lore": "lore",
+        "state": "state",
+        "session": "session",
+        "author-controlled": "author-controlled"
+      },
+      "explanations": [
+        {
+          "title": "Story State",
+          "body": "Change approved typed facts such as age or location so existing rules can react."
+        },
+        {
+          "title": "Session Lore",
+          "body": "Correct approved lore or add a new fact without touching the original card."
+        },
+        {
+          "title": "Author controlled",
+          "body": "A locked card shows a warning and exposes no Lore Shift editor or data."
+        }
+      ]
     }
   }
 }

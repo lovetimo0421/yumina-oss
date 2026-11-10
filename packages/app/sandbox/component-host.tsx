@@ -8,66 +8,15 @@
  * - Game events emitted via emitEvent() on the yumina API
  */
 
-import React, { Component, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { scheduleRootRendered } from "./schedule-root-rendered";
 
-/**
- * Track every AudioContext a card creates so the host can suspend them when the
- * parent hides the iframe.
- *
- * The `suspend-media` handler can only find `<video>`/`<audio>` elements via a
- * DOM query. Web Audio has no element to find — a card that synthesises its own
- * sound kept playing after the player navigated away, and only a full page
- * refresh stopped it. Wrapping the constructor here (before any creator code
- * runs) is the same replace-the-browser-API approach the SDK already takes for
- * storage and networking.
- *
- * Contexts are held weakly so a discarded one does not pin its graph in memory.
- * Only contexts this host suspended are resumed, so a card that deliberately
- * paused its own audio is never restarted behind its back.
- */
-const trackedAudioContexts = new Set<WeakRef<AudioContext>>();
-const hostSuspendedContexts = new WeakSet<AudioContext>();
+import { installSandboxMedia } from "../src/lib/sandbox-media";
 
-function trackAudioContexts(): void {
-  const w = window as unknown as Record<string, unknown>;
-  for (const key of ["AudioContext", "webkitAudioContext"]) {
-    const Original = w[key] as (new (...args: unknown[]) => AudioContext) | undefined;
-    if (typeof Original !== "function" || (Original as { __yuminaTracked?: boolean }).__yuminaTracked) continue;
-    const Wrapped = function (this: unknown, ...args: unknown[]) {
-      const ctx = new Original(...args);
-      try {
-        trackedAudioContexts.add(new WeakRef(ctx));
-      } catch {}
-      return ctx;
-    } as unknown as new (...args: unknown[]) => AudioContext;
-    Wrapped.prototype = Original.prototype;
-    (Wrapped as { __yuminaTracked?: boolean }).__yuminaTracked = true;
-    w[key] = Wrapped;
-  }
-}
-trackAudioContexts();
-
-function suspendTrackedAudioContexts(suspended: boolean): void {
-  for (const ref of [...trackedAudioContexts]) {
-    const ctx = ref.deref();
-    if (!ctx) {
-      trackedAudioContexts.delete(ref);
-      continue;
-    }
-    try {
-      if (suspended) {
-        if (ctx.state === "running") {
-          hostSuspendedContexts.add(ctx);
-          void ctx.suspend();
-        }
-      } else if (hostSuspendedContexts.has(ctx)) {
-        hostSuspendedContexts.delete(ctx);
-        void ctx.resume();
-      }
-    } catch {}
-  }
-}
-import { buildComponent } from "../src/features/studio/lib/tsx-component-builder";
+const sandboxMedia = installSandboxMedia();
+import { CodeDiagnosticCard, CodeDiagnosticBoundary } from "../src/lib/tsx/diagnostic-card";
+import { createCodeDiagnostic, type CodeDiagnostic } from "../src/lib/tsx/diagnostics";
+import { buildComponent } from "../src/lib/tsx/tsx-component-builder";
 import { useAssetFont } from "../src/lib/asset-font";
 import { originalImageUrl, resolveAssetUrl, resolveAssetRefs } from "../src/lib/asset-url";
 import { rewriteSandboxRootSelectors } from "../src/lib/sandbox-style-isolation";
@@ -95,7 +44,9 @@ import type {
   SandboxMode,
   UIChannelData,
 } from "./protocol";
-import { YuminaContext, buildAPI, useYumina, resolveApiCall, receiveStreamChunk, AUDIO_ENDED_EVENT, COMPOSER_DRAFT_EVENT, ROOM_FRAME_EVENT, OPEN_MEMORY_PANEL_EVENT } from "./sandbox-context";
+import { YuminaContext, buildAPI, useYumina, resolveApiCall, receiveStreamChunk, AUDIO_ENDED_EVENT, VOICE_PLAYBACK_FRAME_EVENT, COMPOSER_DRAFT_EVENT, ROOM_FRAME_EVENT, VIDEO_EVENT, STORY_EVENT, OPEN_MEMORY_PANEL_EVENT } from "./sandbox-context";
+import { runBehaviorCode, type BehaviorCodeApi } from "./behavior-code";
+import { dispatchVoiceEvent } from "./voice-api";
 import { withVariableNameAliases } from "./variable-alias";
 import { installCompatShims, resolveShimCall, updateShimState } from "./compat-shims";
 import { syncInstalledExtensions } from "./extensions";
@@ -112,131 +63,6 @@ import { ModelPickerModal, ModelTrigger } from "./chat/model-picker-modal";
 import { SessionMemoryModal } from "./extensions/session-memory/session-memory-modal";
 import type { StateChannel } from "@yumina/engine";
 import type { SandboxState } from "./protocol";
-
-// ── Error Boundary ──────────────────────────────────────────────────
-
-// One-click copy button for the play-time component error. Self-contained
-// (inline SVG + inline styles) because the sandbox bundle deliberately
-// avoids lucide-react, sonner, and Tailwind. Uses navigator.clipboard with
-// an execCommand fallback for iframes where the async clipboard API is
-// blocked — both paths require a user gesture, which this button click
-// provides.
-function CopyErrorIconButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const copy = async () => {
-    let ok = false;
-    try {
-      await navigator.clipboard.writeText(text);
-      ok = true;
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        ok = document.execCommand("copy");
-      } finally {
-        document.body.removeChild(ta);
-      }
-    }
-    if (ok) {
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={copy}
-      aria-label="Copy error"
-      title="Copy error"
-      style={{
-        position: "absolute",
-        top: 6,
-        right: 6,
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
-        width: 24,
-        height: 24,
-        padding: 0,
-        borderRadius: 4,
-        border: "none",
-        background: "transparent",
-        color: copied ? "#D3544B" : "rgba(211,84,75,0.7)",
-        cursor: "pointer",
-      }}
-    >
-      {copied ? (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-          <polyline points="20 6 9 17 4 12" />
-        </svg>
-      ) : (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-        </svg>
-      )}
-    </button>
-  );
-}
-
-class ErrorBoundary extends Component<
-  { children: React.ReactNode; onError: (error: string) => void },
-  { error: string | null }
-> {
-  state = { error: null as string | null };
-
-  static getDerivedStateFromError(error: Error) {
-    return { error: error.message };
-  }
-
-  componentDidCatch() {
-    if (this.state.error) {
-      this.props.onError(this.state.error);
-    }
-  }
-
-  render() {
-    if (this.state.error) {
-      const err = this.state.error;
-      return (
-        <div
-          style={{
-            position: "relative",
-            padding: 12,
-            paddingRight: 36,
-            borderRadius: 8,
-            background: "rgba(211,84,75,0.08)",
-            border: "1px solid rgba(211,84,75,0.3)",
-          }}
-        >
-          <p style={{ fontSize: 12, fontWeight: 500, color: "#D3544B" }}>
-            Component Error
-          </p>
-          <p
-            style={{
-              fontSize: 12,
-              color: "rgba(211,84,75,0.7)",
-              fontFamily: "monospace",
-              marginTop: 4,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-word",
-            }}
-          >
-            {err}
-          </p>
-          <CopyErrorIconButton text={`Component Error:\n${err}`} />
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
 
 // ── Channel State ───────────────────────────────────────────────────
 
@@ -264,6 +90,7 @@ function assembleState(channels: ChannelState): SandboxState {
     // Session channel
     worldName: channels.session?.worldName ?? "",
     worldCover: channels.session?.worldCover ?? null,
+    background: channels.ui?.background ?? null,
     worldId: channels.session?.worldId ?? "",
     sessionId: channels.session?.sessionId ?? "",
     currentUser: channels.session?.currentUser ?? null,
@@ -271,6 +98,8 @@ function assembleState(channels: ChannelState): SandboxState {
     entries: channels.session?.entries ?? [],
     loreUiBindings: channels.session?.loreUiBindings ?? [],
     worldbooks: channels.session?.worldbooks ?? [],
+    replyRules: channels.session?.replyRules ?? [],
+    speakerBubbles: channels.session?.speakerBubbles === true,
 
     // UI channel
     canvasMode: "custom",
@@ -968,10 +797,15 @@ export function ComponentHost() {
   // (not state) so the message handler closure stays stable across re-renders —
   // otherwise the window message listener gets re-bound on every install.
   const installedFilesKeyRef = useRef<string>("");
+  // Updated on message receipt, before React commits, so a previous session's
+  // transferable can never paint into the next room during a render transition.
+  const voiceScopeRef = useRef({ sessionId: "", readOnly: true, available: false, mode: "session" as SandboxMode, suspended: false });
   const [rootComponent, setRootComponent] = useState<{
     filesKey: string;
     CompiledComponent: React.ComponentType<Record<string, unknown>> | null;
     error: string | null;
+    diagnostic?: CodeDiagnostic;
+    files: Record<string, string>;
   } | null>(null);
 
   // ── Hydration gate ──
@@ -991,6 +825,19 @@ export function ComponentHost() {
   // Assemble channel state into a single SandboxState for the API
   const assembledState = useMemo(() => assembleState(channels), [channels]);
   const api = useMemo(() => buildAPI(assembledState), [assembledState]);
+  // 代码行为: a behaviour with code of its own fired; it runs here, in the
+  // card's sandbox, against the live API (see behavior-code.ts).
+  const apiRef = useRef(api);
+  apiRef.current = api;
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const code = (e as CustomEvent).detail?.code as { reactionId: string; source: string; names?: Record<string, string> } | undefined;
+      if (!code?.source) return;
+      void runBehaviorCode(code.source, apiRef.current as unknown as BehaviorCodeApi, code.names ?? {}, { reactionId: code.reactionId });
+    };
+    window.addEventListener(STORY_EVENT, handler);
+    return () => window.removeEventListener(STORY_EVENT, handler);
+  }, []);
 
   // Force the hydration gate open if the initial channel pushes never arrive
   // (an unexpected host) — degrades to pre-gate behavior instead of hanging.
@@ -1099,12 +946,14 @@ export function ComponentHost() {
 
     switch (msg.type) {
       case "install-root": {
-        const { entryFile, files, mode, compiledCode, compileError } = msg as {
+        voiceScopeRef.current.mode = msg.mode ?? "session";
+        const { entryFile, files, mode, compiledCode, compileError, diagnostic: receivedDiagnostic } = msg as {
           entryFile?: string;
           files?: Record<string, string>;
           mode?: SandboxMode;
           compiledCode?: string;
           compileError?: string;
+          diagnostic?: CodeDiagnostic;
         };
 
         if (mode) {
@@ -1119,6 +968,7 @@ export function ComponentHost() {
 
         let Compiled: React.ComponentType<Record<string, unknown>> | null = null;
         let error: string | null = compileError ?? null;
+        let diagnostic = receivedDiagnostic;
 
         if (!error) {
           if (compiledCode) {
@@ -1136,14 +986,23 @@ export function ComponentHost() {
               LorePanel: LorePanel as React.ComponentType<Record<string, unknown>>,
               LoreGroup: LoreGroup as React.ComponentType<Record<string, unknown>>,
               LoreSwitch: LoreSwitch as React.ComponentType<Record<string, unknown>>,
-            });
+            }, { files: files ?? {} });
             Compiled = result.Component;
             error = result.error;
+            diagnostic = result.diagnostic;
+            if (diagnostic?.name === "SyntaxError" && files && entryFile) {
+              // Only the exceptional path loads the compiler. This identifies
+              // the failing source file without executing creator code again.
+              try {
+                const { diagnoseBundleFailure } = await import("../src/lib/tsx/tsx-bundler");
+                diagnostic = diagnoseBundleFailure(diagnostic, { files, entryFile });
+              } catch { /* Keep the original evidence if diagnosis cannot load. */ }
+            }
           } else {
             // Legacy fallback: parent sent raw files without precompile. Keep the dynamic
             // import so the bundler chunk only loads for these rare cases, not every boot.
             try {
-              const { bundleAndCompile } = await import("../src/features/studio/lib/tsx-bundler");
+              const { bundleAndCompile } = await import("../src/lib/tsx/tsx-bundler");
               const result = bundleAndCompile(
                 { files: files ?? {}, entryFile: entryFile ?? "index.tsx" },
                 useYumina,
@@ -1161,16 +1020,23 @@ export function ComponentHost() {
               );
               Compiled = result.Component;
               error = result.error;
+              diagnostic = result.diagnostic;
             } catch (e) {
               error = e instanceof Error ? e.message : "Bundle compilation failed";
+              diagnostic = createCodeDiagnostic(e, { phase: "load", files });
             }
           }
         }
 
+        // A later install may arrive while the exceptional diagnosis/legacy
+        // bundle import is loading. Never resurrect the earlier error/card.
+        if (installedFilesKeyRef.current !== filesKey) break;
         if (error) {
+          diagnostic ??= createCodeDiagnostic(error, { phase: "compile", files });
           const errMsg: ComponentErrorMessage = {
             type: "component-error",
             message: error,
+            diagnostic,
           };
           postToParentWindow(wrapMessage(errMsg));
         }
@@ -1179,6 +1045,8 @@ export function ComponentHost() {
           filesKey,
           CompiledComponent: Compiled,
           error,
+          diagnostic,
+          files: files ?? {},
         });
         break;
       }
@@ -1192,7 +1060,14 @@ export function ComponentHost() {
         // Keep compat shims in sync
         if (channel === "session") {
           const session = data as SessionChannelData;
+          voiceScopeRef.current.sessionId = session.sessionId;
           updateShimState(session.sessionId, session.worldId);
+        }
+        if (channel === "ui") {
+          const ui = data as UIChannelData;
+          voiceScopeRef.current.readOnly = ui.readOnly;
+          voiceScopeRef.current.available = ui.capabilities?.canUseSessionApis !== false;
+          voiceScopeRef.current.mode = ui.mode ?? voiceScopeRef.current.mode;
         }
         break;
       }
@@ -1206,25 +1081,9 @@ export function ComponentHost() {
       }
 
       case "suspend-media": {
+        voiceScopeRef.current.suspended = msg.suspended;
         setTranscriptActive(!msg.suspended);
-        // Universal pause for raw <video>/<audio> tags in creator TSX.
-        // Called when the parent hides the iframe (navigation, theater exit) without
-        // unmounting it — without this, media elements inside a display:none iframe
-        // keep playing. We only pause; resume is up to the creator's own code on
-        // re-mount (autoPlay / onVisible handlers), so we don't silently restart
-        // audio the user expected to stay stopped.
-        const els = document.querySelectorAll<HTMLMediaElement>("video, audio");
-        if (msg.suspended) {
-          els.forEach((el) => {
-            if (!el.paused) el.pause();
-          });
-        }
-        // Web Audio is NOT a media element, so the query above never sees it. A
-        // card that synthesises its own sound (procedural ambience, an in-card
-        // synth) kept playing after the player navigated away and only stopped on
-        // a full refresh. Suspending the tracked contexts covers every card
-        // without the creator having to wire anything up.
-        suspendTrackedAudioContexts(msg.suspended);
+        sandboxMedia.setSuspended(msg.suspended);
         break;
       }
 
@@ -1239,10 +1098,36 @@ export function ComponentHost() {
         break;
       }
 
+      case 'voice-playback-frame': {
+        window.dispatchEvent(new CustomEvent(VOICE_PLAYBACK_FRAME_EVENT, { detail: msg.frame }));
+        break;
+      }
+
       case "room-frame": {
         // Multiplayer frame from the parent-held game WebSocket — re-dispatch
         // as a window event; api.room.on* subscribers (creator code) listen.
         window.dispatchEvent(new CustomEvent(ROOM_FRAME_EVENT, { detail: msg.frame }));
+        break;
+      }
+
+      case "voice-event": {
+        const scope = voiceScopeRef.current;
+        dispatchVoiceEvent(msg.event, {
+          available: !!scope.sessionId && !scope.readOnly && scope.available && scope.mode === "session" && !scope.suspended &&
+            (msg.event.type !== "video-frame" || msg.sessionId === scope.sessionId),
+          target: window,
+          post: (method, args) => postToParentWindow(wrapMessage({ type: "api-call", callId: "fire-video-frame", method, args })),
+        });
+        break;
+      }
+
+      case "video-event": {
+        window.dispatchEvent(new CustomEvent(VIDEO_EVENT, { detail: msg.event }));
+        break;
+      }
+
+      case "story-event": {
+        window.dispatchEvent(new CustomEvent(STORY_EVENT, { detail: msg.event }));
         break;
       }
 
@@ -1294,45 +1179,8 @@ export function ComponentHost() {
     // Listen for messages
     window.addEventListener("message", handleMessage);
 
-    // iOS autoplay rescue: Safari / Chrome on iOS (all iOS browsers are WebKit)
-    // often refuse to honor `autoplay` inside cross-origin iframes even with
-    // `allow="autoplay"` and `muted=true`. The <video> / <audio> element loads
-    // and just sits at the first frame. The rescue runs on every early gesture
-    // (not one-shot) because: (a) one gesture may unlock but not land on a
-    // media element that's still buffering, (b) repeated idempotent .play()
-    // calls on already-playing media are cheap, (c) we'd rather be robust
-    // than clever — iOS behavior varies by version / Low Power Mode.
-    // Silent-unlock trick also primes HTMLAudioElement + AudioContext for
-    // creator code that calls .play() directly after the gesture.
-    const SILENT_WAV =
-      "data:audio/wav;base64,UklGRhwAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
-    let _rescuedOnce = false;
-    const rescueAutoplay = () => {
-      if (!_rescuedOnce) {
-        _rescuedOnce = true;
-        // Prime element-based audio
-        try { const a = new Audio(SILENT_WAV); a.volume = 0; void a.play().catch(() => {}); } catch { /* noop */ }
-        // Prime Web Audio context
-        try {
-          const Ctor = (window as typeof window & { webkitAudioContext?: typeof AudioContext }).AudioContext
-            ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-          if (Ctor) {
-            const ctx = new Ctor();
-            const src = ctx.createBufferSource();
-            src.buffer = ctx.createBuffer(1, 1, 22050);
-            src.connect(ctx.destination);
-            src.start(0);
-            void ctx.resume().catch(() => {});
-          }
-        } catch { /* noop */ }
-      }
-      const els = document.querySelectorAll<HTMLMediaElement>(
-        "video[autoplay], audio[autoplay]"
-      );
-      els.forEach((el) => {
-        if (el.paused) el.play().catch(() => {});
-      });
-    };
+    // Retry only real autoplay media; silent priming steals external audio focus.
+    const rescueAutoplay = sandboxMedia.rescueAutoplay;
     document.addEventListener("touchstart", rescueAutoplay, { passive: true, capture: true });
     document.addEventListener("touchend", rescueAutoplay, { passive: true, capture: true });
     document.addEventListener("click", rescueAutoplay, { capture: true });
@@ -1356,10 +1204,11 @@ export function ComponentHost() {
 
   // ── Render ──
 
-  const handleError = useCallback((error: string) => {
+  const handleError = useCallback((diagnostic: CodeDiagnostic) => {
     const errMsg: ComponentErrorMessage = {
       type: "component-error",
-      message: error,
+      message: diagnostic.message,
+      diagnostic,
     };
     postToParentWindow(wrapMessage(errMsg));
   }, []);
@@ -1523,29 +1372,19 @@ export function ComponentHost() {
     };
   }, [rootComponent?.CompiledComponent]);
 
-  // Tell the parent the world has actually painted (root installed + first
-  // frame), so it can drop its loading overlay exactly when the world's own UI
-  // is on screen — not at the boot handshake, which fires before any world
-  // content exists. Fires after a double-rAF on every (re)install, including
-  // world switches, and also when a compile-error panel is shown (that is still
-  // "something on screen", not a grey gap).
+  // Notify after the committed root gets two animation frames. A timer fallback
+  // prevents throttled iframe callbacks from holding the overlay indefinitely;
+  // it reports committed content, not proof of a physical screen paint.
   // Gate must match the render below: with the hydration gate closed the world
   // hasn't painted yet, so reporting "rendered" would drop the parent overlay
   // onto a blank frame. Error panels are ungated (they ARE the paint).
   const canPaintRoot = !!rootComponent && (!!rootComponent.error || stateHydrated || hydrationTimedOut);
   useEffect(() => {
     if (!canPaintRoot) return;
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        const msg: RenderedMessage = { type: "rendered" };
-        postToParentWindow(wrapMessage(msg));
-      });
+    return scheduleRootRendered(window, () => {
+      const msg: RenderedMessage = { type: "rendered" };
+      postToParentWindow(wrapMessage(msg));
     });
-    return () => {
-      cancelAnimationFrame(raf1);
-      if (raf2) cancelAnimationFrame(raf2);
-    };
   }, [canPaintRoot, rootComponent]);
 
   // If no root component is installed yet, stay visually empty. The parent
@@ -1561,38 +1400,14 @@ export function ComponentHost() {
         style={{ width: "100%", height: "100%", position: "relative" }}
       >
         {rootComponent?.error ? (
-          <div
-            style={{
-              position: "relative",
-              padding: 16,
-              paddingRight: 40,
-              background: "rgba(211,84,75,0.08)",
-              border: "1px solid rgba(211,84,75,0.3)",
-              borderRadius: 8,
-              margin: 16,
-            }}
-          >
-            <p style={{ fontSize: 13, fontWeight: 500, color: "#D3544B" }}>
-              Compilation Error
-            </p>
-            <pre
-              style={{
-                fontSize: 12,
-                color: "rgba(211,84,75,0.7)",
-                fontFamily: "monospace",
-                marginTop: 8,
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-              }}
-            >
-              {rootComponent.error}
-            </pre>
-            <CopyErrorIconButton text={`Compilation Error:\n${rootComponent.error}`} />
-          </div>
+          <CodeDiagnosticCard key={rootComponent.filesKey}
+            diagnostic={rootComponent.diagnostic ?? createCodeDiagnostic(rootComponent.error, { phase: "compile" })}
+            language={assembledState.language} />
         ) : RootComp && (stateHydrated || hydrationTimedOut) ? (
-          <ErrorBoundary onError={handleError}>
+          <CodeDiagnosticBoundary key={rootComponent?.filesKey} files={rootComponent?.files}
+            language={assembledState.language} onError={handleError}>
             <RootComp />
-          </ErrorBoundary>
+          </CodeDiagnosticBoundary>
         ) : (
           // Either no root installed yet, or the hydration gate is still
           // closed (initial channel pushes in flight). The parent keeps its

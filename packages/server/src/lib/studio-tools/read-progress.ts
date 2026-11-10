@@ -70,18 +70,20 @@ export function extractReadTouches(calls: ToolCall[]): ReadTouch[] {
     } catch {
       continue;
     }
+    // The same id in another language version is another thing to read.
+    const at = typeof args.variant === "string" && args.variant.trim() ? `[${args.variant.trim()}] ` : "";
 
     if (name === "read_entities") {
       // The slice IS the request. Two reads of one file at different offsets are
       // two different questions; only the same window twice is a re-read.
       const signature = `read:${JSON.stringify([args.offset_lines ?? null, args.limit_lines ?? null])}`;
       if (Array.isArray(args.ids)) {
-        for (const id of args.ids) if (typeof id === "string") out.push({ id, signature });
+        for (const id of args.ids) if (typeof id === "string") out.push({ id: at + id, signature });
       }
       // Models sometimes send the singular `id` here. The executor returns nothing for
       // it, so the call is pure loop fuel — still worth tracking so a model stuck on it
       // gets stopped rather than burning to the iteration cap.
-      if (typeof args.id === "string") out.push({ id: args.id, signature });
+      if (typeof args.id === "string") out.push({ id: at + args.id, signature });
       continue;
     }
 
@@ -89,7 +91,7 @@ export function extractReadTouches(calls: ToolCall[]): ReadTouch[] {
     // are different questions and were never re-reads to begin with.
     if (typeof args.id !== "string") continue;
     out.push({
-      id: args.id,
+      id: at + args.id,
       signature: `grep:${JSON.stringify([
         typeof args.query === "string" ? args.query : null,
         args.scope ?? null,

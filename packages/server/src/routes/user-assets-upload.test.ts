@@ -1,3 +1,5 @@
+import sharp from "sharp";
+import { createImageUploadProcessor } from "../lib/image-upload-storage.js";
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { readFileSync } from "node:fs";
@@ -8,18 +10,33 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import type { DrizzleDB } from "../db/index.js";
 import { SESSION_MEDIA_DDL } from "../db/session-media-ddl.js";
+import { CREATIVE_UPLOAD_STATEMENTS } from "../db/creative-upload-ddl.js";
 import { createSessionMediaService } from "../lib/session-media-service.js";
 import { uploadOperationId } from "../lib/asset-upload-operation.js";
 import type { AppEnv } from "../lib/types.js";
+import { ASSET_IMPORT_DDL } from "../db/asset-import-ddl.js";
+import { createAssetImportService } from "../lib/asset-import-service.js";
+import { AssetImportError } from "../lib/asset-archive.js";
+import { admitCreativeUpload } from "../lib/creative-upload-policy.js";
+import { zipFixture } from "../lib/asset-archive-fixtures.js";
 
 // Actual route and PostgreSQL semantics, with no runtime database/env import.
 // Only auth, entitlement lookup and object transport cross mocked boundaries.
 let owner = "alice", signedUrls = 0;
+let storageCap = 100;
+let plan: "free" | "go" | "plus" | "pro" | "ultra" | "internal" = "free";
 let backend: "local" | "s3" = "local", copies = 0, headCalls = 0;
 let alterCopiedMime = false;
 const client = new PGlite();
 const database = { db: drizzle(client) as unknown as DrizzleDB };
 const objects = new Map<string, {contentType:string;contentLength:number;etag:string}>();
+const imageBytes = new Map<string, Buffer>();
+const imageProcessor = createImageUploadProcessor({
+  head: async key => objects.get(key)!,
+  read: async key => imageBytes.get(key)!,
+  write: async () => {},
+  remove: async key => { objects.delete(key); imageBytes.delete(key); },
+});
 const service = createSessionMediaService(database.db, {
   signUpload: async key => key, signRead: async key => key,
   read: async () => Buffer.alloc(0), write: async () => {},
@@ -57,13 +74,17 @@ const mocks: Record<string, unknown> = {
       if (objects.get(destination)!.contentType !== expected!.contentType) throw new Error("Copied object metadata changed");
     },
     deleteObject: async (key:string) => { objects.delete(key); },
+    putObject: async (key:string, bytes:Buffer, contentType:string) => {
+      imageBytes.set(key, bytes);
+      objects.set(key, { contentType, contentLength: bytes.length, etag: "processed" });
+    },
   },
   "../lib/session-media.js": { sessionMedia: service },
   "../lib/env.js": { env: { BETTER_AUTH_URL: "https://yumina.test" } },
   "../lib/credit-service.js": { ensureWallet: async () => ({ plan: "free" }) },
-  "../lib/event-plan-entitlements.js": { resolveEffectivePlanWithEventEntitlements: async () => "free" },
-  "../lib/plan-config.js": { PLANS: { free: { storageCap: 100 } } },
-  "../lib/image-resize.js": { resizeUploadedImageInBackground: () => {} },
+  "../lib/event-plan-entitlements.js": { resolveEffectivePlanWithEventEntitlements: async () => plan },
+  "../lib/plan-config.js": { PLANS: Object.fromEntries(["free","go","plus","pro","ultra","internal"].map(id => [id, { get storageCap() { return storageCap; } }])) },
+  "../lib/image-resize.js": imageProcessor,
   "../lib/generation/asset-receipts.js": { detachGenerationAsset: async () => {} },
 };
 new Function("require", "module", "exports", transform(readFileSync(file, "utf8"), { transforms: ["typescript", "imports"] }).code)((id: string) => mocks[id] ?? require(id), module, module.exports);
@@ -73,17 +94,36 @@ before(async () => {
   await client.exec(`
     CREATE TABLE "user" (id text PRIMARY KEY);
     INSERT INTO "user" VALUES ('alice'),('bob'),('charlie'),('dana'),('erin'),('frank');
-    CREATE TABLE play_sessions(id text PRIMARY KEY,user_id text,parent_session_id text,branched_from_message_id text);
+    CREATE TABLE play_sessions(id text PRIMARY KEY,user_id text,world_id text,parent_session_id text,branched_from_message_id text);
     CREATE TABLE messages(id text PRIMARY KEY,session_id text,created_at timestamp);
     CREATE TABLE checkpoints(id text PRIMARY KEY,session_id text);
     CREATE TABLE shared_playthroughs(id text PRIMARY KEY,source_session_id text,sharer_user_id text);
     CREATE TABLE asset_folders (id text PRIMARY KEY, user_id text NOT NULL, name text NOT NULL, parent_folder_id text, created_at timestamp DEFAULT now());
     CREATE TABLE user_assets (id text PRIMARY KEY, user_id text NOT NULL, type text NOT NULL, filename text NOT NULL, url text NOT NULL, size_bytes integer, mime_type text, folder_id text REFERENCES asset_folders(id), source_asset_id text, is_public boolean DEFAULT false, created_at timestamp DEFAULT now());
   `);
+  for (const statement of CREATIVE_UPLOAD_STATEMENTS) await client.exec(statement);
 });
 after(async () => { await client.close(); });
 const post = (path: string, body: object) => routes.request(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 const data = async (response: Response) => (await response.json() as { data: { id: string; key: string; asset?: { id: string } } }).data;
+
+test("media picker filters images and videos before pagination and matching count", async () => {
+  owner = "media-picker-owner";
+  await client.exec(`INSERT INTO "user" VALUES ('media-picker-owner');
+    INSERT INTO user_assets(id,user_id,type,filename,url,size_bytes,created_at)
+      SELECT 'audio-'||n,'media-picker-owner','audio','track.mp3','audio/'||n,1,'2020-01-01'
+      FROM generate_series(1,55) AS n;
+    INSERT INTO user_assets(id,user_id,type,filename,url,size_bytes,created_at) VALUES
+      ('picker-image','media-picker-owner','image','cover.webp','cover.webp',1,'2021-01-01'),
+      ('picker-video','media-picker-owner','video','cover.mp4','cover.mp4',1,'2021-01-02');`);
+  const response = await routes.request("/?type=media&limit=50&offset=0");
+  assert.equal(response.status, 200, await response.clone().text());
+  const page = await response.json() as { data: { id: string }[]; total: number };
+  assert.deepEqual(page.data.map(asset => asset.id), ["picker-image", "picker-video"]);
+  assert.equal(page.total, 2);
+  // Keep this shared fixture's existing upload/quota tests independent.
+  await client.query("DELETE FROM user_assets WHERE user_id=$1", [owner]);
+});
 
 test("lost responses and concurrent retries produce one folder and asset, even near quota", async () => {
   owner = "alice";
@@ -205,4 +245,141 @@ test("local creative uploads remain available after private media schema install
   objects.set(key,{contentType:"video/webm",contentLength:12,etag:"local"});
   assert.equal((await post("/",{...request,key,mimeType:"video/webm"})).status,201);
   assert.equal((await service.usage(owner)).used,12,"local uploads also settle actual bytes");
+});
+
+test("a sequential 200-file asset import completes without consuming the chat upload budget", async () => {
+  owner = "bulk-assets";
+  backend = "s3";
+  storageCap = 1024 ** 3;
+  await client.query('INSERT INTO "user" VALUES ($1)', [owner]);
+  const folder = await data(await post("/folders", { name: "sprites", requestId: crypto.randomUUID() }));
+  for (let index = 0; index < 200; index++) {
+    const request = { requestId: crypto.randomUUID(), filename: `sprite-${index}.txt`, type: "txt", contentType: "text/plain", sizeBytes: 1 };
+    const prepared = await post("/upload-url", request);
+    assert.equal(prepared.status, 200, `file ${index}: ${await prepared.clone().text()}`);
+    const key = (await data(prepared)).key;
+    objects.set(key, { contentType: "text/plain", contentLength: 1, etag: `sprite-${index}` });
+    const registered = await post("/", { ...request, key, mimeType: "text/plain", folderId: folder.id });
+    assert.equal(registered.status, 201, await registered.clone().text());
+  }
+  assert.deepEqual(await service.usage(owner), { used: 200, mediaBytes: 0, reserved: 0 });
+  const assets = await client.query<{ count: number }>('SELECT count(*)::int AS count FROM user_assets WHERE user_id=$1 AND folder_id=$2', [owner, folder.id]);
+  assert.equal(assets.rows[0]?.count, 200);
+  await client.query('INSERT INTO play_sessions(id,user_id) VALUES ($1,$2)', ["bulk-chat", owner]);
+  const chat = await service.reserve(owner, storageCap, { id: crypto.randomUUID(), sessionId: "bulk-chat", entryId: "portrait", filename: "portrait.png", contentType: "image/png", size: 1 });
+  assert.equal(chat.complete, false, "a completed folder import must not block a new chat attachment");
+});
+
+test("server enforces account-wide tier concurrency and retries reuse slots", async () => {
+  backend = "s3";
+  storageCap = 1024 ** 3;
+  for (const [tier, slots] of [["free",2],["go",4],["plus",4],["pro",4],["ultra",6],["internal",6]] as const) {
+    owner = `concurrent-${tier}`;
+    plan = tier;
+    await client.query('INSERT INTO "user" VALUES ($1)', [owner]);
+    const request = { requestId: crypto.randomUUID(), filename: "one.txt", type: "txt", contentType: "text/plain", sizeBytes: 1 };
+    const responses = await Promise.all(Array.from({length: slots+1}, (_, index) => post("/upload-url", { ...request, requestId: index === 0 ? request.requestId : crypto.randomUUID() })));
+    assert.equal(responses.filter(r => r.status === 200).length, slots);
+    const busy = responses.find(r => r.status === 429)!;
+    assert.equal(busy.headers.get("Retry-After"), "2");
+    assert.equal((await busy.json() as {code:string}).code, "UPLOAD_BUSY");
+    assert.equal((await post("/upload-url", request)).status, 200, "retry does not need another slot");
+    const admittedBefore = await client.query("SELECT * FROM creative_upload_admissions WHERE user_id=$1 ORDER BY operation_id",[owner]);
+    assert.equal((await post("/release-upload",{requestId:request.requestId,key:(await data(responses[0]!)).key})).status,200);
+    assert.equal((await service.usage(owner)).reserved,slots,"abandonment must retain space while signed PUT remains usable");
+    assert.deepEqual(await client.query("SELECT * FROM creative_upload_admissions WHERE user_id=$1 ORDER BY operation_id",[owner]),admittedBefore,"abandonment must not refund admission budget");
+    assert.equal((await post("/upload-url",{...request,requestId:crypto.randomUUID()})).status,200,"abandonment releases one active slot");
+    const policy = await routes.request("/upload-policy");
+    assert.deepEqual(await policy.json(), {data:{concurrency:slots}});
+    await client.query("UPDATE session_media_uploads SET expires_at=now()-interval '1 second' WHERE user_id=$1",[owner]);
+    assert.equal((await post("/upload-url", { ...request, requestId: crypto.randomUUID() })).status,200,"expired reservations do not occupy slots");
+  }
+  plan = "free";
+});
+
+test("an abandoned transfer can resume near quota without a second storage reservation", async () => {
+  owner="resume-near-quota"; backend="s3"; storageCap=100; plan="free";
+  await client.query('INSERT INTO "user" VALUES ($1)',[owner]);
+  const request={requestId:crypto.randomUUID(),filename:"resume.txt",type:"txt",contentType:"text/plain",sizeBytes:60};
+  const first=await data(await post("/upload-url",request));
+  await post("/release-upload",{requestId:request.requestId,key:first.key});
+  const resumed=await post("/upload-url",request);
+  assert.equal(resumed.status,200,await resumed.clone().text());
+  assert.equal((await data(resumed)).key,first.key);
+  assert.equal((await service.usage(owner)).reserved,60);
+  objects.set(first.key,{contentType:"text/plain",contentLength:60,etag:"resume"});
+  assert.equal((await post("/",{...request,key:first.key,mimeType:"text/plain"})).status,201);
+  await client.query("DELETE FROM user_assets WHERE user_id=$1",[owner]);
+  assert.equal((await post("/upload-url",request)).status,409,"deleting an asset cannot reuse its old request ID for an unmetered new upload");
+});
+
+test("real ordinary routes and archive confirmation consume one shared hourly ledger", async () => {
+  owner="joint-budget"; plan="free"; backend="s3"; storageCap=64*1024**2;
+  await client.query('INSERT INTO "user" VALUES ($1)',[owner]);
+  await client.exec(ASSET_IMPORT_DDL);
+  await client.query("INSERT INTO creative_upload_admissions(user_id,source_kind,operation_id,bytes) VALUES($1,'file','earlier-files',$2)",[owner,128*1024**2-2]);
+  const request={requestId:crypto.randomUUID(),filename:"one.txt",type:"txt",contentType:"text/plain",sizeBytes:1};
+  const prepared=await data(await post("/upload-url",request));
+  objects.set(prepared.key,{contentType:"text/plain",contentLength:1,etag:"one"});
+  assert.equal((await post("/",{...request,key:prepared.key,mimeType:"text/plain"})).status,201);
+  const archiveObjects=new Map<string,Buffer>();
+  const dependencies={ db:database.db,
+    quota:{lockOwner:service.lockOwner,usage:service.usage,limit:async()=>storageCap},
+    uploadPolicy:{priority:async()=>0,admit:async(tx:Pick<DrizzleDB,"execute">,userId:string,id:string,bytes:number,limit:number)=>{
+      const result=await admitCreativeUpload(tx,userId,"archive",id,bytes,limit);
+      if(result!=="admitted") throw new AssetImportError(result==="limit"?"ARCHIVE_RATE_LIMIT":"ARCHIVE_CONFLICT",result==="limit"?429:409);
+    }},
+    storage:{signUpload:async(key:string)=>key,head:async(key:string)=>({contentLength:archiveObjects.get(key)!.length,etag:"frozen"}),
+      copy:async(from:string,to:string)=>{archiveObjects.set(to,Buffer.from(archiveObjects.get(from)!));},
+      read:async(key:string)=>archiveObjects.get(key)!,write:async(key:string,bytes:Buffer)=>{archiveObjects.set(key,bytes);},
+      remove:async(key:string)=>{archiveObjects.delete(key);}},
+  };
+  const archives=createAssetImportService(dependencies);
+  const bytes=zipFixture([{name:"two.txt",data:"12"}]);
+  const id=crypto.randomUUID();
+  const reservation=await archives.reserve(owner,{id,filename:"two.zip",size:bytes.length,folderId:null});
+  archiveObjects.set(reservation.uploadUrl,bytes);
+  await archives.uploaded(owner,id); await archives.processNext();
+  assert.equal((await archives.detail(owner,id)).status,"ready");
+  assert.equal((await client.query("SELECT * FROM creative_upload_admissions WHERE user_id=$1 AND source_kind='archive'",[owner])).rows.length,0,"inspection alone is not admission");
+  await assert.rejects(archives.start(owner,id,{preserveFolders:true,conflict:"rename"}),/ARCHIVE_RATE_LIMIT/);
+  await client.query("DELETE FROM user_assets WHERE user_id=$1",[owner]);
+  await assert.rejects(archives.start(owner,id,{preserveFolders:true,conflict:"rename"}),/ARCHIVE_RATE_LIMIT/,"deleting a file does not refund its hourly admission");
+  await client.query("UPDATE creative_upload_admissions SET admitted_at=now()-interval '2 hours' WHERE user_id=$1 AND operation_id='earlier-files'",[owner]);
+  await archives.start(owner,id,{preserveFolders:true,conflict:"rename"});
+  await archives.start(owner,id,{preserveFolders:true,conflict:"rename"});
+  const recorded=await client.query<{bytes:string}>("SELECT bytes FROM creative_upload_admissions WHERE user_id=$1 AND source_kind='archive'",[owner]);
+  assert.deepEqual(recorded.rows.map(row=>Number(row.bytes)),[2]);
+  await archives.processNext();
+  assert.equal((await archives.detail(owner,id)).status,"completed");
+  assert.equal((await service.usage(owner)).used,2);
+});
+
+
+test("image registration normalizes bytes, settles actual quota and reconciles after source cleanup", async () => {
+  owner = "image-owner"; backend = "s3"; storageCap = 100 * 1024 * 1024;
+  await client.query('INSERT INTO "user"(id) VALUES($1)', [owner]);
+  const png = await sharp({ create: { width: 3840, height: 2160, channels: 4, background: "#23456780" } }).png().toBuffer();
+  const request = { requestId: crypto.randomUUID(), filename: "hero.png", type: "image", contentType: "image/png", sizeBytes: png.length };
+  const prepared = await post("/upload-url", request);
+  assert.equal(prepared.status, 200, await prepared.clone().text());
+  const key = (await data(prepared)).key;
+  objects.set(key, { contentType: "image/png", contentLength: png.length, etag: "original" });
+  imageBytes.set(key, png);
+  const body = { ...request, key, mimeType: "image/png" };
+  const response = await post("/", body);
+  assert.equal(response.status, 201, await response.clone().text());
+  const result = await data(response);
+  assert.notEqual(result.key, key);
+  const stored = imageBytes.get(result.key)!;
+  const meta = await sharp(stored).metadata();
+  assert.deepEqual([meta.width, meta.height, meta.hasAlpha], [1920, 1080, true]);
+  assert.equal((await service.usage(owner)).used, stored.length);
+  assert.equal((await service.usage(owner)).reserved, 0);
+  assert.equal(objects.has(key), false);
+  const retry = await post("/", body);
+  assert.equal(retry.status, 201);
+  assert.deepEqual(await data(retry), result);
+  const tooLarge = await post("/upload-url", { ...request, requestId: crypto.randomUUID(), sizeBytes: 20 * 1024 * 1024 + 1 });
+  assert.equal(tooLarge.status, 413);
 });

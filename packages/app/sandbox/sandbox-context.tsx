@@ -8,12 +8,21 @@ import type {
   SessionSummaryLanguage,
   SessionSummaryMode,
   SessionSummaryPayload,
+  SideCompletionWorldbookIds,
+  LiveCanonApiResult,
+  LiveCanonEntryInput,
 } from "@yumina/shared";
-import type { SandboxCapabilities, SandboxEntry, SandboxLoreUiBinding, SandboxWorldbook, SandboxMode, SandboxState, LocalBridgeChannelData, TtsChannelData, VoiceInputChannelData } from "./protocol";
+import type { ReplyRule } from "@yumina/engine";
+import type { SandboxCapabilities, SandboxEntry, SandboxLoreUiBinding, SandboxWorldbook, SandboxMode, SandboxState, LocalBridgeChannelData, TtsChannelData, VoiceInputChannelData, VoicePlaybackFrame } from "./protocol";
 import { wrapMessage, postToParentWindow, type ApiCallMessage } from "./protocol";
 import { renderMarkdown } from "./chat/markdown";
 import type { SessionImage } from "../src/lib/session-media";
 import type { SessionStoredValue, SessionStorageWriteOptions } from "../src/lib/session-storage";
+import type { VoiceAPI } from "./voice-types";
+import type { ActorContextRequest, ActorContextResult } from "./actor-context-types";
+import { createVoiceAPI } from "./voice-api";
+export { VOICE_EVENT } from "./voice-api";
+export type { VoiceAPI, VoiceEvent } from "./voice-types";
 
 export type { SandboxEntry } from "./protocol";
 
@@ -63,6 +72,10 @@ export interface BranchContext {
 export interface SandboxedYuminaAPI {
   /** Internal compatibility hook for recognized legacy gallery sources. */
   __useLegacyGallery?: (options: LegacyGalleryOptions) => ReturnType<typeof useLegacyGallery>;
+  /** Parent-owned microphone/transport; live use requires explicit host consent and an OpenAI BYOK. */
+  realtimeVoice: VoiceAPI;
+  /** Realtime video the host plays over a rectangle the card reserves (see RealtimeVideoAPI). */
+  realtimeVideo: RealtimeVideoAPI;
   // ── State reads (synchronous) ──
   variables: Record<string, unknown>;
   globalVariables: Record<string, unknown>;
@@ -77,6 +90,12 @@ export interface SandboxedYuminaAPI {
    *      ? <img src={worldCover} alt="avatar" className="h-10 w-10 rounded-full object-cover" />
    *      : <div className="h-10 w-10 rounded-full bg-muted" />; */
   worldCover: string | null;
+
+  /** The picture painted behind the chat right now, resolved by the host.
+   *  Null when the card has no background. A custom root component can read
+   *  this to paint the same backdrop the default chat does — or ignore it and
+   *  own the whole screen, which is what most of them already do. */
+  background: import("@yumina/engine").ResolvedBackground | null;
   worldId: string;
   sessionId: string;
   /** The raw Yumina account (id, name, image). Use for account-level UI like
@@ -114,8 +133,12 @@ export interface SandboxedYuminaAPI {
   entries: ReadonlyArray<SandboxEntry>;
   /** LoreSlot → entry bindings from the world schema. */
   loreUiBindings: ReadonlyArray<SandboxLoreUiBinding>;
+  /** The card's setting: the default chat splits a reply into a bubble per
+   *  speaker. */
+  speakerBubbles?: boolean;
   /** Worldbooks (lore modules) defined on the world. */
   worldbooks: ReadonlyArray<SandboxWorldbook>;
+  replyRules?: ReadonlyArray<ReplyRule>;
   /** Lookup helper: find a single entry by exact name (case-sensitive). Returns
    *  null if missing. Convenience for the common "give me 人物：X's profile" pattern. */
   getEntry: (name: string) => SandboxEntry | null;
@@ -123,6 +146,18 @@ export interface SandboxedYuminaAPI {
   // ── Game actions (fire-and-forget) ──
   pickChatImage: () => Promise<import("@yumina/shared").ChatImageInput | null>;
   sendMessage: (text: string, attachments?: import("@yumina/shared").ChatImageInput[]) => void;
+  /**
+   * 现场 — tell the AI what the game shows right now. Read by the next AI call
+   * (a reply, a regenerate, a quiet station's turn) as its own block; not
+   * stored. `scene` is a short text or a small object ({ room: "kitchen",
+   * onCamera: false }). `events` are what this game lets the AI set off —
+   * it writes `[event: name]` and api.onStoryEvent hears it.
+   *
+   *   api.setScene({ room, onCamera, holding }, { events: [{ name: "派警察进门", when: "玩家离开镜头太久" }] })
+   */
+  setScene: (scene: Record<string, unknown> | string | null, options?: { events?: Array<{ name: string; when?: string }> }) => void;
+  /** An event the AI set off with `[event: name]`. Returns an unsubscribe. */
+  onStoryEvent: (cb: (event: { id: string; name: string }) => void) => () => void;
   /** Session-scoped, transactional social simulation; requests resolve after persistence. */
   social: {
     get: () => Promise<any>;
@@ -139,6 +174,16 @@ export interface SandboxedYuminaAPI {
   /** Persist a partial variable patch atomically; rejects on failure. */
   patchVariables: (values: Record<string, unknown>) => Promise<void>;
   executeAction: (actionId: string) => void;
+  /** Set off a behaviour; `params` are what the button passes in (商品, 价格),
+   *  read in the behaviour as {参数.商品}. */
+  executeActionAndWait: (actionId: string, params?: Record<string, unknown>) => Promise<{ applied: true; variables: Record<string, unknown>; firedIds: string[] }>;
+  /** Call one of the card's AIs (by id or name) with an optional input and
+   *  get its answer back: its words, and the fields it was asked to fill.
+   *  null when it could not run (not in play, cooling down, busy). */
+  callAi: (ai: string, input?: unknown) => Promise<{ text: string; fields: Record<string, unknown>; fallback: boolean } | null>;
+  /** Hear an AI whose words go to an interface channel (its 「说在哪」 is
+   *  not the story): `channel` filters, omitted hears every channel. */
+  onAiOutput: (channelOrCb: string | ((out: { channel: string; id: string; name: string; text: string; fields: Record<string, unknown> }) => void), cb?: (out: { channel: string; id: string; name: string; text: string; fields: Record<string, unknown> }) => void) => () => void;
 
   // ── Session management (async, parent-mediated) ──
   // Replaces: fetch('/api/sessions/'+sid+'/revert', POST)
@@ -179,8 +224,8 @@ export interface SandboxedYuminaAPI {
    *  saved its own imported profile must explicitly re-import to change it.
    *  Fire-and-forget. */
   openPersonaManager: () => void;
-  /** Open the shared parent-app model picker used by the play controls. */
-  openModelPicker: () => void;
+  /** Open the shared model picker. Side completions cannot use chat-only trials. */
+  openModelPicker: (options?: {purpose: "side-completion"}) => void;
   /** Read the current session's selected Persona when the player chooses to
    * import it. Null means none selected; failures reject. Private notes are
    * excluded. Copy the result into the run's save to keep identity stable. */
@@ -216,7 +261,10 @@ export interface SandboxedYuminaAPI {
    *  `too-large` (32MB ceiling), `unavailable`, or a network message. Always
    *  check `ok` before touching `bytes`. */
   fetchAsset: (ref: string) => Promise<{ ok: boolean; bytes?: ArrayBuffer; contentType?: string; error?: string }>;
-  switchGreeting: (index: number) => void;
+  /** Resolves once the switch has been applied (the opening's variables
+   *  restored), so a card can write its own variables after it. Calling it
+   *  without awaiting works as it always did. */
+  switchGreeting: (index: number) => Promise<void>;
   // Replaces: navigator.clipboard.writeText(text)
   copyToClipboard: (text: string) => void;
 
@@ -281,13 +329,16 @@ export interface SandboxedYuminaAPI {
   };
 
   // ── Universal canvas: chat actions ──
-  /** Edit a message's content (async, triggers auto-regen if applicable) */
-  editMessage: (messageId: string, content: string) => Promise<boolean>;
+  /** Edit a message's content (async, triggers auto-regen if applicable).
+   *  `options.swipeIndex` names the variant the edit was opened on; the save
+   *  is refused (false) if a different variant is active by then. */
+  editMessage: (messageId: string, content: string, options?: { swipeIndex?: number | null }) => Promise<boolean>;
   /** Delete a message (async, with parent-side confirmation bypass) */
   deleteMessage: (messageId: string) => Promise<boolean>;
   /** Draw (or redraw) the illustration for one assistant reply */
   /** Draw (or redraw) a reply's picture; `note` is the player's ask for the redraw ("keep the black sweater"). */
   illustrateMessage: (messageId: string, note?: string, fine?: boolean) => Promise<boolean>;
+  cancelTurnImage: (messageId: string) => Promise<boolean>;
   /** Whether per-turn illustration is available to this player (server flag + their experimental opt-in), and their auto switch */
   getTurnImageSettings: () => Promise<{ available: boolean; auto: boolean; price?: number; freeLeft?: number; unlimited?: boolean; fine?: boolean } | null>;
   /** Open the host's mushie top-up popup. */
@@ -393,6 +444,9 @@ export interface SandboxedYuminaAPI {
   playerPrompts: import("./protocol").PlayerPromptsChannelData | null;
   /** Switch one of the player's own prompts on/off. */
   togglePlayerPrompt: (promptId: string, enabled: boolean) => Promise<{ ok: boolean }>;
+  /** Open the host's "write your own prompt" dialog. The sandbox never writes
+   *  the prompt itself: the player types and saves in host UI. Fire-and-forget. */
+  openPromptComposer: () => void;
 
   // ─── Session memory ────────────────────────────────────────────────────
   getStateGuardSettings: () => Promise<import("@yumina/shared").StateGuardSettings>;
@@ -429,19 +483,51 @@ export interface SandboxedYuminaAPI {
   /** Edit the text of a single Summaryception snippet (any layer). */
   updateSummaryceptionSnippet: (snippetId: string, text: string) => Promise<SessionSummaryPayload>;
 
+  // ─── Lore Shift ───────────────────────────────────────────────────────
+  getLiveCanon: () => Promise<LiveCanonApiResult>;
+  updateLiveCanonState: (updates: Record<string, number | string | boolean>) => Promise<LiveCanonApiResult<Record<string, unknown>>>;
+  saveLiveCanonBaseEntry: (entryId: string, content: string) => Promise<LiveCanonApiResult<Record<string, unknown>>>;
+  revertLiveCanonBaseEntry: (entryId: string) => Promise<LiveCanonApiResult<Record<string, unknown>>>;
+  createLiveCanonEntry: (entry: LiveCanonEntryInput) => Promise<LiveCanonApiResult<Record<string, unknown>>>;
+  updateLiveCanonEntry: (entryId: string, entry: Partial<LiveCanonEntryInput>) => Promise<LiveCanonApiResult<Record<string, unknown>>>;
+  deleteLiveCanonEntry: (entryId: string) => Promise<LiveCanonApiResult<Record<string, unknown>>>;
+
   // ── AI completions (raw LLM calls, no chat pipeline) ──
   ai: {
+    /** Bounded choice questions (8 questions, 64 choices each, 32k total chars).
+     * Uses the server's decision model. Official use is platform-funded;
+     * OpenRouter BYOK may bill the player's provider. No scene/chat mutation.
+     * Failure rejects; do not infer missing confidence or retry paid narration. */
+    decide: (params: import("@yumina/shared").AiDecisionRequest) => Promise<import("@yumina/shared").AiDecisionResponse>;
+    /** Assemble current world direction for a side actor; does not generate or mutate state. */
+    context: (params: ActorContextRequest) => Promise<ActorContextResult>;
     complete: (params: {
       messages: import("@yumina/shared").ImageCompletionMessage[];
       onDelta?: (text: string) => void;
       model?: string;
       maxTokens?: number;
       temperature?: number;
+      /** Opt into the session's current/locked persona (never private notes),
+       * enabled narrative prompts and player generation preferences. Native
+       * lore defaults to matched against all supplied user messages; depth and
+       * examples use this call's history, not saved chat or summary memory.
+       * Explicit maxTokens/temperature override preferences (8192-token cap).
+       * Caller system instructions/JSON protocol follow narrative presets. */
+      context?: "session";
+      /** With context:'session', allow only these native worldbooks plus
+       * ungrouped Core entries. Omitted keeps normal selection; [] is Core
+       * only. IDs must exist; enabled/activation/entry gates still apply. */
+      worldbookIds?: SideCompletionWorldbookIds;
+      /** Request a JSON object (or a strict JSON schema) from supporting
+       * providers; validate the result before use. */
+      responseFormat?: import('@yumina/shared').CompletionResponseFormat;
       /**
        * Auto-inject the world's lorebook entries as a system message before
        * `messages`. Use this when a side call (phone chat, NPC dialogue) needs
        * the same world lore the main chat gets. This does not import the
-       * player's Persona; use getPersonaProfile() for an explicit import.
+       * player's Persona unless context:'session' is also supplied.
+       * In session context, omitted means matched, false excludes world lore,
+       * and all/matched honor saved-state activation and interpolate macros.
        *
        * - omitted / `false`: no injection (default — raw LLM proxy).
        * - `true` / `"all"`: inject every enabled non-greeting entry, sorted by
@@ -476,6 +562,11 @@ export interface SandboxedYuminaAPI {
     sendCommand: (name: string, body?: unknown) => Promise<{ ok: boolean; body?: unknown }>;
     /** Subscribe to raw frames: snap | delta | event | presence | status. Returns unsubscribe. */
     onFrame: (cb: (frame: Record<string, unknown>) => void) => () => void;
+    /** Table voice between the humans seated in the room (parent owns the mic).
+     *  action: "join" (value = roomId, after room.join) | "leave" | "mic" (bool) |
+     *  "listen" (bool) | "hint" (vocabulary for transcripts). Events arrive on
+     *  onFrame as {t:"voice", kind: joined|join|leave|talk|mic|listen|speaking|transcript|...}. */
+    voice: (action: string, value?: unknown) => Promise<{ ok: boolean; reason?: string }>;
   };
 
   // ── Voice readout (TTS) ──
@@ -491,8 +582,15 @@ export interface SandboxedYuminaAPI {
    *  - `voice`: optional fish.audio marketplace voice id (32-hex) so cards can
    *    voice their own characters; defaults to the player's chosen voice. */
   tts: {
-    speak: (opts: { messageId?: string; text?: string; key?: string; voice?: string }) => Promise<{ ok: boolean; reason?: string }>;
+    /** waitForEnd: success only after all clips ended. Failures include
+     *  playback-blocked, playback-error, cancelled and timeout (150s host limit).
+     *  Omit it to return when playback is queued, as ordinary readouts do. */
+    speak: (opts: { messageId?: string; text?: string; key?: string; voice?: string; waitForEnd?: boolean }) => Promise<{ ok: boolean; reason?: string }>;
     stop: () => void;
+    /** Measured output frames (~15Hz). Match key/generation to the active
+     * line; audible alone is not an amplitude measurement. Unsubscribe on
+     * unmount. Older hosts do not implement this additive capability. */
+    onPlaybackFrame: (cb: (frame: VoicePlaybackFrame) => void) => () => void;
     /** Update the player's voice-readout preferences (in-chat voice panel).
      *  Persists to the account; the new values flow back via `ttsState`. */
     setPrefs: (prefs: {
@@ -524,7 +622,12 @@ export interface SandboxedYuminaAPI {
    *  `voiceInputState.mode` ("auto" = send it as spoken, "confirm" = let the
    *  player review it) if you want to honor the player's choice. */
   voice: {
-    record: (opts?: { onLevel?: (level: number) => void }) => Promise<{ ok: boolean; text?: string; reason?: string }>;
+    /** Check permission and optional level analysis, then release the mic.
+     *  No recording, transcription or paid synthesis. */
+    prepare: (opts?: { requireLevels?: boolean }) => Promise<{ ok: boolean; reason?: string }>;
+    /** Automatic VAD should set requireLevels; a blocked/unavailable analyser
+     *  then returns levels-unavailable instead of silently waiting for speech. */
+    record: (opts?: { onLevel?: (level: number) => void; requireLevels?: boolean }) => Promise<{ ok: boolean; text?: string; reason?: string }>;
     stop: () => void;
     cancel: () => void;
     /** In-chat voice panel: `mode` "" = follow the card's default. */
@@ -550,6 +653,15 @@ export interface SandboxedYuminaAPI {
 // ── Default no-op API ───────────────────────────────────────────────
 
 function noopPromise<T>(val: T): Promise<T> { return Promise.resolve(val); }
+
+function unavailableLiveCanon<T = never>(): LiveCanonApiResult<T> {
+  return {
+    ok: false,
+    status: 403,
+    error: "Lore Shift is unavailable outside an active session",
+    code: "LIVE_CANON_FORBIDDEN",
+  };
+}
 
 function emptySessionMemory(): SessionMemory {
   return { text: "" };
@@ -668,6 +780,7 @@ const defaultAPI: SandboxedYuminaAPI = {
   globalVariables: {},
   worldName: "",
   worldCover: null,
+  background: null,
   worldId: "",
   sessionId: "",
   currentUser: null,
@@ -680,13 +793,19 @@ const defaultAPI: SandboxedYuminaAPI = {
   entries: [],
   loreUiBindings: [],
   worldbooks: [],
+  replyRules: [],
   getEntry: () => null,
   pickChatImage: async () => null,
   sendMessage: () => {},
+  setScene: () => {},
+  onStoryEvent: () => () => {},
   social: { get: () => noopPromise(null), action: () => noopPromise(null), generate: () => noopPromise(null) },
   setVariable: () => {},
   patchVariables: () => noopPromise(undefined),
   executeAction: () => {},
+  executeActionAndWait: async () => { throw new Error("Actions are unavailable in this view."); },
+  callAi: async () => null,
+  onAiOutput: () => () => {},
   revertToMessage: () => noopPromise(undefined),
   branchFromMessage: () => noopPromise(null),
   getBranchContext: () =>
@@ -716,7 +835,7 @@ const defaultAPI: SandboxedYuminaAPI = {
   openSessionManager: () => {},
   openSupport: () => noopPromise({ opened: false, reason: "unavailable" as const }),
   fetchAsset: () => noopPromise({ ok: false, error: "unavailable" }),
-  switchGreeting: () => {},
+  switchGreeting: () => noopPromise(undefined),
   copyToClipboard: () => {},
   playAudio: () => {},
   stopAudio: () => {},
@@ -746,6 +865,7 @@ const defaultAPI: SandboxedYuminaAPI = {
   editMessage: () => noopPromise(false),
   deleteMessage: () => noopPromise(false),
   illustrateMessage: () => noopPromise(false),
+  cancelTurnImage: () => noopPromise(false),
   getTurnImageSettings: () => noopPromise(null),
   openCreditTopUp: () => {},
   setAutoTurnImages: () => noopPromise(false),
@@ -799,6 +919,7 @@ const defaultAPI: SandboxedYuminaAPI = {
   setPoolWeight: () => {},
   playerPrompts: null,
   togglePlayerPrompt: () => noopPromise({ ok: false }),
+  openPromptComposer: () => {},
   getStateGuardSettings: () => Promise.reject(new Error("No active session")),
   setStateGuardSettings: () => Promise.reject(new Error("No active session")),
   getSessionMemory: () =>
@@ -849,9 +970,18 @@ const defaultAPI: SandboxedYuminaAPI = {
     noopPromise(emptySessionSummaryCompactionPayload()),
   updateSummaryceptionSnippet: (_snippetId, _text) =>
     defaultAPI.getSessionSummary(),
+  getLiveCanon: () => noopPromise(unavailableLiveCanon()),
+  updateLiveCanonState: () => noopPromise(unavailableLiveCanon()),
+  saveLiveCanonBaseEntry: () => noopPromise(unavailableLiveCanon()),
+  revertLiveCanonBaseEntry: () => noopPromise(unavailableLiveCanon()),
+  createLiveCanonEntry: () => noopPromise(unavailableLiveCanon()),
+  updateLiveCanonEntry: () => noopPromise(unavailableLiveCanon()),
+  deleteLiveCanonEntry: () => noopPromise(unavailableLiveCanon()),
   togglePoolLock: () => {},
   ai: {
+    context: () => Promise.reject(new Error("Actor context is unavailable in this view.")),
     complete: () => noopPromise(""),
+    decide: () => Promise.reject(new Error("Decisions require an active session")),
   },
   room: {
     join: () => noopPromise({ ok: false, reason: "unavailable" }),
@@ -859,21 +989,37 @@ const defaultAPI: SandboxedYuminaAPI = {
     sendInput: () => {},
     sendCommand: () => noopPromise({ ok: false }),
     onFrame: () => () => {},
+    voice: () => noopPromise({ ok: false, reason: "unavailable" }),
   },
   tts: {
     speak: () => noopPromise({ ok: false, reason: "unavailable" }),
     stop: () => {},
+    onPlaybackFrame: () => () => {},
     setPrefs: () => {},
     preview: () => noopPromise({ ok: false, reason: "unavailable" }),
   },
   ttsState: { available: false, enabled: false, voice: "", mode: "full", autoPlay: false, volume: 100, playback: null },
   voice: {
+    prepare: () => noopPromise({ ok: false, reason: "unavailable" }),
     record: () => noopPromise({ ok: false, reason: "unavailable" }),
     stop: () => {},
     cancel: () => {},
     setPrefs: () => {},
   },
   voiceInputState: NO_VOICE_INPUT,
+  realtimeVideo: {
+    start: () => Promise.resolve({ error: "Video is unavailable in this view." }),
+    stop: () => {}, release: () => {}, skip: () => {}, rewind: () => {}, retake: () => {}, openWindow: () => {}, setSlot: () => {}, direct: () => {}, setMuted: () => {},
+    onEvent: () => () => {},
+  },
+  realtimeVoice: {
+    getConfig: async () => ({ available: false, funding: null, transport: null, maxDurationSeconds: 0, finishAcknowledged: false }),
+    finish: async () => ({ status: 'unsupported', reason: 'no-scoped-relay-call', providerState: 'unconfirmed', accounting: 'unknown' }),
+    prepare: () => Promise.reject(new Error("Voice is unavailable in this view.")),
+    start: () => Promise.reject(new Error("Voice is unavailable in this view.")),
+    stop: () => {}, interrupt: () => {}, setMuted: () => {}, updateContext: () => {}, updateInstructions: () => {}, reactToScene: () => {}, cancelSceneReaction: () => {}, resolveTool: () => {}, resolveDelegation: () => {}, setSpatial: () => {},
+    onEvent: () => () => {},
+  },
   injectContext: () => {},
   setComposerDraft: () => {},
 };
@@ -882,10 +1028,115 @@ const defaultAPI: SandboxedYuminaAPI = {
  *  `window` inside the sandbox iframe; MessageInput listens. */
 export const COMPOSER_DRAFT_EVENT = "yumina:set-composer-draft";
 
+/** Realtime video state pushed by the host; api.realtimeVideo.onEvent listens. */
+export const VIDEO_EVENT = "yumina:video-event";
+// The latest film state the host pushed, for UI that mounts after it arrived (the chat's menu).
+let latestVideoState: RealtimeVideoState | null = null;
+if (typeof window !== "undefined") {
+  window.addEventListener(VIDEO_EVENT, (e) => {
+    const event = (e as CustomEvent).detail as { type?: string; state?: RealtimeVideoState } | null;
+    if (event?.type === "state" && event.state) latestVideoState = event.state;
+  });
+}
+export function currentVideoState(): RealtimeVideoState | null {
+  return latestVideoState;
+}
+/** An event the AI set off (`[event: name]`); api.onStoryEvent listens. */
+export const STORY_EVENT = "yumina:story-event";
+
+/** Rectangle in the card's own viewport (CSS px), e.g. from getBoundingClientRect(). */
+export interface VideoSlotRect { x: number; y: number; width: number; height: number; radius?: number }
+
+export interface RealtimeVideoState {
+  status: "idle" | "starting" | "live" | "ended" | "error";
+  engine: string;
+  elapsed: number;
+  /** Mushies spent so far / 1000. */
+  cost: number;
+  /** Mushies this film has been charged so far. */
+  credits?: number;
+  /** Scene video is offered to this player (an experimental, paid feature). */
+  offered?: boolean;
+  /** The player turned scene video on in Settings › Display (otherwise the host asks once). */
+  optedIn?: boolean;
+  /** Engines the card may offer the player: "fal" (a live stream that follows the story, about
+   *  5,800 mushies a minute) and "shorts" (a 5-60 s film per reply, ready a few minutes after
+   *  it is written, about 100-1,400 mushies a reply). */
+  engines?: string[];
+  /** The host is asking the player to turn scene video on (first use). */
+  consent?: boolean;
+  clips: number;
+  /** Shorts: no film is playing right now and the last frame holds. */
+  waiting: boolean;
+  /** Shorts: the newest reply's film while it is made ("writing" the shots, then "shooting" them:
+   *  done of shots), or "failed" with a reason ("busy" | "credits" | "timeout" | "unavailable");
+   *  null once it has landed (it plays next). */
+  short?: { status: "writing" | "shooting" | "failed"; shots: number; done: number; reason?: string } | null;
+  currentShot: string;
+  currentStatus: string;
+  /** Sound is off; the host falls back to muted when the browser refuses sound. */
+  muted?: boolean;
+  /** The recent pipeline steps: kind is "opening" | "user" | "reply" | "shot" | "info" | "error".
+   *  Shots carry their prompt version, the story passage they film (excerpt) and the film
+   *  time their picture reached the screen (shownAt, null until then). */
+  steps?: { kind: string; t: number; text: string; status: string | null; shot: string | null; version?: number | null; excerpt?: string | null; shownAt?: number | null }[];
+  /** Opening beat i of n or turn shot i of n, and the passage of the latest shot sent. */
+  progress?: { phase: "opening" | "turn"; shot: number; total: number; excerpt: string } | null;
+  /** A next shot waits for the current one to play out: skip() sends it now. */
+  skippable?: boolean;
+  /** Fast-forwarding to shot `to` (the host shows it on the picture until that shot is on screen). */
+  fastForward?: { at: number; to: number } | null;
+  /** Rewinding to shot `to` (the host shows a tape rewind until it is on screen). */
+  rewind?: { at: number; to: number } | null;
+  /** There is an earlier shot: rewind() films it again, then replays up to the latest. */
+  rewindable?: boolean;
+  /** Filmed before and not cut by the player: start() picks up where the film was left. */
+  resumable?: boolean;
+  /** Started with hold and not released yet. */
+  held?: boolean;
+  error?: string;
+}
+
+/**
+ * The host plays a realtime video stream that follows the story: the opening is shot scene
+ * by scene, then every finished reply becomes the next shot. A reply may carry its own
+ * camera direction in `<shot>…</shot>` (English); the host uses it and hides nothing — the
+ * card should strip the tag from what it displays.
+ *
+ *   api.realtimeVideo.setSlot(stageEl.getBoundingClientRect())  // where to draw it
+ *   api.realtimeVideo.start({ engine: "fal", style: "source" })
+ *   api.realtimeVideo.onEvent(e => e.type === "state" && setVideo(e.state))
+ */
+export interface RealtimeVideoAPI {
+  /** hold: get ready while the player is busy (a character form): the opening is directed and its
+   *  first shot starts shooting, the rest waits for release(). A hold nobody releases stops after 3 min. */
+  start(options?: { engine?: "fal" | "shorts"; style?: string; limitSeconds?: number; idleSeconds?: number; openingBeats?: number; hold?: boolean; resume?: boolean; playerChoice?: boolean }): Promise<{ ok: true } | { error: string }>;
+  /** The player is here: play the rest of a held opening. */
+  release(): void;
+  /** Fast-forward: send the next shot now instead of letting the current one play out.
+   *  Shorts: on to the next film (on the newest one, to its last frame). */
+  skip(): void;
+  /** Rewind: film the previous shot again, then replay the shots after it up to the latest.
+   *  Shorts: back to the start of this film (at its start: the one before), playing on from there. */
+  rewind(): void;
+  /** Shoot the latest shot again. Shorts: film the newest reply again (its new film replaces the old). */
+  retake(): void;
+  /** Open the host's own film window (where a card without a film stage shows the film). */
+  openWindow(): void;
+  stop(): void;
+  /** Where the host draws the video, in this frame's viewport; null hides it. Re-send on resize. */
+  setSlot(rect: VideoSlotRect | null): void;
+  /** Send a camera direction now (English), e.g. on a scene change the card detects. */
+  direct(prompt: string): void;
+  setMuted(muted: boolean): void;
+  onEvent(cb: (event: { type: "state"; state: RealtimeVideoState }) => void): () => void;
+}
+
 /** Sandbox-local event name for "an audio track finished". Dispatched on
  *  `window` inside the sandbox iframe by component-host when the parent
  *  forwards a track-ended notification; api.onAudioEnded subscribers listen. */
 export const AUDIO_ENDED_EVENT = "yumina:audio-ended";
+export const VOICE_PLAYBACK_FRAME_EVENT = 'yumina:voice-playback-frame';
 
 /** Sandbox-local event name for a multiplayer room frame. Dispatched on
  *  `window` by component-host when the parent relays a frame from the game
@@ -1024,6 +1275,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     globalVariables: state.globalVariables,
     worldName: state.worldName,
     worldCover: state.worldCover ?? null,
+    background: state.background ?? null,
     worldId: state.worldId,
     sessionId: state.sessionId,
     currentUser: state.currentUser,
@@ -1036,6 +1288,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     entries: state.entries ?? [],
     loreUiBindings: state.loreUiBindings ?? [],
     worldbooks: state.worldbooks ?? [],
+    replyRules: state.replyRules ?? [],
     getEntry: (name: string) => {
       const list = state.entries ?? [];
       for (const e of list) if (e.name === name) return e;
@@ -1058,6 +1311,14 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     // Game actions (fire-and-forget)
     pickChatImage: () => sessionApisAvailable ? callParent("pickChatImage", [], 600_000) : Promise.resolve(null),
     sendMessage: (text, attachments) => postToParent("sendMessage", [text, attachments]),
+    setScene: (scene, options) => postToParent("setScene", [scene ?? null, options?.events ?? []]),
+    onStoryEvent: (cb) => {
+      // An AI's words for an interface channel and a behaviour's code ride
+      // the same bridge; neither is a story event.
+      const handler = (e: Event) => { const detail = (e as CustomEvent).detail; if (!detail?.ai && !detail?.code) cb(detail); };
+      window.addEventListener(STORY_EVENT, handler);
+      return () => window.removeEventListener(STORY_EVENT, handler);
+    },
     social: {
       get: () => socialCall("social.get", []),
       action: (action) => socialCall("social.action", [action]),
@@ -1069,6 +1330,28 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
       postToParent("setLoreSlotActive", [slotId, active]),
     patchVariables: (values) => callParent("patchVariables", [values], 20_000),
     executeAction: (actionId) => postToParent("executeAction", [actionId]),
+    callAi: async (ai, input) => {
+      if (!sessionApisAvailable || state.readOnly || state.mode !== "session" || typeof ai !== "string" || !ai) return null;
+      return (await callParent("callAi", [ai, input], 130_000)) as { text: string; fields: Record<string, unknown>; fallback: boolean } | null;
+    },
+    onAiOutput: (channelOrCb, maybeCb) => {
+      const channel = typeof channelOrCb === "string" ? channelOrCb : null;
+      const cb = typeof channelOrCb === "function" ? channelOrCb : maybeCb;
+      if (!cb) return () => {};
+      const handler = (e: Event) => {
+        const out = (e as CustomEvent).detail?.ai;
+        if (out && (!channel || out.channel === channel)) cb(out);
+      };
+      window.addEventListener(STORY_EVENT, handler);
+      return () => window.removeEventListener(STORY_EVENT, handler);
+    },
+    executeActionAndWait: async (actionId, params) => {
+      if (!sessionApisAvailable || state.readOnly || state.mode !== "session") throw new Error("Actions are unavailable in this view.");
+      if (typeof actionId !== "string" || !actionId) throw new Error("Invalid action ID.");
+      const result = await socialCall("executeActionAndWait", params && typeof params === "object" ? [actionId, params] : [actionId], 35_000);
+      if (result?.applied !== true || !result.variables || typeof result.variables !== "object" || Array.isArray(result.variables) || !Array.isArray(result.firedIds)) throw new Error("Action did not confirm saved state.");
+      return result;
+    },
 
     // Session management (async)
     revertToMessage: (messageId) =>
@@ -1102,7 +1385,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     // UI controls
     toggleImmersive: () => postToParent("toggleImmersive", []),
     openPersonaManager: () => postToParent("openPersonaManager", []),
-    openModelPicker: () => postToParent("openModelPicker", []),
+    openModelPicker: (options) => postToParent("openModelPicker", options?.purpose === "side-completion" ? [{purpose: "side-completion"}] : []),
     getPersonaProfile: () => callParent("getPersonaProfile", []),
     sharePlaythrough: () => postToParent("sharePlaythrough", []),
     openSessionManager: () => postToParent("openSessionManager", []),
@@ -1115,12 +1398,18 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     // does — otherwise the editor always shows the untextured version.
     // A callParent timeout rejects; fold it into {ok:false} so card code never
     // needs a try/catch around it.
+    // Give large model downloads a bounded 30-second response window.
     fetchAsset: (ref) =>
       callParent<{ ok: boolean; bytes?: ArrayBuffer; contentType?: string; error?: string }>(
         "fetchAsset",
         [ref],
+        30_000,
       ).catch((e) => ({ ok: false, error: String(e?.message ?? e).slice(0, 120) })),
-    switchGreeting: (index) => postToParent("switchGreeting", [index]),
+    // Awaitable: the host answers once the swipe is applied. A host that
+    // never answers (or an older one) only costs the timeout, and a failure
+    // resolves too — a card waiting on this must not be left hanging.
+    switchGreeting: (index) =>
+      callParent<unknown>("switchGreeting", [index], 35_000).then(() => undefined, () => undefined),
     copyToClipboard: (text) => postToParent("copyToClipboard", [text]),
 
     // Audio
@@ -1169,13 +1458,16 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     },
 
     // Chat actions (universal canvas)
-    editMessage: (messageId, content) => sessionApisAvailable ? callParent("editMessage", [messageId, content]) : guardedCall(false, true),
+    editMessage: (messageId, content, options) => sessionApisAvailable
+      ? callParent("editMessage", typeof options?.swipeIndex === "number" ? [messageId, content, { swipeIndex: options.swipeIndex }] : [messageId, content])
+      : guardedCall(false, true),
     deleteMessage: (messageId) => sessionApisAvailable ? callParent("deleteMessage", [messageId]) : guardedCall(false, true),
     // Rendering + upload can take a while on a cold GPU.
     illustrateMessage: (messageId, note, fine) => sessionApisAvailable
       ? callParent("illustrateMessage", fine ? [messageId, note ?? "", true] : note ? [messageId, note] : [messageId], 120_000)
       : guardedCall(false, true),
     getTurnImageSettings: () => sessionApisAvailable ? callParent("getTurnImageSettings", []) : Promise.resolve(null),
+    cancelTurnImage: (messageId) => sessionApisAvailable ? callParent("cancelTurnImage", [messageId], 35_000) : guardedCall(false, true),
     openCreditTopUp: () => { if (sessionApisAvailable) void callParent("openCreditTopUp", []); },
     setAutoTurnImages: (on) => sessionApisAvailable ? callParent("setAutoTurnImages", [on]) : guardedCall(false, true),
     regenerateMessage: (messageId) => { if (sessionApisAvailable) postToParent("regenerateMessage", [messageId]); else promptAuth(); },
@@ -1233,6 +1525,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
       sessionApisAvailable
         ? callParent<{ ok: boolean }>("togglePlayerPrompt", [promptId, enabled], 20_000).catch(() => ({ ok: false }))
         : Promise.resolve({ ok: false }),
+    openPromptComposer: () => { if (sessionApisAvailable) postToParent("openPromptComposer", []); },
     getStateGuardSettings: () => sessionApisAvailable ? callParent("getStateGuardSettings", []) : Promise.reject(new Error("No active session")),
     setStateGuardSettings: (patch) => sessionApisAvailable ? callParent("setStateGuardSettings", [patch]) : Promise.reject(new Error("No active session")),
     getSessionMemory: () =>
@@ -1331,6 +1624,34 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
       sessionApisAvailable
         ? callParent<SessionSummaryPayload>("updateSummaryceptionSnippet", [snippetId, text])
         : guardedCall(emptySessionSummaryPayload(), true),
+    getLiveCanon: () =>
+      sessionApisAvailable
+        ? callParent<LiveCanonApiResult>("getLiveCanon", [])
+        : guardedCall(unavailableLiveCanon(), true),
+    updateLiveCanonState: (updates) =>
+      sessionApisAvailable
+        ? callParent<LiveCanonApiResult<Record<string, unknown>>>("updateLiveCanonState", [updates])
+        : guardedCall(unavailableLiveCanon(), true),
+    saveLiveCanonBaseEntry: (entryId, content) =>
+      sessionApisAvailable
+        ? callParent<LiveCanonApiResult<Record<string, unknown>>>("saveLiveCanonBaseEntry", [entryId, content])
+        : guardedCall(unavailableLiveCanon(), true),
+    revertLiveCanonBaseEntry: (entryId) =>
+      sessionApisAvailable
+        ? callParent<LiveCanonApiResult<Record<string, unknown>>>("revertLiveCanonBaseEntry", [entryId])
+        : guardedCall(unavailableLiveCanon(), true),
+    createLiveCanonEntry: (entry) =>
+      sessionApisAvailable
+        ? callParent<LiveCanonApiResult<Record<string, unknown>>>("createLiveCanonEntry", [entry])
+        : guardedCall(unavailableLiveCanon(), true),
+    updateLiveCanonEntry: (entryId, entry) =>
+      sessionApisAvailable
+        ? callParent<LiveCanonApiResult<Record<string, unknown>>>("updateLiveCanonEntry", [entryId, entry])
+        : guardedCall(unavailableLiveCanon(), true),
+    deleteLiveCanonEntry: (entryId) =>
+      sessionApisAvailable
+        ? callParent<LiveCanonApiResult<Record<string, unknown>>>("deleteLiveCanonEntry", [entryId])
+        : guardedCall(unavailableLiveCanon(), true),
     togglePoolLock: (modelId) => postToParent("togglePoolLock", [modelId]),
 
     // AI completions (raw LLM calls).
@@ -1339,6 +1660,15 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     // for the main chat. Card authors can still override per-call by passing
     // an explicit `model`.
     ai: {
+      decide: (params) => sessionApisAvailable
+        ? callParent("ai.decide", [{ state: params.state, questions: params.questions }], 15_000)
+        : Promise.reject(new Error("Decisions require an active session")),
+      context: async (params) => {
+        if (!sessionApisAvailable || state.mode !== "session" || state.readOnly) throw new Error("Actor context is unavailable in this view.");
+        const result = await callParent<ActorContextResult | { error: string }>("ai.context", [{ actor: params.actor, model: params.model, recentMessages: params.recentMessages }], 25_000);
+        if (!result || "error" in result) throw new Error(result && "error" in result ? result.error : "Actor context could not be loaded.");
+        return result;
+      },
       complete: (params) =>
         sessionApisAvailable
           ? callParentStreaming(
@@ -1348,12 +1678,37 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
                 model: params.model || state.selectedModel || undefined,
                 maxTokens: params.maxTokens,
                 temperature: params.temperature,
+                context: params.context,
+                worldbookIds: params.worldbookIds,
                 includeLorebook: params.includeLorebook,
+                responseFormat: params.responseFormat,
               }],
               params.onDelta ?? (() => {}),
             )
           : guardedCall("", true),
     },
+
+    realtimeVideo: {
+      start: (options) => (sessionApisAvailable && !state.readOnly && state.mode === "session"
+        ? callParent<{ ok: true } | { error: string }>("realtimeVideo.start", [options ?? {}], 120_000)
+        : Promise.resolve({ error: "Video is unavailable in this view." })),
+      stop: () => postToParent("realtimeVideo.stop", []),
+      release: () => postToParent("realtimeVideo.release", []),
+      skip: () => postToParent("realtimeVideo.skip", []),
+      rewind: () => postToParent("realtimeVideo.rewind", []),
+      retake: () => postToParent("realtimeVideo.retake", []),
+      openWindow: () => postToParent("realtimeVideo.openWindow", []),
+      setSlot: (rect) => postToParent("realtimeVideo.setSlot", [rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height, radius: rect.radius } : null]),
+      direct: (prompt) => postToParent("realtimeVideo.direct", [String(prompt).slice(0, 4000)]),
+      setMuted: (muted) => postToParent("realtimeVideo.setMuted", [!!muted]),
+      onEvent: (cb) => {
+        const handler = (e: Event) => cb((e as CustomEvent).detail);
+        window.addEventListener(VIDEO_EVENT, handler);
+        return () => window.removeEventListener(VIDEO_EVENT, handler);
+      },
+    },
+
+    realtimeVoice: createVoiceAPI({ available: sessionApisAvailable && !state.readOnly && state.mode === "session", call: callParent, post: postToParent, target: window }),
 
     // Multiplayer room — parent holds the WebSocket, frames arrive as
     // ROOM_FRAME_EVENT window events (relayed by component-host).
@@ -1367,6 +1722,7 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
         window.addEventListener(ROOM_FRAME_EVENT, handler);
         return () => window.removeEventListener(ROOM_FRAME_EVENT, handler);
       },
+      voice: (action, value) => callParent("room.voice", [action, value], 20_000),
     },
 
     // Voice readout (TTS) — synthesis happens parent-side (sandbox can't
@@ -1375,10 +1731,15 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     tts: {
       speak: (opts) =>
         sessionApisAvailable
-          ? callParent<{ ok: boolean; reason?: string }>("tts.speak", [opts], 60_000)
+          ? callParent<{ ok: boolean; reason?: string }>("tts.speak", [opts], opts.waitForEnd ? 180_000 : 60_000)
             .catch(() => ({ ok: false as const, reason: "timeout" }))
           : guardedCall({ ok: false as const, reason: "unavailable" }, true),
       stop: () => postToParent("tts.stop", []),
+      onPlaybackFrame: (cb) => {
+        const handler = (event: Event) => cb((event as CustomEvent<VoicePlaybackFrame>).detail);
+        window.addEventListener(VOICE_PLAYBACK_FRAME_EVENT, handler);
+        return () => window.removeEventListener(VOICE_PLAYBACK_FRAME_EVENT, handler);
+      },
       setPrefs: (prefs) => postToParent("tts.setPrefs", [prefs]),
       preview: (voice) =>
         sessionApisAvailable
@@ -1391,9 +1752,13 @@ export function buildAPI(state: SandboxState): SandboxedYuminaAPI {
     // Voice input — the parent records (the sandbox has no microphone) and
     // streams the input level back while it does.
     voice: {
+      prepare: (opts) => sessionApisAvailable
+        ? callParent<{ ok: boolean; reason?: string }>("voice.prepare", [{ requireLevels: opts?.requireLevels === true }], 60_000)
+          .catch(() => { postToParent("voice.cancel", []); return { ok: false, reason: "timeout" }; })
+        : guardedCall({ ok: false as const, reason: "unavailable" }, true),
       record: (opts) => {
         if (!sessionApisAvailable) return guardedCall({ ok: false as const, reason: "unavailable" }, true);
-        return callParentStreaming("voice.record", [], (delta) => {
+        return callParentStreaming("voice.record", [{ requireLevels: opts?.requireLevels === true }], (delta) => {
           const level = Number(delta);
           if (Number.isFinite(level)) opts?.onLevel?.(level);
         })

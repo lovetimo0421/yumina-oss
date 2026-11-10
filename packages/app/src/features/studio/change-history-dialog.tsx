@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { History, X, RotateCcw, Trash2, Loader2, ChevronDown, AlertTriangle } from "lucide-react";
 import { FieldError } from "@/components/ui/field-error";
@@ -10,6 +10,10 @@ import { buildReviewDiffTokens } from "./lib/review-diff";
 import { changeLabel, type ChangeTone } from "./lib/change-label";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
+/** The creator's own history, reachable from the assistant's — the two
+ *  dialogs are cousins and a reader who opened the wrong one should not have
+ *  to go back through the menu. Lazy: it is a screen of its own. */
+const VersionHistoryDialog = lazy(() => import("@/features/editor/version-history-dialog").then((m) => ({ default: m.VersionHistoryDialog })));
 
 type SnapshotRow = { id: string; label: string; createdAt: string; agentRunId?: string | null; summary?: WorldChange[] };
 
@@ -69,6 +73,7 @@ export function ChangeHistoryDialog({ worldId, onClose }: Props) {
   // fails, so their failures render inline rather than as a pill (R4).
   const [loadFailed, setLoadFailed] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [showVersions, setShowVersions] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -130,6 +135,10 @@ export function ChangeHistoryDialog({ worldId, onClose }: Props) {
       if (!res.ok) { setActionError(t("versionHistory.restoreFailed")); return; }
       await useEditorStore.getState().loadWorld(worldId);
       onClose();
+    } catch {
+      // Offline / dropped request: the click used to do nothing at all.
+      // Inline like every other failure on these confirm cards (R4).
+      setActionError(t("versionHistory.restoreFailed"));
     } finally { setBusy(false); }
   };
 
@@ -141,6 +150,8 @@ export function ChangeHistoryDialog({ worldId, onClose }: Props) {
       if (!res.ok) { setActionError(t("studio.changeLog.deleteFailed")); return; }
       setConfirm({ kind: "idle" });
       await refresh();
+    } catch {
+      setActionError(t("studio.changeLog.deleteFailed"));
     } finally { setBusy(false); }
   };
 
@@ -152,14 +163,26 @@ export function ChangeHistoryDialog({ worldId, onClose }: Props) {
       if (!res.ok) { setActionError(t("studio.changeLog.deleteFailed")); return; }
       setConfirm({ kind: "idle" });
       await refresh();
+    } catch {
+      setActionError(t("studio.changeLog.deleteFailed"));
     } finally { setBusy(false); }
   };
 
   const count = rows?.length ?? 0;
   const isDirty = useEditorStore((s) => s.isDirty);
 
+  // Below every hook: a conditional return above them would change the hook
+  // order between renders.
+  if (showVersions) {
+    return (
+      <Suspense fallback={null}>
+        <VersionHistoryDialog worldId={worldId} onClose={onClose} />
+      </Suspense>
+    );
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm animate-in fade-in duration-150"
+    <div className="fixed inset-0 z-50 flex items-center justify-center modal-backdrop p-4 animate-in fade-in duration-150"
       onClick={(e) => { if (e.target === e.currentTarget && confirm.kind === "idle") onClose(); }}>
       <div className="flex w-full max-w-lg max-h-[85vh] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[0_18px_60px_rgba(0,0,0,0.45)] animate-in zoom-in-95 duration-200">
         {/* Header */}
@@ -191,7 +214,19 @@ export function ChangeHistoryDialog({ worldId, onClose }: Props) {
               </button>
             </div>
           ) : count === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">{t("studio.changeLog.empty")}</p>
+            // Only the assistant's edits land here. Say so, and put the place
+            // the creator's own edits live one click away — "no changes yet"
+            // on a card they had just spent an hour on read as a bug.
+            <div className="py-10 text-center">
+              <p className="text-sm text-muted-foreground">{t("studio.changeLog.empty")}</p>
+              <button
+                type="button"
+                onClick={() => setShowVersions(true)}
+                className="mt-3 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+              >
+                {t("studio.changeLog.openVersionHistory")}
+              </button>
+            </div>
           ) : (
             <>
               <div className="mb-3 flex items-center gap-2 text-sm">
@@ -333,7 +368,7 @@ function ConfirmCard(props: {
 }) {
   const cls = props.danger ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : "bg-primary text-primary-foreground hover:bg-primary-hover";
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center modal-backdrop p-4 animate-in fade-in duration-150">
       <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-5 shadow-[0_18px_60px_rgba(0,0,0,0.5)] animate-in zoom-in-95 duration-200">
         <div className="flex items-start gap-3">
           <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-xl", props.tone === "destructive" ? "bg-destructive/15 text-destructive" : "bg-primary/15 text-primary")}>{props.icon}</div>

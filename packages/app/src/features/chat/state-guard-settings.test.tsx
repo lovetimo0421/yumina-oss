@@ -111,14 +111,14 @@ test("local Guard settings hide official models and billing actions and default 
   const vite = await createServer({ root: fileURLToPath(new URL("../../..", import.meta.url)), configFile: false, envFile: false,
     appType: "custom", logLevel: "silent", server: { middlewareMode: true, watch: null }, esbuild: { jsx: "automatic" } });
   const { StateGuardSettingsPanel } = await vite.ssrLoadModule("/sandbox/extensions/state-update-guard/settings.tsx");
-  let stored = { enabled: true, model: "official::google/gemini-2.5-flash-lite" as string | null, officialModels: false };
+  let stored = { enabled: true, model: "official::google/gemini-3.1-flash-lite" as string | null, officialModels: false };
   let pickerSelection: string | null = null;
   const patches: unknown[] = [];
   const props: StateGuardSettingsProps = {
     sessionId: "local-chat", storyModel: "custom/story",
     load: async () => stored,
     save: async (patch) => { patches.push(patch); stored = { ...stored, ...patch }; return stored; },
-    getModels: async () => [{ id: "official::google/gemini-2.5-flash-lite", name: "Yumina official" }, { id: "private::custom/repair", name: "Own repair model" }],
+    getModels: async () => [{ id: "official::google/gemini-3.1-flash-lite", name: "Yumina official" }, { id: "private::custom/repair", name: "Own repair model" }],
   };
   try {
     await act(async () => root.render(createElement(StateGuardSettingsPanel, props)));

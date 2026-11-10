@@ -90,6 +90,9 @@ export class AnthropicProvider implements LLMProvider {
   }
 
   async *generateStream(params: GenerateParams): AsyncIterable<StreamChunk> {
+    if (params.responseFormat?.type === "json_schema") {
+      throw new Error("This provider does not support JSON Schema side completions.");
+    }
     // Non-streaming branch: see OpenRouterProvider for rationale.
     if (params.stream === false) {
       yield* this.generateNonStream(params);
@@ -120,10 +123,10 @@ export class AnthropicProvider implements LLMProvider {
         const msg = anthropicMessages[mappedIdx]!;
         const content = msg.content;
         if (typeof content === "string") {
-          msg.content = [{ type: "text", text: content, cache_control: { type: "ephemeral", ttl: "1h" } }];
+          msg.content = [{ type: "text", text: content, cache_control: { type: "ephemeral", ttl: params.cacheTtl ?? "1h" } }];
         } else if (Array.isArray(content) && content.length > 0) {
           const last = content[content.length - 1] as Record<string, unknown>;
-          last.cache_control = { type: "ephemeral", ttl: "1h" };
+          last.cache_control = { type: "ephemeral", ttl: params.cacheTtl ?? "1h" };
         }
       }
     }
@@ -215,6 +218,8 @@ export class AnthropicProvider implements LLMProvider {
     let buffer = "";
     let inputTokens = 0;
     let outputTokens = 0;
+    let cacheReadTokens: number | undefined;
+    let cacheWriteTokens: number | undefined;
     let stopReason: string | undefined;
     // Track tool use blocks (Anthropic streams them as content_block_start + input_json_delta)
     const toolBlocks = new Map<number, { id: string; name: string; args: string }>();
@@ -317,6 +322,8 @@ export class AnthropicProvider implements LLMProvider {
               inputTokens = parsed.message.usage.input_tokens ?? 0;
               // Log cache metrics when available
               const u = parsed.message.usage;
+              cacheReadTokens = u.cache_read_input_tokens;
+              cacheWriteTokens = u.cache_creation_input_tokens;
               if (u.cache_read_input_tokens || u.cache_creation_input_tokens) {
                 console.log(
                   `[Anthropic] Cache: ${u.cache_read_input_tokens ?? 0} read, ${u.cache_creation_input_tokens ?? 0} write, ${u.input_tokens} total prompt tokens (model: ${params.model})`
@@ -343,6 +350,8 @@ export class AnthropicProvider implements LLMProvider {
                   promptTokens: inputTokens,
                   completionTokens: outputTokens,
                   totalTokens: inputTokens + outputTokens,
+                  cacheReadTokens,
+                  cacheWriteTokens,
                 },
               };
               return;
@@ -389,10 +398,10 @@ export class AnthropicProvider implements LLMProvider {
         const msg = anthropicMessages[mappedIdx]!;
         const content = msg.content;
         if (typeof content === "string") {
-          msg.content = [{ type: "text", text: content, cache_control: { type: "ephemeral", ttl: "1h" } }];
+          msg.content = [{ type: "text", text: content, cache_control: { type: "ephemeral", ttl: params.cacheTtl ?? "1h" } }];
         } else if (Array.isArray(content) && content.length > 0) {
           const last = content[content.length - 1] as Record<string, unknown>;
-          last.cache_control = { type: "ephemeral", ttl: "1h" };
+          last.cache_control = { type: "ephemeral", ttl: params.cacheTtl ?? "1h" };
         }
       }
     }
@@ -543,6 +552,8 @@ export class AnthropicProvider implements LLMProvider {
         promptTokens: inputTokens,
         completionTokens: outputTokens,
         totalTokens: inputTokens + outputTokens,
+        cacheReadTokens: u?.cache_read_input_tokens,
+        cacheWriteTokens: u?.cache_creation_input_tokens,
       },
     };
   }

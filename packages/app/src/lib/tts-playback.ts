@@ -36,6 +36,9 @@ import { isPartialLeadingSpeakerTag } from "@yumina/engine";
 const apiBase = import.meta.env.VITE_API_URL || "";
 
 let _speakSerial = 0;
+let _speakController: AbortController | null = null;
+let _cancelCompletion: ((reason: "cancelled" | "timeout") => void) | null = null;
+const COMPLETION_TIMEOUT_MS = 150_000;
 
 // The chat store is imported lazily everywhere in this module (it imports
 // this one); once loaded, the read-along path needs it synchronously.
@@ -131,6 +134,9 @@ export interface SpeakOptions {
   key?: string;
   /** Per-call voice override (cards may voice their own characters). */
   voice?: string;
+  /** Return success only after every clip actually ended; blocked autoplay,
+   *  cancellation, media failure and the 150s host deadline return failure. */
+  waitForEnd?: boolean;
 }
 
 /** What to tell the player when a readout can't be paid for (HTTP 402):
@@ -166,6 +172,67 @@ export async function speakMessage(
   sessionId: string,
   opts: SpeakOptions,
 ): Promise<{ ok: boolean; reason?: string }> {
+  if (opts.waitForEnd) {
+    // A card's voice conversation: it needs to know when the clip has
+    // actually finished playing, not just that the synth was accepted.
+    if (!getTtsPrefs().enabled) return { ok: false, reason: "disabled" };
+    stopSpeaking();
+  }
+  const serial = ++_speakSerial;
+  _speakController?.abort();
+  const controller = new AbortController();
+  _speakController = controller;
+  if (!opts.waitForEnd) {
+    try {
+      return await speakMessageOwned(sessionId, opts, serial, controller);
+    } finally {
+      if (_speakController === controller) _speakController = null;
+    }
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: { ok: boolean; reason?: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (_cancelCompletion === cancel) _cancelCompletion = null;
+      if (_speakController === controller) _speakController = null;
+      resolve(result);
+    };
+    const cancel = (reason: "cancelled" | "timeout") => {
+      if (settled) return;
+      controller.abort();
+      if (serial === _speakSerial) {
+        _speakSerial++;
+        cancelStreamRead();
+        useAudioStore.getState().stopVoice();
+      }
+      finish({ ok: false, reason });
+    };
+    const timer = setTimeout(() => cancel("timeout"), COMPLETION_TIMEOUT_MS);
+    _cancelCompletion = cancel;
+    void speakMessageOwned(sessionId, opts, serial, controller).then(finish, () => {
+      if (serial === _speakSerial) useAudioStore.getState().stopVoice();
+      finish({ ok: false, reason: "error" });
+    });
+  });
+}
+
+async function playToCompletion(urls: string[], key: string, serial: number): Promise<{ ok: boolean; reason?: string }> {
+  for (const url of urls) {
+    if (serial !== _speakSerial) return { ok: false, reason: "cancelled" };
+    const result = await useAudioStore.getState().playVoice(key, `${apiBase}${url}`, { failIfBlocked: true, measureLevel: true });
+    if (!result.ok) return result;
+  }
+  return { ok: true };
+}
+
+async function speakMessageOwned(
+  sessionId: string,
+  opts: SpeakOptions,
+  serial: number,
+  controller: AbortController,
+): Promise<{ ok: boolean; reason?: string }> {
   const audio = useAudioStore.getState();
   const prefs = getTtsPrefs();
   // The master switch is the player's "never spend on voice" — card code
@@ -173,11 +240,11 @@ export async function speakMessage(
   if (!prefs.enabled) return { ok: false, reason: "disabled" };
   const key = opts.key ?? opts.messageId ?? "custom";
   await chatStore();
+  if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
   // A card's explicit per-call voice, then the voice the card gave the
   // speaker (or its narrator), then the player's own choice.
   const cardVoice = cardVoiceFor(opts.text ?? messageTextFor(opts.messageId));
   const voice = opts.voice && isValidTtsVoice(opts.voice) ? opts.voice : cardVoice ?? prefs.voice;
-  const serial = ++_speakSerial;
 
   // Free replay: if this exact message was just auto-read with the same
   // voice and reading mode, replay the recorded slice sequence from the CDN
@@ -194,6 +261,7 @@ export async function speakMessage(
       entry.text === messageTextFor(opts.messageId) &&
       entry.urls.length > 0
     ) {
+      if (opts.waitForEnd) return playToCompletion(entry.urls, key, serial);
       playSequence(sessionId, entry.urls, key, entry.voice, entry.mode, opts.messageId, entry.text);
       return { ok: true };
     }
@@ -213,6 +281,7 @@ export async function speakMessage(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
+      signal: controller.signal,
       body: JSON.stringify({
         messageId: opts.messageId,
         text: opts.text,
@@ -227,13 +296,14 @@ export async function speakMessage(
       }),
     });
   } catch {
+    if (serial !== _speakSerial || controller.signal.aborted) return { ok: false, reason: "superseded" };
     if (serial === _speakSerial) audio.setVoicePlayback(null);
     toast.error(i18n.t("chat:tts.failed", "Voice generation failed. Please try again."));
     return { ok: false, reason: "network" };
   }
 
-  // Stopped or replaced while the synth was in flight — the audio (if any)
-  // landed in the CDN cache, so a retry is free. Just don't play it now.
+  // Cancellation prevents obsolete client work and playback. A provider
+  // request already accepted by the server can still complete and be billed.
   if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
 
   if (!res.ok) {
@@ -245,6 +315,7 @@ export async function speakMessage(
       code = body.code ?? "";
       message = body.error ?? "";
     } catch { /* non-JSON error body */ }
+    if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
 
     if (code === "INSUFFICIENT_CREDITS" || res.status === 402) {
       toast.error(ttsPaymentMessage(code));
@@ -271,6 +342,7 @@ export async function speakMessage(
     rememberCast(sessionId, body.cast);
     credits = typeof body.credits === "number" ? body.credits : 0;
   } catch { /* fall through to the empty guard */ }
+  if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
   if (urls.length === 0) {
     useAudioStore.getState().setVoicePlayback(null);
     return { ok: false, reason: "error" };
@@ -279,12 +351,13 @@ export async function speakMessage(
   // A paid synth changed the wallet — refresh so the model pill's mushie
   // count reflects it instead of going stale until the next chat turn.
   if (credits > 0) {
-    void import("@/stores/credits")
+    void import("@/edition/slots.state")
       .then((m) => m.useCreditStore.getState().fetchCredits())
       .catch(() => {});
   }
 
-  if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
+  if (serial !== _speakSerial) return { ok: false, reason: opts.waitForEnd ? "cancelled" : "superseded" };
+  if (opts.waitForEnd) return playToCompletion(urls, key, serial);
   if (urls.length > 1) {
     // Several speakers → several clips, played back to back.
     playSequence(sessionId, urls, key, voice, prefs.mode, opts.messageId ?? null, "");
@@ -339,7 +412,10 @@ function playSequence(
 }
 
 export function stopSpeaking(): void {
+  _cancelCompletion?.("cancelled");
   _speakSerial++;
+  _speakController?.abort();
+  _speakController = null;
   cancelStreamRead();
   useAudioStore.getState().stopVoice();
 }
@@ -443,6 +519,12 @@ export async function previewVoice(
   opts: { purpose?: "editor" } = {},
 ): Promise<{ ok: boolean; reason?: string }> {
   if (opts.purpose !== "editor" && !getTtsPrefs().enabled) return { ok: false, reason: "disabled" };
+  const serial = ++_speakSerial;
+  _speakController?.abort();
+  const controller = new AbortController();
+  _speakController = controller;
+  cancelStreamRead();
+  useAudioStore.getState().stopVoice();
   const key = `preview:${voiceId || "auto"}`;
   const voice = voiceId && isValidTtsVoice(voiceId) ? voiceId : defaultTtsVoiceForLang(lang);
   try {
@@ -450,13 +532,16 @@ export async function previewVoice(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
+      signal: controller.signal,
       body: JSON.stringify({ voice, lang, ...(opts.purpose ? { purpose: opts.purpose } : {}) }),
     });
+    if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
     if (!res.ok) {
       let code = "";
       try {
         code = ((await res.json()) as { code?: string }).code ?? "";
       } catch { /* non-JSON error body */ }
+      if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
       if (res.status === 402) {
         toast.error(ttsPaymentMessage(code));
         return { ok: false, reason: "insufficient" };
@@ -465,20 +550,24 @@ export async function previewVoice(
       return { ok: false, reason: "error" };
     }
     const body = (await res.json()) as { url?: string; credits?: number };
+    if (serial !== _speakSerial) return { ok: false, reason: "superseded" };
     if (!body.url) {
       toastSynthFailure(res.status, "");
       return { ok: false, reason: "error" };
     }
     if ((body.credits ?? 0) > 0) {
-      void import("@/stores/credits")
+      void import("@/edition/slots.state")
         .then((m) => m.useCreditStore.getState().fetchCredits())
         .catch(() => {});
     }
     useAudioStore.getState().playVoice(key, `${apiBase}${body.url}`);
     return { ok: true };
   } catch {
+    if (serial !== _speakSerial || controller.signal.aborted) return { ok: false, reason: "superseded" };
     toastSynthFailure(0, "");
     return { ok: false, reason: "network" };
+  } finally {
+    if (_speakController === controller) _speakController = null;
   }
 }
 
@@ -768,7 +857,7 @@ function pumpSynth(s: StreamReadSession, text: string, initialState: DialogueSca
         s.results.set(index, url);
         s.sliceUrls[index] = url;
         if ((payload.credits ?? 0) > 0) {
-          void import("@/stores/credits")
+          void import("@/edition/slots.state")
             .then((m) => m.useCreditStore.getState().fetchCredits())
             .catch(() => {});
         }

@@ -115,37 +115,39 @@ export function PersonaEditModal({ isOpen, onClose, persona }: PersonaEditModalP
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-2xl gap-0 overflow-hidden border-white/10 bg-[#1F1D21] p-0 text-main shadow-2xl shadow-gold/5 sm:rounded-3xl [&>button:last-child]:hidden">
+      <DialogContent className="flex max-w-2xl flex-col gap-0 overflow-hidden border-white/10 bg-[#1F1D21] p-0 text-main shadow-2xl shadow-gold/5 sm:rounded-3xl [&>button:last-child]:hidden">
         <DialogTitle className="sr-only">
           {isEditing ? t("persona.modal.editTitle") : t("persona.modal.createTitle")}
         </DialogTitle>
 
         {/* Header — matches EditProfileModal pattern */}
-        <div className="relative flex items-center justify-between overflow-hidden border-b border-white/5 bg-transparent p-6">
+        <div className="relative flex shrink-0 items-center justify-between gap-3 overflow-hidden border-b border-white/5 bg-transparent p-4 sm:p-6">
           <div className="absolute -right-10 -top-10 h-40 w-40 rounded-full bg-gold/10 blur-3xl" />
 
-          <div className="relative z-10">
-            <h2 className="flex items-center gap-2 text-2xl font-black text-main">
-              <User className="h-5 w-5 text-gold" />
-              {isEditing ? t("persona.modal.editTitle") : t("persona.modal.createTitle")}
+          <div className="relative z-10 min-w-0">
+            <h2 className="flex min-w-0 items-center gap-2 text-xl font-black text-main sm:text-2xl">
+              <User className="h-5 w-5 shrink-0 text-gold" />
+              <span className="truncate whitespace-nowrap">
+                {isEditing ? t("persona.modal.editTitle") : t("persona.modal.createTitle")}
+              </span>
             </h2>
             <p className="mt-1 text-xs text-sub">
               {t("persona.emptyDesc")}
             </p>
           </div>
 
-          <div className="relative z-10 flex items-center gap-3">
+          <div className="relative z-10 flex shrink-0 items-center gap-2 sm:gap-3">
             <Button
               onClick={onClose}
               variant="ghost"
-              className="h-10 rounded-xl px-4 font-semibold text-sub hover:bg-white/5 hover:text-main"
+              className="h-10 rounded-xl px-3 font-semibold text-sub hover:bg-white/5 hover:text-main sm:px-4"
             >
-              Cancel
+              {t("action.cancel", { ns: "common" })}
             </Button>
             <Button
               onClick={handleSave}
               disabled={!name.trim() || isSaving}
-              className="h-10 rounded-xl border border-gold/30 bg-gold/15 px-6 font-bold text-gold transition-all hover:bg-gold/25 disabled:opacity-50"
+              className="h-10 rounded-xl border border-gold/30 bg-gold/15 px-4 font-bold sm:px-6 text-gold transition-all hover:bg-gold/25 disabled:opacity-50"
             >
               {isSaving ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -160,13 +162,14 @@ export function PersonaEditModal({ isOpen, onClose, persona }: PersonaEditModalP
         </div>
 
         {formError && (
-          <div className="border-b border-white/5 px-6 pb-3">
+          <div className="shrink-0 border-b border-white/5 px-6 pb-3">
             <FieldError message={formError} />
           </div>
         )}
 
-        {/* Content */}
-        <div className="relative max-h-[75vh] overflow-y-auto bg-transparent p-8">
+        {/* Scroll within the dialog's remaining height, including when mobile
+            browser chrome makes its dvh cap smaller than a separate vh box. */}
+        <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain bg-transparent p-8">
           <div className="relative z-10 space-y-8 animate-in fade-in duration-300">
 
             {/* Identity Section — Avatar + Name */}

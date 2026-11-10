@@ -6,13 +6,30 @@ export interface ShowcasedAchievement {
   tier: string;
 }
 
-export const PROFILE_WORLD_SORT_OPTIONS = ["newest", "popular"] as const;
+export const PROFILE_WORLD_SORT_OPTIONS = ["newest", "popular", "alphabetical", "custom"] as const;
 
 export type ProfileWorldSort = (typeof PROFILE_WORLD_SORT_OPTIONS)[number];
 
 /** Keep old or malformed profile preferences on the newest-first default. */
 export function normalizeProfileWorldSort(value: unknown): ProfileWorldSort {
-  return value === "popular" ? "popular" : "newest";
+  return (PROFILE_WORLD_SORT_OPTIONS as readonly unknown[]).includes(value) ? value as ProfileWorldSort : "newest";
+}
+
+/** How many works a custom profile order remembers. A creator with more keeps
+ *  the rest after them, newest first. */
+export const PROFILE_WORLD_ORDER_MAX = 200;
+
+/** The creator's own order for their works (world ids, first shown first).
+ *  Anything malformed reads as no order at all. */
+export function normalizeProfileWorldOrder(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  for (const id of value) {
+    if (typeof id !== "string" || !id || id.length > 64 || seen.has(id)) continue;
+    seen.add(id);
+    if (seen.size >= PROFILE_WORLD_ORDER_MAX) break;
+  }
+  return [...seen];
 }
 
 export interface User {

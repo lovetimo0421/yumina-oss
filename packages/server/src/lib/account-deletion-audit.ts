@@ -14,6 +14,11 @@ export async function anonymizeDeletedAccountAudit(
   userId: string,
   deletedAuditIdentity: string,
 ): Promise<void> {
+  await executor.execute(sql`SELECT set_config('yumina.voice_deletion_identity_user',${userId},true),set_config('yumina.voice_deletion_audit_identity',${deletedAuditIdentity},true)`);
+  // Probe catalogs before touching additive tables; old-schema/off deployments
+  // retain their existing deletion contract and never catch an aborted query.
+  const result=await executor.execute(sql`SELECT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_attribute a ON a.attrelid=c.oid WHERE n.nspname=current_schema() AND c.relname='voice_calls' AND a.attname='deleted_audit_identity' AND NOT a.attisdropped) AS ready`);
+  if((result as {rows?:Array<{ready:boolean}>}).rows?.[0]?.ready)await executor.execute(sql`UPDATE voice_calls SET deleted_audit_identity=${deletedAuditIdentity} WHERE user_id=${userId}`);
   await executor.execute(sql`
     UPDATE admin_actions action
     SET

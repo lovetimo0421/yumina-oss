@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { gameComponentSchema as _gameComponentSchema } from "./component-schemas.js";
 import { uiBlueprintSchema as _uiBlueprintSchema } from "./ui-blueprint-schema.js";
+import { uiDocSchema as _uiDocSchema } from "../ui-doc/schema.js";
 import { sceneSchema as _sceneSchema } from "../spatial/schemas.js";
 
 export const conditionSchema = z.object({
@@ -32,8 +33,18 @@ export const worldbookActivationSchema = z.union([
   }),
 ]);
 
+export const variableFieldSchema = z.object({
+  path: z.string().min(1).max(200),
+  type: z.enum(["number", "string", "boolean", "json"]).optional(),
+  label: z.string().max(200).optional(),
+  description: z.string().max(2000).optional(),
+  writer: z.enum(["ui", "ai", "behavior", "ai-call"]).optional(),
+});
+
 export const variableSchema = z.object({
   id: z.string(),
+  // Module membership: which worldbook this object belongs to (undefined = Core). Orphans fail open.
+  worldbookId: z.string().optional(),
   name: z.string().min(1),
   type: z.enum(["number", "string", "boolean", "json"]),
   defaultValue: z.union([z.number(), z.string(), z.boolean(), z.record(z.unknown()), z.array(z.unknown())]),
@@ -44,6 +55,7 @@ export const variableSchema = z.object({
   // Precise tracking (continuity judge) — see types/index.ts.
   options: z.array(z.string()).optional(),
   precise: z.boolean().optional(),
+  onceTrue: z.boolean().optional(),
   deltaDown: z.number().min(0).optional(),
   deltaUp: z.number().min(0).optional(),
   behaviorRules: z.string().optional(),
@@ -58,11 +70,17 @@ export const variableSchema = z.object({
   // AI access tier: write (default) / read (in <game-state>, not AI-writable) /
   // none (engine+UI only, never in the prompt). See types/index.ts.
   aiAccess: z.enum(["write", "read", "none"]).optional(),
+  formula: z.string().max(1000).optional(),
+  persist: z.enum(["player"]).optional(),
   // When the variable is active (exposed + AI-accessible). Undefined = always.
   activation: worldbookActivationSchema.optional(),
   // Enable-gate default (default true); runtime override via @vars.enabled.<id>
   // lands in ruleState.toggledVariables and beats this in both directions.
   enabled: z.boolean().optional(),
+  // Player-edit authorization for the optional Lore Shift extension. This is
+  // independent from every card-authored state mutation path and fails closed.
+  liveCanonEditable: z.boolean().optional().default(false),
+  fields: z.array(variableFieldSchema).max(64).optional(),
 });
 
 export const effectSchema = z.object({
@@ -106,6 +124,20 @@ export const sceneImageSchema = z.object({
   hint: z.string().optional(),
   greetingIds: z.array(z.string()).optional(),
   allowAiControl: z.boolean().optional(),
+});
+
+export const backgroundImageSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  url: z.string(),
+  scene: z.string().optional(),
+  blur: z.number().min(0).max(20).optional(),
+  dim: z.number().min(0).max(80).optional(),
+  opacity: z.number().min(10).max(100).optional(),
+  position: z.enum(["center", "top", "bottom"]).optional(),
+  greetingIds: z.array(z.string()).optional(),
+  allowAiControl: z.boolean().optional(),
+  isDefault: z.boolean().optional(),
 });
 
 export const audioEffectSchema = z.object({
@@ -176,6 +208,8 @@ export const ruleActionSchema = z.discriminatedUnion("type", [
 
 export const ruleSchema = z.object({
   id: z.string(),
+  // Module membership: which worldbook this object belongs to (undefined = Core). Orphans fail open.
+  worldbookId: z.string().optional(),
   name: z.string().min(1),
   description: z.string().optional(),
   trigger: triggerConfigSchema,
@@ -259,6 +293,8 @@ export const reactionEffectSchema = z.discriminatedUnion("type", [
 
 export const reactionSchema = z.object({
   id: z.string(),
+  // Module membership: which worldbook this object belongs to (undefined = Core). Orphans fail open.
+  worldbookId: z.string().optional(),
   name: z.string().min(1),
   description: z.string().optional(),
   when: eventPatternSchema,
@@ -272,6 +308,9 @@ export const reactionSchema = z.object({
   chance: z.number().min(0).max(100).optional(),
   enabled: z.boolean().default(true),
   maxChainDepth: z.number().int().min(1).max(20).optional(),
+  elseMessage: z.string().max(500).optional(),
+  code: z.string().max(20000).optional(),
+  custom: z.boolean().optional(),
 });
 
 /** @deprecated Use worldEntrySchema instead */
@@ -308,6 +347,7 @@ export const worldEntrySchema = z.object({
   name: z.string().min(1),
   content: z.string(),
   role: z.enum(["system", "character", "personality", "scenario", "lore", "plot", "style", "example", "greeting", "custom"]),
+  roleBeforeExample: z.enum(["system", "character", "personality", "scenario", "lore", "plot", "style", "greeting", "custom"]).optional(),
   apiRole: z.enum(["system", "user", "assistant"]).optional(),
   depth: z.number().int().optional(),
   alwaysSend: z.boolean().default(false),
@@ -328,10 +368,13 @@ export const worldEntrySchema = z.object({
   variableBound: z.boolean().optional(),
   audience: z.enum(["ai", "player", "both"]).optional(),
   portrait: z.string().optional(),
+  portraitVideo: z.object({ idle: z.string().optional(), speaking: z.string().optional() }).optional(),
   /** fish.audio reference id the character is read in. */
   voice: z.string().optional(),
   pairId: z.string().optional(),
   worldbookId: z.string().optional(),
+  // Lore Shift V1 may replace content only. Missing/legacy values stay locked.
+  sessionEditPolicy: z.enum(["locked", "content"]).optional().default("locked"),
   initialVariables: z
     .record(z.union([z.number(), z.string(), z.boolean()]))
     .optional(),
@@ -344,12 +387,149 @@ export const loreUiBindingSchema = z.object({
   conditionLogic: z.enum(["all", "any"]).default("all"),
 });
 
+/** How a station reads another module. "history" = the protagonist lived it;
+ *  "lore" = an archive consulted about someone. */
+const contextAsSchema = z.enum(["history", "lore"]).optional();
+
+/** A hard ceiling, not a suggestion: raw transcript is the one input that can
+ *  blow a context window open, and a creator dragging a slider has no way to
+ *  feel that until a player's turn 400s. */
+export const MODULE_TRANSCRIPT_MAX = 40;
+
+export const moduleContextInputSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("memory"),
+    from: z.string().min(1).max(128),
+    as: contextAsSchema,
+    limit: z.number().int().min(1).max(20).optional(),
+  }),
+  z.object({
+    kind: z.literal("worker"),
+    from: z.string().min(1).max(128),
+    as: contextAsSchema,
+    limit: z.number().int().min(1).max(20).optional(),
+  }),
+  z.object({
+    kind: z.literal("variables"),
+    from: z.string().min(1).max(128),
+    as: contextAsSchema,
+  }),
+  z.object({
+    kind: z.literal("transcript"),
+    from: z.string().min(1).max(128),
+    limit: z.number().int().min(1).max(MODULE_TRANSCRIPT_MAX),
+    as: contextAsSchema,
+  }),
+]);
+
+export const workerTriggerSchema = z.discriminatedUnion("on", [
+  z.object({ on: z.literal("module-closed"), from: z.string().min(1).max(128) }),
+  z.object({
+    on: z.literal("conditions"),
+    conditions: z.array(conditionSchema),
+    conditionLogic: z.enum(["all", "any"]).optional(),
+  }),
+  z.object({ on: z.literal("turns"), every: z.number().int().min(1).max(100) }),
+  z.object({ on: z.literal("after"), from: z.string().min(1).max(128) }),
+  z.object({ on: z.literal("quiet"), seconds: z.number().int().min(15).max(3600) }),
+  z.object({ on: z.literal("ui") }),
+]);
+
+export const moduleStationSchema = z.object({
+  kind: z.enum(["narrator", "worker", "custom"]),
+  model: z.string().max(200).optional(),
+  inputs: z.array(moduleContextInputSchema).max(12).optional(),
+  history: z.enum(["shared", "own"]).optional(),
+  // narrator only — while this module answers, it reads at most this many
+  // recent messages (wins over settings.historyLimit).
+  historyLimit: z.number().int().min(1).max(500).optional(),
+  memoryPool: z.string().min(1).max(64).optional(),
+  onClose: z.enum(["archive", "keep"]).optional(),
+  archivePrompt: z.string().max(2000).optional(),
+  trigger: workerTriggerSchema.optional(),
+  task: z.string().max(4000).optional(),
+  name: z.string().max(60).optional(),
+  // 自定义 — see ModuleStation in types/index.ts.
+  takes: z.string().max(600).optional(),
+  sees: z.object({
+    variables: z.array(z.string().max(200)).max(40).optional(),
+    history: z.number().int().min(0).max(60).optional(),
+    ownThread: z.boolean().optional(),
+  }).optional(),
+  pieces: z.array(z.object({
+    conditions: z.array(conditionSchema).max(10),
+    conditionLogic: z.enum(["all", "any"]).optional(),
+    text: z.string().max(2000),
+  })).max(20).optional(),
+  output: z.array(z.object({
+    name: z.string().min(1).max(60),
+    type: z.enum(["text", "number", "choice", "list"]),
+    options: z.array(z.string().max(200)).max(60).optional(),
+    min: z.number().optional(),
+    max: z.number().optional(),
+    hint: z.string().max(400).optional(),
+    to: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("say") }),
+      z.object({ kind: z.literal("variable"), variableId: z.string().min(1).max(200), op: z.enum(["set", "add", "push"]).optional() }),
+      z.object({ kind: z.literal("event"), name: z.string().max(120).optional() }),
+    ]).optional(),
+  })).max(20).optional(),
+  say: z.string().max(80).optional(),
+  onError: z.object({
+    timeoutSec: z.number().int().min(5).max(120).optional(),
+    retries: z.number().int().min(0).max(3).optional(),
+    fallback: z.array(z.string().max(1000)).max(30).optional(),
+    randomChoice: z.boolean().optional(),
+  }).optional(),
+  cooldownSec: z.number().int().min(0).max(3600).optional(),
+  maxTokens: z.number().int().min(50).max(4000).optional(),
+  temperature: z.number().min(0).max(1.5).optional(),
+  answer: z.enum(["text", "json"]).optional(),
+});
+
+/** A situation can also be a door the player opens by saying a word — a
+ *  mode variables do not have (see WorldbookActivation in types/index.ts). */
+const worldbookOnlyActivationSchema = z.union([
+  worldbookActivationSchema,
+  z.object({
+    mode: z.literal("keywords"),
+    keywords: z.array(z.string()).default([]),
+    exclusive: z.boolean().optional(),
+    leaveKeywords: z.array(z.string()).optional(),
+  }),
+]);
+
 export const worldbookSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
   description: z.string().optional(),
+  // The sticky note (便签) — creator+studio-AI blackboard memo. Capped so the
+  // world snapshot it rides in stays a snapshot, not a novel.
+  note: z.string().max(4000).optional(),
+  // The scene file in rootComponent.files this module's interface lives in.
+  // Tooling only: the entry file routes at play time.
+  frontendFile: z.string().max(200).optional(),
   enabled: z.boolean().optional(),
-  activation: worldbookActivationSchema,
+  activation: worldbookOnlyActivationSchema,
+  // 模块总控 — see types/index.ts ModuleStation. Absent = plain content module.
+  station: moduleStationSchema.optional(),
+  // Where an AI lives: "card", a situation's id, or "unplaced" (off).
+  host: z.string().min(1).max(128).optional(),
+  narratorHere: z.boolean().optional(),
+  // Legacy fields, read for cards authored before the station model and
+  // normalised away by resolveStation. Never written.
+  runScoped: z.boolean().optional(),
+  runSummaryPrompt: z.string().max(2000).optional(),
+  memorySubscriptions: z
+    .array(
+      z.object({
+        sourceBookId: z.string().min(1).max(128),
+        as: z.enum(["history", "lore"]).optional(),
+        limit: z.number().int().min(1).max(20).optional(),
+      }),
+    )
+    .max(8)
+    .optional(),
   order: z.number().default(0),
   color: z.string().optional(),
   sourceBundleId: z.string().optional(),
@@ -379,6 +559,7 @@ export const customUIComponentSchema = z.object({
 
 export const worldSettingsSchema = z.object({
   maxTokens: z.number().int().positive().optional().default(12000),
+  speakerBubbles: z.boolean().optional(),
   maxContext: z.number().int().positive().optional().default(200000),
   temperature: z.number().min(0).max(2).optional().default(1.0),
   topP: z.number().min(0).max(1).optional(),
@@ -398,6 +579,14 @@ export const worldSettingsSchema = z.object({
   lorebookBudgetCap: z.number().int().min(0).optional().default(0),
   lorebookScanDepth: z.number().int().positive().optional().default(2),
   lorebookRecursionDepth: z.number().int().min(0).max(10).optional().default(0),
+  // Author-controlled history window: the story AI reads only the latest N
+  // messages of the current run. Absent = everything the budget allows.
+  historyLimit: z.number().int().min(1).max(500).optional(),
+  // Whose context budget counts on a send: the player's per-send override
+  // (default) or the card's own maxContext ("author").
+  contextPolicy: z.enum(["player", "author"]).optional(),
+  samplingPolicy: z.enum(["player", "author"]).optional(),
+  recommendedModel: z.string().max(200).optional(),
   layoutMode: z.enum(["split", "game-focus", "immersive"]).optional().default("split"),
   uiMode: z.enum(["chat", "per-reply", "persistent"]).optional().default("chat"),
 });
@@ -418,6 +607,7 @@ export const stateChannelSchema = z.enum(["variables", "messages", "streaming", 
 export const rootComponentSchema = z.object({
   id: z.string(),
   name: z.string().min(1),
+  assetLoading: z.enum(["automatic", "on-demand"]).optional(),
   entryFile: z.string().default("index.tsx"),
   files: z.record(z.string(), z.string()),
   updatedAt: z.string(),
@@ -431,6 +621,10 @@ export const rootComponentSchema = z.object({
       compilerVersion: z.number(),
     })
     .optional(),
+  /** Marks these files as the output of `uiDoc` rather than as hand-written
+   *  code. Its absence is what protects every card written before the
+   *  interface builder existed from being silently overwritten. */
+  generatedFrom: z.literal("uiDoc").optional(),
 });
 
 export const coverCropSettingsSchema = z.object({
@@ -463,6 +657,7 @@ export const worldDefinitionSchema = z.object({
   uiBlueprint: _uiBlueprintSchema.optional(),
   audioTracks: z.array(audioTrackSchema).default([]),
   sceneImages: z.array(sceneImageSchema).optional(),
+  backgrounds: z.array(backgroundImageSchema).optional(),
   bgmPlaylist: bgmPlaylistSchema.optional(),
   conditionalBGM: z.array(conditionalBGMSchema).optional(),
   continuity: z.object({
@@ -479,6 +674,24 @@ export const worldDefinitionSchema = z.object({
   lorebookEntries: z.array(lorebookEntrySchema).optional(),
   customUI: z.array(customUIComponentSchema).default([]),
   rootComponent: rootComponentSchema.optional(),
+  // A game card (see WorldGame in types/index.ts): kept through validation,
+  // or an import would turn the card back into a chat.
+  game: z.object({
+    path: z.string().max(500).optional(),
+    name: z.string().max(80).optional(),
+    inputs: z.array(z.string().max(200)).max(200).optional(),
+    outputs: z.array(z.string().max(200)).max(200).optional(),
+    ais: z.array(z.object({
+      name: z.string().max(80),
+      gets: z.string().max(1000).optional(),
+      returns: z.string().max(1000).optional(),
+      where: z.string().max(300).optional(),
+      book: z.string().max(200).optional(),
+    }).passthrough()).max(20).optional(),
+  }).passthrough().nullable().optional(),
+  /** The interface document. Never read by the runtime — save-time compiles it
+   *  into `rootComponent`, which stays the only visual-layer input. */
+  uiDoc: _uiDocSchema.optional(),
   customTags: z.array(z.string()).optional(),
   /** Map of custom tag name → Tailwind color class (e.g. "bg-rose-400/40").
    *  Default tags use TAG_COLORS in the app; missing custom tags fall back
@@ -488,6 +701,38 @@ export const worldDefinitionSchema = z.object({
   loreUiBindings: z.array(loreUiBindingSchema).optional(),
   worldbooks: z.array(worldbookSchema).optional(),
   editorMode: z.enum(["simple", "advanced"]).optional(),
+  // 回复处理 — see parser/reply-rules.ts.
+  replyRules: z.array(z.object({
+    id: z.string().min(1).max(80),
+    name: z.string().max(80).optional(),
+    enabled: z.boolean().optional(),
+    match: z.union([z.object({ tag: z.string().min(1).max(60) }), z.object({ pattern: z.string().min(1).max(500) })]),
+    hide: z.boolean().optional(),
+    to: z.array(z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("fields") }),
+      z.object({ kind: z.literal("variable"), variableId: z.string().min(1).max(200), op: z.enum(["set", "append", "push"]).optional() }),
+      z.object({ kind: z.literal("event"), name: z.string().max(120).optional() }),
+      z.object({ kind: z.literal("channel"), channel: z.string().min(1).max(80) }),
+    ])).max(8).optional(),
+  })).max(30).optional(),
+  graphLayout: z
+    .object({
+      version: z.number(),
+      cardTitle: z.string().max(80).optional(),
+      nodes: z.record(
+        z.object({
+          x: z.number(),
+          y: z.number(),
+          collapsed: z.boolean().optional(),
+          pinned: z.boolean().optional(),
+          // A card-level object not yet put in a module: drawn on its own
+          // on the canvas instead of as a shared row in every module.
+          loose: z.boolean().optional(),
+        }),
+      ),
+      notes: z.array(z.object({ id: z.string(), x: z.number(), y: z.number(), w: z.number(), h: z.number(), text: z.string(), on: z.string().max(300).optional(), targets: z.array(z.string().max(300)).max(50).optional(), collapsed: z.boolean().optional(), color: z.enum(["yellow", "pink", "blue", "green"]).optional() })).optional(),
+    })
+    .optional(),
   settings: worldSettingsSchema,
 });
 

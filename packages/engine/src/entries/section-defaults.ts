@@ -7,6 +7,7 @@ interface SectionDefaults {
   alwaysSend: boolean;
   depth?: number;
   role?: WorldEntry["role"];
+  roleBeforeExample?: WorldEntry["roleBeforeExample"];
 }
 
 /**
@@ -43,9 +44,16 @@ export function deriveSectionDefaults(section: EntrySection): SectionDefaults {
  * Use `deriveSectionDefaults` only when CREATING a fresh entry.
  */
 export function deriveSectionDefaultsForEntry(
-  entry: Pick<WorldEntry, "variableBound" | "conditions">,
+  entry: Pick<WorldEntry, "variableBound" | "conditions"> & Partial<Pick<WorldEntry, "role" | "roleBeforeExample">>,
   section: EntrySection,
 ): SectionDefaults {
-  const defaults = deriveSectionDefaults(section);
-  return isVariableBoundEntry(entry) ? { ...defaults, alwaysSend: false } : defaults;
+  const base = deriveSectionDefaults(section);
+  const defaults = isVariableBoundEntry(entry) ? { ...base, alwaysSend: false } : base;
+  // Into the examples: remember what it was. Out of them: be that again — an
+  // "example" outside the examples section is read by nothing.
+  if (section === "examples") {
+    return entry.role && entry.role !== "example" ? { ...defaults, roleBeforeExample: entry.role } : defaults;
+  }
+  if (entry.role === "example") return { ...defaults, role: entry.roleBeforeExample ?? "custom", roleBeforeExample: undefined };
+  return defaults;
 }

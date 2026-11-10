@@ -1,7 +1,7 @@
 const PUBLIC_PREFIXES = ["worlds/", "reports/", "studio-chat/", "users/", "bundles/", "dm/", "community/"];
 /** Both CDN entry points apply this, including cached ID lookups. */
 export function isPublicCdnKey(key: string): boolean {
-    return !key.includes("..") && !key.includes("\\") && PUBLIC_PREFIXES.some(prefix => key.startsWith(prefix));
+    return !key.includes("..") && !key.includes("\\") && !key.includes(".cover-previews/") && PUBLIC_PREFIXES.some(prefix => key.startsWith(prefix));
 }
 
 /** Validate both lookup sources before a key can be cached or streamed. */

@@ -12,10 +12,27 @@ Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
 } });
 const vite = await createServer({
   root: fileURLToPath(new URL("../..", import.meta.url)),
-  appType: "custom", logLevel: "silent", server: { middlewareMode: true },
+  configFile: false, appType: "custom", logLevel: "silent",
+  resolve: { alias: {
+    "@": fileURLToPath(new URL("..", import.meta.url)),
+    "@yumina/engine": fileURLToPath(new URL("../../../engine/src/index.ts", import.meta.url)),
+  } },
+  server: { middlewareMode: true, watch: null },
 });
 const { useEditorStore } = await vite.ssrLoadModule("/src/stores/editor.ts") as typeof import("./editor");
-after(async () => { useEditorStore.getState().stopAutosave(); await vite.close(); });
+const { feedback } = await vite.ssrLoadModule("/src/lib/feedback.tsx") as typeof import("../lib/feedback");
+// This verifies JSON state semantics; real feedback rendering has its own tests.
+const originalError = feedback.error;
+feedback.error = () => () => {};
+
+after(async () => {
+  try {
+    useEditorStore.getState().stopAutosave();
+  } finally {
+    feedback.error = originalError;
+    await vite.close();
+  }
+});
 
 test("undo/redo restores incomplete JSON, formatting and runtime values together", async () => {
   const initial = '{ "z": 2, "a": 1 }';

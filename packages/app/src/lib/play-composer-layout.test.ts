@@ -50,10 +50,10 @@ test("tight toolbars never hide the mushie balance", () => {
 
 test("in the model pill the name gives way, the balance and chevron do not", () => {
   // Name truncates but keeps a readable minimum; the balance tag is shrink-0.
-  assert.match(modelPickerSource, /min-w-\[2\.5em\] truncate text-\[11px\] font-medium text-white\/75/);
-  assert.match(toolMenuSource, /min-w-\[2\.5em\] truncate text-\[11px\] font-medium text-white\/75/);
+  assert.match(modelPickerSource, /min-w-\[2\.5em\] truncate text-\[11px\] font-medium text-foreground\/75/);
+  assert.match(toolMenuSource, /min-w-\[2\.5em\] truncate text-\[11px\] font-medium text-foreground\/75/);
   assert.match(modelPickerSource, /inline-flex shrink-0 items-center gap-0\.5 text-\[11px\] font-semibold text-\[#f3d361\]/);
-  assert.match(modelPickerSource, /<ChevronRight className="h-3 w-3 shrink-0 text-white\/45/);
+  assert.match(modelPickerSource, /<ChevronRight className="h-3 w-3 shrink-0 text-foreground\/45/);
   // The full model name stays reachable while truncated.
   assert.match(modelPickerSource, /title=\{displayName\}/);
 });

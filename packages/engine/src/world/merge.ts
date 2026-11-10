@@ -155,6 +155,7 @@ function mergeById(
 
 interface RootComponentLike {
   entryFile?: string;
+  assetLoading?: "automatic" | "on-demand";
   files?: Record<string, string>;
   compiled?: unknown;
   [k: string]: unknown;
@@ -204,9 +205,15 @@ function mergeRootComponent(
   }
 
   const entryFile = base && local.entryFile === base.entryFile ? server.entryFile : local.entryFile;
+  const localLoadingChanged = local.assetLoading !== base?.assetLoading;
+  const serverLoadingChanged = server.assetLoading !== base?.assetLoading;
+  if (localLoadingChanged && serverLoadingChanged && local.assetLoading !== server.assetLoading) {
+    conflicts.push({ collection: "rootComponent", id: "assetLoading", reason: "both-edited" });
+  }
+  const assetLoading = localLoadingChanged ? local.assetLoading : server.assetLoading;
   // Drop the cached compile output — files changed, so it must be recompiled on
   // save (the editor recompiles rootComponent before persisting).
-  return { ...server, ...local, entryFile, files: mergedFiles, compiled: undefined };
+  return { ...server, ...local, entryFile, assetLoading, files: mergedFiles, compiled: undefined };
 }
 
 /** Collections merged by entity `id`. */
@@ -217,6 +224,7 @@ const ID_COLLECTIONS = [
   "reactions",
   "audioTracks",
   "sceneImages",
+  "backgrounds",
   "entryFolders",
   "customUI",
 ] as const;
@@ -224,7 +232,9 @@ const ID_COLLECTIONS = [
 /**
  * Other top-level fields, merged with base-aware "local wins if the user changed
  * it, else take server". Coarse but safe: a field only the agent changed flows
- * through from server; a field the user changed is preserved.
+ * through from server; a field the user changed is preserved. When both sides
+ * changed it differently, report the conflict so the caller retains the other
+ * value for recovery, just as it does for an id-keyed entity.
  */
 const FIELD_KEYS = [
   "name",
@@ -292,7 +302,11 @@ export function mergeWorldDefinition(
     const lv = (local as unknown as Record<string, unknown>)[key];
     const bv = (b as unknown as Record<string, unknown>)[key];
     const sv = (server as unknown as Record<string, unknown>)[key];
-    merged[key] = deepEqual(lv, bv) ? sv : lv;
+    const localChanged = !deepEqual(lv, bv);
+    if (localChanged && !deepEqual(sv, bv) && !deepEqual(lv, sv)) {
+      conflicts.push({ collection: "field", id: key, reason: "both-edited" });
+    }
+    merged[key] = localChanged ? lv : sv;
   }
 
   return { merged: merged as unknown as WorldDefinition, conflicts };

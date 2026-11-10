@@ -56,7 +56,7 @@ test("correction routing enforces protected cards, official plan access and no s
 });
 
 test("Guard model defaults preserve hosted paid choice and make imported local chats BYOK-only", () => {
-  assert.equal(resolveGuardModelSelection(null, "custom/story", true), "official::google/gemini-2.5-flash-lite");
+  assert.equal(resolveGuardModelSelection(null, "custom/story", true), "official::google/gemini-3.1-flash-lite");
   assert.equal(resolveGuardModelSelection("official::premium/model", "custom/story", true), "official::premium/model");
   assert.equal(resolveGuardModelSelection(null, "custom/story", false), "private::custom/story");
   assert.equal(resolveGuardModelSelection("official::premium/model", "custom/story", false), "private::custom/story");
@@ -75,7 +75,7 @@ test("local Guard rejects official selections and forces BYOK even with imported
     const resolved = await resolveGuardModel(owner, "custom/local-repair", false);
     assert.equal(resolved.apiKeyTier, "byok");
     assert.equal(resolved.model, "custom/local-repair");
-    await assert.rejects(resolveGuardModel(owner, "official::google/gemini-2.5-flash-lite", false), /unavailable in this edition/);
+    await assert.rejects(resolveGuardModel(owner, "official::google/gemini-3.1-flash-lite", false), /unavailable in this edition/);
     await assert.rejects(resolveGuardModel(owner, "official::openrouter/free", false), /unavailable in this edition/);
     await assert.rejects(resolveGuardModel(owner, "custom/local-repair", true), /unavailable in this edition/);
   } finally { await db.delete(user).where(eq(user.id, owner)); }

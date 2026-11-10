@@ -70,6 +70,17 @@ describe("diffWorldSchemas", () => {
     expect(diff.changes).toContainEqual({ kind: "meta", op: "modified", id: "name", name: "name", fields: [{ field: "name", before: "A", after: "B" }] });
   });
 
+  it("carries the content of added and removed items when detail=true", () => {
+    const prev = w({ entries: [{ id: "old", name: "旧", content: "被删掉的" } as any], rootComponent: { files: { "gone.tsx": "bye" } } as any });
+    const next = w({ entries: [{ id: "new", name: "新", content: "新写的" } as any], rootComponent: { files: { "panel.tsx": "hi" } } as any });
+    const diff = diffWorldSchemas(prev, next, { detail: true });
+    expect(diff.changes.find((c) => c.id === "new")!.fields).toContainEqual({ field: "content", before: "", after: "新写的" });
+    expect(diff.changes.find((c) => c.id === "old")!.fields).toContainEqual({ field: "content", before: "被删掉的", after: "" });
+    expect(diff.changes.find((c) => c.id === "panel.tsx")!.fields).toEqual([{ field: "panel.tsx", before: "", after: "hi" }]);
+    expect(diff.changes.find((c) => c.id === "gone.tsx")!.fields).toEqual([{ field: "gone.tsx", before: "bye", after: "" }]);
+    expect(diffWorldSchemas(prev, next).changes.every((c) => c.fields === undefined)).toBe(true);
+  });
+
   it("returns empty diff for identical schemas", () => {
     const a = w({ entries: [{ id: "e1", name: "x", content: "c" } as any] });
     expect(diffWorldSchemas(a, a).changes).toEqual([]);

@@ -125,6 +125,16 @@ export function cardImageUrl(
 /** A cover key marked animated at upload (`<uuid>.anim.webp`), or any GIF. */
 const ANIMATED_KEY_RE = /(\.gif|\.anim\.[a-z0-9]+)$/i;
 
+/** The public image is a bounded poster; its video is served by cover-preview. */
+export function isMotionCoverRef(ref: string | null | undefined): boolean {
+  if (!ref) return false;
+  const match = /\/cdn\/key\/([A-Za-z0-9_-]+)/.exec(ref);
+  try {
+    const key = match ? atob(match[1]!.replace(/-/g, "+").replace(/_/g, "/")) : ref.split("?")[0]!;
+    return key.endsWith(".motion.anim.image");
+  } catch { return false; }
+}
+
 /**
  * Whether an image ref points at an animated cover. API payloads carry covers
  * as `/cdn/key/<base64url key>`, so the key (and its extension) is decoded
@@ -158,6 +168,16 @@ export function thumbnailImageUrl(ref: string | null | undefined, width = 800): 
 export function originalImageUrl(url: string): string {
   const m = /^(.*?)\/cdn-cgi\/image\/[^/]+(\/cdn\/.*)$/.exec(url);
   return m ? `${m[1]}${m[2]}` : url;
+}
+
+/** Managed card motion is discovered from bytes, including unmarked legacy WebP assets. */
+export function coverPreviewUrl(ref: string): string | undefined {
+  const url = resolveImageUrl(ref);
+  const base = cdnBase();
+  if (!url || (!servesCloudflareImages(base) && !isMotionCoverRef(ref))) return undefined;
+  const path = url.startsWith("/cdn/") ? url : base && url.startsWith(`${base}/cdn/`) ? url.slice(base.length) : "";
+  if (!/^\/cdn\/(?:key\/[A-Za-z0-9_-]+|[0-9a-f-]{36})$/i.test(path)) return undefined;
+  return `${base}${path}/cover-preview`;
 }
 
 /**

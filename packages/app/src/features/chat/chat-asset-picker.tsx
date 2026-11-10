@@ -12,9 +12,11 @@ import { toast } from "sonner";
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
-export function ChatAssetPicker({ onSelect, onClose }: {
+export function ChatAssetPicker({ onSelect, onClose, addLabel }: {
   onSelect: (image: ChatImageAttachment) => void;
   onClose: () => void;
+  /** The confirm button's text where the picture isn't going into a chat message. */
+  addLabel?: string;
 }) {
   const { i18n } = useTranslation();
   const copy = chatImageCopy(i18n.language);
@@ -103,7 +105,7 @@ export function ChatAssetPicker({ onSelect, onClose }: {
         </>}
       </div>
       {total > 24 && <div className="flex items-center justify-center gap-4 border-t border-border px-3 py-2 text-xs"><button type="button" disabled={page === 1 || loading || uploading} onClick={() => { setPage(value => value - 1); setSelected(null); }} className="min-h-9 disabled:opacity-40">{copy.previous}</button><span>{page} / {Math.ceil(total / 24)}</span><button type="button" disabled={page * 24 >= total || loading || uploading} onClick={() => { setPage(value => value + 1); setSelected(null); }} className="min-h-9 disabled:opacity-40">{copy.next}</button></div>}
-      <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-3"><span className="text-xs text-muted-foreground" aria-live="polite">{selected ? copy.selected : copy.none}</span><button type="button" disabled={!selected || uploading || loading || error} onClick={() => { if (selected) onSelect({ type: "image", assetId: selected.id, url: selected.url, mimeType: selected.mimeType ?? "image/png", name: selected.filename }); }} className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40">{copy.add}</button></div>
+      <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-3"><span className="text-xs text-muted-foreground" aria-live="polite">{selected ? copy.selected : copy.none}</span><button type="button" disabled={!selected || uploading || loading || error} onClick={() => { if (selected) onSelect({ type: "image", assetId: selected.id, url: selected.url, mimeType: selected.mimeType ?? "image/png", name: selected.filename }); }} className="rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40">{addLabel ?? copy.add}</button></div>
     </DialogContent>
   </Dialog>;
 }

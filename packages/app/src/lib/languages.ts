@@ -99,3 +99,56 @@ export function variantRowLabels(variants: VariantLike[]): Map<string, string> {
   }
   return out;
 }
+
+/**
+ * The writing system a card's text is in, as the language code it most likely
+ * means — enough to tell "this English version still reads in Chinese", not a
+ * language identifier. Latin text comes back as "latin": telling English from
+ * Spanish on a few lines is guesswork, and a wrong guess would nag a finished
+ * translation.
+ */
+export function guessTextScript(text: string): "zh" | "ja" | "ko" | "ru" | "ar" | "latin" | null {
+  const sample = text.slice(0, 20000);
+  const count = (re: RegExp) => (sample.match(re) ?? []).length;
+  const kana = count(/[぀-ヿ]/g);
+  const han = count(/[一-鿿]/g);
+  const hangul = count(/[가-힯]/g);
+  const cyrillic = count(/[Ѐ-ӿ]/g);
+  const arabic = count(/[؀-ۿ]/g);
+  const latin = count(/[A-Za-z]/g);
+  const scores: Array<[ReturnType<typeof guessTextScript>, number]> = [
+    ["ja", kana * 3 + (kana > 0 ? han : 0)],
+    ["zh", kana > 0 ? 0 : han * 2],
+    ["ko", hangul * 2],
+    ["ru", cyrillic],
+    ["ar", arabic],
+    ["latin", latin / 4],
+  ];
+  scores.sort((a, b) => b[1] - a[1]);
+  return scores[0]![1] > 8 ? scores[0]![0] : null;
+}
+
+/** Whether a variant tagged `language` still reads in another script — i.e.
+ *  it was copied from a sibling and not translated yet. */
+export function variantNeedsTranslation(language: string | null | undefined, text: string): boolean {
+  if (!language) return false;
+  const script = guessTextScript(text);
+  if (!script) return false;
+  const expected = language.startsWith("zh") ? "zh" : ["ja", "ko", "ru", "ar"].includes(language) ? language : "latin";
+  return script !== expected;
+}
+
+/** What a variant switcher's closed button says: the current version's
+ *  language (the thing that tells versions apart), then its own label. */
+export function currentVariantTrigger(
+  variants: VariantLike[],
+  currentId: string | null | undefined,
+  currentLabel: string | null | undefined,
+  fallback: string,
+): string {
+  const current = variants.find((v) => v.id === currentId);
+  const language = current?.language ? LANGUAGE_LABELS[current.language] ?? current.language : "";
+  const label = currentLabel?.trim() || current?.variantLabel?.trim() || "";
+  if (language && label && label !== language) return `${language} · ${label}`;
+  return language || label || fallback;
+}

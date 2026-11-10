@@ -1,4 +1,19 @@
 {
+  "mediaGuidelines": {
+    "effectiveNotice": "Updated rules take effect Oct 24, 2026, 11:59 p.m. Pacific.",
+    "publicTitle": "Cover & preview rules",
+    "assetsTitle": "Before using these assets",
+    "profileTitle": "Public profile image rules",
+    "limited": "Limited:",
+    "limitless": "Limitless:",
+    "limitedRule": "Every asset must be safe for work and non-suggestive, including inside the game.",
+    "limitlessPublicRule": "Covers and previews: no nudity, sexual acts, or graphic gore. Cover intimate areas with opaque clothing.",
+    "limitlessAssetsRule": "Permitted adult media stays inside age-restricted games. Keep covers and public previews non-explicit.",
+    "profileSafe": "Keep avatars and banners safe for work and non-suggestive.",
+    "profileExplicit": "No nudity, sexual acts, or graphic gore, even if your worlds are Limitless.",
+    "blurRule": "Blur and censor bars are not exceptions.",
+    "fullRules": "Full image rules"
+  },
   "imageViewer": {
     "zoomOut": "Zoom out",
     "resetZoom": "Reset zoom",
@@ -22,13 +37,14 @@
     "partner": "Promotion analytics",
     "messages": "Messages",
     "installApp": "Install App",
-    "prompts": "Prompts"
+    "prompts": "Prompts",
+    "updates": "Updates"
   },
   "tabTitle": {
     "home": "Yumina",
     "discover": "Discover",
     "community": "Community",
-    "bundles": "Bundles",
+    "bundles": "Modules & Prompts",
     "create": "Create",
     "library": "Library",
     "quests": "Quests",
@@ -39,7 +55,8 @@
     "creator": "Creator",
     "signIn": "Sign in",
     "createAccount": "Create account",
-    "krew": "Krew.io"
+    "krew": "Krew.io",
+    "updates": "Updates"
   },
   "mobile": {
     "menu": "Menu",
@@ -53,13 +70,17 @@
   },
   "search": {
     "hub": "Search worlds, characters, stories...",
-    "library": "Search library..."
+    "library": "Search library...",
+    "bundles": "Search card modules, creators, or features..."
   },
   "aria": {
     "showSidebar": "Show sidebar",
     "hideSidebar": "Hide sidebar",
     "closeNav": "Close navigation menu",
-    "openNav": "Open navigation menu"
+    "openNav": "Open navigation menu",
+    "pagination": "Pagination",
+    "prevPage": "Previous page",
+    "nextPage": "Next page"
   },
   "auth": {
     "signInToContinue": "Sign in to continue",
@@ -83,7 +104,10 @@
       "sendMessages": "send messages",
       "viewSensitiveContent": "view Limitless content",
       "writeReviews": "write reviews"
-    }
+    },
+    "signUpToContinue": "Sign up to continue",
+    "signUpFree": "Sign up free",
+    "haveAccountSignIn": "I have an account — log in"
   },
   "hint": {
     "sidebarCollapse": "Hover the left edge to show the menu"
@@ -306,7 +330,8 @@
     },
     "giftBonusExpires": "{{amount}} Bonus expires {{date}}",
     "promptPackApproved": "Your prompt \"{{packTitle}}\" was approved and is now in the Prompt Plaza",
-    "promptPackRejected": "Your prompt \"{{packTitle}}\" wasn't approved. See why in Library › Prompts"
+    "promptPackRejected": "Your prompt \"{{packTitle}}\" wasn't approved. See why in Library › Prompts",
+    "planGiftReceived": "You received a {{plan}} plan gift for {{days}} days."
   },
   "time": {
     "justNow": "just now",
@@ -491,7 +516,7 @@
   "languageLabel": "Language",
   "creatorHub": "Creator Hub",
   "openingStandalone": "Opening the standalone creator site...",
-  "loadingStudio": "Loading Studio...",
+  "loadingStudio": "Opening the editor…",
   "friends": {
     "title": "Friends",
     "subtitle": "People you follow who follow you back",
@@ -531,5 +556,126 @@
       "popupFailed": "Sign-in didn't complete. Close this window and try again.",
       "backToGame": "Back to Krew.io"
     }
+  },
+  "planAlert": {
+    "cancelsOn": "Your subscription cancels on {{date}}. You keep your benefits until then.",
+    "downgradesOn": "Your plan downgrades on {{date}}.",
+    "giftExpiresOn": "Your gift plan expires on {{date}}.",
+    "dismiss": "Dismiss"
+  },
+  "studioNotYours": "This world isn't yours to edit — you can only open cards you created.",
+  "studioLoadFailed": "Couldn't load this world. Check your connection and try again.",
+  "backToMyWorlds": "My worlds",
+  "userMute": {
+    "until": "Muted until {{date}}",
+    "permanent": "Permanently muted",
+    "help": "You cannot post, comment, publish updates, or send private messages while muted. You can still browse and play stories."
+  },
+  "communityMutedPermanent": "You can no longer post in the community or comments.",
+  "notFound": {
+    "title": "Page not found",
+    "description": "The link may be mistyped, or the page has moved.",
+    "back": "Go back",
+    "home": "Back to Discover",
+    "library": "Back to Library"
+  },
+  "macroYou": "you",
+  "sensitiveCover": {
+    "hidden": "Cover hidden",
+    "description": "This cover may be sensitive.",
+    "show": "Show this cover",
+    "settings": "Media settings",
+    "hide": "Hide cover"
+  },
+  "updates": {
+    "title": "Updates",
+    "intro": "What's changed in Yumina.",
+    "filterLabel": "Filter by area",
+    "all": "All",
+    "empty": "No updates yet.",
+    "emptyArea": "Nothing in this area yet.",
+    "error": "Couldn't load the updates.",
+    "retry": "Try again",
+    "unrestrictedOnly": "Unrestricted",
+    "internal": "Internal",
+    "internalNote": "You're an admin, so you also see team entries marked Internal. Nobody else does.",
+    "copyLink": "Copy link",
+    "copied": "Link copied",
+    "admin": {
+      "new": "New update",
+      "edit": "Edit",
+      "hide": "Hide",
+      "unhide": "Unhide",
+      "delete": "Delete",
+      "restore": "Restore repo version",
+      "history": "History",
+      "badgeHidden": "Hidden",
+      "badgeEdited": "Edited on web",
+      "badgeWebOnly": "Added on web",
+      "confirmDelete": "Delete this update for good? Its history is kept.",
+      "confirmRestore": "Discard the web changes and show the repo version again?",
+      "actionFailed": "That didn't work. Please try again.",
+      "editorNew": "New update",
+      "editorEdit": "Edit update",
+      "fromFileNote": "This entry comes from the repo. Saving makes the web version win; you can restore the repo version any time.",
+      "date": "Date",
+      "slug": "Short name (used in the link)",
+      "slugHint": "Lowercase letters, digits and dashes, e.g. new-editor",
+      "link": "Link",
+      "audience": "Who can see it",
+      "audiencePublic": "Everyone",
+      "audienceInternal": "Team only (internal)",
+      "audienceUnrestricted": "Unrestricted players",
+      "areas": "Areas",
+      "entryTitle": "Title",
+      "body": "Body (Markdown, one · bullet per line)",
+      "preview": "Preview",
+      "previewEmpty": "The preview shows up here as you write.",
+      "required": "required",
+      "translate": "Auto-translate zh-Hant, es, ja",
+      "translating": "Translating…",
+      "translateNeeds": "Fill in the Chinese and English title and body first.",
+      "translated": "Translations filled in. Check them before saving.",
+      "translateOverwrite": "This replaces what's already in zh-Hant, es and ja. Continue?",
+      "translateFailed": "Translation failed: {{message}}",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "loadingEntry": "Loading…",
+      "errDate": "Pick a valid date.",
+      "errAudience": "Choose who can see it.",
+      "errAreas": "Pick at least one area.",
+      "errTitle": "The {{lang}} title is required.",
+      "errBody": "The {{lang}} body is required.",
+      "errId": "That short name is invalid or already taken (lowercase letters, digits, dashes).",
+      "errConflict": "Someone else just changed this entry. Close and reopen it, then edit again.",
+      "errGeneric": "Couldn't save. Please try again.",
+      "historyTitle": "Change history",
+      "historyEmpty": "No web changes to this entry yet.",
+      "actCreate": "Created",
+      "actEdit": "Edited",
+      "actHide": "Hidden",
+      "actUnhide": "Unhidden",
+      "actRestore": "Restored repo version",
+      "actDelete": "Deleted",
+      "more": "More actions",
+      "style": "Style",
+      "highlightToggle": "Highlight: slightly larger title, announced once on Discover",
+      "kindStandard": "Standard",
+      "kindRoundup": "Roundup of fixes (compact, folds after 4)",
+      "copyLink": "Copy link"
+    },
+    "new": "New",
+    "expandAll": "Show all {{count}}",
+    "collapse": "Show less",
+    "footer": "The update log starts in September 2026",
+    "bannerNew": "New",
+    "bannerView": "See what's new",
+    "bannerDismiss": "Dismiss",
+    "unseen": "New updates",
+    "showEarlier": "Show earlier updates · {{count}}",
+    "subtitle": "Every change, written down here.",
+    "statLatest": "Last update",
+    "statCount": "<b>{{count}}</b> updates since {{month}}"
   }
 }

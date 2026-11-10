@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildContinuityPlan, applyContinuityPlan, CONTINUITY_THRESHOLDS, CONTINUITY_KEEP, CONTINUITY_NONE, CONTINUITY_PLAYLIST } from "./index.js";
+import { buildContinuityPlan, applyContinuityPlan, CONTINUITY_THRESHOLDS, CONTINUITY_EMPTY, CONTINUITY_KEEP, CONTINUITY_NONE, CONTINUITY_PLAYLIST } from "./index.js";
 import { filterAiEffects, isContinuityEligible, isContinuityOwned } from "../state/variable-activation.js";
 import type { GameState, WorldDefinition } from "../types/index.js";
 
@@ -149,6 +149,63 @@ describe("apply", () => {
       var__loc: { type: "choice", choice: "火星", probabilities: { 火星: 0.99 }, confidence: 0.99 },
     }, 5, {});
     expect(meh.effects).toEqual([]);
+  });
+
+  it("an unsure judge moves a number only when the story model wrote the same direction, by the judge's amount", () => {
+    const leaning = { var__hp: { type: "choice" as const, probabilities: { "-10": 0.6, "0": 0.4 } } }; // −6, direction 0.6
+    const hp = (story?: Record<string, { variableId: string; operation: "add" | "subtract" | "set" | "multiply"; value: number }>) => {
+      const r = applyContinuityPlan(plan(), leaning, 5, {}, undefined, story ? { story } : undefined);
+      return { eff: r.effects.find((e) => e.variableId === "hp"), d: r.decisions.find((d) => d.key === "var__hp")! };
+    };
+    expect(hp().eff).toBeUndefined();
+    expect(hp().d.reason).toBe("below-threshold");
+    const agreed = hp({ hp: { variableId: "hp", operation: "subtract", value: 12 } });
+    expect(agreed.eff).toEqual({ variableId: "hp", operation: "set", value: 74 }); // the judge's −6, not the story's −12
+    expect(agreed.d).toMatchObject({ applied: true, reason: "agreed" });
+    expect(hp({ hp: { variableId: "hp", operation: "set", value: 70 } }).eff?.value).toBe(74);
+    expect(hp({ hp: { variableId: "hp", operation: "add", value: 5 } }).eff).toBeUndefined();
+    expect(hp({ hp: { variableId: "hp", operation: "set", value: 80 } }).eff).toBeUndefined();
+    expect(hp({ hp: { variableId: "hp", operation: "multiply", value: 0.5 } }).eff).toBeUndefined();
+    const faint = applyContinuityPlan(plan(), { var__hp: { type: "choice", probabilities: { "-10": 0.4, "0": 0.6 } } }, 5, {}, undefined,
+      { story: { hp: { variableId: "hp", operation: "subtract", value: 10 } } });
+    expect(faint.effects.find((e) => e.variableId === "hp")).toBeUndefined();
+  });
+
+  it("a string with an empty option can be cleared back to \"\" (DanMachi: scene stuck on the tavern)", () => {
+    const w = world({ variables: [{ id: "scene", name: "情景", type: "string", defaultValue: "", precise: true, options: ["", "dungeon", "hostess"] }] } as Partial<WorldDefinition>);
+    const p = buildContinuityPlan(w, state({ scene: "hostess" }), input())!;
+    const criteria = Object.keys((p.questions["var__scene"] as { criteria: Record<string, string> }).criteria);
+    expect(criteria).toContain(CONTINUITY_EMPTY);
+    expect(criteria).not.toContain("");
+    const cleared = applyContinuityPlan(p, { var__scene: { type: "choice", choice: CONTINUITY_EMPTY, probabilities: { [CONTINUITY_EMPTY]: 0.95 }, confidence: 0.95 } }, 5, {});
+    expect(cleared.effects).toEqual([{ variableId: "scene", operation: "set", value: "" }]);
+    const agreed = applyContinuityPlan(p, { var__scene: { type: "choice", choice: CONTINUITY_EMPTY, probabilities: { [CONTINUITY_EMPTY]: 0.6, [CONTINUITY_KEEP]: 0.4 }, confidence: 0.6 } }, 5, {}, undefined,
+      { story: { scene: { variableId: "scene", operation: "set", value: "" } } });
+    expect(agreed.effects).toEqual([{ variableId: "scene", operation: "set", value: "" }]);
+    // a variable without an empty option never offers one
+    const loc = Object.keys((plan().questions["var__loc"] as { criteria: Record<string, string> }).criteria);
+    expect(loc).not.toContain(CONTINUITY_EMPTY);
+  });
+
+  it("an unsure judge takes a string option the story model also chose; booleans and keep never take that path", () => {
+    const unsure = {
+      var__loc: { type: "choice" as const, choice: "后山", probabilities: { 后山: 0.6, [CONTINUITY_KEEP]: 0.4 }, confidence: 0.6 },
+      var__wanted: { type: "noul" as const, noul: 0.6 },
+    };
+    const same = applyContinuityPlan(plan(), unsure, 5, {}, undefined, { story: {
+      loc: { variableId: "loc", operation: "set", value: "后山" },
+      wanted: { variableId: "wanted", operation: "set", value: true },
+    } });
+    expect(same.effects).toEqual([{ variableId: "loc", operation: "set", value: "后山" }]);
+    expect(same.decisions.find((d) => d.key === "var__loc")!.reason).toBe("agreed");
+    const other = applyContinuityPlan(plan(), unsure, 5, {}, undefined, { story: { loc: { variableId: "loc", operation: "set", value: "客房" } } });
+    expect(other.effects).toEqual([]);
+    const keep = applyContinuityPlan(plan(), { var__loc: { type: "choice", choice: CONTINUITY_KEEP, probabilities: { [CONTINUITY_KEEP]: 0.6, 后山: 0.4 }, confidence: 0.6 } }, 5, {}, undefined,
+      { story: { loc: { variableId: "loc", operation: "set", value: "后山" } } });
+    expect(keep.effects).toEqual([]);
+    const faint = applyContinuityPlan(plan(), { var__loc: { type: "choice", choice: "后山", probabilities: { 后山: 0.45, 客房: 0.3 }, confidence: 0.45 } }, 5, {}, undefined,
+      { story: { loc: { variableId: "loc", operation: "set", value: "后山" } } });
+    expect(faint.effects).toEqual([]);
   });
 
   it("switches BGM only with a margin over keep and after the cooldown; remembers the switch", () => {

@@ -59,27 +59,28 @@
     "memoryCostNotice": "Las actualizaciones de memoria cuestan algo. Cambia al modelo gratuito cuando quieras desde el chat."
   },
   "catalog": {
-    "state-update-guard": {
-      "name": "Protección de estado (Beta)",
-      "shortDescription": "Comprueba los cambios de la IA antes de guardar la respuesta. Si falta el formato o es incorrecto, intenta corregirlo una vez.",
-      "longDescription": "Ayuda a que los valores de la historia sigan actualizándose cuando la IA usa un formato incorrecto. Funciona con las tarjetas existentes. Cada respuesta debe incluir cambios válidos o indicar expresamente que no hay cambios. Si la comprobación o la corrección falla, se conserva el estado anterior y no se cobra esa respuesta. Se comprueba el formato, no la exactitud de la historia.\n\nLas comprobaciones son gratis. Solo las correcciones guardadas con modelos de pago de Yumina cuestan mushies. El modelo predeterminado es Gemini 2.5 Flash Lite, como en Memoria. Pulsa «Usar modelo gratuito» en el panel para corregir gratis. Con tu propia clave de API no se descuentan mushies de Yumina, pero tu proveedor puede cobrar.\n\nAbre el panel desde la barra del chat para activar o desactivar la función, elegir un modelo de corrección y ver los cambios. Al desactivarla se recuperan las actualizaciones normales de la tarjeta. Desinstalarla no borra el estado ni el historial guardados. Los cambios de instalación pueden tardar hasta 60 segundos en aplicarse.",
+    "live-canon": {
+      "name": "Lore Shift (Beta)",
+      "shortDescription": "Actualiza el estado y el lore que el autor permita mientras juegas. Los cambios quedan en esta sesión.",
+      "longDescription": "Lore Shift añade una pequeña capa de edición controlada por el autor a una historia en curso. Usa Estado de la historia para edad, lugar, contadores o indicadores, de modo que reaccionen las reglas existentes. Usa Lore de sesión para hechos narrativos y correcciones autorizadas.\n\nCada cambio pertenece solo a la partida actual. Nunca modifica la tarjeta original ni las historias de otros jugadores. Si el autor cierra la edición, Lore Shift muestra una explicación sin exponer el editor ni sus datos.",
       "tags": {
+        "lore": "lore",
         "state": "estado",
-        "reliability": "fiabilidad",
-        "beta": "beta"
+        "session": "sesión",
+        "author-controlled": "control del autor"
       },
       "explanations": [
         {
-          "title": "Compatible con tus tarjetas",
-          "body": "Usa las variables y los comandos que ya tiene la tarjeta. No hace falta reescribir las instrucciones ni la interfaz."
+          "title": "Estado de la historia",
+          "body": "Cambia hechos tipados permitidos, como edad o lugar, para que reaccionen las reglas existentes."
         },
         {
-          "title": "Resultados claros",
-          "body": "Consulta si una respuesta necesitó corrección y qué valores cambiaron. La ausencia de cambios también debe confirmarse. Las reglas automáticas del juego siguen funcionando."
+          "title": "Lore de sesión",
+          "body": "Corrige lore autorizado o añade un hecho sin tocar la tarjeta original."
         },
         {
-          "title": "Solo corrige cuando hace falta",
-          "body": "Las respuestas válidas no requieren otra llamada al modelo. Las incorrectas reciben un intento con el modelo elegido. Las correcciones guardadas con modelos de pago de Yumina cuestan mushies; los modelos gratuitos y tu propia API no los consumen. Tu proveedor de API puede cobrar."
+          "title": "Control del autor",
+          "body": "Una tarjeta bloqueada solo muestra un aviso y no expone el editor ni los datos."
         }
       ]
     },
@@ -105,6 +106,30 @@
         {
           "title": "Desinstalar conserva tus notas",
           "body": "Apagarlo deja intacto todo lo escrito. Si lo reinstalas mas adelante, retoma las mismas notas."
+        }
+      ]
+    },
+    "state-update-guard": {
+      "name": "Protección de estado (Beta)",
+      "shortDescription": "Comprueba los cambios de la IA antes de guardar la respuesta. Si falta el formato o es incorrecto, intenta corregirlo una vez.",
+      "longDescription": "Ayuda a que los valores de la historia sigan actualizándose cuando la IA usa un formato incorrecto. Funciona con las tarjetas existentes. Cada respuesta debe incluir cambios válidos o indicar expresamente que no hay cambios. Si la comprobación o la corrección falla, se conserva el estado anterior y no se cobra esa respuesta. Se comprueba el formato, no la exactitud de la historia.\n\nLas comprobaciones son gratis. Solo las correcciones guardadas con modelos de pago de Yumina cuestan mushies. El modelo predeterminado es Gemini 2.5 Flash Lite, como en Memoria. Pulsa «Usar modelo gratuito» en el panel para corregir gratis. Con tu propia clave de API no se descuentan mushies de Yumina, pero tu proveedor puede cobrar.\n\nAbre el panel desde la barra del chat para activar o desactivar la función, elegir un modelo de corrección y ver los cambios. Al desactivarla se recuperan las actualizaciones normales de la tarjeta. Desinstalarla no borra el estado ni el historial guardados. Los cambios de instalación pueden tardar hasta 60 segundos en aplicarse.",
+      "tags": {
+        "state": "estado",
+        "reliability": "fiabilidad",
+        "beta": "beta"
+      },
+      "explanations": [
+        {
+          "title": "Compatible con tus tarjetas",
+          "body": "Usa las variables y los comandos que ya tiene la tarjeta. No hace falta reescribir las instrucciones ni la interfaz."
+        },
+        {
+          "title": "Resultados claros",
+          "body": "Consulta si una respuesta necesitó corrección y qué valores cambiaron. La ausencia de cambios también debe confirmarse. Las reglas automáticas del juego siguen funcionando."
+        },
+        {
+          "title": "Solo corrige cuando hace falta",
+          "body": "Las respuestas válidas no requieren otra llamada al modelo. Las incorrectas reciben un intento con el modelo elegido. Las correcciones guardadas con modelos de pago de Yumina cuestan mushies; los modelos gratuitos y tu propia API no los consumen. Tu proveedor de API puede cobrar."
         }
       ]
     }

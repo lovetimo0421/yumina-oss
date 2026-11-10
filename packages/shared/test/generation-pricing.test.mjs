@@ -61,9 +61,18 @@ test("shortfall refund excludes flat surcharges", () => {
   assert.ok(paid - owed >= base + 60, `${paid - owed} must cover base+checkpoint`);
 });
 
-test("every platform style has a unique filename and a valid dialect", () => {
-  const filenames = new Set(PLATFORM_STYLES.map((s) => s.checkpointFilename));
-  assert.equal(filenames.size, PLATFORM_STYLES.length);
+test("platform styles have unique identities and only the Anima variants share a checkpoint", () => {
+  assert.equal(new Set(PLATFORM_STYLES.map((s) => s.slug)).size, PLATFORM_STYLES.length);
+  const checkpointStyles = new Map();
+  for (const style of PLATFORM_STYLES) {
+    assert.ok(style.checkpointFilename.endsWith(".safetensors"), style.slug);
+    const variants = checkpointStyles.get(style.checkpointFilename) ?? [];
+    variants.push(style.slug);
+    checkpointStyles.set(style.checkpointFilename, variants);
+  }
+  assert.deepEqual([...checkpointStyles.values()].filter((slugs) => slugs.length > 1), [
+    ["anime-anima", "nsfw-anima"],
+  ]);
   for (const style of PLATFORM_STYLES) {
     assert.ok(["danbooru", "prose"].includes(style.dialect), style.slug);
   }

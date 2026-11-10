@@ -1,3 +1,5 @@
+import { stripNarrativeReasoning } from "./narrative-evidence.js";
+import { isDegenerateSessionMemoryText } from "./session-memory-core.js";
 import { estimateTokens, estimateTokensFromMetrics, preloadTokenizer } from "@yumina/engine";
 import { StorySummaryTruncatedError } from "./summary-episode-recovery.js";
 import type { SessionSummaryMode } from "@yumina/shared";
@@ -348,12 +350,13 @@ export async function finalizeStorySummaryOutput(args: {
   await args.recordUsage?.();
   // Generated output must pass the safety ceiling whole, before the read-side
   // clamp can discard final facts and before the player is charged.
-  const normalized = cleanStorySummaryText(args.text);
+  const normalized = cleanStorySummaryText(stripNarrativeReasoning(args.text));
   if (!normalized) throw new Error(storySummaryEmptyOutputMessage(args));
   if (args.stopReason === "max_tokens") {
     throw new StorySummaryTruncatedError();
   }
   if (normalized.length > STORY_SUMMARY_MAX_CHARS) throw new StorySummaryTooLongError();
+  if (isDegenerateSessionMemoryText(normalized)) throw new Error("Summary model returned repetitive output");
   await args.billUsage?.();
   return normalized;
 }

@@ -1,15 +1,21 @@
 import {
   BookOpen,
+  Boxes,
+  Workflow,
   Code,
   Cog,
   FolderOpen,
   LayoutGrid,
+  LayoutTemplate,
   MessageCircle,
   MessageSquare,
   Music,
   Images,
+  Image as ImageIcon,
   Package,
+  PackagePlus as Package2,
   PanelRight,
+  Sparkles,
   Variable,
   Zap as ZapIcon,
   type LucideIcon,
@@ -32,19 +38,30 @@ export const PANEL_MENU_GROUPS = [
   {
     labelKey: "studio.groups.story",
     items: [
+      { id: "blueprint", labelKey: "studio.panels.blueprint", icon: Workflow },
       { id: "first-message", labelKey: "studio.panels.firstMessage", icon: MessageCircle },
       { id: "lorebook", labelKey: "studio.panels.lorebook", icon: BookOpen },
       { id: "variables", labelKey: "studio.panels.variables", icon: Variable },
       { id: "rules", labelKey: "studio.panels.behaviors", icon: ZapIcon },
+      { id: "modules", labelKey: "studio.panels.modules", icon: Boxes },
     ],
   },
   {
     labelKey: "studio.groups.display",
     items: [
+      { id: "frontend", labelKey: "studio.stage.tabFrontend", icon: LayoutTemplate },
       { id: "code-view", labelKey: "studio.panels.frontEndCode", icon: Code },
       { id: "audio", labelKey: "studio.panels.audio", icon: Music },
       { id: "scene-images", labelKey: "studio.panels.sceneImages", icon: Images },
+      { id: "backgrounds", labelKey: "studio.panels.backgrounds", icon: ImageIcon },
+      { id: "packs", labelKey: "studio.panels.packs", icon: Package2 },
       { id: "assets", labelKey: "studio.panels.assets", icon: FolderOpen },
+    ],
+  },
+  {
+    labelKey: "studio.groups.creation",
+    items: [
+      { id: "generation", labelKey: "studio.panels.aiGeneration", icon: Sparkles },
     ],
   },
   {

@@ -5,6 +5,7 @@ import {
   normalizeProviderSlug,
   extractFailedProviderSlug,
   kimiRepetitionSamplingParam,
+  stickySessionHeader,
 } from "./openrouter.js";
 
 // ── providerRoutingFor ──
@@ -65,6 +66,17 @@ test("dynamic exclusions apply to models with otherwise no routing", () => {
   assert.deepEqual(routing, { ignore: ["novita"] });
 });
 
+test("deepseek v4 flash: OpenInference is ignored up front (empty-reply host)", () => {
+  assert.deepEqual(providerRoutingFor("deepseek/deepseek-v4-flash", false), { ignore: ["open-inference"] });
+  assert.deepEqual(providerRoutingFor("deepseek/deepseek-v4.1-flash", false), { ignore: ["open-inference"] });
+  assert.deepEqual(
+    providerRoutingFor("deepseek/deepseek-v4-flash", false, ["open-inference", "relace"]),
+    { ignore: ["open-inference", "relace"] },
+    "a retry that already excluded it does not list it twice",
+  );
+  assert.equal(providerRoutingFor("deepseek/deepseek-v4-flash", false, undefined, true), undefined);
+});
+
 test("OpenRouter BYOK preserves account routing for Gemini", () => {
   assert.equal(
     providerRoutingFor("google/gemini-3.1-pro-preview", true, undefined, true),
@@ -92,6 +104,21 @@ test("display names map to routing slugs", () => {
   assert.equal(normalizeProviderSlug("Google AI Studio"), "google-ai-studio");
   assert.equal(normalizeProviderSlug("Amazon Bedrock"), "amazon-bedrock");
   assert.equal(normalizeProviderSlug("Anthropic"), "anthropic");
+});
+
+test("display names whose slug is not the lower-cased name map through the table", () => {
+  // OpenRouter silently accepts an unknown slug in provider.ignore, so a wrong
+  // guess here is an exclusion that never happens.
+  assert.equal(normalizeProviderSlug("OpenInference"), "open-inference");
+  assert.equal(normalizeProviderSlug("AtlasCloud"), "atlas-cloud");
+  assert.equal(normalizeProviderSlug("InferenceNet"), "inference-net");
+  assert.equal(normalizeProviderSlug("Moonshot AI"), "moonshotai");
+  assert.equal(normalizeProviderSlug("Z.AI"), "z-ai");
+  assert.equal(normalizeProviderSlug("Mancer 2"), "mancer");
+  // Real slugs and 1:1 names pass through untouched.
+  assert.equal(normalizeProviderSlug("open-inference"), "open-inference");
+  assert.equal(normalizeProviderSlug("DeepInfra"), "deepinfra");
+  assert.equal(normalizeProviderSlug("StreamLake"), "streamlake");
 });
 
 test("garbage never becomes a routing preference", () => {
@@ -157,4 +184,15 @@ test("unsupported models never receive Kimi's repetition_penalty", () => {
     topP: 0.9,
   });
   assert.deepEqual(params, {});
+});
+
+// ── stickySessionHeader ──
+
+test("sticky session header: hashed, stable per conversation, absent without one", () => {
+  const a = stickySessionHeader("play:session-1");
+  assert.match(a["x-session-id"]!, /^[0-9a-f]{64}$/);
+  assert.deepEqual(stickySessionHeader("play:session-1"), a);
+  assert.notDeepEqual(stickySessionHeader("play:session-2"), a);
+  assert.ok(!a["x-session-id"]!.includes("session-1"));
+  assert.deepEqual(stickySessionHeader(undefined), {});
 });

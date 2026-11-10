@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { GameStateManager, ResponseParser, type WorldDefinition } from "@yumina/engine";
+import { GameStateManager, ResponseParser, estimateTokens, preloadTokenizer, type WorldDefinition } from "@yumina/engine";
 import type { TurnOutputContext, ValidatedTurnOutput } from "../../lib/extension-hooks.js";
 import type { GenerateParams, StreamChunk } from "../../lib/llm/types.js";
 import { guardTurnOutput, StateGuardError, boundedCorrectionInputTokens, estimateCorrectionUsageTokens } from "./validate.js";
@@ -707,9 +707,187 @@ test("giant unbroken correction input is rejected quickly before tokenization", 
   assert.equal(f.requests.length, 0);
 });
 
-test("bounded token estimate uses conservative UTF-8 bytes for pathological pieces", () => {
+function structuralCorrectionFixture() {
+  const effect = { variableId: "energy-id", operation: "subtract", value: 1 };
+  const f = fixture(`You enter the hall. [energy-id: subtract 1]\n[audio: theme play]\n${updated(2)}`, [
+    { type: "text", content: JSON.stringify({ narrative: "", status: "updated", stateChanges: [effect] }) },
+    { type: "done", content: "", stopReason: "stop" },
+  ]);
+  f.ctx.model = "google/gemini-3-flash-preview";
+  f.ctx.world.variables.push({ id: "journey", name: "Journey", type: "json", defaultValue: {}, aiAccess: "read",
+    behaviorRules: "The engine records completed stages; use them as context only." });
+  f.ctx.state.variables.journey = {
+    stages: Array.from({ length: 240 }, (_, index) => ({ id: `stage-${index}`, seen: true, at: index,
+      flags: { entered: true, cleared: false }, optional: null, tags: ["arrival", "school"] })),
+    memories: Array.from({ length: 70 }, (_, index) => ({ index,
+      text: 'A remembered arrival with friends, a bell, and a question: "Which way?"\nThe reply is still exact. 界' })),
+  };
+  f.ctx.history = [
+    { role: "assistant", content: "The carriage arrives at the gate." },
+    { role: "user", content: "I follow the other students." },
+    { role: "assistant", content: "A bell rings inside the hall." },
+    { role: "user", content: "I enter and look for a seat." },
+  ];
+  return { ...f, effect };
+}
+
+// Synthetic campus BBS data: no player text or state belongs in fixtures.
+// Long Chinese string values remain unbroken even after JSON indentation.
+for (const path of ["send", "regenerate", "continue"] as const) {
+  test(`${path}: Chinese BBS state reaches correction intact using the correction model's token estimate`, async () => {
+    const f = structuralCorrectionFixture();
+    f.ctx.audit.path = path;
+    f.ctx.model = "openai/gpt-4o";
+    const correctionModel = "google/gemini-3.1-flash-lite";
+    f.ctx.resolveCorrection = async () => ({ provider: f.ctx.provider, model: correctionModel, maxContext: 128_000, apiKeyTier: "regular" });
+    f.ctx.state.variables.journey = {
+      posts: Array.from({ length: 24 }, (_, index) => ({ index, text: "下課後同學們在校園公告欄討論社團活動。".repeat(32) })),
+    };
+    const before = structuredClone(f.ctx.state);
+    const result = await guardTurnOutput(f.ctx);
+    assert.equal(result.audit?.outcome, "valid-updates");
+    assert.equal(f.requests.length, 1);
+    const request = f.requests[0]!;
+    const data = request.messages[1]!.content as string;
+    const input = data + request.messages[0]!.content;
+    assert.ok(Buffer.byteLength(input) > 48_000 && Buffer.byteLength(input) < 96_000);
+    assert.ok(/\S{512}/u.test(data));
+    assert.ok(estimateTokens(input, correctionModel) < 24_000);
+    assert.equal(data, JSON.stringify(JSON.parse(data)), "budgeting never pads or truncates the input");
+    assert.deepEqual(JSON.parse(data).state, before.variables);
+    assert.equal(JSON.parse(data).draft, f.ctx.raw);
+    assert.equal(request.model, correctionModel);
+    assert.deepEqual(result.parsed.effects, [f.effect]);
+    assert.equal(result.parsed.cleanText, "You enter the hall.");
+    assert.deepEqual(f.ctx.state, before);
+    assert.equal(f.usages.length, 1);
+  });
+}
+
+test("structural JSON can reach correction without dropping read-only state or changing any input values", async () => {
+  const f = structuralCorrectionFixture();
+  const before = structuredClone(f.ctx.state);
+  const expected = { variables: f.ctx.world.variables, writableVariableIds: ["kills-id", "energy-id"],
+    state: f.ctx.state.variables, history: f.ctx.history, draft: f.ctx.raw, diagnostics: ["count_mismatch"] };
+  const compact = JSON.stringify(expected);
+  assert.ok(Buffer.byteLength(compact, "utf8") > 24_000);
+  assert.ok(/\S{512}/u.test(compact), "short JSON fields combine into a dense structural run");
+  const result = await guardTurnOutput(f.ctx);
+  assert.equal(result.audit?.outcome, "valid-updates");
+  assert.equal(result.audit?.initialOutcome, "invalid");
+  assert.ok(result.audit?.diagnostics.includes("count_mismatch"));
+  assert.equal(f.requests.length, 1);
+  const request = f.requests[0]!;
+  const data = request.messages[1]!.content as string;
+  const instructions = request.messages[0]!.content as string;
+  assert.deepEqual(JSON.parse(data), expected, "definitions, read-only values, history and frozen draft survive exactly");
+  assert.ok(boundedCorrectionInputTokens(data + instructions, f.ctx.model) <= 24_000);
+  assert.deepEqual(result.parsed.effects, [f.effect]);
+  assert.deepEqual(result.parsed.audioEffects, [{ trackId: "theme", action: "play" }]);
+  assert.equal(result.audit?.declaredCount, 1, "the correction provider, not a local count rewrite, supplies the replacement batch");
+  assert.equal(f.usages[0]!.totalTokens, estimateCorrectionUsageTokens(data + instructions) + estimateCorrectionUsageTokens(result.audit!.correctedBatch!));
+  assert.deepEqual(f.ctx.state, before);
+});
+
+test("structural correction obeys the selected model's input boundary", async () => {
+  const sample = structuralCorrectionFixture();
+  await guardTurnOutput(sample.ctx);
+  assert.equal(sample.requests.length, 1);
+  const request = sample.requests[0]!;
+  const tokens = boundedCorrectionInputTokens((request.messages[1]!.content as string) + request.messages[0]!.content, sample.ctx.model);
+  for (const delta of [0, -1]) {
+    const f = structuralCorrectionFixture();
+    f.ctx.resolveCorrection = async () => ({ provider: f.ctx.provider, model: f.ctx.model, maxContext: tokens + 4608 + delta, apiKeyTier: "byok" });
+    if (delta === 0) {
+      assert.equal((await guardTurnOutput(f.ctx)).audit?.outcome, "valid-updates");
+      assert.equal(f.requests.length, 1);
+    } else {
+      await assertUnverified(f.ctx, "correction_context_limit");
+      assert.equal(f.requests.length, 0);
+      assert.equal(f.usages.length, 0);
+    }
+  }
+});
+
+test("budgeting uses the frozen input even if live context changes during model resolution", async () => {
+  const f = structuralCorrectionFixture();
+  const variables = structuredClone(f.ctx.world.variables);
+  const state = structuredClone(f.ctx.state.variables);
+  f.ctx.resolveCorrection = async () => {
+    await Promise.resolve();
+    f.ctx.world.variables[0]!.behaviorRules = "Changed after the correction input was frozen.";
+    (f.ctx.state.variables.journey as { stages: Array<{ seen: boolean }> }).stages[0]!.seen = false;
+    return { provider: f.ctx.provider, model: f.ctx.model, maxContext: f.ctx.maxContext, apiKeyTier: "byok" };
+  };
+  assert.equal((await guardTurnOutput(f.ctx)).audit?.outcome, "valid-updates");
+  const data = JSON.parse(f.requests[0]!.messages[1]!.content as string);
+  assert.deepEqual(data.variables, variables);
+  assert.deepEqual(data.state, state);
+});
+
+test("accepted compact correction input stays compact at its existing context boundary", async () => {
+  const sample = fixture();
+  sample.ctx.model = "google/gemini-3-flash-preview";
+  await guardTurnOutput(sample.ctx);
+  const request = sample.requests[0]!;
+  const data = request.messages[1]!.content as string;
+  assert.equal(data, JSON.stringify(JSON.parse(data)));
+  const f = fixture();
+  f.ctx.model = sample.ctx.model;
+  f.ctx.maxContext = boundedCorrectionInputTokens(data + request.messages[0]!.content, f.ctx.model) + 4608;
+  assert.equal((await guardTurnOutput(f.ctx)).audit?.outcome, "explicit-none");
+  assert.equal(f.requests[0]!.messages[1]!.content, data);
+});
+
+test("model-aware estimation cannot bypass the 24k correction input cap", async () => {
+  const f = fixture("界 ".repeat(19_500));
+  f.ctx.model = "google/gemini-3-flash-preview";
+  assert.ok(Buffer.byteLength(f.ctx.raw, "utf8") < 96_000);
+  assert.ok(boundedCorrectionInputTokens(f.ctx.raw, f.ctx.model) > 24_000);
+  await assertUnverified(f.ctx, "correction_context_limit");
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.usages.length, 0);
+});
+
+test("a pathological BPE piece below the byte ceiling remains rejected quickly", { timeout: 3000 }, async () => {
+  await preloadTokenizer();
+  const f = fixture();
+  f.ctx.model = "openai/gpt-4o";
+  f.ctx.world.variables.push({ id: "dense", name: "Dense context", type: "string", defaultValue: "", aiAccess: "read" });
+  f.ctx.state.variables.dense = "x".repeat(30_000);
+  const start = Date.now();
+  await assertUnverified(f.ctx, "correction_context_limit");
+  assert.ok(Date.now() - start < 1000);
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.usages.length, 0);
+  assert.equal(f.ctx.state.variables.dense, "x".repeat(30_000));
+});
+
+test("structural input above the byte ceiling is rejected without formatting or truncation", { timeout: 3000 }, async (t) => {
+  const f = structuralCorrectionFixture();
+  f.ctx.state.variables.journey = Array.from({ length: 3000 }, (_, index) => ({ index, label: "An ordinary completed stage", complete: true }));
+  assert.ok(Buffer.byteLength(JSON.stringify(f.ctx.state.variables), "utf8") > 96_000);
+  const stringify = t.mock.method(JSON, "stringify");
+  const start = Date.now();
+  await assertUnverified(f.ctx, "correction_context_limit");
+  assert.ok(Date.now() - start < 1000);
+  assert.equal(stringify.mock.calls.filter(call => call.arguments[2] === 1).length, 0, "adding whitespace cannot fit a request already over the byte ceiling");
+  assert.equal(f.requests.length, 0);
+  assert.equal(f.usages.length, 0);
+});
+
+test("bounded token estimate delegates per-piece CPU protection while preserving model-aware counts", async () => {
+  await preloadTokenizer();
   const text = "界".repeat(1000);
   assert.equal(boundedCorrectionInputTokens(text, "selected/model"), Buffer.byteLength(text, "utf8"));
+  for (const model of ["google/gemini-3.1-flash-lite", "anthropic/claude-sonnet-4.6", "deepseek/deepseek-v3.2"]) {
+    assert.equal(boundedCorrectionInputTokens(text, model), 1000);
+    assert.equal(boundedCorrectionInputTokens("x".repeat(30_000), model), 7500);
+  }
+  assert.equal(boundedCorrectionInputTokens("x".repeat(511), "google/gemini-3-flash-preview"), 128);
+  assert.equal(boundedCorrectionInputTokens("x".repeat(512), "google/gemini-3-flash-preview"), 128);
+  assert.equal(boundedCorrectionInputTokens("a ".repeat(48_000), "google/gemini-3-flash-preview"), 24_000);
+  assert.equal(boundedCorrectionInputTokens("a ".repeat(48_000) + " ", "google/gemini-3-flash-preview"), 96_001);
   assert.equal(estimateCorrectionUsageTokens("x".repeat(65537)), 16385);
 });
 

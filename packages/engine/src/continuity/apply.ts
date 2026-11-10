@@ -7,7 +7,7 @@
  * confidence to act" lives here, so it is unit-testable without a model.
  */
 import type { AudioEffect, Effect } from "../types/index.js";
-import { KEEP, NONE, PLAYLIST } from "./questions.js";
+import { EMPTY, KEEP, NONE, PLAYLIST } from "./questions.js";
 import type { ContinuityDecision, ContinuityMemory, ContinuityPlan, ContinuityResult, JevAnswer } from "./types.js";
 
 export const CONTINUITY_THRESHOLDS = {
@@ -20,6 +20,13 @@ export const CONTINUITY_THRESHOLDS = {
   boolean: 0.8,
   /** Confidence a string choice needs before it overwrites the value. */
   string: 0.8,
+  /** Below the bars above, a number or string still moves when the story model
+   *  wrote the same change this turn (same direction / same option) and the
+   *  judge leans that way at least this much. Two independent reads agreeing
+   *  is the evidence; either alone is not. Booleans never take this path:
+   *  when the judge was unsure the story model disagreed with it every time
+   *  (prod sample, 2026-10-11). */
+  agree: 0.5,
   /** BGM / image: the chosen option's probability. */
   poolPick: 0.5,
   /** BGM / image: how far the pick must lead "keep / none" (the model drifts
@@ -54,6 +61,18 @@ function pickTop(p: Record<string, number>, fallback?: string): { key: string | 
   return { key, prob: Math.max(prob, 0) };
 }
 
+/** Which way the story model's own write moved a number: +1, −1, 0 (no move)
+ *  or null (an operation that names no direction). */
+function storyDirection(e: Effect | undefined, current: number): number | null {
+  if (!e || typeof e.value !== "number" || !Number.isFinite(e.value)) return null;
+  switch (e.operation) {
+    case "add": return Math.sign(e.value);
+    case "subtract": return -Math.sign(e.value);
+    case "set": return Math.sign(e.value - current);
+    default: return null;
+  }
+}
+
 const clamp = (n: number, min?: number, max?: number) => {
   let x = n;
   if (typeof min === "number") x = Math.max(min, x);
@@ -67,7 +86,13 @@ export function applyContinuityPlan(
   turnCount: number,
   memory: ContinuityMemory,
   thresholds: typeof CONTINUITY_THRESHOLDS = CONTINUITY_THRESHOLDS,
+  opts?: {
+    /** The story model's own write to each judged variable this turn, by
+     *  variable id (dropped from the turn because the judge owns them). */
+    story?: Record<string, Effect>;
+  },
 ): ContinuityResult {
+  const story = opts?.story ?? {};
   const effects: Effect[] = [];
   const audioEffects: AudioEffect[] = [];
   const decisions: ContinuityDecision[] = [];
@@ -89,12 +114,17 @@ export function applyContinuityPlan(
       if (mass > 0) expected /= mass;
       const direction = expected > 0 ? up : expected < 0 ? down : 0;
       const delta = Math.round(expected);
-      const applied = Math.abs(expected) >= thresholds.numberMinDelta && direction >= thresholds.numberDirection && delta !== 0;
+      const moves = Math.abs(expected) >= thresholds.numberMinDelta && delta !== 0;
+      const sure = moves && direction >= thresholds.numberDirection;
+      // The judge's own size of change either way: the story model only
+      // confirms the direction, it never sets how far.
+      const agreed = !sure && moves && direction >= thresholds.agree && storyDirection(story[v.id], v.current as number) === Math.sign(delta);
+      const applied = sure || agreed;
       if (applied) {
         const value = clamp((v.current as number) + delta, v.min, v.max);
         if (value !== v.current) effects.push({ variableId: v.id, operation: "set", value });
       }
-      decisions.push({ key: v.key, kind: "number", chosen: delta, confidence: +direction.toFixed(3), applied, reason: applied ? undefined : "below-threshold" });
+      decisions.push({ key: v.key, kind: "number", chosen: delta, confidence: +direction.toFixed(3), applied, reason: agreed ? "agreed" : applied ? undefined : "below-threshold" });
     } else if (v.kind === "boolean") {
       const p = typeof a.noul === "number" ? a.noul : 0.5;
       let target: boolean | null = null;
@@ -105,12 +135,17 @@ export function applyContinuityPlan(
       decisions.push({ key: v.key, kind: "boolean", chosen: target, confidence: +Math.max(p, 1 - p).toFixed(3), applied, reason: applied ? undefined : target === null ? "below-threshold" : "unchanged" });
     } else {
       const p = probs(a);
-      const { key, prob } = pickTop(p, typeof a.choice === "string" ? a.choice : undefined);
+      const { key: picked, prob } = pickTop(p, typeof a.choice === "string" ? a.choice : undefined);
+      const key = picked === EMPTY ? "" : picked;
       const conf = typeof a.confidence === "number" ? a.confidence : prob;
-      const valid = key !== undefined && key !== KEEP && (v.options ?? []).includes(key);
-      const applied = valid && conf >= thresholds.string && key !== v.current;
+      const valid = key !== undefined && key !== KEEP && (v.options ?? []).some((o) => o.trim() === key);
+      const changes = valid && key !== v.current;
+      const sure = changes && conf >= thresholds.string;
+      const s = story[v.id];
+      const agreed = !sure && changes && conf >= thresholds.agree && !!s && s.operation === "set" && s.value === key;
+      const applied = sure || agreed;
       if (applied) effects.push({ variableId: v.id, operation: "set", value: key as string });
-      decisions.push({ key: v.key, kind: "string", chosen: key ?? null, confidence: +conf.toFixed(3), applied, reason: applied ? undefined : key === KEEP ? "keep" : valid ? "below-threshold" : "unchanged" });
+      decisions.push({ key: v.key, kind: "string", chosen: key ?? null, confidence: +conf.toFixed(3), applied, reason: agreed ? "agreed" : applied ? undefined : key === KEEP ? "keep" : valid ? "below-threshold" : "unchanged" });
     }
   }
 

@@ -41,6 +41,7 @@ export function activationAllowance(
 /** Ledger description for an entitlement allowance, per source. */
 export function allowanceDescription(source: string, plan: PlanId): string {
   const label = PLANS[plan].displayName;
+  if (source === "gift") return `Gifted ${label} membership activation grant`;
   if (source === "admin") return `Admin ${label} membership activation grant`;
   if (source === "referral") return `Referral ${label} membership reward`;
   return `Event ${label} membership activation grant`;

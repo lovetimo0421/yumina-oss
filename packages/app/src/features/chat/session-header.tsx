@@ -39,6 +39,8 @@ interface SessionHeaderProps {
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
   onBack: () => void;
+  /** Embedded playtest (Studio tab): the host owns navigation, no back arrow. */
+  hideBack?: boolean;
 }
 
 export function SessionHeader({
@@ -46,6 +48,7 @@ export function SessionHeader({
   sidebarOpen,
   onToggleSidebar,
   onBack,
+  hideBack = false,
 }: SessionHeaderProps) {
   const { t } = useTranslation(["chat", "common"]);
   const session = useChatStore(s => s.session);
@@ -119,14 +122,16 @@ export function SessionHeader({
     <div className="play-header-shell shrink-0 border-b border-border">
       <div className="play-header-inner play-session-header">
         <div className="play-header-leading">
-          <button
-            onClick={onBack}
-            aria-label={t("replay.back")}
-            title={t("replay.back")}
-            className="play-header-icon-button hover-surface rounded-md text-muted-foreground"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
+          {!hideBack && (
+            <button
+              onClick={onBack}
+              aria-label={t("replay.back")}
+              title={t("replay.back")}
+              className="play-header-icon-button hover-surface rounded-md text-muted-foreground"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </button>
+          )}
 
           <div className="play-header-title-group min-w-0 flex-1 overflow-hidden">
             <h2 className="play-header-title truncate text-[0.95rem] font-medium text-foreground">

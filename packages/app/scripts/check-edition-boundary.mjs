@@ -119,6 +119,7 @@ export const HOSTED_FILES = [
   // the Studio "AI generation" section moved to features/generation; kept so a
   // stray file at the old path is still treated as hosted
   "features/editor/sections/generation",
+  "features/editor/components/share-module-button",
 ];
 
 /**
@@ -153,6 +154,7 @@ export const HOSTED_ROUTE_PREFIXES = [
   // `/app/profile` itself (profile + profile.index) is core: it renders the
   // ProfileRoot slot. Only the nested hosted pages are listed here.
   "routes/app/profile.achievements",
+  "routes/app/profile.ai",
   "routes/app/profile.followers",
   "routes/app/profile.following",
   "routes/app/profile.game-achievements",

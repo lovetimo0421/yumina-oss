@@ -1,3 +1,4 @@
+import { worldAudienceCondition } from "./world-publication-access.js";
 /**
  * Server side of public world and creator addresses:
  *   /@username/world-name-<publicId>   and   /@username
@@ -5,7 +6,7 @@
  * canonical path is recomputed from the current username and name so a
  * stale address can be forwarded to the current one.
  */
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { profileAddressPath, worldAddressPath } from "@yumina/shared";
 import { readPublic } from "../db/index.js";
 import { user, worlds } from "../db/schema.js";
@@ -21,6 +22,7 @@ export interface AddressedWorld {
   visibility: string | null;
   ageRating: string | null;
   language: string | null;
+  gamePath?: string | null;
   tags: unknown;
   creatorId: string;
   creatorName: string | null;
@@ -38,6 +40,7 @@ const WORLD_ADDRESS_COLUMNS = {
   visibility: worlds.visibility,
   ageRating: worlds.ageRating,
   language: worlds.language,
+  gamePath: worlds.gamePath,
   tags: worlds.tags,
   creatorId: worlds.creatorId,
   creatorName: user.name,
@@ -54,7 +57,7 @@ export async function findWorldByPublicId(publicId: string): Promise<AddressedWo
     .select(WORLD_ADDRESS_COLUMNS)
     .from(worlds)
     .leftJoin(user, eq(worlds.creatorId, user.id))
-    .where(eq(worlds.publicId, key))
+    .where(and(eq(worlds.publicId, key), worldAudienceCondition(worlds.creatorId)))
     .limit(1);
   return row ?? null;
 }
@@ -65,7 +68,7 @@ export async function findWorldById(id: string): Promise<AddressedWorld | null> 
     .select(WORLD_ADDRESS_COLUMNS)
     .from(worlds)
     .leftJoin(user, eq(worlds.creatorId, user.id))
-    .where(eq(worlds.id, id))
+    .where(and(eq(worlds.id, id), worldAudienceCondition(worlds.creatorId)))
     .limit(1);
   return row ?? null;
 }

@@ -22,6 +22,17 @@ test("durations follow the spec table", () => {
   assert.equal(durationFor("persistent"), Infinity);
 });
 
+test("sentence shortening preserves decimal sizes, filenames and URLs", () => {
+  for (const sentence of [
+    "This world needs 5.1 MB to save; the limit is 5.0 MB.",
+    "Check index.tsx before saving.",
+    "See https://yumina.io/help for details.",
+    "このワールドは5.1 MBです。",
+  ]) {
+    assert.equal(toPillText(`${sentence} ${"More details. ".repeat(10)}`), sentence);
+  }
+});
+
 test("plain single-line copy passes", () => {
   assert.equal(validateFeedbackText("Export ready"), null);
   assert.equal(validateFeedbackText("Deleted"), null);

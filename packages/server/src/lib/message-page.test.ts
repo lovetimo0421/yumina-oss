@@ -19,7 +19,7 @@ before(async () => {
     content: `reply ${index}`, createdAt: new Date("2026-01-01T00:00:00Z"),
     stateSnapshot: snapshot,
     swipes: [{ content: `reply ${index}`, rawContent: `raw ${index}`, createdAt: "now",
-      stateSnapshot: snapshot, generationState: snapshot }],
+      stateSnapshot: snapshot, generationState: snapshot, variableAudit: { version: 1 as const, segments: [], omittedSegments: 0 } }],
   })));
 });
 after(async () => { await (db as unknown as { $client: { close(): Promise<void> } }).$client.close(); });
@@ -44,6 +44,7 @@ test("byte-limited pages retain historical state and every display swipe, withou
   const [stored] = await db.select().from(messages).where(eq(messages.id, "page-8"));
   assert.ok(stored!.swipes![0]!.stateSnapshot);
   assert.ok(stored!.swipes![0]!.generationState);
+  assert.ok(stored!.swipes![0]!.variableAudit, "audit persists while bulk transport omits it");
 });
 
 test("row limit probes hasMore and an oversized individual row still makes cursor progress", async () => {

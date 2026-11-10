@@ -21,6 +21,9 @@
 const BLANK_FALLBACK_NAMES = [
   "未命名世界",
   "untitled world",
+  // ja / es — what the editor's `shell.untitledWorld` falls back to there.
+  "無題のワールド",
+  "mundo sin título",
 ] as const;
 
 // Template default names. A card created from a starter template keeps the

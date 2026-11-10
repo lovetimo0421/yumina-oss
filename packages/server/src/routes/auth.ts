@@ -11,6 +11,7 @@ import { getSessionToken } from "../middleware/auth.js";
 import {
   AccountDeletionBlockedError,
   assertAccountDeletionAllowed,
+  getAccountDeletionPreflight,
   type AccountDeletionBlockCode,
   InvalidAccountDeletionTokenError,
   permanentlyDeleteAccount,
@@ -121,6 +122,20 @@ authRoutes.post("/sign-out", async (c, next) => {
 // generic Better Auth endpoint. The client must submit the signed-in user's
 // exact username (or email when no username exists), and the server performs a
 // payout/billing preflight before sending the final confirmation email.
+authRoutes.get("/delete-user/preflight", async (c) => {
+  c.header("Cache-Control", "no-store");
+  const session = await auth.api.getSession({
+    headers: c.req.raw.headers, query: { disableCookieCache: true },
+  });
+  if (!session) return c.json({ error: "Unauthorized", code: "UNAUTHORIZED" }, 401);
+  try {
+    return c.json({ data: await getAccountDeletionPreflight(session.user.id) });
+  } catch (error) {
+    console.error("[auth] Account deletion diagnostics failed:", error);
+    return c.json({ error: "Account deletion checks could not be loaded", code: "ACCOUNT_DELETION_FAILED" }, 503);
+  }
+});
+
 authRoutes.post("/delete-user", async (c) => {
   const mutationError = validateAccountDeletionMutation(c.req.raw);
   if (mutationError) {
@@ -172,12 +187,14 @@ authRoutes.post("/delete-user", async (c) => {
     );
   }
 
+  const requestingEmail = body.token === undefined || body.token === null || body.token === "";
+  let preflight;
   try {
-    await assertAccountDeletionAllowed(authUser.id);
+    preflight = await assertAccountDeletionAllowed(authUser.id, requestingEmail ? "email" : "deletion");
   } catch (error) {
     if (error instanceof AccountDeletionBlockedError) {
       return c.json(
-        { error: error.message, code: error.code },
+        { error: error.message, code: error.code, blockedUntil: error.blockedUntil?.toISOString(), issues: error.issues },
         accountDeletionBlockedStatus(error.code),
       );
     }
@@ -188,7 +205,7 @@ authRoutes.post("/delete-user", async (c) => {
     );
   }
 
-  if (body.token === undefined || body.token === null || body.token === "") {
+  if (requestingEmail) {
     // Better Auth intentionally swallows errors thrown by its email callback.
     // Generate and persist the token here so a failed Resend call can be
     // reported honestly instead of claiming that an email was sent.
@@ -282,7 +299,7 @@ authRoutes.post("/delete-user", async (c) => {
       );
     }
 
-    return c.json({ success: true, message: "Verification email sent" });
+    return c.json({ success: true, message: "Verification email sent", preflight });
   }
   if (!isAccountDeletionToken(body.token)) {
     return c.json({ error: "Invalid token", code: "INVALID_DELETE_TOKEN" }, 400);
@@ -298,7 +315,7 @@ authRoutes.post("/delete-user", async (c) => {
     }
     if (error instanceof AccountDeletionBlockedError) {
       return c.json(
-        { error: error.message, code: error.code },
+        { error: error.message, code: error.code, blockedUntil: error.blockedUntil?.toISOString(), issues: error.issues },
         accountDeletionBlockedStatus(error.code),
       );
     }

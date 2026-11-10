@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   compileRuleToReaction,
+  compileRulesToReactions,
+  ruleShapeIssues,
   compileTriggerToPattern,
   compileActionsToEffects,
   buildMessageUserEvent,
@@ -184,5 +186,77 @@ describe("event builder helpers", () => {
     expect(e.type).toBe("state:crossed");
     expect(e.direction).toBe("drops-below");
     expect(e.threshold).toBe(20);
+  });
+});
+
+// 2026-09-06: generated cards shipped rules with no `trigger`. Reading the
+// shape on faith threw here, and the throw was per-event — 100% of turns on
+// those cards failed. A rule this build cannot read has to stay inert and let
+// the rest of the card run.
+describe("compiling rules whose shape this build cannot read", () => {
+  /** A Rules-1.0 rule: conditions and effects, no WHEN, no actions. */
+  const legacyRule = {
+    id: "r1", name: "legacy", priority: 0, enabled: true,
+    conditions: [{ variableId: "hp", operator: "gte", value: 1 }],
+    effects: [{ variableId: "hp", operation: "add", value: 1 }],
+  } as unknown as Rule;
+
+  it("compiles a rule with no trigger instead of throwing", () => {
+    expect(() => compileRuleToReaction(legacyRule)).not.toThrow();
+  });
+
+  it("falls back to the same pattern an unrecognised trigger type already got", () => {
+    // Not a guess: `state:changed` with the rule's own conditions doing the
+    // filtering is both the switch's existing default and what a Rules-1.0
+    // rule (conditions, no WHEN) meant.
+    expect(compileTriggerToPattern(undefined).eventType).toBe("state:changed");
+    expect(compileTriggerToPattern({ type: "not-a-trigger" } as unknown as TriggerConfig).eventType)
+      .toBe(compileTriggerToPattern(undefined).eventType);
+  });
+
+  it("gives a rule with no actions an empty THEN rather than throwing", () => {
+    expect(compileRuleToReaction(legacyRule).then).toEqual([]);
+  });
+
+  it("gives a rule with no conditions an empty IF rather than throwing", () => {
+    const noConditions = { ...legacyRule, conditions: undefined } as unknown as Rule;
+    expect(compileRuleToReaction(noConditions).conditions).toEqual([]);
+  });
+
+  it("treats a rule that never had an `enabled` flag as on", () => {
+    // The evaluator skips anything falsy, so reading the field raw would
+    // quietly retire every rule written before the flag existed.
+    const noFlag = { ...legacyRule, enabled: undefined } as unknown as Rule;
+    expect(compileRuleToReaction(noFlag).enabled).toBe(true);
+  });
+
+  it("still respects an explicit enabled: false", () => {
+    expect(compileRuleToReaction({ ...legacyRule, enabled: false } as unknown as Rule).enabled).toBe(false);
+  });
+
+  it("skips nulls in the rules array instead of throwing on the batch", () => {
+    const ok = {
+      id: "r2", name: "fine", priority: 0, enabled: true, conditionLogic: "all",
+      trigger: { type: "every-turn" }, conditions: [], actions: [],
+    } as unknown as Rule;
+    const out = compileRulesToReactions([null as unknown as Rule, ok]);
+    expect(out.map((r) => r.id)).toEqual(["r2"]);
+  });
+
+  it("survives rules that are not an array at all", () => {
+    expect(() => compileRulesToReactions(null as unknown as Rule[])).not.toThrow();
+  });
+
+  it("names the parts it could not read", () => {
+    expect(ruleShapeIssues(legacyRule)).toEqual(["trigger", "actions"]);
+    expect(ruleShapeIssues(null)).toEqual(["unreadable"]);
+  });
+
+  it("says nothing is wrong with a well-formed rule", () => {
+    const ok = {
+      id: "r3", name: "fine", priority: 0, enabled: true, conditionLogic: "all",
+      trigger: { type: "every-turn" }, conditions: [], actions: [],
+    } as unknown as Rule;
+    expect(ruleShapeIssues(ok)).toEqual([]);
   });
 });

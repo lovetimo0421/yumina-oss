@@ -9,6 +9,7 @@ import { checkConditions, evaluateCondition } from "../state/condition-evaluator
 import {
   getEntryBoundSlotId,
   isLoreSlotActive,
+  isStandbyOn,
   isUiBoundEntry,
   isVariableBoundEntry,
 } from "./entry-triggers.js";
@@ -63,13 +64,17 @@ export class LorebookMatcher {
     const alwaysSend: WorldEntry[] = [];
     const candidates: WorldEntry[] = [];
 
+    // A behaviour's 启用词条 / 禁用词条 overrides an entry's own switch, so an
+    // entry that starts off and is switched on is matched like any other.
+    const toggled = state?.ruleState?.toggledEntries;
     for (const entry of entries) {
       if (entry.role === "greeting") continue;
       const variableBound = isVariableBoundEntry(entry);
-      if (!entry.enabled && !variableBound) continue;
+      const enabled = toggled && entry.id in toggled ? toggled[entry.id] : entry.enabled;
+      if (!enabled && !variableBound) continue;
 
       const uiBound = isUiBoundEntry(entry.id, loreUiBindings);
-      if (entry.alwaysSend && !variableBound && !uiBound) {
+      if ((entry.alwaysSend || isStandbyOn(entry, toggled, loreUiBindings)) && !variableBound && !uiBound) {
         alwaysSend.push(entry);
       } else {
         candidates.push(entry);

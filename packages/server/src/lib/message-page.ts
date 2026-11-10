@@ -8,7 +8,7 @@ export const MESSAGE_PAGE_BYTES = 8 * 1024 * 1024;
 // needs swipe text/metadata; the message snapshot still renders historical UI.
 export const displaySwipes = sql<typeof messages.$inferSelect.swipes>`CASE
   WHEN jsonb_typeof(${messages.swipes}) = 'array' THEN COALESCE((
-    SELECT jsonb_agg(s.value - 'stateSnapshot' - 'generationState' ORDER BY s.ordinality)
+    SELECT jsonb_agg(s.value - 'stateSnapshot' - 'generationState' - 'variableAudit' ORDER BY s.ordinality)
     FROM jsonb_array_elements(${messages.swipes}) WITH ORDINALITY AS s(value, ordinality)
   ), '[]'::jsonb)
   ELSE '[]'::jsonb END`;

@@ -50,9 +50,11 @@ voiceInputRoutes.post("/voice-input", async (c) => {
 
   let file: File | null = null;
   let lang: string | undefined;
+  let prompt: string | undefined;
   try {
     const body = await c.req.parseBody();
     if (body.file instanceof File) file = body.file;
+    if (typeof body.prompt === "string" && body.prompt.trim()) prompt = body.prompt.trim().slice(0, 400);
     if (typeof body.lang === "string") {
       const l = body.lang.toLowerCase().slice(0, 2);
       if (LANGS.has(l)) lang = l;
@@ -84,6 +86,7 @@ voiceInputRoutes.post("/voice-input", async (c) => {
         mimeType,
         filename: `clip.${EXTENSIONS[mimeType] ?? "webm"}`,
         language: lang,
+        prompt,
       });
     } catch (err) {
       if (err instanceof SttProviderError) {

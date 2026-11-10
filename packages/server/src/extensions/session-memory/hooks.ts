@@ -4,7 +4,8 @@
 // that used to live inline in routes/messages.ts and routes/sessions.ts, not
 // a rewrite of the systems themselves.
 
-import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
+import { estimateTokens } from "@yumina/engine";
 import { SESSION_MEMORY_EXTENSION_KEY } from "@yumina/shared";
 import { db } from "../../db/index.js";
 import { playSessions, messages } from "../../db/schema.js";
@@ -15,9 +16,13 @@ import {
 import {
   discardQueuedSessionMemoryUpdates,
   formatSessionMemoryForPrompt,
+  hasIneligibleSessionMemorySource,
   regenerateSessionMemoryForSession,
   scheduleSessionMemoryIncrementalUpdate,
+  scheduleSessionMemoryRepair,
 } from "../../lib/session-memory.js";
+import { hasUncertainMemoryCoverage } from "../../lib/session-memory-core.js";
+import { dropMemoryVersions, dropMemoryVersionsFrom } from "../../lib/session-memory-versions.js";
 import {
   discardQueuedStoryCompactions,
   formatStorySummaryForPrompt,
@@ -25,6 +30,7 @@ import {
   scheduleStoryCompaction,
 } from "../../lib/session-compaction.js";
 import { isExtensionInstalled } from "../../lib/extensions.js";
+import { env } from "../../lib/env.js";
 import {
   clearSummaryceptionData,
   getSummaryceptionPromptBlock,
@@ -36,6 +42,12 @@ import {
   type ExtensionInvalidation,
   type InvalidateContext,
 } from "../../lib/extension-hooks.js";
+
+/** Room left for the next turn before a default summary folds. Two turns of a
+ *  typical long roleplay (a turn adds ~840 tokens at the median, ~1,080 at
+ *  the 75th percentile, prod 2026-10): a fold started now has finished well
+ *  before the next send (median 36 s against a median 140 s between turns). */
+const FOLD_AHEAD_TOKENS = 2_000;
 
 const STORY_SUMMARY_RESET_FIELDS = {
   summary: null,
@@ -106,7 +118,7 @@ export function regenerateDroppedMemoryTiers(args: {
     .then((installed) => {
       if (!installed) return;
       if (wantSessionMemory) {
-        void regenerateSessionMemoryForSession({ sessionId: args.sessionId, userId: args.userId }).catch((err) =>
+        void regenerateSessionMemoryForSession({ sessionId: args.sessionId, userId: args.userId, automatic: true }).catch((err) =>
           console.warn("[SessionMemory] revert/fork regen failed:", err instanceof Error ? err.message : err),
         );
       }
@@ -130,10 +142,10 @@ export function regenerateDroppedMemoryTiers(args: {
  * forcing a full re-summarization of the entire backlog. Structured session
  * memory is deliberately never wiped here — incremental updates only ever fold
  * one prior exchange, so a blanket wipe permanently lost every accumulated
- * fact; the memory panel offers a manual regenerate. Under the lag-one
+ * fact. Stale memory is excluded from prompts until a full rebuild succeeds. Under the lag-one
  * invariant memory never covers the newest visible reply anyway, so
  * swiping/regenerating/editing that reply needs no memory invalidation —
- * only edits to OLDER turns can leave memory stale (accepted tradeoff).
+ * edits to OLDER turns hide derived memory and queue a full rebuild.
  */
 function invalidateForChangedMessage(ctx: InvalidateContext): ExtensionInvalidation {
   const flags = ctx.messageFlags ?? {};
@@ -145,6 +157,9 @@ function invalidateForChangedMessage(ctx: InvalidateContext): ExtensionInvalidat
       ...(invalidateSummaryception ? resetSummaryceptionSessionFields() : {}),
     },
     runAfter: async () => {
+      // Saved memory versions that cover the changed turn describe text that
+      // is gone; a rebuild continues from the newest one before it.
+      await dropMemoryVersionsFrom(ctx.sessionId, flags.createdAt);
       // Manual regeneration can intentionally summarize a short transcript
       // without compacting its raw rows. In that case `compacted` is false,
       // so use the persisted coverage boundary to invalidate edits inside the
@@ -158,7 +173,9 @@ function invalidateForChangedMessage(ctx: InvalidateContext): ExtensionInvalidat
           .set(STORY_SUMMARY_RESET_FIELDS)
           .where(and(
             eq(playSessions.id, ctx.sessionId),
-            eq(playSessions.summaryCoversUntilMessageId, rawCoverage.coversUntilMessageId),
+            rawCoverage.coversUntilMessageId === null
+              ? isNull(playSessions.summaryCoversUntilMessageId)
+              : eq(playSessions.summaryCoversUntilMessageId, rawCoverage.coversUntilMessageId),
             rawCoverage.sourceHash === null
               ? isNull(playSessions.summarySourceHash)
               : eq(playSessions.summarySourceHash, rawCoverage.sourceHash),
@@ -194,15 +211,18 @@ function invalidateForChangedMessage(ctx: InvalidateContext): ExtensionInvalidat
         if (flags.id) {
           await db
             .update(playSessions)
-            .set({ sessionMemoryStaleAt: new Date() })
+            .set({ sessionMemoryStaleAt: staleSince(flags.createdAt) })
             .where(and(
               eq(playSessions.id, ctx.sessionId),
               isNotNull(playSessions.sessionMemory),
               eq(playSessions.sessionMemoryProcessedMessageId, flags.id),
             ));
+          await scheduleSessionMemoryRepair(ctx.sessionId);
         }
         return;
       }
+      // Read before the abort below clears an in-flight job's hash.
+      const memoryMayCoverChange = await sessionMemoryMayCoverChange(ctx);
       await db
         .update(playSessions)
         .set({ summaryStatus: "idle", summarySourceHash: null, summaryClaimedAt: null })
@@ -214,22 +234,48 @@ function invalidateForChangedMessage(ctx: InvalidateContext): ExtensionInvalidat
       // The changed message is OLDER than the newest reply, so session memory
       // may still describe its pre-edit content — and memory is deliberately
       // never wiped here (see the header comment). Stamp it stale so the
-      // prompt block carries an explicit obsolete-content warning until a
-      // full rebuild / manual save / clear replaces the text. Guarded on a
+      // prompt omits derived facts until a full rebuild / manual save / clear
+      // replaces the text. Queue the rebuild below. Guarded on a
       // memory existing: one built entirely after this change isn't stale.
       // (Real case: a player edited an early "we're at the beach" message and
       // two regenerations kept returning to the beach — the stale memory kept
       // re-asserting the old location every turn, 2026-08-29 report.)
-      await db
-        .update(playSessions)
-        .set({ sessionMemoryStaleAt: new Date() })
-        .where(and(eq(playSessions.id, ctx.sessionId), isNotNull(playSessions.sessionMemory)));
+      // A change after the memory's committed pointer is not in the memory.
+      if (memoryMayCoverChange) {
+        await db
+          .update(playSessions)
+          .set({ sessionMemoryStaleAt: staleSince(flags.createdAt) })
+          .where(and(eq(playSessions.id, ctx.sessionId), isNotNull(playSessions.sessionMemory)));
+      }
+      await db.update(playSessions)
+        .set({ summaryceptionStatus: "idle", summaryceptionSourceHash: null })
+        .where(and(eq(playSessions.id, ctx.sessionId), eq(playSessions.summaryceptionStatus, "updating")));
+      await scheduleSessionMemoryRepair(ctx.sessionId);
     },
   };
 }
 
+/**
+ * The stale stamp records WHERE the memory went stale: the earliest changed
+ * turn's time, so an automatic repair can revise the memory from that turn
+ * instead of re-reading the whole chat (session-memory.ts turnBeforeChange).
+ * A stamp later than the turn the memory covers through records when an
+ * older edit happened instead, which locates nothing: it stays as it is, so
+ * a later, nearer change never hides the earlier one it cannot see. An
+ * unknown time stamps the start of the chat.
+ */
+function staleSince(changedAt: Date | string | null | undefined) {
+  // Stored timestamps are naive UTC; pass the instant as UTC wall time.
+  const at = (changedAt ? new Date(changedAt) : new Date(0)).toISOString().replace("T", " ").replace("Z", "");
+  return sql<Date>`CASE
+    WHEN ${playSessions.sessionMemoryStaleAt} IS NULL THEN ${at}::timestamp
+    WHEN ${playSessions.sessionMemoryStaleAt} > coalesce((SELECT m.created_at FROM messages m WHERE m.id = ${playSessions.sessionMemoryProcessedMessageId}), '-infinity'::timestamp)
+      THEN ${playSessions.sessionMemoryStaleAt}
+    ELSE LEAST(${playSessions.sessionMemoryStaleAt}, ${at}::timestamp) END`;
+}
+
 async function getChangedMessageStoryCoverage(ctx: InvalidateContext): Promise<{
-  coversUntilMessageId: string;
+  coversUntilMessageId: string | null;
   sourceHash: string | null;
 } | null> {
   const flags = ctx.messageFlags;
@@ -238,19 +284,61 @@ async function getChangedMessageStoryCoverage(ctx: InvalidateContext): Promise<{
     .select({
       coversUntilMessageId: playSessions.summaryCoversUntilMessageId,
       sourceHash: playSessions.summarySourceHash,
+      summary: playSessions.summary,
       coversUntilCreatedAt: messages.createdAt,
     })
     .from(playSessions)
     .leftJoin(messages, eq(messages.id, playSessions.summaryCoversUntilMessageId))
     .where(eq(playSessions.id, ctx.sessionId))
     .limit(1);
-  if (!coverage?.coversUntilMessageId) return null;
+  if (!coverage) return null;
+  // Older saved summaries have no coverage pointer. An edit cannot certify
+  // them; keeping one would feed the edited-away fact into the memory rebuild.
+  if (!coverage.coversUntilMessageId) return coverage.summary?.trim()
+    ? { coversUntilMessageId: null, sourceHash: coverage.sourceHash } : null;
   const isCovered = coverage.coversUntilMessageId === flags.id
     || !!coverage.coversUntilCreatedAt
       && new Date(flags.createdAt).getTime() <= coverage.coversUntilCreatedAt.getTime();
   return isCovered
     ? { coversUntilMessageId: coverage.coversUntilMessageId, sourceHash: coverage.sourceHash }
     : null;
+}
+
+/** Session memory holds only turns up to its committed processed pointer. A
+ *  change strictly after it (typically the player's own last message, or a
+ *  reply the batched updater hasn't folded yet) is read fresh when the updater
+ *  gets there, so stamping it stale only forced a full-history rebuild — one
+ *  call per ~60k characters, 180+ on long sessions. A message edit preceded
+ *  346 rebuilds (3,384 calls) in 3 days (2026-10-16..18). Any doubt
+ *  (no/deleted pointer, unknown recency, repair or legacy coverage) answers
+ *  true. createdAt arrives at millisecond precision, which only errs toward
+ *  "covered". */
+async function sessionMemoryMayCoverChange(ctx: InvalidateContext): Promise<boolean> {
+  const flags = ctx.messageFlags;
+  if (!flags?.id || !flags.createdAt) return true;
+  const [row] = await db
+    .select({
+      pointer: playSessions.sessionMemoryProcessedMessageId,
+      sessionMemoryStatus: playSessions.sessionMemoryStatus,
+      sessionMemorySourceHash: playSessions.sessionMemorySourceHash,
+    })
+    .from(playSessions)
+    .where(eq(playSessions.id, ctx.sessionId))
+    .limit(1);
+  if (!row?.pointer || hasUncertainMemoryCoverage(row)) return true;
+  const [pointerIsOlder] = await db
+    .select({ id: messages.id })
+    .from(messages)
+    .where(and(
+      eq(messages.sessionId, ctx.sessionId),
+      eq(messages.id, row.pointer),
+      or(
+        lt(messages.createdAt, flags.createdAt),
+        and(eq(messages.createdAt, flags.createdAt), lt(messages.id, flags.id)),
+      ),
+    ))
+    .limit(1);
+  return !pointerIsOlder;
 }
 
 /** True when the changed message is the session's newest (nothing created
@@ -408,7 +496,10 @@ function invalidate(ctx: InvalidateContext): ExtensionInvalidation {
           ...resetSummaryceptionSessionFields(),
           ...SESSION_MEMORY_RESET_FIELDS,
         },
-        runAfter: () => clearSummaryceptionData(ctx.sessionId),
+        runAfter: async () => {
+          await clearSummaryceptionData(ctx.sessionId);
+          await dropMemoryVersions(ctx.sessionId);
+        },
       };
     case "session-revert":
       // Coverage-aware: keep each tier whose stored output covers no deleted
@@ -429,6 +520,7 @@ function invalidate(ctx: InvalidateContext): ExtensionInvalidation {
           // summaryception has no range-scoped invalidation, so clear it whole
           // (mirrors the unconditional story-summary clear above).
           await clearSummaryceptionData(ctx.sessionId);
+          await dropMemoryVersions(ctx.sessionId);
         },
       };
     case "checkpoint-restore":
@@ -441,14 +533,24 @@ function invalidate(ctx: InvalidateContext): ExtensionInvalidation {
           ...resetSummaryceptionSessionFields(),
           ...SESSION_MEMORY_RESET_FIELDS,
         },
-        runAfter: () => clearSummaryceptionData(ctx.sessionId),
+        runAfter: async () => {
+          await clearSummaryceptionData(ctx.sessionId);
+          await dropMemoryVersions(ctx.sessionId);
+        },
       };
   }
 }
 
 export function registerSessionMemoryExtension(): void {
   registerExtensionHooks(SESSION_MEMORY_EXTENSION_KEY, {
-    resolveCapabilities: ({ session }) => {
+    // Context → 摘要 + 最新 N 条: the card asks for the story summary on behalf
+    // of everyone who plays it, or the platform does (STORY_SUMMARY_DEFAULT_ON).
+    // The player's explicit uninstall still wins (the runner checks it), and
+    // such a run is the summary alone — the facts list and summaryception stay
+    // the player's own choice.
+    activeByDefault: ({ world }) => env.STORY_SUMMARY_DEFAULT_ON || world?.settings?.storySummary?.enabled === true,
+    resolveCapabilities: ({ session, defaultActivated }) => {
+      if (defaultActivated) return ["story-summary"];
       const settings = getMemorySystemSettings(session as SessionMemorySystemRow);
       const caps: string[] = [];
       if (settings.sessionMemoryIncluded) caps.push("session-memory");
@@ -481,12 +583,13 @@ export function registerSessionMemoryExtension(): void {
         // they are the player's own standing instructions, not derived state.
         id: "session-memory",
         priority: 30,
-        content: (() => {
+        content: await (async () => {
           const autoMemoryOn = ctx.capabilities.has("session-memory");
           const pinned = typeof ctx.session.sessionMemoryPinned === "string" ? ctx.session.sessionMemoryPinned : null;
           if (!autoMemoryOn && !pinned) return null;
           return formatSessionMemoryForPrompt(autoMemoryOn ? ctx.session.sessionMemory : null, {
-            staleSinceEdit: autoMemoryOn && ctx.session.sessionMemoryStaleAt != null,
+            staleSinceEdit: autoMemoryOn && (ctx.session.sessionMemoryStaleAt != null
+              || await hasIneligibleSessionMemorySource(ctx.sessionId, ctx.session)),
             pinned,
           });
         })(),
@@ -525,6 +628,8 @@ export function registerSessionMemoryExtension(): void {
           fallbackModel: ctx.model,
           contextTokenLimit: ctx.maxContext,
           finalPromptRawTokenLimit: ctx.finalPromptRawTokenLimit,
+          authorRequired: ctx.defaultActivated === true,
+          recapWithinTokens: ctx.defaultActivated === true && env.STORY_SUMMARY_DEFAULT_ON ? ctx.maxContext : null,
         });
       }
     },
@@ -541,12 +646,35 @@ export function registerSessionMemoryExtension(): void {
           assistantMessageId: ctx.assistantMessageId,
         });
       }
-      if (ctx.capabilities.has("story-summary")) {
+      // A summary nobody installed folds against the story memory, not the
+      // threshold pass's own schedule: once the next turn would overflow, it
+      // folds the older half now, so the shorter history and the new summary
+      // reach the next prompt together and the cache breaks once. Folding
+      // only at the overflow trimmed one turn and changed the summary the
+      // next, breaking it twice. The summary covering the cut lets the step
+      // be half the budget, not the third a bare trim keeps.
+      const overflowOnly = ctx.defaultActivated === true && env.STORY_SUMMARY_DEFAULT_ON;
+      if (ctx.capabilities.has("story-summary") && overflowOnly) {
+        const raw = ctx.rawHistory;
+        if (raw && raw.tokens + estimateTokens(ctx.assistantMessage, ctx.fallbackModel) + FOLD_AHEAD_TOKENS > raw.budget) {
+          scheduleStoryCompaction({
+            sessionId: ctx.sessionId,
+            userId: ctx.userId,
+            fallbackModel: ctx.fallbackModel,
+            contextTokenLimit: ctx.contextTokenLimit,
+            finalPromptRawTokenLimit: Math.max(1, Math.floor(raw.budget / 2)),
+            foldAtTokens: raw.budget - FOLD_AHEAD_TOKENS,
+            recapWithinTokens: ctx.contextTokenLimit,
+            authorRequired: true,
+          });
+        }
+      } else if (ctx.capabilities.has("story-summary")) {
         scheduleStoryCompaction({
           sessionId: ctx.sessionId,
           userId: ctx.userId,
           fallbackModel: ctx.fallbackModel,
           contextTokenLimit: ctx.contextTokenLimit,
+          authorRequired: ctx.defaultActivated === true,
         });
       }
     },

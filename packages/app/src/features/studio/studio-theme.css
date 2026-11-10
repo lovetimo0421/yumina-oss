@@ -174,3 +174,51 @@
   opacity: 1;
   transform: translate(-50%, -50%) scale(1.02);
 }
+
+/* Blueprint: auto-layout reflow is animated so the graph visibly rearranges
+   instead of teleporting. The class is added for the duration of the move
+   only — dragging must stay 1:1 with the cursor. */
+.bp-animate-layout .react-flow__node:not(.dragging) {
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1), width 420ms cubic-bezier(0.22, 1, 0.36, 1), height 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The editor standing beside a row: it grows out of the side it stands on,
+   quickly — it answers a click. */
+@keyframes floating-editor-in {
+  from { opacity: 0; transform: scale(0.97) translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+.floating-editor-enter {
+  animation: floating-editor-in 160ms cubic-bezier(0.22, 1, 0.36, 1);
+  transform-origin: inherit;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bp-animate-layout .react-flow__node:not(.dragging) { transition: none; }
+  .floating-editor-enter { animation: none; }
+}
+
+/* The wiring dots on every row's edges meant nothing to someone reading the
+   card, and they were on every row. They show on the block under the pointer
+   (which is where a wire starts or lands), on what is selected, and all of
+   them when the wires view is on. */
+.studio-canvas:not(.bp-wires-shown) .react-flow__node .react-flow__handle {
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.studio-canvas .react-flow__node:hover .react-flow__handle,
+.studio-canvas .react-flow__node.selected .react-flow__handle,
+.studio-canvas .react-flow__handle.connectingfrom,
+.studio-canvas .react-flow__handle.connectingto {
+  opacity: 1;
+}
+
+/* Wire hover: fatten the hit area feedback so aiming at a wire is honest. */
+.react-flow__edge:hover .react-flow__edge-path {
+  filter: brightness(1.35);
+}
+
+/* Blueprint block focus: the block the selection lives in stays lit, the rest
+   step back. Only opacity moves — the layout must not shift under the zoom. */
+.bp-block-focus .react-flow__node[data-id^="block:"] {
+  transition: opacity 260ms ease;
+}

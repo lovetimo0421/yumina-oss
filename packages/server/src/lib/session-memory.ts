@@ -1,23 +1,30 @@
+import { historicalStateGuard, loadHistoricalState, type HistoricalState } from "./continuity-guards.js";
+import { NARRATIVE_EVIDENCE_RULES, stripNarrativeReasoning } from "./narrative-evidence.js";
 import { usageObservation } from "./usage-observation.js";
 import { createHash, randomUUID } from "node:crypto";
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import type { SessionMemory } from "@yumina/shared";
 import { db } from "../db/index.js";
 import { messages, playSessions, worlds } from "../db/schema.js";
+import { latestValidMemoryVersion, saveMemoryVersion } from "./session-memory-versions.js";
 import { recordUsageLog } from "./usage-log.js";
-import { billBackgroundUsage, prepareBackgroundUsageBill } from "./background-billing.js";
+import { backgroundBillingApplies, billBackgroundUsage, hasBackgroundRunBudget, notEnoughMushiesMessage, prepareBackgroundUsageBill } from "./background-billing.js";
+import { calculateCost } from "./credit-service.js";
+import { estimateTokensFromMetrics } from "@yumina/engine";
 import { resolveProviderForModel, type ResolvedProvider } from "./resolve-provider.js";
+import { planAllowedModel } from "./plan-model-gate.js";
 import { applyModelRedirect } from "./llm/model-redirects.js";
 import { captureServerEvent } from "./analytics.js";
 import { runtimeIdentity } from "./runtime-identity.js";
 import { memoryPromptWithBudget } from "./session-memory-prompts.js";
+import { omitSummaryMetadata } from "./persona-metadata.js";
 import { canRunMemoryQa, createMemoryQaProvider, type MemoryQaScenario } from "./session-memory-qa.js";
 import type { GenerateParams } from "./llm/types.js";
 import { isExtensionInstalled } from "./extensions.js";
 import { SESSION_MEMORY_EXTENSION_KEY } from "@yumina/shared";
 import type { ChatMessage } from "./llm/types.js";
 import { enqueueKeyedJob } from "./job-chain.js";
-import { memoryClaimGuard, memoryLagGuard, memorySourceGuard, pendingMemoryRange, type MemoryJobSnapshot } from "./session-memory-guards.js";
+import { memoryClaimGuard, memoryLagGuard, memorySourceGuard, pendingMemoryRange, memoryReplyFilter, memoryRepairFilter, memorySourceCountGuard, type MemoryJobSnapshot } from "./session-memory-guards.js";
 import { buildSummaryLanguageInstruction, resolveSummaryOutputLanguage, type SessionSummaryLanguage } from "./summary-language.js";
 export {
   DegenerateSessionMemoryError,
@@ -34,7 +41,9 @@ export {
 } from "./session-memory-core.js";
 import {
   MAX_MEMORY_OUTPUT_TOKENS,
+  MEMORY_BATCH_MAX_CHARS,
   MEMORY_TARGET_CHARS,
+  MEMORY_WRITE_TARGET_CHARS,
   MEMORY_RECOVERY_TARGET_CHARS,
   MAX_MEMORY_CHARS,
   TruncatedSessionMemoryError,
@@ -48,7 +57,6 @@ import {
   sanitizeSessionMemoryForGeneration,
   selectPendingMemoryBatch,
   shouldUpdateSessionMemory,
-  selectLaggedRebuildWindow,
 } from "./session-memory-core.js";
 
 /**
@@ -66,14 +74,13 @@ function isOutputCapRejection(err: unknown): boolean {
 
 // See DEFAULT_STORY_SUMMARY_MODEL: cheap, CJK-aware, and not the deprecated
 // x-ai/grok-4.1-fast (which redirects to the ~20x-pricier x-ai/grok-4.20).
-export const DEFAULT_SESSION_MEMORY_MODEL = "google/gemini-2.5-flash-lite";
+export const DEFAULT_SESSION_MEMORY_MODEL = "google/gemini-3.1-flash-lite";
 const DEGENERATE_SESSION_MEMORY_FALLBACK_MODEL = "deepseek/deepseek-v4-flash";
 
-const MAX_TRANSCRIPT_CHARS = 60_000;
 const MAX_STATE_CHARS = 8_000;
 const MAX_REBUILD_TRANSCRIPT_ROWS = 400;
 const MAX_INCREMENTAL_TRANSCRIPT_ROWS = 200;
-const SOURCE_HASH_VERSION = 2;
+const SOURCE_HASH_VERSION = 4;
 
 type IncrementalUpdateArgs = {
   sessionId: string;
@@ -88,14 +95,33 @@ type IncrementalUpdateArgs = {
 
 type PreparedMemoryJob = {
   model: string;
+  /** The model the session keeps, when the job runs on another (an automatic
+   *  rebuild runs on the default model, not the player's pick). */
+  sessionModel?: string;
   prompt: ChatMessage[];
   sourceHash: string;
   processedMessageId: string | null;
   snapshot?: MemoryJobSnapshot;
   clearStale?: boolean;
-  sourceRows?: Array<{ id: string; content: string }>;
+  sourceRows?: Array<{ id: string; content?: string; digest?: string; role?: string }>;
+  fullRebuild?: boolean;
+  invalidateLegacyCoverage?: boolean;
   excludedReplyId?: string;
+  states?: HistoricalState[];
+  usages?: MemoryUsage[];
+  /** A rebuild that continues from a saved version folds only what follows it. */
+  rebuildFrom?: string | null;
 };
+
+/** Save a version beside a committed fold. Best effort: inside a savepoint,
+ *  so a missing table or a failed insert never costs the memory itself. */
+async function keepMemoryVersion(tx: Parameters<Parameters<typeof db.transaction>[0]>[0], sessionId: string, processedMessageId: string, memory: SessionMemory): Promise<void> {
+  try {
+    await tx.transaction((savepoint) => saveMemoryVersion(savepoint, { sessionId, processedMessageId, memory }));
+  } catch (err) {
+    console.warn("[SessionMemory] Version not saved:", err instanceof Error ? err.message : err);
+  }
+}
 
 type MemoryUsage = Parameters<typeof billBackgroundUsage>[0];
 type GeneratedMemory = { memory: SessionMemory; usage?: MemoryUsage; model: string; attempts: number; synthetic?: boolean };
@@ -126,10 +152,6 @@ function stringifyCompact(value: unknown, maxChars: number): string {
   return `${text.slice(0, maxChars).trim()}\n... [truncated]`;
 }
 
-function trimFromStart(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  return `[Earlier transcript omitted]\n${text.slice(text.length - maxChars)}`;
-}
 
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
@@ -274,7 +296,7 @@ async function generateMemoryText(args: {
         };
       }
     }
-    previousOutput = { text: stripCodeFences(text), completionTokens, stopReason, outputLimit: maxTokens };
+    previousOutput = { text: stripNarrativeReasoning(stripCodeFences(text)), completionTokens, stopReason, outputLimit: maxTokens };
     return previousOutput;
   };
 
@@ -337,6 +359,11 @@ async function generateHealthyMemoryText(args: {
   jobId: string;
   qaProvider?: ResolvedProvider;
 }): Promise<GeneratedMemory> {
+  // A memory model above the player's plan runs on the default memory model.
+  if (!args.qaProvider) {
+    const allowedModel = await planAllowedModel(args.userId, args.model, DEFAULT_SESSION_MEMORY_MODEL);
+    if (allowedModel !== args.model) args = { ...args, model: allowedModel };
+  }
   const fallbackModel = args.model.startsWith("deepseek/")
     ? DEFAULT_SESSION_MEMORY_MODEL
     : DEGENERATE_SESSION_MEMORY_FALLBACK_MODEL;
@@ -409,12 +436,15 @@ function buildIncrementalPrompt(args: {
   state: unknown;
   worldName?: string | null;
   language: SessionSummaryLanguage;
+  /** The player edited these exchanges after the memory was written. */
+  revised?: boolean;
 }): ChatMessage[] {
   return [
     {
       role: "system",
       content: [
-        "You update continuity memory for an AI roleplay session.",
+        "You update continuity memory for an interactive-fiction session.",
+        NARRATIVE_EVIDENCE_RULES,
         buildMemoryFormatInstruction(args.language, "the latest turn"),
         // Oversize existing memory (legacy 8k-12k rows, or an overshoot) must
         // be compressed, not faithfully rewritten into the output cap.
@@ -427,10 +457,12 @@ function buildIncrementalPrompt(args: {
         `World: ${args.worldName || "Unknown"}`,
         "Existing memory:",
         args.previousMemory.text || "(empty)",
-        "Unprocessed exchanges, in chronological order (include every exchange):",
+        args.revised
+          ? "The player edited the story from the first exchange below, after the existing memory was written. These exchanges are now what happened and replace the earlier version, which the memory may still describe. Rewrite or remove every part of the memory that they contradict or that only the earlier version supported, and keep the rest. Exchanges, in chronological order (include every exchange):"
+          : "Unprocessed exchanges, in chronological order (include every exchange):",
         args.transcript,
         "Current game state JSON:",
-        stringifyCompact(args.state, MAX_STATE_CHARS),
+        stringifyCompact(omitSummaryMetadata(args.state), MAX_STATE_CHARS),
         "Update the memory so it remains useful for future continuity.",
       ].join("\n\n"),
     },
@@ -438,7 +470,6 @@ function buildIncrementalPrompt(args: {
 }
 
 function buildRegeneratePrompt(args: {
-  summary: string | null;
   transcript: string;
   state: unknown;
   worldName?: string | null;
@@ -448,7 +479,8 @@ function buildRegeneratePrompt(args: {
     {
       role: "system",
       content: [
-        "You rebuild continuity memory for an AI roleplay session from the available transcript.",
+        "You rebuild continuity memory for an interactive-fiction session from the available transcript.",
+        NARRATIVE_EVIDENCE_RULES,
         buildMemoryFormatInstruction(args.language, "the visible transcript"),
       ].join("\n\n"),
     },
@@ -456,11 +488,10 @@ function buildRegeneratePrompt(args: {
       role: "user",
       content: [
         `World: ${args.worldName || "Unknown"}`,
-        args.summary ? `[Compacted earlier summary]\n${args.summary}` : "[Compacted earlier summary]\nNone",
         "[Visible transcript]",
-        trimFromStart(args.transcript, MAX_TRANSCRIPT_CHARS),
+        args.transcript,
         "[Current game state JSON]",
-        stringifyCompact(args.state, MAX_STATE_CHARS),
+        stringifyCompact(omitSummaryMetadata(args.state), MAX_STATE_CHARS),
         "Build the best current session memory. Exclude system prompt instructions.",
       ].join("\n\n"),
     },
@@ -495,11 +526,11 @@ function prepareIncrementalMemoryJob(args: IncrementalUpdateArgs & { transcript:
     transcript: args.transcript,
     previousMemory,
     state: args.state,
-  });
+  }) + ":eligible-v1";
 
   return {
     model,
-    sourceHash,
+    sourceHash: previousMemory.text && (!row.session.sessionMemorySourceHash || row.session.sessionMemorySourceHash.includes(":authored")) ? `${sourceHash}:authored` : sourceHash,
     processedMessageId,
     snapshot: row.session,
     prompt: buildIncrementalPrompt({
@@ -516,7 +547,6 @@ function prepareRegenerateMemoryJob(args: {
   sessionId: string;
   model: string;
   transcript: string;
-  summary: string | null;
   state: unknown;
   worldName?: string | null;
   processedMessageId: string | null;
@@ -532,12 +562,10 @@ function prepareRegenerateMemoryJob(args: {
       model: args.model,
       language: args.language,
       processedMessageId: args.processedMessageId,
-      summary: args.summary,
       transcript: args.transcript,
       state: args.state,
-    }),
+    }) + ":eligible-v1",
     prompt: buildRegeneratePrompt({
-      summary: args.summary,
       transcript: args.transcript,
       state: args.state,
       worldName: args.worldName,
@@ -559,17 +587,24 @@ export async function persistSessionMemoryResult(args: {
     eq(playSessions.id, args.sessionId),
     eq(playSessions.sessionMemoryStatus, "updating"),
     eq(playSessions.sessionMemorySourceHash, args.job.sourceHash),
-    memorySourceGuard(args.sessionId, args.job.sourceRows ?? []),
+    memorySourceGuard(args.sessionId, args.job.sourceRows ?? [], { requireComplete: true }),
     memoryLagGuard(args.sessionId, args.job.excludedReplyId),
+    historicalStateGuard(args.sessionId, args.job.states),
+    args.job.snapshot ? and(
+      sql`${playSessions.summaryLanguage} IS NOT DISTINCT FROM ${args.job.snapshot.summaryLanguage}`,
+      eq(playSessions.sessionMemoryIncluded, args.job.snapshot.sessionMemoryIncluded),
+      eq(playSessions.sessionMemoryModel, args.job.sessionModel ?? args.job.model),
+    ) : undefined,
+    args.job.fullRebuild || args.job.snapshot ? memorySourceCountGuard(args.sessionId, args.job.processedMessageId, args.job.sourceRows?.length ?? 0, args.job.fullRebuild ? args.job.rebuildFrom ?? null : args.job.snapshot!.sessionMemoryProcessedMessageId) : undefined,
   );
 
-  const charge = args.generation?.usage ? await prepareBackgroundUsageBill(args.generation.usage) : null;
+  const charges = await Promise.all((args.job.usages ?? (args.generation?.usage ? [args.generation.usage] : [])).map(prepareBackgroundUsageBill));
   const committed = await db.transaction(async (tx) => {
     const updated = await tx
       .update(playSessions)
       .set({
         sessionMemory: args.memory,
-        sessionMemoryModel: args.job.model,
+        sessionMemoryModel: args.job.sessionModel ?? args.job.model,
         sessionMemoryUpdatedAt: new Date(),
         sessionMemoryStatus: "idle",
         sessionMemoryClaimedAt: null,
@@ -582,7 +617,9 @@ export async function persistSessionMemoryResult(args: {
       .where(whereClause)
       .returning();
     if (updated.length === 0) return false;
-    await charge?.(tx);
+    for (const charge of charges) await charge?.(tx);
+    // A rebuild kept each batch as it landed.
+    if (args.job.processedMessageId && !args.job.fullRebuild) await keepMemoryVersion(tx, args.sessionId, args.job.processedMessageId, args.memory);
     return true;
   });
 
@@ -615,7 +652,7 @@ export async function persistSessionMemoryResult(args: {
     synthetic: !!args.generation?.synthetic,
     model: args.generation?.model ?? args.job.model, output_chars: args.memory.text.length,
     attempts: args.generation?.attempts, processed_message_id: args.job.processedMessageId,
-    charged_usage_log_id: charge ? args.generation?.usage?.usageLogId : null,
+    charged_usage_log_id: charges.some(Boolean) ? args.generation?.usage?.usageLogId : null,
   });
   return true;
 }
@@ -630,7 +667,7 @@ async function markSessionMemoryJobUpdating(args: {
   const claimed = await db
     .update(playSessions)
     .set({
-      sessionMemoryModel: args.job.model,
+      sessionMemoryModel: args.job.sessionModel ?? args.job.model,
       sessionMemoryStatus: "updating",
       sessionMemoryClaimedAt: now,
       sessionMemoryError: null,
@@ -640,11 +677,12 @@ async function markSessionMemoryJobUpdating(args: {
       sessionMemorySourceHash: args.job.sourceHash,
       // A legacy attempt position isn't coverage. Invalidating it also keeps
       // a settings change during repair from making that position trusted.
-      ...(args.job.sourceHash.startsWith("repair:") ? { sessionMemoryProcessedMessageId: null } : {}),
+      ...(args.job.invalidateLegacyCoverage ? { sessionMemoryProcessedMessageId: null } : {}),
     })
     .where(and(
       eq(playSessions.id, args.sessionId), memoryClaimGuard(args.job.snapshot, now),
-      memorySourceGuard(args.sessionId, args.job.sourceRows ?? []), memoryLagGuard(args.sessionId, args.job.excludedReplyId),
+      memorySourceGuard(args.sessionId, args.job.sourceRows ?? [], { requireComplete: true }), memoryLagGuard(args.sessionId, args.job.excludedReplyId),
+    historicalStateGuard(args.sessionId, args.job.states),
     ))
     .returning();
   return claimed.length > 0;
@@ -680,13 +718,102 @@ async function markSessionMemoryJobFailed(args: {
     .where(whereClause);
 }
 
+/** Per-call overhead besides the transcript: instructions, the running memory
+ * and the state snapshot. Generous so the gate errs toward not starting. */
+const REBUILD_INSTRUCTION_TOKENS = 1_500;
+
+/** Mushies a rebuild of (from, safeTip] costs on `model`; from the start
+ *  when there is no saved version to continue from. */
+async function estimateMemoryRebuildCredits(args: { sessionId: string; model: string; safeTip: string; from?: string | null }): Promise<number> {
+  const [range] = await db.select({
+    chars: sql<number>`coalesce(sum(coalesce(${messages.contentLen}, length(${messages.content})) + 16), 0)::float8`,
+    cjk: sql<number>`coalesce(sum(coalesce(${messages.contentCjkLen}, 0)), 0)::float8`,
+  }).from(messages).where(pendingMemoryRange(args.sessionId, args.safeTip, args.from ?? null));
+  const chars = Number(range?.chars ?? 0);
+  if (chars <= 0) return 0;
+  const transcriptTokens = estimateTokensFromMetrics(chars, Number(range?.cjk ?? 0), args.model);
+  const tokensPerChar = transcriptTokens / chars;
+  const batches = Math.ceil(chars / MEMORY_BATCH_MAX_CHARS);
+  const perCall = await calculateCost(
+    args.model,
+    Math.ceil(transcriptTokens / batches + (MEMORY_TARGET_CHARS + MAX_STATE_CHARS) * tokensPerChar) + REBUILD_INSTRUCTION_TOKENS,
+    Math.ceil(MEMORY_WRITE_TARGET_CHARS * tokensPerChar),
+  );
+  return perCall * batches;
+}
+
+/** False when an official-key rebuild of [start, safeTip] can't be paid for.
+ * BYOK, an unresolvable model (generation reports that itself) and unlimited
+ * plans pass. Mirrors canAffordStorySummaryRun. */
+async function canAffordMemoryRebuild(args: { userId: string; sessionId: string; model: string; safeTip: string; from?: string | null }): Promise<boolean> {
+  const model = await planAllowedModel(args.userId, args.model, DEFAULT_SESSION_MEMORY_MODEL);
+  const resolved = await resolveProviderForModel(args.userId, model, { allowOfficialFallback: false });
+  if (!resolved || resolved.isByok) return true;
+  return hasBackgroundRunBudget(args.userId, () => estimateMemoryRebuildCredits({ ...args, model }));
+}
+
+/** The most an automatic rebuild may cost. One with no saved version to
+ *  continue from re-reads the whole chat from its first message, a few hundred
+ *  mushies on a long one, run silently in the background: one player lost
+ *  6,506 in a week to 46 of them on a 1,841-message chat (2026-10-20). Above
+ *  this the rebuild waits for the player to start it from the memory panel. */
+const AUTO_MEMORY_REBUILD_MAX_CREDITS = 30;
+
+/** Where a rebuild starts and the memory it starts from. `revised` folds the
+ *  turns from an edit onward over the memory written before the edit, told
+ *  that they supersede it. */
+type RebuildPlan = { from: string | null; seed: SessionMemory | null; revised: boolean };
+
+/** The turn before the earliest change the stale stamp records, when the
+ *  stamp locates one: invalidation stamps the changed turn's time, never
+ *  later than the turn the memory covers through. A stamp past the pointer
+ *  is an older one that recorded when the edit happened, which locates
+ *  nothing, and is not trusted. */
+async function turnBeforeChange(sessionId: string, session: typeof playSessions.$inferSelect): Promise<string | null> {
+  const changedAt = session.sessionMemoryStaleAt;
+  const pointer = session.sessionMemoryProcessedMessageId;
+  if (!changedAt || !pointer) return null;
+  const [covered] = await db.select({ createdAt: messages.createdAt }).from(messages)
+    .where(and(eq(messages.sessionId, sessionId), eq(messages.id, pointer))).limit(1);
+  if (!covered?.createdAt || changedAt.getTime() > covered.createdAt.getTime()) return null;
+  const [before] = await db.select({ id: messages.id }).from(messages)
+    .where(and(eq(messages.sessionId, sessionId), eq(messages.status, "complete"), sql`${messages.role} IN ('user', 'assistant')`, lt(messages.createdAt, changedAt)))
+    .orderBy(desc(messages.createdAt), desc(messages.id)).limit(1);
+  return before?.id ?? null;
+}
+
+/**
+ * The model and starting point of a rebuild the system starts on its own.
+ * Plans come most faithful first: continue a saved version, fold the whole
+ * chat, or revise the memory from the edit onward. Mushie-paid runs use the
+ * default model and the first plan within the automatic budget; the player's
+ * own key costs them nothing, so it keeps theirs and the first plan. Throws
+ * when none fits, quoting what the player's own rebuild would cost.
+ */
+async function planAutomaticRebuild(args: { userId: string; sessionId: string; model: string; safeTip: string; plans: RebuildPlan[] }): Promise<{ model: string; plan: RebuildPlan }> {
+  const picked = await planAllowedModel(args.userId, args.model, DEFAULT_SESSION_MEMORY_MODEL);
+  const resolved = await resolveProviderForModel(args.userId, picked, { allowOfficialFallback: false });
+  if (!resolved || resolved.isByok) return { model: args.model, plan: args.plans[0]! };
+  if (!await backgroundBillingApplies(args.userId)) return { model: DEFAULT_SESSION_MEMORY_MODEL, plan: args.plans[0]! };
+  for (const plan of args.plans) {
+    const credits = await estimateMemoryRebuildCredits({ sessionId: args.sessionId, model: DEFAULT_SESSION_MEMORY_MODEL, safeTip: args.safeTip, from: plan.from });
+    if (credits <= AUTO_MEMORY_REBUILD_MAX_CREDITS) return { model: DEFAULT_SESSION_MEMORY_MODEL, plan };
+  }
+  const whole = await estimateMemoryRebuildCredits({ sessionId: args.sessionId, model: DEFAULT_SESSION_MEMORY_MODEL, safeTip: args.safeTip });
+  throw new Error(`Rebuilding the memory of this long chat would cost about ${Math.ceil(whole)} mushies, so it did not run on its own. Memory facts are paused until you rebuild it from the memory panel.`);
+}
+
 async function regenerateSessionMemoryForSessionNow(args: {
   sessionId: string;
   userId: string;
   model?: string | null;
   repairLegacy?: boolean;
+  repairStale?: boolean;
   qaProvider?: ResolvedProvider;
   force?: boolean;
+  /** Started by the system (an edit, a revert, a coverage repair), not by the
+   *  player: runs on the default model and only when it is cheap. */
+  automatic?: boolean;
 }): Promise<SessionMemory> {
   const [row] = await db
     .select({
@@ -701,29 +828,19 @@ async function regenerateSessionMemoryForSessionNow(args: {
 
   if (!row) throw new Error("Session not found");
 
-  const model = applyModelRedirect((args.model || row.session.sessionMemoryModel || DEFAULT_SESSION_MEMORY_MODEL).trim());
+  const sessionModel = applyModelRedirect((args.model || row.session.sessionMemoryModel || DEFAULT_SESSION_MEMORY_MODEL).trim());
+  let model = sessionModel;
 
   let job: PreparedMemoryJob | null = null;
   try {
-    const transcriptRowsDesc = await db
-      .select({
-        id: messages.id,
-        role: messages.role,
-        content: messages.content,
-      })
-      .from(messages)
-      .where(and(
-        eq(messages.sessionId, args.sessionId),
-        inArray(messages.role, ["user", "assistant"]),
-      ))
-      .orderBy(desc(messages.createdAt), desc(messages.id))
-      .limit(MAX_REBUILD_TRANSCRIPT_ROWS);
-    const transcriptRows = transcriptRowsDesc.reverse();
-    // Lag-one invariant (selectLaggedRebuildWindow): rebuild from everything
-    // up to the second-to-last reply, so the newest visible reply never enters
-    // memory and regenerating it stays unbiased.
-    const window = selectLaggedRebuildWindow(transcriptRows);
-    if (window.rows.length === 0) {
+    // Fix the lag-one boundary once, then page forward from the start or from
+    // a saved version whose turns are unchanged. Compacted rows remain raw
+    // evidence; no summary or unversioned memory seeds a repair.
+    const replies = await db.select({ id: messages.id }).from(messages)
+      .where(memoryReplyFilter(args.sessionId))
+      .orderBy(desc(messages.createdAt), desc(messages.id)).limit(2);
+    const safeTip = replies[1]?.id;
+    if (!safeTip) {
       // At most one visible reply — nothing to memorize yet. Clear instead of
       // burning an LLM call over an empty window.
       await db
@@ -742,56 +859,107 @@ async function regenerateSessionMemoryForSessionNow(args: {
         .where(and(eq(playSessions.id, args.sessionId), memoryClaimGuard(row.session, new Date())));
       return emptySessionMemory();
     }
-    const transcript = window.rows
-      .map((m) => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`)
-      .join("\n\n");
-    const windowTail = window.rows[window.rows.length - 1]!;
-    // Legacy repair now also runs automatically. Avoid loading/parsing up to
-    // 400 potentially large JSON snapshots just to use the endpoint's state.
-    const [windowState] = await db.select({ stateSnapshot: messages.stateSnapshot }).from(messages)
-      .where(and(eq(messages.sessionId, args.sessionId), eq(messages.id, windowTail.id))).limit(1);
-    job = prepareRegenerateMemoryJob({
-      sessionId: args.sessionId,
-      model,
-      transcript,
-      summary: row.session.summary,
-      // State as of the window's last reply when its snapshot survives — the
-      // live state already includes the newest reply's effects.
-      state: windowState?.stateSnapshot ?? {},
-      worldName: row.worldName,
-      processedMessageId: window.processedMessageId,
-      language: resolveSummaryOutputLanguage({
-        configured: row.session.summaryLanguage,
-        sourceText: transcript,
-        worldLanguage: row.worldLanguage,
-      }),
-    });
-    job.snapshot = row.session;
-    job.sourceRows = window.rows;
-    job.excludedReplyId = transcriptRows.filter(m => m.role === "assistant").at(-1)?.id;
-    job.clearStale = !args.repairLegacy;
-    if (args.repairLegacy) {
-      // An attempted repair cannot certify the legacy pointer. Keep this
-      // marker through failure; only a successful commit removes it.
-      job.sourceHash = `repair:${job.sourceHash}`;
-      // Old failed rows advanced their pointer BEFORE saving, so it cannot
-      // establish coverage. Rebuild once from the bounded transcript + summary,
-      // retaining old durable facts that the surviving transcript doesn't contradict.
-      job.prompt.splice(1, 0, { role: "user", content: `Previous memory (may be incomplete; the surviving transcript below takes precedence):\n${normalizeSessionMemory(row.session.sessionMemory).text}` });
+    // The player's rebuild button writes the memory afresh. The system's own
+    // rebuilds take the most faithful start that fits the automatic budget:
+    // the newest version still valid (a changed turn dropped the ones after
+    // it), the whole chat, or the memory revised from the edit onward. Only
+    // when none fits does the memory stay hidden for the player to rebuild,
+    // as it always did: an automatic repair is never worse than that.
+    let plan: RebuildPlan = { from: null, seed: null, revised: false };
+    if (args.automatic && !args.qaProvider) {
+      const plans: RebuildPlan[] = [];
+      const base = await latestValidMemoryVersion(args.sessionId, safeTip);
+      if (base) plans.push({ from: base.processedMessageId, seed: normalizeSessionMemory(base.memory), revised: false });
+      plans.push(plan);
+      const current = normalizeSessionMemory(row.session.sessionMemory);
+      const beforeChange = current.text ? await turnBeforeChange(args.sessionId, row.session) : null;
+      if (beforeChange) plans.push({ from: beforeChange, seed: current, revised: true });
+      ({ model, plan } = await planAutomaticRebuild({ userId: args.userId, sessionId: args.sessionId, model: sessionModel, safeTip, plans }));
     }
-    if (!await markSessionMemoryJobUpdating({ sessionId: args.sessionId, job, resetRetries: !args.repairLegacy || args.force })) {
+    const from = plan.from;
+    // A rebuild is one call per ~60k characters it folds (180+ on the longest
+    // sessions from the start). Without this gate a short wallet ran every
+    // batch, then the debit failed and nothing was saved or charged (655 such
+    // calls the week of 2026-10-12).
+    if (!args.qaProvider && !await canAffordMemoryRebuild({ userId: args.userId, sessionId: args.sessionId, model, safeTip, from })) {
+      throw new Error(notEnoughMushiesMessage("session-memory"));
+    }
+    const boundaryState = await loadHistoricalState(args.sessionId, safeTip);
+    job = prepareRegenerateMemoryJob({ sessionId: args.sessionId, model, transcript: "",
+      state: boundaryState.snapshot, worldName: row.worldName, processedMessageId: safeTip,
+      language: resolveSummaryOutputLanguage({ configured: row.session.summaryLanguage, sourceText: "", worldLanguage: row.worldLanguage }) });
+    job.snapshot = row.session;
+    if (model !== sessionModel) job.sessionModel = sessionModel;
+    job.states = [boundaryState];
+    job.sourceRows = [];
+    job.excludedReplyId = replies[0]?.id;
+    job.clearStale = true;
+    job.fullRebuild = true;
+    job.invalidateLegacyCoverage = args.repairLegacy;
+    job.sourceHash = `repair:${job.sourceHash}`;
+    job.rebuildFrom = from;
+    if (!await markSessionMemoryJobUpdating({ sessionId: args.sessionId, job, resetRetries: (!args.repairLegacy && !args.repairStale) || args.force })) {
       return normalizeSessionMemory(row.session.sessionMemory);
     }
-    const generation = await generateHealthyMemoryText({
-      userId: args.userId,
-      sessionId: args.sessionId,
-      model: job.model,
-      prompt: job.prompt,
-      jobId: job.sourceHash,
-      qaProvider: args.qaProvider,
-    });
-
-    const memory = generation.memory;
+    let memory = plan.seed ?? emptySessionMemory();
+    let generation: GeneratedMemory | undefined;
+    job.usages = [];
+    let cursor: string | null = from;
+    let processed: string | null = from;
+    let pending: Array<{ id: string; role: string; content: string }> = [];
+    // Read and fold bounded pages. Retain only content fingerprints after each
+    // batch; keep one boundary state snapshot per batch for final validation.
+    for (;;) {
+      const page = await db.select({ id: messages.id, role: messages.role, content: messages.content })
+        .from(messages).where(pendingMemoryRange(args.sessionId, safeTip, cursor))
+        .orderBy(asc(messages.createdAt), asc(messages.id)).limit(MAX_REBUILD_TRANSCRIPT_ROWS);
+      pending.push(...page);
+      while (pending.some(m => m.role === "assistant")) {
+        const batch = selectPendingMemoryBatch(pending);
+        if (!batch.rows.length) throw new Error("Unable to rebuild the full memory range");
+        const state = await loadHistoricalState(args.sessionId, batch.processedMessageId!);
+        job.states.push(state);
+        job.sourceRows.push(...batch.rows.map(m => ({ id: m.id, role: m.role, digest: createHash("md5").update(m.content).digest("hex") })));
+        const [owner] = await db.update(playSessions).set({sessionMemoryClaimedAt: new Date()}).where(and(
+          eq(playSessions.id, args.sessionId), eq(playSessions.sessionMemoryStatus, "updating"), eq(playSessions.sessionMemorySourceHash, job.sourceHash),
+          memorySourceGuard(args.sessionId, job.sourceRows, { requireComplete: true }), historicalStateGuard(args.sessionId, job.states), memoryLagGuard(args.sessionId, job.excludedReplyId),
+        )).returning();
+        if (!owner) throw new Error("Memory source changed; retry with the current conversation");
+        const transcript = batch.rows.map(m => `${m.role === "user" ? "User" : "Assistant"}: ${m.content}`).join("\n\n");
+        const language = resolveSummaryOutputLanguage({ configured: row.session.summaryLanguage, sourceText: transcript, worldLanguage: row.worldLanguage });
+        const prompt = !processed ? buildRegeneratePrompt({ transcript, state: state.snapshot, worldName: row.worldName, language })
+          : buildIncrementalPrompt({ previousMemory: memory, transcript, state: state.snapshot, worldName: row.worldName, language, revised: plan.revised });
+        generation = await generateHealthyMemoryText({ userId: args.userId, sessionId: args.sessionId,
+          model: job.model, prompt, jobId: job.sourceHash, qaProvider: args.qaProvider });
+        if (memory.warning) generation.memory.warning = memory.warning;
+        memory = generation.memory;
+        // Bill and keep each batch as it lands, under the same evidence guards
+        // as its claim: a run that stops later continues from here, and pays
+        // for nothing twice.
+        const charge = generation.usage ? await prepareBackgroundUsageBill(generation.usage) : null;
+        const folded = memory;
+        const kept = await db.transaction(async (tx) => {
+          const [owner] = await tx.update(playSessions).set({ sessionMemoryClaimedAt: new Date() }).where(and(
+            eq(playSessions.id, args.sessionId), eq(playSessions.sessionMemoryStatus, "updating"), eq(playSessions.sessionMemorySourceHash, job!.sourceHash),
+            memorySourceGuard(args.sessionId, job!.sourceRows!, { requireComplete: true }), historicalStateGuard(args.sessionId, job!.states!), memoryLagGuard(args.sessionId, job!.excludedReplyId),
+            // The settings the batch was written under, as the final save checks.
+            sql`${playSessions.summaryLanguage} IS NOT DISTINCT FROM ${row.session.summaryLanguage}`,
+            eq(playSessions.sessionMemoryIncluded, row.session.sessionMemoryIncluded),
+            eq(playSessions.sessionMemoryModel, job!.sessionModel ?? job!.model),
+          )).returning();
+          if (!owner) return false;
+          await charge?.(tx);
+          await keepMemoryVersion(tx, args.sessionId, batch.processedMessageId!, folded);
+          return true;
+        });
+        if (!kept) throw new Error("Memory source changed; retry with the current conversation");
+        processed = batch.processedMessageId;
+        pending = pending.slice(batch.rows.length);
+      }
+      if (page.length < MAX_REBUILD_TRANSCRIPT_ROWS) break;
+      cursor = page.at(-1)!.id;
+    }
+    if (processed !== safeTip || pending.length) throw new Error("Memory range changed during rebuilding; previous memory was kept");
     const persisted = await persistSessionMemoryResult({ sessionId: args.sessionId, userId: args.userId, memory, job, generation });
     if (!persisted) {
       return normalizeSessionMemory(row.session.sessionMemory);
@@ -824,6 +992,8 @@ export function regenerateSessionMemoryForSession(args: {
   model?: string | null;
   /** Internal QA only; the public regenerate body schema does not expose it. */
   qa?: { scenario: MemoryQaScenario; calls: GenerateParams[] };
+  /** Started by the system rather than the player's own rebuild button. */
+  automatic?: boolean;
 }): Promise<SessionMemory> {
   return enqueueSessionMemoryJob(args.sessionId, async () => {
     if (args.qa && !await canRunMemoryQa(args.sessionId, args.userId)) throw new Error("Memory QA is unavailable");
@@ -855,10 +1025,16 @@ async function updateSessionMemoryIncrementally(args: IncrementalUpdateArgs): Pr
     return;
   }
 
+  if (row.session.sessionMemoryStaleAt || await hasIneligibleSessionMemorySource(args.sessionId, row.session)) {
+    // Never seed a repair from derived facts invalidated by a transcript edit.
+    await regenerateSessionMemoryForSessionNow({ ...args, repairStale: true, automatic: !args.force });
+    return;
+  }
+
   if (hasUncertainMemoryCoverage(row.session)) {
     // Legacy failed pointers describe attempted, not saved, coverage. Keep
     // already-paused sessions paused until explicit Retry (the cap above).
-    await regenerateSessionMemoryForSessionNow({ ...args, repairLegacy: true });
+    await regenerateSessionMemoryForSessionNow({ ...args, repairLegacy: true, automatic: !args.force });
     return;
   }
 
@@ -867,7 +1043,7 @@ async function updateSessionMemoryIncrementally(args: IncrementalUpdateArgs): Pr
     const boundary = await loadMemoryPendingBoundary(row.session);
     if (!boundary) return;
     if (boundary.needsRebuild) {
-      await regenerateSessionMemoryForSessionNow({ ...args, repairLegacy: true });
+      await regenerateSessionMemoryForSessionNow({ ...args, repairLegacy: true, automatic: !args.force });
       return;
     }
     // Oldest FIRST after the successful cursor. A merged queue entry, failed
@@ -882,7 +1058,7 @@ async function updateSessionMemoryIncrementally(args: IncrementalUpdateArgs): Pr
     if (!shouldUpdateSessionMemory({
       pendingTurns: batch.turns, pendingChars: batch.chars,
       hasMemory: !!previousMemory.text, failed: row.session.sessionMemoryStatus === "failed",
-      overBudget: previousMemory.text.length > MEMORY_TARGET_CHARS, force: args.force,
+      force: args.force,
     })) return;
     // State snapshots can be much larger than the text. Read only the state
     // at this batch's endpoint, not up to 200 historical copies of it.
@@ -894,6 +1070,7 @@ async function updateSessionMemoryIncrementally(args: IncrementalUpdateArgs): Pr
       state: batchState?.stateSnapshot ?? {},
       assistantMessageId: batch.processedMessageId,
     }, row);
+    job.states = [{ id: batch.processedMessageId!, snapshot: batchState?.stateSnapshot ?? null }];
     job.sourceRows = batch.rows;
     job.excludedReplyId = boundary.latestReplyId;
     if (!await markSessionMemoryJobUpdating({ sessionId: args.sessionId, job, resetRetries: args.force })) return;
@@ -932,7 +1109,7 @@ async function updateSessionMemoryIncrementally(args: IncrementalUpdateArgs): Pr
 
 async function loadMemoryPendingBoundary(row: typeof playSessions.$inferSelect) {
   const replies = await db.select({ id: messages.id, createdAt: messages.createdAt })
-    .from(messages).where(and(eq(messages.sessionId, row.id), eq(messages.role, "assistant")))
+    .from(messages).where(memoryReplyFilter(row.id))
     .orderBy(desc(messages.createdAt), desc(messages.id)).limit(2);
   const safeTip = replies[1];
   if (!safeTip?.createdAt) return null;
@@ -1007,6 +1184,14 @@ export function discardQueuedSessionMemoryUpdates(sessionId: string): void {
   queuedIncrementalUpdates.delete(sessionId);
 }
 
+/** Coalesced with normal updates and subject to their entitlement/retry cap. */
+export async function scheduleSessionMemoryRepair(sessionId: string): Promise<void> {
+  const [row] = await db.select({ userId: playSessions.userId, stale: playSessions.sessionMemoryStaleAt })
+    .from(playSessions).where(eq(playSessions.id, sessionId));
+  if (!row?.stale) return;
+  scheduleSessionMemoryIncrementalUpdate({ sessionId, userId: row.userId, userMessage: "", assistantMessage: "", state: {}, fallbackModel: DEFAULT_SESSION_MEMORY_MODEL });
+}
+
 /**
  * Drop ALL queued memory updates for a user (extension uninstall). Iterates
  * the small in-process queue instead of querying every session the user owns.
@@ -1015,4 +1200,20 @@ export function discardQueuedSessionMemoryUpdatesForUser(userId: string): void {
   for (const [sessionId, args] of queuedIncrementalUpdates) {
     if (args.userId === userId) queuedIncrementalUpdates.delete(sessionId);
   }
+}
+
+
+/** Read-only legacy check shared by prompt injection and the background repair.
+ * Disabled memory never calls this helper from the extension prompt hook. */
+export async function hasIneligibleSessionMemorySource(sessionId: string, row: {
+  sessionMemoryProcessedMessageId?: unknown;
+  sessionMemorySourceHash?: unknown;
+}): Promise<boolean> {
+  // A rebuild claim retains the old text but invalidates its coverage cursor.
+  // Only the atomic successful save removes this quarantine marker.
+  if (typeof row.sessionMemorySourceHash === "string" && row.sessionMemorySourceHash.startsWith("repair:")) return true;
+  const filter = memoryRepairFilter(sessionId, typeof row.sessionMemoryProcessedMessageId === "string" ? row.sessionMemoryProcessedMessageId : null, typeof row.sessionMemorySourceHash === "string" ? row.sessionMemorySourceHash : null);
+  if (!filter) return false;
+  const [invalid] = await db.select({ id: messages.id }).from(messages).where(filter).limit(1);
+  return !!invalid;
 }

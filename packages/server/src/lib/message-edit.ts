@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { messages } from "../db/schema.js";
 
 /** Edit the selected version atomically, without replacing concurrently added swipes. */
@@ -15,4 +15,16 @@ export function messageContentUpdate(content: string) {
       ELSE ${messages.swipes}
     END`,
   };
+}
+
+/**
+ * Row filter for an edit. With `expectedSwipeIndex` the write only lands while
+ * that variant is still the active one — the edit box was seeded from it, so
+ * writing into any other variant would overwrite text the player never saw
+ * in the box (swipe-then-edit race, launch QA 2026-09-25).
+ */
+export function messageEditWhere(messageId: string, expectedSwipeIndex?: number) {
+  return expectedSwipeIndex === undefined
+    ? eq(messages.id, messageId)
+    : and(eq(messages.id, messageId), sql`COALESCE(${messages.activeSwipeIndex}, 0) = ${expectedSwipeIndex}`);
 }

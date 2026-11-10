@@ -7,7 +7,12 @@ import {
   isTavernWorldbook,
   convertTavernCard,
   convertTavernWorldbook,
+  guessTavernLanguage,
+  DEFAULT_TAVERN_LABELS,
+  type TavernImportLabels,
 } from "./convert-tavern-card";
+import i18n from "@/lib/i18n";
+import { IMPORT_ORIGIN_KEY } from "./import-origin";
 import {
   isPng,
   readPngTextChunks,
@@ -16,12 +21,37 @@ import {
   ST_V2_KEYWORD,
   ST_V3_KEYWORD,
 } from "./png-metadata";
-import { IMPORT_ORIGIN_KEY } from "./import-origin";
 
 type ImportFormat = "yumina" | "ui-package" | "bundle" | "tavern-card" | "tavern-worldbook" | "unknown";
 
 interface ParseImportOptions {
   sourceHint?: "auto" | "yumina";
+  /** Titles for a converted SillyTavern file, in the file's language. */
+  tavernLabels?: Partial<TavernImportLabels>;
+}
+
+/**
+ * The titles a converted SillyTavern file gets (「故事背景」, 「开场白 2」, the
+ * personality heading…), in the language the file is written in. Falls back
+ * to English when the words cannot be loaded — the import must never fail on
+ * a translation.
+ */
+export async function tavernLabelsFor(json: unknown): Promise<Partial<TavernImportLabels>> {
+  const format = detectFormat(json);
+  if (format !== "tavern-card" && format !== "tavern-worldbook") return {};
+  try {
+    const language = guessTavernLanguage(json, i18n.language);
+    await i18n.reloadResources([language], ["editor"]);
+    const t = i18n.getFixedT(language, "editor");
+    const out: Partial<TavernImportLabels> = {};
+    for (const key of Object.keys(DEFAULT_TAVERN_LABELS) as Array<keyof TavernImportLabels>) {
+      const value = t(`tavernImport.${key}`, { defaultValue: DEFAULT_TAVERN_LABELS[key], n: "{{n}}" }) as string;
+      if (value) out[key] = value;
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 function isYuminaBundleLike(obj: Record<string, unknown>): boolean {
@@ -176,16 +206,16 @@ export function isWorldLikeImportJson(json: unknown): boolean {
 
 export function parseImportedJson(
   json: unknown,
-  _options: ParseImportOptions = {}
+  options: ParseImportOptions = {}
 ): WorldDefinition {
   // Check for SillyTavern formats on the raw json BEFORE unwrapping,
   // since extractImportPayload won't know how to unwrap ST structures.
   const rawFormat = detectFormat(json);
   if (rawFormat === "tavern-card") {
-    return convertTavernCard(json as Parameters<typeof convertTavernCard>[0]);
+    return convertTavernCard(json as Parameters<typeof convertTavernCard>[0], options.tavernLabels);
   }
   if (rawFormat === "tavern-worldbook") {
-    return convertTavernWorldbook(json as Parameters<typeof convertTavernWorldbook>[0]);
+    return convertTavernWorldbook(json as Parameters<typeof convertTavernWorldbook>[0], options.tavernLabels);
   }
 
   const unwrapped = extractImportPayload(json);
@@ -273,6 +303,18 @@ export interface ParsedImport {
   coverImage: Blob | null;
 }
 
+/** The project a downloaded file came from, if it says. Hand-edited files keep
+ *  the stamp as long as the key survives; anything malformed reads as none. */
+export function readImportOrigin(json: unknown): string | null {
+  for (const candidate of [json, extractImportPayload(json)]) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const origin = (candidate as Record<string, unknown>)[IMPORT_ORIGIN_KEY];
+    const id = origin && typeof origin === "object" ? (origin as Record<string, unknown>).worldId : null;
+    if (typeof id === "string" && /^[\w-]{1,100}$/.test(id)) return id;
+  }
+  return null;
+}
+
 export async function parseImportedFile(
   file: File,
   options: ParseImportOptions = {}
@@ -282,7 +324,7 @@ export async function parseImportedFile(
 
   if (isPng(bytes)) {
     const json = extractJsonFromPng(bytes);
-    const world = parseImportedJson(json, options);
+    const world = parseImportedJson(json, { tavernLabels: await tavernLabelsFor(json), ...options });
     return { world, coverImage: new Blob([buffer], { type: "image/png" }) };
   }
 
@@ -298,19 +340,7 @@ export async function parseImportedFile(
     );
   }
 
-  return { world: parseImportedJson(json, options), coverImage: null };
-}
-
-/** The project a downloaded file came from, if it says. Hand-edited files keep
- *  the stamp as long as the key survives; anything malformed reads as none. */
-export function readImportOrigin(json: unknown): string | null {
-  for (const candidate of [json, extractImportPayload(json)]) {
-    if (!candidate || typeof candidate !== "object") continue;
-    const origin = (candidate as Record<string, unknown>)[IMPORT_ORIGIN_KEY];
-    const id = origin && typeof origin === "object" ? (origin as Record<string, unknown>).worldId : null;
-    if (typeof id === "string" && /^[\w-]{1,100}$/.test(id)) return id;
-  }
-  return null;
+  return { world: parseImportedJson(json, { tavernLabels: await tavernLabelsFor(json), ...options }), coverImage: null };
 }
 
 /**
@@ -365,6 +395,6 @@ export async function parseImportedFileFlexible(
 
   // Read before parsing: the parse strips the stamp off the card it returns.
   const originWorldId = readImportOrigin(json);
-  const world = parseImportedJson(json, options);
+  const world = parseImportedJson(json, { tavernLabels: await tavernLabelsFor(json), ...options });
   return { kind: "world", world, coverImage, originWorldId };
 }

@@ -1,0 +1,70 @@
+.sensitive-cover { position: relative; overflow: visible; pointer-events: none; transform: none !important; filter: none !important; }
+.sensitive-cover.absolute { position: absolute; }
+.sensitive-cover-controls { position: absolute; inset: 0; z-index: 20; container-type: size; pointer-events: none; }
+.sensitive-cover-fog { position: absolute; inset: 0; overflow: hidden; background: #24232d; container-type: inline-size; }
+.sensitive-cover-fog > img { position: absolute; inset: -20%; width: 140%; height: 140%; max-width: none; object-fit: cover; filter: blur(28cqw) saturate(.65); pointer-events: none; }
+.sensitive-cover-veil { position: absolute; inset: 0; background: linear-gradient(160deg, #25232d44, #14171e99); }
+.sensitive-cover-prompt { position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 14px; color: #f4efe5; text-align: center; font-family: var(--font-family-ui, Inter, sans-serif); cursor: default; pointer-events: auto; }
+.sensitive-cover-symbol { width: 32px; height: 32px; margin-bottom: 6px; color: #f4efe5b3; flex-shrink: 0; }
+.sensitive-cover-title { font-size: 16px; font-weight: 500; line-height: 1.3; }
+.sensitive-cover-description { font-size: 12px; line-height: 1.5; color: #f4efe5bf; }
+.sensitive-cover-show, .sensitive-cover-settings, .sensitive-cover-hide { display: inline-flex; align-items: center; justify-content: center; gap: 7px; cursor: pointer; font: inherit; line-height: 1.3; }
+.sensitive-cover-show { min-height: 42px; max-width: 100%; border: 1px solid #fff3d466; border-radius: 999px; padding: 10px 18px; margin-top: 12px; background: #e9ddbb; color: #211e18; font-size: 12px; font-weight: 600; box-shadow: 0 2px 8px #0c101514; }
+.sensitive-cover-show:hover { background: #f5e9cc; }
+.sensitive-cover-settings { min-height: 36px; color: #f4efe5d9; font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
+.sensitive-cover-settings:hover { color: #fff; }
+.sensitive-cover-hide { position: absolute; z-index: 20; left: 10px; top: 10px; min-height: 36px; padding: 7px 10px; border: 1px solid #ffffff33; border-radius: 999px; color: #fff; background: #15161ce6; font-size: 11px; pointer-events: auto; }
+.sensitive-cover :is(button, a):focus-visible { outline: 2px solid #fff1cd; outline-offset: 3px; }
+.sensitive-cover svg { flex-shrink: 0; }
+@container (max-width: 220px) {
+  .sensitive-cover-prompt { gap: 6px; padding: 8px; }
+  .sensitive-cover-title { font-size: 13px; }
+  .sensitive-cover-description { display: none; }
+  .sensitive-cover-symbol { width: 25px; height: 25px; margin-bottom: 2px; }
+  .sensitive-cover-show { margin-top: 7px; padding: 8px 12px; font-size: 11px; }
+}
+@container (max-height: 260px) {
+  .sensitive-cover-symbol, .sensitive-cover-description { display: none; }
+  .sensitive-cover-prompt { gap: 4px; padding: 6px; }
+  .sensitive-cover-show { margin-top: 2px; min-height: 36px; padding: 6px 10px; }
+  .sensitive-cover-settings { min-height: 30px; }
+}
+@container (max-height: 115px) {
+  .sensitive-cover-title { display: none; }
+  .sensitive-cover-show { min-height: 32px; font-size: 10px; }
+  .sensitive-cover-show svg { display: none; }
+  .sensitive-cover-settings { font-size: 10px; min-height: 28px; }
+}
+/* Caption layers stay usable; only the image controls intercept their own area. */
+.discover-card-cover:has(.sensitive-cover) { overflow: visible; }
+.discover-card-cover .sensitive-cover-controls { bottom: 104px; }
+.hub-card:has(.sensitive-cover) > .discover-save { z-index: 30; }
+/* Hidden descriptions must take no space, even on hover or keyboard focus. */
+.discover-poster-card:has([data-cover-hidden="true"]) .discover-card-summary,
+.featured-art:has([data-cover-hidden="true"]) .discover-card-summary,
+.featured-art:has([data-cover-hidden="true"]) .featured-art-premise { display: none; }
+.hub-card:has([data-cover-hidden="true"]) .discover-card-tags,
+.hub-card:has([data-cover-hidden="true"]) .discover-card-status { visibility: hidden; }
+.featured-art .sensitive-cover-controls { bottom: 76px; }
+@container (min-height: 261px) {
+  .featured-art .sensitive-cover-controls { bottom: 104px; }
+  .featured-art-lead .sensitive-cover-controls { bottom: 120px; }
+}
+.featured-art:has(.sensitive-cover) .featured-art-content { pointer-events: none; }
+.sensitive-cover[data-presentation="poster"] .sensitive-cover-controls { bottom: 78px; }
+.sensitive-cover[data-presentation="hero"] .sensitive-cover-prompt { left: 50%; }
+.sensitive-cover[data-presentation="hero"] .sensitive-cover-description { display: none; }
+.sensitive-cover[data-presentation="hero"] .sensitive-cover-symbol { display: none; }
+.sensitive-cover[data-presentation="hero"] .sensitive-cover-hide { left: auto; right: 16px; top: 65px; }
+.cover-card-action { position: absolute; inset: 0; z-index: 1; border-radius: inherit; cursor: pointer; }
+.cover-card-action:focus-visible { outline: 2px solid #e9ddbb; outline-offset: -2px; }
+.hub-card:has(.sensitive-cover) button { pointer-events: auto; }
+
+.discover-featured-world:has(.sensitive-cover) > .discover-featured-save { z-index: 30; }
+
+@media (max-width: 767px) {
+  .sensitive-cover[data-presentation="hero"] .sensitive-cover-controls { bottom: 55%; }
+  .sensitive-cover[data-presentation="hero"] .sensitive-cover-prompt { left: 0; }
+}
+
+.sensitive-cover[data-presentation="hero"]::after { content: ""; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(90deg, #0a0b0e9c, transparent 70%), linear-gradient(0deg, #08090c66, transparent 65%); }

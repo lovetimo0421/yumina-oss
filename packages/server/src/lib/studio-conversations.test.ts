@@ -1,7 +1,8 @@
+import "../test/database-fixture.js";
 import { describe, it, beforeEach, afterEach, after } from "node:test";
 import assert from "node:assert/strict";
-import { eq, sql } from "drizzle-orm";
-import { db, ensureTables } from "../db/index.js";
+import { eq } from "drizzle-orm";
+import { db } from "../db/index.js";
 import { agentRuns, user, worlds, studioConversations } from "../db/schema.js";
 import {
   deleteStudioConversationForWorld,
@@ -13,27 +14,6 @@ import {
   withStudioUserMessageContext,
 } from "./studio-conversations.js";
 
-async function ensureStudioConversationTestSchema() {
-  await ensureTables();
-
-  const ddl = [
-    `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS referral_code TEXT`,
-    `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS referred_by TEXT`,
-    `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS stripe_customer_id TEXT`,
-    `ALTER TABLE "user" ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT`,
-    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS search_doc TEXT`,
-    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS search_doc_normalized TEXT`,
-    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS embedding TEXT`,
-    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS embedding_updated_at TIMESTAMP`,
-    `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS target_audience TEXT NOT NULL DEFAULT 'all'`,
-    `ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS committed_turns JSONB NOT NULL DEFAULT '[]'::jsonb`,
-  ];
-
-  for (const statement of ddl) {
-    await db.execute(sql.raw(statement));
-  }
-}
-
 describe("studio conversation world scoping", () => {
   let userId: string;
   let worldAId: string;
@@ -42,8 +22,6 @@ describe("studio conversation world scoping", () => {
   let convBId: string;
 
   beforeEach(async () => {
-    await ensureStudioConversationTestSchema();
-
     const [u] = await db.insert(user).values({
       id: `test-user-${crypto.randomUUID()}`,
       name: "Studio Scope User",

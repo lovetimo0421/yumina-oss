@@ -8,6 +8,7 @@ import type { LLMProvider } from "./llm/types.js";
 import type { ApiKeyMetadata } from "@yumina/shared";
 import { RETIRED_PLAY_MODEL_IDS } from "@yumina/shared";
 import { isOfficialModel } from "./model-price-cache.js";
+import { isNativeVoiceModel } from "./voice-native-models.js";
 import { ensureWallet } from "./credit-service.js";
 import { resolveEffectivePlanWithEventEntitlements } from "./event-plan-entitlements.js";
 import { env } from "./env.js";
@@ -169,6 +170,7 @@ export async function resolveProviderForModel(
     allowOfficialFallback?: boolean;
   }
 ): Promise<ResolvedProvider | null> {
+  if (isNativeVoiceModel(modelId)) return null;
   const providerName = inferProvider(modelId);
   const meta = await getUserMeta(userId);
   const { plan } = meta;
@@ -278,15 +280,6 @@ export async function resolveProviderForModel(
   return null;
 }
 
-/** Pick the right official OpenRouter key. Non-free users get the invite key if available. */
-function resolveOfficialKey(plan: string): string | null {
-  // Any plan above free (go, plus, pro, ultra, internal) gets the invite key
-  if (plan !== "free" && plan !== "regular" && env.YUMINA_INVITE_OPENROUTER_KEY) {
-    return env.YUMINA_INVITE_OPENROUTER_KEY;
-  }
-  return env.YUMINA_OPENROUTER_KEY || null;
-}
-
 /**
  * The OpenRouter key a side call (music generation) should use for this user.
  * Mirrors resolveProviderForModel: private mode uses only the user's key;
@@ -330,3 +323,13 @@ export async function resolveOfficialOpenRouterKeyForUser(userId: string): Promi
   const officialKey = resolveOfficialKey(plan);
   return officialKey ? { apiKey: officialKey, isByok: false, apiKeyTier: plan as ApiKeyTier } : null;
 }
+
+/** Pick the right official OpenRouter key. Non-free users get the invite key if available. */
+function resolveOfficialKey(plan: string): string | null {
+  // Any plan above free (go, plus, pro, ultra, internal) gets the invite key
+  if (plan !== "free" && plan !== "regular" && env.YUMINA_INVITE_OPENROUTER_KEY) {
+    return env.YUMINA_INVITE_OPENROUTER_KEY;
+  }
+  return env.YUMINA_OPENROUTER_KEY || null;
+}
+

@@ -53,10 +53,10 @@ test("desktop Library keeps gallery composition, creator activity, and navigatio
 
 test("Overview crop editor uses responsive percentage crops at the real gallery hero ratio", () => {
   assert.match(coverCropDialogSource, /from "react-image-crop"/);
-  assert.match(coverCropDialogSource, /mode === "cover" \? 3 \/ 4 : 16 \/ 5/);
+  assert.match(coverCropDialogSource, /return DISCOVER_COVER_ASPECTS\[mode\]/);
   assert.match(
     coverCropDialogSource,
-    /<ReactCrop[\s\S]*crop=\{activePercentCrop\}[\s\S]*aspect=\{activeTargetAspect\}[\s\S]*keepSelection[\s\S]*ruleOfThirds[\s\S]*onChange=/,
+    /<ReactCrop[\s\S]*crop=\{wholeImage \? undefined : activePercentCrop\}[\s\S]*aspect=\{activeTargetAspect\}[\s\S]*keepSelection[\s\S]*ruleOfThirds[\s\S]*onChange=/,
   );
   assert.match(coverCropDialogSource, /unit: "%"/);
   assert.match(coverCropDialogSource, /fromPercentCrop\(percentCrop, safeSourceAspect, activeTargetAspect\)/);

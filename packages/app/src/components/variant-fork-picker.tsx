@@ -113,7 +113,7 @@ export function VariantForkPicker({
   return createPortal(
     <div className="fixed inset-0 z-[90] flex items-center justify-center">
       <div
-        className="absolute inset-0 bg-black/80 animate-in fade-in duration-150"
+        className="absolute inset-0 modal-backdrop animate-in fade-in duration-150"
         onClick={onClose}
       />
       <div

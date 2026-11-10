@@ -55,6 +55,23 @@ const envSchema = z.object({
    */
   STORY_MEMORY_DEFAULT_AT: z.preprocess(emptyToUndefined, z.string().optional()),
   /**
+   * Story memory for accounts older than STORY_MEMORY_DEFAULT_AT that never
+   * chose one (tokens, e.g. 32000). Unset = they keep their whole window.
+   * Meant to be flipped together with STORY_SUMMARY_DEFAULT_ON so what falls
+   * out of the window is summarized rather than forgotten.
+   */
+  STORY_MEMORY_CARRIED_OVER_DEFAULT: z.preprocess(emptyToUndefined, z.coerce.number().int().positive().optional()),
+  /**
+   * Run the story summary for every player, not only those who installed the
+   * memory extension or play a card that asks for it. Overflow-driven only:
+   * it summarizes exactly what the trimmed window drops, so it costs nothing
+   * until a chat outgrows its story memory. An explicit uninstall still wins.
+   */
+  STORY_SUMMARY_DEFAULT_ON: z.preprocess(
+    (v) => (typeof v === "string" ? ["1", "true", "on"].includes(v.trim().toLowerCase()) : v),
+    z.boolean().default(false),
+  ),
+  /**
    * Treat story memory as a RESERVATION rather than a leftover: the lorebook
    * budget becomes what remains after setting it aside, so triggered entries
    * trim to make room instead of the conversation being squeezed out. Only
@@ -71,6 +88,11 @@ const envSchema = z.object({
   // decrypting). Set it on a fresh install so rotating the auth secret never
   // bricks every stored provider key. Changing it AFTER keys exist invalidates them.
   ENCRYPTION_KEY: z.preprocess(emptyToUndefined, z.string().min(16).optional()),
+  // Comma-separated retired key material, tried after ENCRYPTION_KEY when
+  // decrypting. Rotate by moving the old value here (for a deployment that
+  // never set ENCRYPTION_KEY, that is the old BETTER_AUTH_SECRET), re-encrypt
+  // the rows, then drop it.
+  ENCRYPTION_KEY_PREVIOUS: z.preprocess(emptyToUndefined, z.string().optional()),
   // Stable, comma-separated HMAC keys for deleted-identity tombstones. Put a
   // new key first and retain old keys while rotating. Falls back to the auth
   // secret for existing deployments, but production should set this explicitly.
@@ -127,6 +149,12 @@ const envSchema = z.object({
   CONTINUITY_JEV_URL: z.string().default(""),
   CONTINUITY_JEV_MODEL: z.string().default(""),
   CONTINUITY_TIMEOUT_MS: z.coerce.number().int().positive().default(1500),
+  // Missed-update repair (lib/continuity/missed-updates.ts): the decision model
+  // spots state changes the story model forgot; "true" switches it off.
+  MISSED_UPDATE_DISABLED: z.string().default(""),
+  MISSED_UPDATE_TIMEOUT_MS: z.coerce.number().int().positive().default(2500),
+  /** Platform model that writes the forgotten state (official key, platform-paid). */
+  MISSED_UPDATE_MODEL: z.string().default("google/gemini-3-flash-preview"),
   // Stripe
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().default(""),
@@ -148,6 +176,12 @@ const envSchema = z.object({
   // browser pixel in packages/app/index.html so dedupe-by-conversion_id works.
   REDDIT_CAPI_TOKEN: z.string().default(""),
   REDDIT_PIXEL_ID: z.string().default("a2_jeuli9udatr6"),
+  // TikTok Events API (server-side copy of the browser pixel's conversions).
+  // Empty token disables sends. Pixel id must match packages/app/index.html.
+  // Test code (Events Manager → Test events) tags sends as tests when set.
+  TIKTOK_EVENTS_ACCESS_TOKEN: z.string().default(""),
+  TIKTOK_PIXEL_ID: z.string().default("DB47JFBC77UA626ELO2G"),
+  TIKTOK_EVENTS_TEST_CODE: z.string().default(""),
   // OpenAI — used for content embeddings (Phase 7 reco). Empty string
   // disables embedding generation; existing embeddings still work.
   OPENAI_API_KEY: z.string().default(""),
@@ -158,6 +192,12 @@ const envSchema = z.object({
   // checks each and submits to the healthiest (e.g. "abc123,def456").
   RUNPOD_API_KEY: z.string().default(""),
   OPENROUTER_IMAGE_API_KEY: z.string().default(""),
+  // "comfy-router": the models Router serves better go there first (see
+  // routerFirst; OpenRouter prices on our team workspace), OpenRouter whenever
+  // Router refuses before dispatching (concurrency, credits). Default: OpenRouter only.
+  SMART_IMAGE_PROVIDER: z.enum(["openrouter", "comfy-router"]).default("openrouter"),
+  // A Comfy team-workspace key for Router; empty uses COMFY_CLOUD_API_KEY.
+  COMFY_ROUTER_API_KEY: z.string().default(""),
   // Fleet limits are deploy-time controls, never values supplied by the client.
   // Raising the ceiling requires provider capacity and load-test evidence.
   OPENROUTER_IMAGE_MAX_CONCURRENT: z.coerce.number().int().min(1).max(5000).default(10),
@@ -187,6 +227,9 @@ const envSchema = z.object({
   // per-turn illustration build.
   COMFY_IMAGE_DEPLOY_URL: z.string().default(""),
   COMFY_DEPLOY_URL: z.string().default(""),
+  // Platform styles marked optIn (e.g. anime-story) are offered only when
+  // listed here (comma-separated slugs), once the deployment carries them.
+  IMAGE_OPT_IN_STYLES: z.string().default(""),
   // Per-turn pictures (experimental, opt-in per player in Settings › Display).
   // Off unless "1"; needs a generation provider and YUMINA_OPENROUTER_KEY.
   PER_TURN_IMAGES: z.string().default(""),
@@ -209,6 +252,28 @@ const envSchema = z.object({
   // LoRAs are dropped and the checkpoint runs its full schedule (sharper
   // lines, ~2x the GPU time). Empty: no fine redraw is offered.
   PER_TURN_IMAGE_FINE_SAMPLING: z.string().default(""),
+  // A picture of characters with an author's portrait is drawn by this
+  // multi-reference edit model (Qwen-Image-Edit 2511) from the portraits
+  // themselves. Empty: the older SDXL + IP-Adapter path.
+  PER_TURN_IMAGE_EDIT_MODEL: z.string().default(""),
+  // "1": sex acts with portraits go to the edit model too (it keeps the face
+  // but doesn't draw the act); otherwise they are drawn by the SDXL path from
+  // the characters' tags alone. Nudity without an act always goes to it.
+  PER_TURN_IMAGE_EDIT_EXPLICIT: z.string().default(""),
+  // Non-explicit moments without portraits are drawn by this story model
+  // (Z-Anime) from the tagger's caption. Empty: the SDXL path.
+  PER_TURN_IMAGE_STORY_MODEL: z.string().default(""),
+  // Anima (CircleStone's anime DiT, licensed through Comfy) draws every moment
+  // without portraits, explicit or not, and sex acts with them. Empty: the
+  // story/SDXL routes. Its text encoder and VAE are fixed (qwen_3_06b_base,
+  // qwen_image_vae).
+  PER_TURN_IMAGE_ANIMA_MODEL: z.string().default(""),
+  // "steps:cfg:sampler:scheduler" for it. Empty: 10:1:euler:simple for the
+  // Turbo distill (file name contains "turbo"), else 30:4:er_sde:simple.
+  PER_TURN_IMAGE_ANIMA_SAMPLING: z.string().default(""),
+  // The SDXL checkpoint for explicit moments, when it differs from
+  // PER_TURN_IMAGE_CHECKPOINT. Same LoRAs and sampling.
+  PER_TURN_IMAGE_EXPLICIT_CHECKPOINT: z.string().default(""),
   // What a per-turn picture costs (mushies), and how many each account gets free.
   PER_TURN_IMAGE_PRICE_MUSHIES: z.coerce.number().min(0).default(12),
   PER_TURN_IMAGE_FREE_COUNT: z.coerce.number().int().min(0).default(5),
@@ -221,6 +286,16 @@ const envSchema = z.object({
   PER_TURN_TAG_MODEL: z.string().default(""),
   // Direct ComfyUI server (http://127.0.0.1:8188) — local development only.
   COMFY_LOCAL_URL: z.string().default(""),
+  // Scene video, the realtime film (experimental, opt-in per player, paid in mushies).
+  // Off unless "1"; needs COMFY_CLOUD_API_KEY and YUMINA_OPENROUTER_KEY.
+  REALTIME_FILM: z.string().default(""),
+  // Comfy Cloud's price of one GPU-second in USD, what film clips are billed from.
+  REALTIME_FILM_GPU_USD_PER_SEC: z.string().default(""),
+  // Our own Comfy API deployment for scene video clips (build "yumina-film"), e.g.
+  // https://dep-….run.comfy.app. Empty: clips render on the shared Comfy Cloud pool.
+  REALTIME_FILM_DEPLOY_URL: z.string().default(""),
+  /** Our always-warm Comfy deployment (the 自定义生图 build, which also carries
+   *  Wan 2.2): video lane Wan jobs run here instead of the shared pool. */
   // Model-volume regions for user LoRA/checkpoint distribution, as
   // "dataCenterId:networkVolumeId" pairs, comma-separated
   // (e.g. "EU-CZ-1:6mf2cryrph,US-IL-1:0g073cgjw6").

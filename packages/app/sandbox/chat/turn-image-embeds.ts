@@ -8,14 +8,15 @@
 
 const EMBED_RE = /\n*\[\s*image:\s*\/cdn\/key\/([A-Za-z0-9_-]+)[^\]\n]*\]/g;
 
-function isTurnImageKey(b64: string): boolean {
+function keyIn(b64: string, dir: string): boolean {
   try {
     const padded = b64.replace(/-/g, "+").replace(/_/g, "/");
-    return atob(padded + "=".repeat((4 - (padded.length % 4)) % 4)).includes("/turn-images/");
+    return atob(padded + "=".repeat((4 - (padded.length % 4)) % 4)).includes(dir);
   } catch {
     return false;
   }
 }
+const isTurnImageKey = (b64: string) => keyIn(b64, "/turn-images/");
 
 export interface SplitTurnImages {
   /** The reply with per-turn picture embeds removed. */
@@ -29,6 +30,40 @@ export function splitTurnImages(text: string): SplitTurnImages {
   const embeds: string[] = [];
   const stripped = text.replace(EMBED_RE, (match, b64: string) => {
     if (!isTurnImageKey(b64)) return match;
+    embeds.push(match.trim());
+    return "";
+  });
+  return embeds.length ? { text: stripped.trimEnd(), embeds } : { text, embeds };
+}
+
+/**
+ * The reply with one picture taken out (the "Remove picture" menu item), the
+ * rest of the text and any other pictures untouched. `embed` is one of
+ * splitTurnImages(...).embeds. Only the first identical embed goes, so a
+ * picture that somehow appears twice loses one copy per removal. Returns the
+ * text unchanged when the embed isn't there (an edit/swipe moved under the
+ * menu) so the caller can skip the save.
+ */
+export function removeTurnImage(text: string, embed: string): string {
+  let removed = false;
+  const next = text.replace(EMBED_RE, (match, b64: string) => {
+    if (removed || match.trim() !== embed || !isTurnImageKey(b64)) return match;
+    removed = true;
+    return "";
+  });
+  return removed ? next.trimEnd() : text;
+}
+
+// A reply's short film rides the same way, a `[video:/cdn/key/<…/turn-videos/….mp4>|sound]` per
+// shot (server: lib/realtime-video/turn-clip.ts). The chat peels them off and shows nothing: the
+// film window plays them (src/features/chat/realtime-video/controller.ts).
+const VIDEO_EMBED_RE = /\n*\[\s*video:\s*\/cdn\/key\/([A-Za-z0-9_-]+)[^\]\n]*\]/g;
+
+export function splitTurnVideos(text: string): SplitTurnImages {
+  if (!text.includes("/cdn/key/")) return { text, embeds: [] };
+  const embeds: string[] = [];
+  const stripped = text.replace(VIDEO_EMBED_RE, (match, b64: string) => {
+    if (!keyIn(b64, "/turn-videos/")) return match;
     embeds.push(match.trim());
     return "";
   });

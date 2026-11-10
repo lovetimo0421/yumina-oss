@@ -1,17 +1,22 @@
+import { assertPriorCoverage, continuitySnapshotGuard, LAYERED_INPUT_FIELDS } from "./continuity-guards.js";
+import { NARRATIVE_EVIDENCE_RULES, stripNarrativeReasoning } from "./narrative-evidence.js";
+import { isDegenerateSessionMemoryText } from "./session-memory-core.js";
 import { usageObservation } from "./usage-observation.js";
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, max } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { messages, playSessions, summaryceptionSnippets, worlds } from "../db/schema.js";
 import { recordUsageLog } from "./usage-log.js";
-import { billBackgroundUsage } from "./background-billing.js";
+import { prepareBackgroundUsageBill } from "./background-billing.js";
 import { resolveProviderForModel } from "./resolve-provider.js";
+import { planAllowedModel } from "./plan-model-gate.js";
 import { applyModelRedirect } from "./llm/model-redirects.js";
 import { captureServerEvent } from "./analytics.js";
 import { SESSION_MEMORY_EXTENSION_KEY } from "@yumina/shared";
 import type { SummaryCompactionNoOpCode } from "@yumina/shared";
 import { isExtensionInstalled } from "./extensions.js";
 import type { ChatMessage } from "./llm/types.js";
+import { memorySourceGuard, MEMORY_CLAIM_TTL_MS } from "./session-memory-guards.js";
 import { enqueueKeyedJob } from "./job-chain.js";
 import { buildSummaryLanguageInstruction, correctSummaryLanguageOnce, resolveSummaryOutputLanguage, type SessionSummaryLanguage } from "./summary-language.js";
 import {
@@ -33,7 +38,13 @@ import {
   SUMMARYCEPTION_SNIPPETS_PER_PROMOTION,
 } from "./summaryception-core.js";
 
-const SUMMARYCEPTION_SOURCE_HASH_VERSION = 1;
+const SUMMARYCEPTION_SOURCE_HASH_VERSION = 2;
+const PARTIAL_WARNING = "Partial summary: some facts may be missing; original messages remain available. Retry to complete this range.";
+function isIncompleteSnippet(snippet: { sourceHash: string | null }): boolean {
+  return !!snippet.sourceHash && (snippet.sourceHash.startsWith("partial:") || snippet.sourceHash.startsWith("manual:partial:"));
+}
+
+type SummaryCandidate = { text: string; partial: boolean; charge?: Awaited<ReturnType<typeof prepareBackgroundUsageBill>> };
 // Sized for a CJK-aware summary model (~1 token/Chinese char). Chunk ≈ one
 // narrative "beat" (~2 exchanges of dense Chinese RP ≈ ~3k chars); snippet cap
 // gives ~one paragraph of dense clauses to hold a beat's facts without bloat.
@@ -49,6 +60,7 @@ type SummaryceptionCompactionArgs = {
   contextTokenLimit?: number | null;
   finalPromptRawTokenLimit?: number | null;
   force?: boolean;
+  retryPartial?: boolean;
 };
 
 export type SummaryceptionStats = {
@@ -133,14 +145,7 @@ function stripCodeFence(text: string): string {
 }
 
 function cleanSummaryceptionOutput(raw: string): string {
-  return stripCodeFence(raw)
-    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
-    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "")
-    .replace(/<thought>[\s\S]*?<\/thought>/gi, "")
-    .replace(/<reflect>[\s\S]*?<\/reflect>/gi, "")
-    .replace(/<output>([\s\S]*?)<\/output>/gi, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
+  return stripNarrativeReasoning(stripCodeFence(raw)).replace(/\s+/g, " ").trim();
 }
 
 async function generateSummaryceptionCandidate(args: {
@@ -149,13 +154,18 @@ async function generateSummaryceptionCandidate(args: {
   model: string;
   prompt: ChatMessage[];
   singleAttempt?: boolean;
-}): Promise<string> {
+}): Promise<SummaryCandidate> {
+  // A summary model above the player's plan runs on the default summary model.
+  const allowedModel = await planAllowedModel(args.userId, args.model, DEFAULT_STORY_SUMMARY_MODEL);
+  if (allowedModel !== args.model) args = { ...args, model: allowedModel };
   const resolved = await resolveProviderForModel(args.userId, args.model, {
     allowOfficialFallback: false,
   });
   if (!resolved) throw new Error("No provider/API key is available for the selected summary model");
 
   let text = "";
+  let stopReason: string | undefined;
+  let charge: SummaryCandidate["charge"];
   let observation = usageObservation();
     let promptTokens = 0;
   let completionTokens = 0;
@@ -168,10 +178,12 @@ async function generateSummaryceptionCandidate(args: {
     messages: args.prompt,
     maxTokens: SUMMARYCEPTION_MAX_SNIPPET_TOKENS,
     temperature: 0.2,
+    disableReasoning: true,
     singleAttempt: args.singleAttempt,
     fallbackModels: args.singleAttempt || args.model === DEFAULT_STORY_SUMMARY_MODEL ? undefined : [DEFAULT_STORY_SUMMARY_MODEL],
   })) {
     if (chunk.type === "text") text += chunk.content;
+    if (chunk.stopReason) stopReason = chunk.stopReason;
     if (chunk.usage) {
         observation = usageObservation(chunk.usage);
       promptTokens = chunk.usage.promptTokens;
@@ -199,7 +211,7 @@ async function generateSummaryceptionCandidate(args: {
     // Official-key background work is billed like a send; BYOK is not
     // (mirrors useProtections in routes/messages).
     if (!resolved.isByok) {
-      await billBackgroundUsage({
+      charge = await prepareBackgroundUsageBill({
         userId: args.userId,
         model: args.model,
         promptTokens,
@@ -212,7 +224,8 @@ async function generateSummaryceptionCandidate(args: {
 
   const normalized = cleanSummaryceptionOutput(text);
   if (!normalized) throw new Error("Summaryception model returned an empty summary");
-  return normalized;
+  if (isDegenerateSessionMemoryText(normalized)) throw new Error("Summary model returned repetitive output");
+  return { text: normalized, partial: stopReason === "max_tokens" || stopReason === "length", charge };
 }
 
 async function generateSummaryceptionText(args: {
@@ -221,14 +234,19 @@ async function generateSummaryceptionText(args: {
   model: string;
   prompt: ChatMessage[];
   language: SessionSummaryLanguage;
-}): Promise<string> {
-  const text = await generateSummaryceptionCandidate(args);
-  return correctSummaryLanguageOnce({
-    text,
+}): Promise<SummaryCandidate> {
+  const original = await generateSummaryceptionCandidate(args);
+  let corrected: SummaryCandidate | undefined;
+  const text = await correctSummaryLanguageOnce({
+    text: original.text,
     language: args.language,
-    // Call the candidate generator directly, never this checked wrapper.
-    generate: (prompt) => generateSummaryceptionCandidate({ ...args, prompt, singleAttempt: true }),
+    generate: async (prompt) => {
+      corrected = await generateSummaryceptionCandidate({ ...args, prompt, singleAttempt: true });
+      return corrected.text;
+    },
   });
+  const accepted = corrected?.text === text ? corrected : original;
+  return { ...accepted, partial: original.partial || accepted.partial };
 }
 
 function buildSummaryceptionPrompt(args: {
@@ -241,7 +259,8 @@ function buildSummaryceptionPrompt(args: {
     {
       role: "system",
       content: [
-        "You are a precise narrative-state tracker for an AI roleplay session.",
+        "You are a precise narrative-state tracker for an interactive-fiction session.",
+        NARRATIVE_EVIDENCE_RULES,
         "Output only one compact continuity snippet. No preamble, no markdown heading, no commentary.",
         buildSummaryLanguageInstruction(args.language, { autoSourceLabel: "passage_in_question" }),
       ].join("\n"),
@@ -287,34 +306,34 @@ async function loadSummaryceptionRows(sessionId: string): Promise<StoryMessageRo
     })
     .from(messages)
     .where(and(eq(messages.sessionId, sessionId), eq(messages.summaryceptionCompacted, false)))
-    .orderBy(asc(messages.createdAt));
+    .orderBy(asc(messages.createdAt), asc(messages.id));
 }
 
-async function loadSnippets(sessionId: string) {
-  return db
+async function loadSnippets(sessionId: string, database: typeof db | SummaryTx = db) {
+  return database
     .select()
     .from(summaryceptionSnippets)
     .where(eq(summaryceptionSnippets.sessionId, sessionId))
     .orderBy(asc(summaryceptionSnippets.layerIndex), asc(summaryceptionSnippets.snippetOrder), asc(summaryceptionSnippets.createdAt));
 }
 
-async function nextSnippetOrder(sessionId: string, layerIndex: number): Promise<number> {
-  const [row] = await db
+async function nextSnippetOrder(sessionId: string, layerIndex: number, database: typeof db | SummaryTx = db): Promise<number> {
+  const [row] = await database
     .select({ value: max(summaryceptionSnippets.snippetOrder) })
     .from(summaryceptionSnippets)
     .where(and(eq(summaryceptionSnippets.sessionId, sessionId), eq(summaryceptionSnippets.layerIndex, layerIndex)));
   return (row?.value ?? -1) + 1;
 }
 
-async function renumberLayer(sessionId: string, layerIndex: number): Promise<void> {
-  const rows = await db
+async function renumberLayer(sessionId: string, layerIndex: number, database: typeof db | SummaryTx = db): Promise<void> {
+  const rows = await database
     .select()
     .from(summaryceptionSnippets)
     .where(and(eq(summaryceptionSnippets.sessionId, sessionId), eq(summaryceptionSnippets.layerIndex, layerIndex)))
     .orderBy(asc(summaryceptionSnippets.snippetOrder), asc(summaryceptionSnippets.createdAt));
   for (let i = 0; i < rows.length; i++) {
     if (rows[i]!.snippetOrder !== i) {
-      await db
+      await database
         .update(summaryceptionSnippets)
         .set({ snippetOrder: i, updatedAt: new Date() })
         .where(eq(summaryceptionSnippets.id, rows[i]!.id));
@@ -322,13 +341,9 @@ async function renumberLayer(sessionId: string, layerIndex: number): Promise<voi
   }
 }
 
-async function buildPriorContext(sessionId: string, downToLayer = 0, excludeIds = new Set<string>()): Promise<string> {
-  const snippets = (await loadSnippets(sessionId))
-    .filter((snippet) => snippet.layerIndex >= downToLayer && !excludeIds.has(snippet.id));
-  return assembleSummaryceptionText(snippets);
-}
-
 async function maybePromoteLayer(args: {
+  claim: string;
+  snapshot: typeof playSessions.$inferSelect;
   sessionId: string;
   userId: string;
   model: string;
@@ -338,11 +353,11 @@ async function maybePromoteLayer(args: {
 }): Promise<void> {
   if (args.layerIndex >= SUMMARYCEPTION_MAX_LAYERS - 1) return;
 
-  const layer = await db
+  const layer = (await db
     .select()
     .from(summaryceptionSnippets)
     .where(and(eq(summaryceptionSnippets.sessionId, args.sessionId), eq(summaryceptionSnippets.layerIndex, args.layerIndex)))
-    .orderBy(asc(summaryceptionSnippets.snippetOrder), asc(summaryceptionSnippets.createdAt));
+    .orderBy(asc(summaryceptionSnippets.snippetOrder), asc(summaryceptionSnippets.createdAt))).filter(s => !s.sourceHash?.startsWith("manual:"));
 
   if (layer.length <= SUMMARYCEPTION_SNIPPETS_PER_LAYER) return;
 
@@ -355,17 +370,20 @@ async function maybePromoteLayer(args: {
 
   if (dest.length === 0) {
     const seed = layer[0]!;
-    await db
-      .update(summaryceptionSnippets)
-      .set({
-        layerIndex: destLayerIndex,
-        snippetOrder: 0,
-        promoted: true,
-        fromLayer: args.layerIndex,
-        updatedAt: new Date(),
-      })
-      .where(eq(summaryceptionSnippets.id, seed.id));
-    await renumberLayer(args.sessionId, args.layerIndex);
+    await db.transaction(async (tx) => {
+      await lockSummaryJob(tx, args.sessionId, args.claim, args.snapshot);
+      await tx
+        .update(summaryceptionSnippets)
+        .set({
+          layerIndex: destLayerIndex,
+          snippetOrder: 0,
+          promoted: true,
+          fromLayer: args.layerIndex,
+          updatedAt: new Date(),
+        })
+        .where(eq(summaryceptionSnippets.id, seed.id));
+      await renumberLayer(args.sessionId, args.layerIndex, tx);
+    });
     await maybePromoteLayer({ ...args, layerIndex: args.layerIndex });
     await maybePromoteLayer({ ...args, layerIndex: destLayerIndex });
     return;
@@ -382,8 +400,12 @@ async function maybePromoteLayer(args: {
     snippetIds: toMerge.map((snippet) => snippet.id),
     snippetText: toMerge.map((snippet) => snippet.text),
   });
-  const priorContext = await buildPriorContext(args.sessionId, destLayerIndex, new Set(toMerge.map((snippet) => snippet.id)));
-  const text = await generateSummaryceptionText({
+  const prior = (await loadSnippets(args.sessionId)).filter(snippet => snippet.layerIndex >= destLayerIndex && !toMerge.some(source => source.id === snippet.id));
+  const firstSource = toMerge[0]!.sourceStartMessageId ?? toMerge[0]!.sourceEndMessageId;
+  if (!firstSource) throw new Error("Earlier summary coverage is unknown. Repair from original messages before promoting.");
+  await assertPriorCoverage(args.sessionId, prior.map(snippet => snippet.sourceEndMessageId), firstSource);
+  const priorContext = assembleSummaryceptionText(prior);
+  const generated = await generateSummaryceptionText({
     userId: args.userId,
     sessionId: args.sessionId,
     model: args.model,
@@ -396,21 +418,38 @@ async function maybePromoteLayer(args: {
     }),
   });
 
-  const order = await nextSnippetOrder(args.sessionId, destLayerIndex);
-  await db.delete(summaryceptionSnippets).where(inArray(summaryceptionSnippets.id, toMerge.map((snippet) => snippet.id)));
-  await db.insert(summaryceptionSnippets).values({
-    id: randomUUID(),
-    sessionId: args.sessionId,
-    layerIndex: destLayerIndex,
-    snippetOrder: order,
-    text,
-    sourceHash,
-    fromLayer: args.layerIndex,
-    mergedCount: toMerge.length,
-    createdAt: new Date(),
-    updatedAt: new Date(),
+  // A partial promotion must never replace its complete lower-layer evidence.
+  if (generated.partial) throw new Error(PARTIAL_WARNING);
+  const text = generated.text;
+  await db.transaction(async (tx) => {
+    await lockSummaryJob(tx, args.sessionId, args.claim, args.snapshot);
+    const current = await loadSnippets(args.sessionId, tx);
+    if (!toMerge.every(source => current.some(row => row.id === source.id && row.text === source.text))
+      || assembleSummaryceptionText(current.filter(row => row.layerIndex >= destLayerIndex
+        && !toMerge.some(source => source.id === row.id))) !== priorContext) {
+      throw new SummaryceptionInvalidatedError();
+    }
+    const order = await nextSnippetOrder(args.sessionId, destLayerIndex, tx);
+    await tx.delete(summaryceptionSnippets).where(inArray(summaryceptionSnippets.id, toMerge.map((snippet) => snippet.id)));
+    await tx.insert(summaryceptionSnippets).values({
+      id: randomUUID(),
+      sessionId: args.sessionId,
+      layerIndex: destLayerIndex,
+      snippetOrder: order,
+      text,
+      sourceHash,
+      sourceStartMessageId: toMerge[0]!.sourceStartMessageId,
+      sourceEndMessageId: toMerge.at(-1)!.sourceEndMessageId,
+      sourceStartOrdinal: toMerge[0]!.sourceStartOrdinal,
+      sourceEndOrdinal: toMerge.at(-1)!.sourceEndOrdinal,
+      fromLayer: args.layerIndex,
+      mergedCount: toMerge.length,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+    await renumberLayer(args.sessionId, args.layerIndex, tx);
+    await generated.charge?.(tx);
   });
-  await renumberLayer(args.sessionId, args.layerIndex);
   await maybePromoteLayer({ ...args, layerIndex: args.layerIndex });
   await maybePromoteLayer({ ...args, layerIndex: destLayerIndex });
 }
@@ -469,24 +508,42 @@ export async function getSummaryceptionStats(row: typeof playSessions.$inferSele
 // updatedAt: it has its own summaryceptionUpdatedAt, and a bump from the
 // awaited per-send compaction used to invalidate the OTHER memory systems'
 // in-flight persists when their guards compared updatedAt.
-async function markUpdating(sessionId: string, sourceHash: string, model: string): Promise<void> {
-  await db.update(playSessions)
-    .set({
-      summaryceptionModel: model,
-      summaryceptionStatus: "updating",
-      summaryceptionError: null,
-      summaryceptionSourceHash: sourceHash,
-    })
-    .where(eq(playSessions.id, sessionId));
+type SummaryTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export class SummaryceptionInvalidatedError extends Error {
+  constructor() { super("Summary source changed; retry with the current conversation"); }
 }
 
-async function markFailed(sessionId: string, error: unknown): Promise<void> {
-  await db.update(playSessions)
-    .set({
-      summaryceptionStatus: "failed",
-      summaryceptionError: error instanceof Error ? error.message : "Summaryception compaction failed",
-    })
-    .where(eq(playSessions.id, sessionId));
+async function lockSummaryJob(tx: SummaryTx, sessionId: string, claim: string, snapshot: typeof playSessions.$inferSelect) {
+  const [row] = await tx.select().from(playSessions).where(and(
+    eq(playSessions.id, sessionId), eq(playSessions.summaryceptionSourceHash, claim),
+    eq(playSessions.summaryceptionStatus, "updating"), continuitySnapshotGuard(snapshot, LAYERED_INPUT_FIELDS),
+  )).for("update");
+  if (!row) throw new SummaryceptionInvalidatedError();
+}
+
+async function markUpdating(sessionId: string, claim: string, model: string,
+  source: Array<{ id: string; content: string }>, priorContext: string, snapshot: typeof playSessions.$inferSelect): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [row] = await tx.select().from(playSessions).where(and(
+      eq(playSessions.id, sessionId), memorySourceGuard(sessionId, source), continuitySnapshotGuard(snapshot, LAYERED_INPUT_FIELDS),
+    )).for("update");
+    if (!row || (row.summaryceptionStatus === "updating" && row.summaryceptionUpdatedAt
+      && row.summaryceptionUpdatedAt.getTime() > Date.now() - MEMORY_CLAIM_TTL_MS)
+      || assembleSummaryceptionText((await loadSnippets(sessionId, tx)).filter(s => !isIncompleteSnippet(s))) !== priorContext) {
+      throw new SummaryceptionInvalidatedError();
+    }
+    await tx.update(playSessions).set({ summaryceptionModel: model,
+      summaryceptionStatus: "updating", summaryceptionError: null,
+      summaryceptionSourceHash: claim, summaryceptionUpdatedAt: new Date(),
+    }).where(eq(playSessions.id, sessionId));
+  });
+}
+
+async function markFailed(sessionId: string, claim: string, error: unknown): Promise<void> {
+  await db.update(playSessions).set({ summaryceptionStatus: "failed",
+    summaryceptionError: error instanceof Error ? error.message : "Summaryception compaction failed",
+  }).where(and(eq(playSessions.id, sessionId), eq(playSessions.summaryceptionSourceHash, claim),
+    eq(playSessions.summaryceptionStatus, "updating")));
 }
 
 async function compactSummaryceptionNow(args: SummaryceptionCompactionArgs): Promise<SummaryceptionCompactionResult> {
@@ -561,7 +618,9 @@ async function compactSummaryceptionNow(args: SummaryceptionCompactionArgs): Pro
   const compactedMessageIds = chunk.map((message) => message.id);
   const compactedFromOrdinal = relevantRows.findIndex((message) => message.id === first.id) + 1;
   const compactedToOrdinal = relevantRows.findIndex((message) => message.id === last.id) + 1;
-  const priorContext = await buildPriorContext(args.sessionId, 0);
+  const priorSnippets = (await loadSnippets(args.sessionId)).filter(s => !isIncompleteSnippet(s));
+  await assertPriorCoverage(args.sessionId, priorSnippets.map(s => s.sourceEndMessageId), first.id);
+  const priorContext = assembleSummaryceptionText(priorSnippets);
   const passage = formatMessagesForStoryCompaction(chunk);
   const sourceHash = createSummaryceptionSourceHash({
     version: SUMMARYCEPTION_SOURCE_HASH_VERSION,
@@ -575,7 +634,8 @@ async function compactSummaryceptionNow(args: SummaryceptionCompactionArgs): Pro
     priorContext,
   });
 
-  if (row.session.summaryceptionSourceHash === sourceHash && row.session.summaryceptionStatus === "idle") {
+  const partialPaused = row.session.summaryceptionSourceHash?.startsWith("partial:") && !args.force && !args.retryPartial;
+  if (partialPaused || (row.session.summaryceptionSourceHash === sourceHash && row.session.summaryceptionStatus === "idle")) {
     const summary = assembleSummaryceptionText(await loadSnippets(args.sessionId));
     return {
       summary,
@@ -588,15 +648,17 @@ async function compactSummaryceptionNow(args: SummaryceptionCompactionArgs): Pro
       compactedTokenEstimate: 0,
       retainedCount: window.retained.length,
       retainedTokenEstimate: estimateMessagesTokens(window.retained, model),
-      noOpReason: "This Summaryception batch is already compacted.",
-      noOpReasonCode: "batch-already-compacted",
+      noOpReason: partialPaused ? PARTIAL_WARNING : "This Summaryception batch is already compacted.",
+      noOpReasonCode: partialPaused ? null : "batch-already-compacted",
     };
   }
 
-  await markUpdating(args.sessionId, sourceHash, model);
+  const claim = `${sourceHash}:${randomUUID()}`;
+  await markUpdating(args.sessionId, claim, model, chunk, priorContext, row.session);
 
+  const claimedSnapshot = { ...row.session, summaryceptionModel: model, summaryceptionSourceHash: claim };
   try {
-    const text = await generateSummaryceptionText({
+    const generated = await generateSummaryceptionText({
       userId: args.userId,
       sessionId: args.sessionId,
       model,
@@ -608,27 +670,43 @@ async function compactSummaryceptionNow(args: SummaryceptionCompactionArgs): Pro
         language,
       }),
     });
-    const order = await nextSnippetOrder(args.sessionId, 0);
-    await db.insert(summaryceptionSnippets).values({
-      id: randomUUID(),
-      sessionId: args.sessionId,
-      layerIndex: 0,
-      snippetOrder: order,
-      text,
-      sourceStartMessageId: first.id,
-      sourceEndMessageId: last.id,
-      sourceStartOrdinal: compactedFromOrdinal > 0 ? compactedFromOrdinal : null,
-      sourceEndOrdinal: compactedToOrdinal > 0 ? compactedToOrdinal : null,
-      sourceHash,
-      createdAt: new Date(),
-      updatedAt: new Date(),
+    const text = generated.partial ? `[${PARTIAL_WARNING}] ${generated.text}` : generated.text;
+    await db.transaction(async (tx) => {
+      await lockSummaryJob(tx, args.sessionId, claim, claimedSnapshot);
+      const [valid] = await tx.select({ id: playSessions.id }).from(playSessions).where(and(
+        eq(playSessions.id, args.sessionId), memorySourceGuard(args.sessionId, chunk),
+      ));
+      if (!valid || assembleSummaryceptionText((await loadSnippets(args.sessionId, tx)).filter(s => !isIncompleteSnippet(s))) !== priorContext) {
+        throw new SummaryceptionInvalidatedError();
+      }
+      for (const preview of (await loadSnippets(args.sessionId, tx)).filter(s => s.sourceHash?.startsWith("partial:"))) {
+        await tx.delete(summaryceptionSnippets).where(eq(summaryceptionSnippets.id, preview.id));
+      }
+      const order = await nextSnippetOrder(args.sessionId, 0, tx);
+      await tx.insert(summaryceptionSnippets).values({
+        id: randomUUID(),
+        sessionId: args.sessionId,
+        layerIndex: 0,
+        snippetOrder: order,
+        text,
+        sourceStartMessageId: first.id,
+        sourceEndMessageId: generated.partial ? null : last.id,
+        sourceStartOrdinal: compactedFromOrdinal > 0 ? compactedFromOrdinal : null,
+        sourceEndOrdinal: !generated.partial && compactedToOrdinal > 0 ? compactedToOrdinal : null,
+        sourceHash: generated.partial ? `partial:${sourceHash}` : sourceHash,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      });
+
+      if (!generated.partial) await tx.update(messages)
+        .set({ summaryceptionCompacted: true })
+        .where(inArray(messages.id, compactedMessageIds));
+      await generated.charge?.(tx);
+
     });
 
-    await db.update(messages)
-      .set({ summaryceptionCompacted: true })
-      .where(inArray(messages.id, compactedMessageIds));
-
-    await maybePromoteLayer({
+    if (!generated.partial) await maybePromoteLayer({
+      claim, snapshot: claimedSnapshot,
       sessionId: args.sessionId,
       userId: args.userId,
       model,
@@ -637,46 +715,51 @@ async function compactSummaryceptionNow(args: SummaryceptionCompactionArgs): Pro
       language,
     });
 
-    const summary = assembleSummaryceptionText(await loadSnippets(args.sessionId));
-    await db.update(playSessions)
-      .set({
-        summaryceptionModel: model,
-        summaryceptionStatus: "idle",
-        summaryceptionError: null,
-        summaryceptionSourceHash: sourceHash,
-        summaryceptionCoversUntilMessageId: last.id,
-        summaryceptionTokenCount: summary ? estimateTextTokens(summary, model) : null,
-        summaryceptionUpdatedAt: new Date(),
-      })
-      .where(eq(playSessions.id, args.sessionId));
+    const summary = await db.transaction(async (tx) => {
+      await lockSummaryJob(tx, args.sessionId, claim, claimedSnapshot);
+      const summary = assembleSummaryceptionText(await loadSnippets(args.sessionId, tx));
+      await tx.update(playSessions)
+        .set({
+          summaryceptionModel: model,
+          summaryceptionStatus: "idle",
+          summaryceptionError: generated.partial ? PARTIAL_WARNING : null,
+          summaryceptionSourceHash: generated.partial ? `partial:${sourceHash}` : sourceHash,
+          summaryceptionCoversUntilMessageId: generated.partial ? row.session.summaryceptionCoversUntilMessageId : last.id,
+          summaryceptionTokenCount: summary ? estimateTextTokens(summary, model) : null,
+          summaryceptionUpdatedAt: new Date(),
+        })
+        .where(eq(playSessions.id, args.sessionId));
+
+      return summary;
+    });
 
     captureServerEvent(args.userId, "summary_job", {
       system: "summaryception",
       outcome: "ok",
       session_id: args.sessionId,
       model,
-      compacted_count: compactedMessageIds.length,
+      compacted_count: generated.partial ? 0 : compactedMessageIds.length,
     });
 
     return {
       summary,
-      compactedCount: compactedMessageIds.length,
-      compactedMessageIds,
-      compactedFromMessageId: first.id,
-      compactedToMessageId: last.id,
-      compactedFromOrdinal: compactedFromOrdinal > 0 ? compactedFromOrdinal : null,
-      compactedToOrdinal: compactedToOrdinal > 0 ? compactedToOrdinal : null,
-      compactedTokenEstimate: estimateMessagesTokens(chunk, model),
-      retainedCount: window.retained.length,
-      retainedTokenEstimate: estimateMessagesTokens(window.retained, model),
+      compactedCount: generated.partial ? 0 : compactedMessageIds.length,
+      compactedMessageIds: generated.partial ? [] : compactedMessageIds,
+      compactedFromMessageId: generated.partial ? null : first.id,
+      compactedToMessageId: generated.partial ? null : last.id,
+      compactedFromOrdinal: !generated.partial && compactedFromOrdinal > 0 ? compactedFromOrdinal : null,
+      compactedToOrdinal: !generated.partial && compactedToOrdinal > 0 ? compactedToOrdinal : null,
+      compactedTokenEstimate: generated.partial ? 0 : estimateMessagesTokens(chunk, model),
+      retainedCount: window.retained.length + (generated.partial ? chunk.length : 0),
+      retainedTokenEstimate: estimateMessagesTokens(window.retained, model) + (generated.partial ? estimateMessagesTokens(chunk, model) : 0),
       noOpReason: null,
       noOpReasonCode: null,
     };
   } catch (err) {
-    await markFailed(args.sessionId, err);
+    await markFailed(args.sessionId, claim, err);
     captureServerEvent(args.userId, "summary_job", {
       system: "summaryception",
-      outcome: "failed",
+      outcome: err instanceof SummaryceptionInvalidatedError ? "superseded" : "failed",
       session_id: args.sessionId,
       model,
       error_message: err instanceof Error ? err.message : String(err),
@@ -727,6 +810,7 @@ export function scheduleSummaryceptionCompaction(args: SummaryceptionCompactionA
     summaryceptionScheduledSessions.add(args.sessionId);
     compactSummaryceptionForSession(args)
       .catch((err) => {
+        if (err instanceof SummaryceptionInvalidatedError) return;
         summaryceptionFailureCounts.set(
           args.sessionId,
           (summaryceptionFailureCounts.get(args.sessionId) ?? 0) + 1,
@@ -764,8 +848,12 @@ export function resetSummaryceptionSessionFields() {
  * a timeline that no longer exists must never be injected into prompts.
  */
 export async function clearSummaryceptionData(sessionId: string): Promise<void> {
-  await db.delete(summaryceptionSnippets).where(eq(summaryceptionSnippets.sessionId, sessionId));
-  await db.update(messages).set({ summaryceptionCompacted: false }).where(eq(messages.sessionId, sessionId));
+  await db.transaction(async (tx) => {
+    await tx.select({ id: playSessions.id }).from(playSessions).where(eq(playSessions.id, sessionId)).for("update");
+    await tx.update(playSessions).set(resetSummaryceptionSessionFields()).where(eq(playSessions.id, sessionId));
+    await tx.delete(summaryceptionSnippets).where(eq(summaryceptionSnippets.sessionId, sessionId));
+    await tx.update(messages).set({ summaryceptionCompacted: false }).where(eq(messages.sessionId, sessionId));
+  });
 }
 
 const MAX_EDITED_SNIPPET_CHARS = 8_000;
@@ -788,27 +876,32 @@ export function updateSummaryceptionSnippet(args: {
     const text = args.text.trim().slice(0, MAX_EDITED_SNIPPET_CHARS);
     if (!text) throw new Error("Snippet text cannot be empty");
 
-    const [snippet] = await db
-      .select({ id: summaryceptionSnippets.id })
-      .from(summaryceptionSnippets)
-      .where(and(eq(summaryceptionSnippets.id, args.snippetId), eq(summaryceptionSnippets.sessionId, args.sessionId)))
-      .limit(1);
-    if (!snippet) throw new Error("Snippet not found");
+    await db.transaction(async (tx) => {
+      await tx.select({ id: playSessions.id }).from(playSessions).where(eq(playSessions.id, args.sessionId)).for("update");
+      const [snippet] = await tx
+        .select({ id: summaryceptionSnippets.id, sourceHash: summaryceptionSnippets.sourceHash })
+        .from(summaryceptionSnippets)
+        .where(and(eq(summaryceptionSnippets.id, args.snippetId), eq(summaryceptionSnippets.sessionId, args.sessionId)))
+        .limit(1);
+      if (!snippet) throw new Error("Snippet not found");
 
-    await db
-      .update(summaryceptionSnippets)
-      .set({ text, updatedAt: new Date() })
-      .where(eq(summaryceptionSnippets.id, args.snippetId));
+      await tx
+        .update(summaryceptionSnippets)
+        .set({ text, sourceHash: `manual:${isIncompleteSnippet(snippet) ? "partial:" : ""}${randomUUID()}`, updatedAt: new Date() })
+        .where(eq(summaryceptionSnippets.id, args.snippetId));
 
-    const model = applyModelRedirect((row.session.summaryceptionModel || row.session.summaryModel || DEFAULT_STORY_SUMMARY_MODEL).trim());
-    const summary = assembleSummaryceptionText(await loadSnippets(args.sessionId));
-    await db
-      .update(playSessions)
-      .set({
-        summaryceptionTokenCount: summary ? estimateTextTokens(summary, model) : null,
-        summaryceptionUpdatedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(playSessions.id, args.sessionId));
+      const model = applyModelRedirect((row.session.summaryceptionModel || row.session.summaryModel || DEFAULT_STORY_SUMMARY_MODEL).trim());
+      const summary = assembleSummaryceptionText(await loadSnippets(args.sessionId, tx));
+      await tx
+        .update(playSessions)
+        .set({
+          summaryceptionStatus: "idle",
+          summaryceptionSourceHash: null,
+          summaryceptionTokenCount: summary ? estimateTextTokens(summary, model) : null,
+          summaryceptionUpdatedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(playSessions.id, args.sessionId));
+    });
   });
 }

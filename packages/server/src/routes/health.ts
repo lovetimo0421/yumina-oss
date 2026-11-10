@@ -17,4 +17,10 @@ const health = createHealthRoutes({
   },
 });
 
+// Clients poll this to notice a new deploy and refresh themselves.
+health.get("/release", (c) => {
+  c.header("Cache-Control", "no-store, no-cache, must-revalidate");
+  return c.json({ release: process.env.RAILWAY_GIT_COMMIT_SHA?.trim() || null });
+});
+
 export { health };

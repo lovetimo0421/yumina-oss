@@ -4,7 +4,9 @@ import type { SandboxedYuminaAPI } from "../sandbox-context";
 import type { SandboxMessage } from "./types";
 import type { makeChatT } from "./i18n";
 import { resolveSandboxImageSrc } from "./markdown";
-import { splitTurnImages } from "./turn-image-embeds";
+import { removeTurnImage, splitTurnImages } from "./turn-image-embeds";
+import { swipeIndexOf } from "./edit-target";
+import { TurnImageDrawingLabel } from "./turn-image-state";
 import { useTurnImageSettings } from "./turn-images";
 
 type T = ReturnType<typeof makeChatT>;
@@ -22,6 +24,7 @@ const Icon = {
   redraw: <><path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" /></>,
   fine: <><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /><path d="M11 8v6" /><path d="M8 11h6" /></>,
   note: <><path d="M12 20h9" /><path d="M16.4 3.6a2.1 2.1 0 1 1 3 3L7 19l-4 1 1-4Z" /></>,
+  remove: <><path d="M3 6h18" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" /><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></>,
   album: <><rect x="3" y="3" width="7" height="9" rx="1" /><rect x="14" y="3" width="7" height="5" rx="1" /><rect x="14" y="12" width="7" height="9" rx="1" /><rect x="3" y="16" width="7" height="5" rx="1" /></>,
 };
 function Svg({ children, size = 16 }: { children: React.ReactNode; size?: number }) {
@@ -34,7 +37,8 @@ function Svg({ children, size = 16 }: { children: React.ReactNode; size?: number
 /**
  * A reply's picture. At rest it is only the picture; one small control in its
  * corner (shown on hover, faint but always there on touch screens) opens a
- * menu over the picture: redraw, redraw with a note, the story's album.
+ * menu over the picture: redraw, redraw with a note, the story's album, and
+ * (for the player who owns the chat) remove this picture.
  * Tapping the picture shows it large.
  */
 export function TurnImageCard({ embed, message, api, t }: { embed: string; message: SandboxMessage; api: SandboxedYuminaAPI; t: T }) {
@@ -44,6 +48,7 @@ export function TurnImageCard({ embed, message, api, t }: { embed: string; messa
   const [note, setNote] = useState("");
   const [large, setLarge] = useState(false);
   const [album, setAlbum] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState(false);
   const { settings, refresh } = useTurnImageSettings(api);
   const wrapRef = useRef<HTMLDivElement>(null);
   const noteRef = useRef<HTMLTextAreaElement>(null);
@@ -59,6 +64,8 @@ export function TurnImageCard({ embed, message, api, t }: { embed: string; messa
     return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
   }, [open]);
   useEffect(() => { if (asking) noteRef.current?.focus(); }, [asking]);
+  // A half-confirmed removal never survives the menu closing.
+  useEffect(() => { if (!open) setConfirmRemove(false); }, [open]);
 
   if (!src) return null;
 
@@ -71,19 +78,37 @@ export function TurnImageCard({ embed, message, api, t }: { embed: string; messa
     setNote("");
     void api.illustrateMessage(message.id, withNote?.trim() || undefined, fine || undefined);
   };
+  // Players asked to drop a picture they didn't like without losing the reply
+  // (redraw was the only way out). Removing is an edit of the reply's text, so
+  // it is offered only where an edit could be saved: the player's own live chat.
+  const canRemove = message.role === "assistant" && api.mode === "session" && !api.readOnly
+    && api.capabilities?.canUseSessionApis !== false;
+  const remove = async () => {
+    // Two taps: the picture can't be brought back (redraw makes a new one).
+    if (!confirmRemove) { setConfirmRemove(true); return; }
+    setOpen(false);
+    const next = removeTurnImage(message.content ?? "", embed);
+    if (next === message.content) return;
+    try {
+      // Name the visible variant so the server refuses the save if a swipe
+      // landed in between, rather than editing a different version (edit-target.ts).
+      const ok = await api.editMessage(message.id, next, { swipeIndex: swipeIndexOf(message) });
+      if (!ok) api.showToast(t("turnImageRemoveFailed"), "error");
+    } catch {
+      api.showToast(t("turnImageRemoveFailed"), "error");
+    }
+  };
   const addChip = (chip: string) => setNote((v) => (v.trim() ? `${v.trim()}${t("turnImageNoteJoin")}${chip}` : chip));
 
   return (
     <div ref={wrapRef} className="group relative my-3 w-full" style={{ maxWidth: "24rem" }}>
-      <button type="button" onClick={() => setLarge(true)} aria-label={t("turnImageViewLarge")}
+      <button type="button" disabled={drawing} onClick={() => setLarge(true)} aria-label={t("turnImageViewLarge")}
         className="block w-full overflow-hidden rounded-lg border border-border/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary">
         <img src={src} alt="" loading="lazy" className={`block h-auto w-full transition ${drawing ? "scale-[1.02] blur-sm brightness-50" : ""}`} />
       </button>
       {drawing && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-xs text-foreground" role="status" aria-live="polite">
-          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
-          {t("turnImageDrawing")}
+        <div className="absolute inset-0 flex items-center justify-center text-xs text-foreground" role="status" aria-live="polite">
+          <TurnImageDrawingLabel t={t} message={message} api={api} />
         </div>
       )}
 
@@ -138,6 +163,13 @@ export function TurnImageCard({ embed, message, api, t }: { embed: string; messa
             className="hover-surface grid w-full grid-cols-[20px_1fr] items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm">
             <span className="text-muted-foreground"><Svg>{Icon.album}</Svg></span>{t("turnImageAlbum")}
           </button>
+          {canRemove && (
+            <button type="button" role="menuitem" onClick={() => void remove()}
+              className={`hover-surface grid w-full grid-cols-[20px_1fr] items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm ${confirmRemove ? "text-destructive" : ""}`}>
+              <span className={confirmRemove ? "text-destructive" : "text-muted-foreground"}><Svg>{Icon.remove}</Svg></span>
+              {confirmRemove ? t("turnImageRemoveConfirm") : t("turnImageRemove")}
+            </button>
+          )}
         </div>
       )}
 

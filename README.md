@@ -44,6 +44,12 @@ One turn: the client sends a message, the server builds the prompt (system prese
 
 Requirements: Node.js 22 or newer, and pnpm (`corepack enable` gives you pnpm).
 
+Animated cover uploads also need Python 3 with Pillow (`>=9.4,<13`) and FFmpeg,
+including `ffprobe`, on the server's PATH. Install Pillow into the Python used by
+the server. The Docker image includes these dependencies.
+Motion processing also requires at least 1.25 GiB of available memory, including
+container limits, as reported by Node. Small static covers use a lower budget.
+
 ```
 git clone https://github.com/lovetimo0421/yumina-oss.git
 cd yumina-oss
@@ -78,6 +84,7 @@ Import: Yumina `.png` or `.json` cards, plus character cards and worldbooks in t
 | `BETTER_AUTH_SECRET` | generated | Signs sessions and encrypts stored API keys. Keep it. |
 | `DATABASE_URL` | unset | Set to use a real PostgreSQL instead of the embedded one. An empty database is provisioned on first start. |
 | `AWS_S3_BUCKET_NAME`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL` | unset | Store uploads in any S3-compatible bucket instead of on disk |
+| `COVER_UPLOAD_PYTHON` | `python` on Windows, `python3` elsewhere | Python executable with Pillow for animated cover uploads |
 
 ### Docker
 

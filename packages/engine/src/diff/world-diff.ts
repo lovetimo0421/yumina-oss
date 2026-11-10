@@ -16,7 +16,11 @@ export interface WorldChange {
   id?: string;
   /** Human label — entity name, falls back to id. */
   name?: string;
-  /** Field-level before/after; only populated when opts.detail is true. */
+  /**
+   * Field-level before/after; only populated when opts.detail is true. An added
+   * or removed item carries its non-empty fields with the missing side as "" —
+   * a reviewer has to be able to read what a new entry or file says.
+   */
   fields?: WorldFieldChange[];
 }
 
@@ -79,6 +83,8 @@ function diffFields(prev: Row, next: Row, fields: string[]): WorldFieldChange[] 
   return out;
 }
 
+const EMPTY_ROW: Row = {};
+
 export function diffWorldSchemas(
   prev: WorldDefinition,
   next: WorldDefinition,
@@ -92,7 +98,7 @@ export function diffWorldSchemas(
     const nextMap = indexById(spec.get(next));
     for (const [id, row] of nextMap) {
       if (!prevMap.has(id)) {
-        changes.push({ kind: spec.kind, op: "added", id, name: labelOf(row, id) });
+        changes.push({ kind: spec.kind, op: "added", id, name: labelOf(row, id), ...(detail ? { fields: diffFields(EMPTY_ROW, row, spec.fields) } : {}) });
       } else {
         const fields = diffFields(prevMap.get(id)!, row, spec.fields);
         if (fields.length > 0) {
@@ -101,7 +107,7 @@ export function diffWorldSchemas(
       }
     }
     for (const [id, row] of prevMap) {
-      if (!nextMap.has(id)) changes.push({ kind: spec.kind, op: "removed", id, name: labelOf(row, id) });
+      if (!nextMap.has(id)) changes.push({ kind: spec.kind, op: "removed", id, name: labelOf(row, id), ...(detail ? { fields: diffFields(row, EMPTY_ROW, spec.fields) } : {}) });
     }
   }
 
@@ -110,13 +116,13 @@ export function diffWorldSchemas(
   const nextFiles = ((next.rootComponent as unknown as Row | undefined)?.files as Record<string, string> | undefined) ?? {};
   for (const name of Object.keys(nextFiles)) {
     if (!(name in prevFiles)) {
-      changes.push({ kind: "customUI", op: "added", id: name, name });
+      changes.push({ kind: "customUI", op: "added", id: name, name, ...(detail ? { fields: [{ field: name, before: "", after: nextFiles[name]! }] } : {}) });
     } else if (prevFiles[name] !== nextFiles[name]) {
       changes.push({ kind: "customUI", op: "modified", id: name, name, ...(detail ? { fields: [{ field: name, before: prevFiles[name]!, after: nextFiles[name]! }] } : {}) });
     }
   }
   for (const name of Object.keys(prevFiles)) {
-    if (!(name in nextFiles)) changes.push({ kind: "customUI", op: "removed", id: name, name });
+    if (!(name in nextFiles)) changes.push({ kind: "customUI", op: "removed", id: name, name, ...(detail ? { fields: [{ field: name, before: prevFiles[name]!, after: "" }] } : {}) });
   }
 
   // meta scalars

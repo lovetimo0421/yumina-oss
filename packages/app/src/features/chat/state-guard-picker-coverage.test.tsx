@@ -42,7 +42,7 @@ test("guard picker callback saves independently, blocks overlapping writes, and 
   try {
     await render();
     await act(async () => button("Default model").click());
-    assert.equal(selected, "official::google/gemini-2.5-flash-lite");
+    assert.equal(selected, "official::google/gemini-3.1-flash-lite");
     await act(async () => pickerSave("custom/repair"));
     assert.deepEqual(patches.at(-1), { model: "custom/repair" });
     assert.equal(toggle().getAttribute("aria-checked"), "true", "model selection cannot disable the guard");
@@ -108,9 +108,9 @@ test("guard renders a supplied model trigger, saves its selection, and hides it 
   const toggle = () => document.querySelector<HTMLButtonElement>('[role="switch"]')!;
   try {
     await act(async () => root.render(createElement(StateGuardSettingsPanel, props)));
-    assert.equal(trigger()!.textContent, "official::google/gemini-2.5-flash-lite");
+    assert.equal(trigger()!.textContent, "official::google/gemini-3.1-flash-lite");
     await act(async () => trigger()!.click());
-    assert.deepEqual(selected, ["official::google/gemini-2.5-flash-lite"], "the supplied trigger opens the Memory default independently of the story");
+    assert.deepEqual(selected, ["official::google/gemini-3.1-flash-lite"], "the supplied trigger opens the Memory default independently of the story");
     await act(async () => pickerSave("custom/correction"));
     assert.deepEqual(patches, [{ model: "custom/correction" }]);
     assert.equal(trigger()!.closest("fieldset")!.disabled, true);
@@ -121,7 +121,7 @@ test("guard renders a supplied model trigger, saves its selection, and hides it 
     assert.equal(trigger()!.textContent, "custom/correction");
     assert.equal(trigger()!.matches(":disabled"), false);
     await act(async () => trigger()!.click());
-    assert.deepEqual(selected, ["official::google/gemini-2.5-flash-lite", "custom/correction"]);
+    assert.deepEqual(selected, ["official::google/gemini-3.1-flash-lite", "custom/correction"]);
     await act(async () => toggle().click());
     assert.equal(trigger(), null);
     assert.match(document.body.textContent!, /This extension is off/);

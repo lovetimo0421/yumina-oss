@@ -1,3 +1,4 @@
+import type assetImport from "../locales/en/asset-import.json";
 import "i18next";
 
 import type common from "../locales/en/common.json";
@@ -11,6 +12,7 @@ import type profile from "../locales/en/profile.json";
 import type toasts from "../locales/en/toasts.json";
 import type templatesContent from "../locales/en/templates-content.json";
 import type extensions from "../locales/en/extensions.json";
+import type learning from "../locales/en/learning.json";
 import type unrestrict from "../locales/en/unrestrict.json";
 
 declare global {
@@ -21,6 +23,7 @@ declare global {
    * open-source export leaves out together with those locale files.
    */
   interface YuminaI18nResources {
+    "asset-import": typeof assetImport;
     common: typeof common;
     auth: typeof auth;
     settings: typeof settings;
@@ -32,6 +35,7 @@ declare global {
     toasts: typeof toasts;
     "templates-content": typeof templatesContent;
     extensions: typeof extensions;
+    learning: typeof learning;
     unrestrict: typeof unrestrict;
   }
 }

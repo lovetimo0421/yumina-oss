@@ -34,6 +34,9 @@ export interface SystemEffectResult {
   /** Variable enable-gate toggles from @vars.enabled.* */
   variableToggles: Array<{ variableId: string; enabled: boolean }>;
 
+  /** Scenario switches from @worldbooks.on.* (启用/禁用情境) */
+  worldbookToggles: Array<{ worldbookId: string; on: boolean }>;
+
   /** Notifications from ui:notification events and @ui.notification */
   notifications: Array<{ message: string; style: string }>;
 
@@ -65,6 +68,7 @@ export function processSystemEffects(effects: ReactionEffect[]): SystemEffectRes
     entryToggles: [],
     ruleToggles: [],
     variableToggles: [],
+    worldbookToggles: [],
     notifications: [],
     contextMessages: [],
   };
@@ -178,6 +182,17 @@ function processSetEffect(
     return;
   }
 
+  // @worldbooks.on.<id> → switch a scenario on or off (启用/禁用情境). Read by
+  // the 「只看启用开关」 and keyword activation modes, the same switch a
+  // player's keyword latches; the automatic modes ignore it.
+  if (path.startsWith("@worldbooks.on.")) {
+    const worldbookId = path.slice("@worldbooks.on.".length);
+    if (worldbookId && typeof value === "boolean") {
+      result.worldbookToggles.push({ worldbookId, on: value });
+    }
+    return;
+  }
+
   // @rules.disabled.<id> → toggle rule (value=true means disabled)
   if (path.startsWith("@rules.disabled.")) {
     const ruleId = path.slice("@rules.disabled.".length);
@@ -283,6 +298,11 @@ export function applySystemEffects(
   // Toggle variable enable gates
   for (const toggle of systemResult.variableToggles) {
     stateManager.toggleVariable(toggle.variableId, toggle.enabled);
+  }
+
+  // Switch scenarios
+  for (const toggle of systemResult.worldbookToggles) {
+    stateManager.toggleWorldbook(toggle.worldbookId, toggle.on);
   }
 
   // Apply variable effects

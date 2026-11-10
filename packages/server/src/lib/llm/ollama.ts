@@ -1,6 +1,6 @@
 import type { LLMProvider, GenerateParams, StreamChunk, Model, MessageContent } from "./types.js";
-import { localGenerationTimeoutMs, readLocalStream } from "./local-timeout.js";
 import { DEFAULT_LOCAL_CONTEXT } from "./local-bridge.js";
+import { localGenerationTimeoutMs, readLocalStream } from "./local-timeout.js";
 
 const DEFAULT_OLLAMA_BASE = "http://localhost:11434";
 
@@ -94,6 +94,9 @@ export class OllamaProvider implements LLMProvider {
   }
 
   async *generateStream(params: GenerateParams): AsyncIterable<StreamChunk> {
+    if (params.responseFormat?.type === "json_schema") {
+      throw new Error("This provider does not support JSON Schema side completions.");
+    }
     // Non-streaming branch: see OpenRouterProvider for rationale.
     if (params.stream === false) {
       yield* this.generateNonStream(params);

@@ -42,6 +42,10 @@ import {
 } from "./account-deletion-access.js";
 import { anonymizeDeletedAccountAudit } from "./account-deletion-audit.js";
 import {
+  preserveDeletedAccountTotals,
+  type PreserveTotalsExecutor,
+} from "./account-deletion-usage.js";
+import {
   eraseDiscoveryAccountData,
   findLinkedDiscoveryGuests,
   purgeErasedDiscoveryEvents,
@@ -59,6 +63,7 @@ import {
 } from "./account-deletion-cleanup-runner.js";
 import { isRogueInstance } from "./leader.js";
 import { hasStripeCleanupArtifacts } from "./account-deletion-policy.js";
+import { evaluateDeletionPreflight, type DeletionIssue, type DeletionPreflight } from "./account-deletion-preflight.js";
 import {
   closeStripeConnectAccount,
   isMissingStripeResource,
@@ -72,12 +77,17 @@ export type AccountDeletionBlockCode =
   | "ACCOUNT_DELETION_COOLDOWN"
   | "PENDING_CREATOR_EARNINGS"
   | "BILLING_CLEANUP_UNAVAILABLE"
+  | "SUBSCRIPTION_LOOKUP_FAILED"
+  | "PAYMENT_SETTLEMENT_PENDING"
   | "SUBSCRIPTION_CANCELLATION_FAILED";
 
 export class AccountDeletionBlockedError extends Error {
   constructor(
     public readonly code: AccountDeletionBlockCode,
     message: string,
+    /** For ACCOUNT_DELETION_COOLDOWN: when deletion becomes possible. */
+    public readonly blockedUntil?: Date,
+    public readonly issues?: DeletionIssue[],
   ) {
     super(message);
     this.name = "AccountDeletionBlockedError";
@@ -131,6 +141,7 @@ function assertRepeatDeletionCooldownElapsed(
   throw new AccountDeletionBlockedError(
     "ACCOUNT_DELETION_COOLDOWN",
     `This account cannot be deleted again until ${blockedUntil.toISOString()}.`,
+    blockedUntil,
   );
 }
 
@@ -239,6 +250,7 @@ async function getDeletionContext(
     assetPrefixes: [...new Set([
       `users/${userId}/`,
       `private-session-media/${userId}/`,
+      `private-asset-imports/${userId}/`,
       `dm/${userId}/`,
       `studio-chat/${userId}/`,
       `community/${userId}/`,
@@ -265,12 +277,10 @@ export async function getAccountDeletionConfirmationTarget(userId: string): Prom
  * its link is opened. Held creator earnings must be settled while the creator
  * identity and Connect account still exist.
  */
-export async function assertAccountDeletionAllowed(userId: string): Promise<void> {
+export async function getAccountDeletionPreflight(userId: string): Promise<DeletionPreflight> {
   if (!isAccountDeletionSchemaReady()) {
-    throw new AccountDeletionBlockedError(
-      "ACCOUNT_DELETION_NOT_READY",
-      "Account deletion is temporarily unavailable while the server finishes preparing. Try again shortly.",
-    );
+    return evaluateDeletionPreflight({ schemaReady: false, activeAdministrators: 0,
+      restricted: false, unsettledEarnings: false, stripeConfigured: !!stripe, billing: {} });
   }
 
   const [account] = await db
@@ -291,14 +301,8 @@ export async function assertAccountDeletionAllowed(userId: string): Promise<void
       eq(user.isBanned, false),
       eq(user.isSuspended, false),
     ));
-  assertAccountDeletionAccessDecision(evaluateAccountDeletionAccess(
-    account?.role,
-    administratorCountRow?.value ?? 0,
-    account?.isBanned === true || account?.isSuspended === true,
-  ));
   if (!account) throw new Error(`Account ${userId} no longer exists`);
   const deletedIdentity = await getDeletedIdentity(account.email);
-  assertRepeatDeletionCooldownElapsed(deletedIdentity?.latestDeletionAt);
   const [unsettledEarning] = await db
     .select({ id: creatorEarnings.id })
     .from(creatorEarnings)
@@ -310,23 +314,26 @@ export async function assertAccountDeletionAllowed(userId: string): Promise<void
     )
     .limit(1);
 
-  if (unsettledEarning) {
-    throw new AccountDeletionBlockedError(
-      "PENDING_CREATOR_EARNINGS",
-      "Creator earnings are still awaiting settlement. Contact support before deleting this account.",
-    );
-  }
-
   const context = await getDeletionContext(userId);
+  return evaluateDeletionPreflight({ schemaReady: true, role: account.role,
+    activeAdministrators: administratorCountRow?.value ?? 0,
+    restricted: account.isBanned || account.isSuspended,
+    latestDeletionAt: deletedIdentity?.latestDeletionAt,
+    unsettledEarnings: !!unsettledEarning, stripeConfigured: !!stripe, billing: context });
+}
 
-  if (stripe) return;
-
-  if (hasStripeCleanupArtifacts(context)) {
-    throw new AccountDeletionBlockedError(
-      "BILLING_CLEANUP_UNAVAILABLE",
-      "Billing cleanup is temporarily unavailable. Try again later or contact support.",
-    );
+/** Final deletion is the default; only the email route may defer billing cleanup. */
+export async function assertAccountDeletionAllowed(
+  userId: string,
+  phase: "email" | "deletion" = "deletion",
+): Promise<DeletionPreflight> {
+  const report = await getAccountDeletionPreflight(userId);
+  const blocking = report.issues.find(issue => phase === "deletion" || issue.blocksEmail);
+  if (blocking) {
+    throw new AccountDeletionBlockedError(blocking.code, blocking.message,
+      blocking.blockedUntil ? new Date(blocking.blockedUntil) : undefined, report.issues);
   }
+  return report;
 }
 
 async function cancelExternalSubscriptions(context: DeletionContext): Promise<void> {
@@ -348,7 +355,7 @@ async function cancelExternalSubscriptions(context: DeletionContext): Promise<vo
       } catch (error) {
         if (!isMissingStripeResource(error)) {
           throw new AccountDeletionBlockedError(
-            "SUBSCRIPTION_CANCELLATION_FAILED",
+            "SUBSCRIPTION_LOOKUP_FAILED",
             "The active subscription could not be checked. Try again later or contact support.",
           );
         }
@@ -371,8 +378,8 @@ async function cancelExternalSubscriptions(context: DeletionContext): Promise<vo
       } catch (error) {
         if (!isMissingStripeResource(error)) {
           throw new AccountDeletionBlockedError(
-            "SUBSCRIPTION_CANCELLATION_FAILED",
-            "The active subscription could not be canceled. Try again later or contact support.",
+            "SUBSCRIPTION_LOOKUP_FAILED",
+            "Subscriptions could not be checked. Try again later or contact support.",
           );
         }
       }
@@ -415,7 +422,7 @@ async function cancelExternalSubscriptions(context: DeletionContext): Promise<vo
               && checkoutSession.metadata?.asyncPaymentStatus !== "failed"
             ) {
               throw new AccountDeletionBlockedError(
-                "SUBSCRIPTION_CANCELLATION_FAILED",
+                "PAYMENT_SETTLEMENT_PENDING",
                 "A payment is still awaiting settlement. Try again after it finishes or contact support.",
               );
             }
@@ -1177,9 +1184,13 @@ export async function permanentlyDeleteAccount(
           eq(creatorEarnings.senderId, userId),
         ),
       );
+    // Detach the recipient here rather than leaving it to the user DELETE's
+    // SET NULL. When that action runs after the cascade has already removed
+    // the user's own rewarded thread, its UPDATE re-checks thread_id against
+    // the deleted thread and aborts the whole deletion with an FK violation.
     await tx
       .update(threadRewards)
-      .set({ reason: "Reward issued to a deleted account" })
+      .set({ reason: "Reward issued to a deleted account", recipientId: null })
       .where(eq(threadRewards.recipientId, userId));
     if (affectedGifts.length > 0) {
       await tx
@@ -1282,9 +1293,10 @@ export async function permanentlyDeleteAccount(
         AND owned.creator_id = ${userId}
     `);
 
-    // This analytics rollup deliberately has no FK (to avoid deploy-time locks),
-    // so it must be explicitly forgotten during account deletion.
-    await tx.execute(sql`DELETE FROM daily_user_activity WHERE user_id = ${userId}`);
+    // Usage and play facts outlive the account (re-keyed to an anonymous
+    // actor, plus an identity-free ledger row) so model calls, tokens, game
+    // time and active people never shrink when someone leaves.
+    await preserveDeletedAccountTotals(tx as unknown as PreserveTotalsExecutor, userId);
 
     // Do not acknowledge account deletion while any renewable subscription is
     // still active. The durable outbox repeats this idempotently after commit.

@@ -5,7 +5,7 @@ import { blendModelPopularity } from "../../../shared/src/types/model-popularity
 import { orderOfficialModels } from "./official-model-order";
 
 function model(id: string, overrides: Partial<PlayModel> = {}): PlayModel {
-  return { id, name: id, scope: "play", tier: "budget", minPlan: "free", avgCostMushies: 1, descKey: id, ...overrides };
+  return { id, name: id, scope: "play", tier: "budget", minPlan: "free", avgCostMushies: 1, ...overrides };
 }
 
 const catalog = [
@@ -15,7 +15,6 @@ const catalog = [
 ];
 const defaults = {
   tier: "all", query: "", sort: "popular", pinned: [], favoritesOnly: false, recent: [],
-  description: (entry: PlayModel) => entry.id === "local" ? "人物描写" : "Fast dialogue",
 } satisfies Parameters<typeof orderOfficialModels>[1];
 const scores = blendModelPopularity(
   catalog.map(entry => entry.id),
@@ -42,10 +41,10 @@ test("favorites and recent usage do not silently boost the global popularity ord
   assert.deepEqual(ids({ favoritesOnly: true }), []);
 });
 
-test("tier and localized search filter the popularity results without dropping locked-plan models", () => {
+test("tier and name search filter the popularity results without dropping locked-plan models", () => {
   assert.deepEqual(ids({ tier: "ultra" }), ["local", "balanced"]);
-  assert.deepEqual(ids({ tier: "ultra", query: "dialogue" }), ["balanced"]);
-  assert.deepEqual(ids({ query: " 人物 " }), ["local"]);
+  assert.deepEqual(ids({ tier: "ultra", query: "Model 3" }), ["balanced"]);
+  assert.deepEqual(ids({ query: " local " }), ["local"]);
   assert.deepEqual(ids({ query: "MODEL 10" }), ["external"]);
 });
 

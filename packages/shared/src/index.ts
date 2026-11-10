@@ -1,7 +1,9 @@
 // Types
+export { aiDecisionRequestSchema, parseAiDecisionResponse, MAX_DECISION_REQUEST_CHARS } from "./ai-decisions.js";
+export type { AiDecisionRequest, AiDecisionResponse, AiChoiceQuestion, AiChoiceAnswer } from "./ai-decisions.js";
 export { chatImageCopy, type ChatImageAttachment } from "./types/chat-image.js";
 
-export { AI_GENERATION_DEFAULTS, aiGenerationConfigSchema, resolveAiGenerationConfig } from './ai-generation.js';
+export { AI_GENERATION_DEFAULTS, aiGenerationConfigSchema, clampPlayerSampling, PLAYER_SAMPLING_BOUNDS, resolveAiGenerationConfig } from './ai-generation.js';
 export type { AiGenerationConfig } from './ai-generation.js';
 export { resolveStoryMemory, SUGGESTED_STORY_MEMORY, MIN_STORY_MEMORY, MAX_STORY_MEMORY } from './story-memory.js';
 export type { StoryMemoryInput, StoryMemoryResolution } from './story-memory.js';
@@ -16,6 +18,8 @@ export type {
 export {
   PROFILE_WORLD_SORT_OPTIONS,
   normalizeProfileWorldSort,
+  normalizeProfileWorldOrder,
+  PROFILE_WORLD_ORDER_MAX,
 } from "./types/user.js";
 export type {
   World,
@@ -94,6 +98,13 @@ export type {
   ExtensionReviewPayload,
   ExtensionReviewWithUser,
   ExtensionRatingPayload,
+  LiveCanonErrorCode,
+  LiveCanonVariableDTO,
+  LiveCanonEditableEntryDTO,
+  LiveCanonSessionEntryDTO,
+  LiveCanonPayload,
+  LiveCanonEntryInput,
+  LiveCanonApiResult,
 } from "./types/extension.js";
 export {
   EVENT_SUBMISSION_TYPES,
@@ -133,6 +144,7 @@ export type {
 } from "./types/community-event.js";
 export {
   SESSION_MEMORY_EXTENSION_KEY,
+  LIVE_CANON_EXTENSION_KEY,
   EXTENSION_REGISTRY,
   EXTENSION_KEYS,
   CURRENT_EXTENSION_API_VERSION,
@@ -190,7 +202,7 @@ export {
   DEFAULT_WORLD_NAME_BASES,
   isDefaultWorldName,
 } from "./utils/world-name.js";
-export { hasPublishableCover, hasDiscoverCoverArt } from "./utils/world-cover.js";
+export { hasPublishableCover, hasDiscoverCoverArt, getDiscoverCoverArtIssues, type DiscoverCoverArtIssue } from "./utils/world-cover.js";
 export {
   SOCIAL_EVENT_INITIAL_MUSHIES,
   SOCIAL_EVENT_VERIFIED_FINAL_FLOOR_MUSHIES,
@@ -284,6 +296,7 @@ export {
   MAX_COMPLETION_MESSAGES,
   MAX_COMPLETION_TOTAL_CHARS,
   MAX_REQUEST_BODY_BYTES,
+  MAX_WORLD_SAVE_BODY_BYTES,
   MAX_ASSET_SIZE_IMAGE,
   MAX_ASSET_SIZE_AUDIO,
   MAX_ASSET_SIZE_FONT,
@@ -292,6 +305,92 @@ export {
   TRUSTED_PUBLISHING_RATE_LIMIT,
 } from "./constants/limits.js";
 export type { RateLimitTier, RateLimitConfig } from "./constants/limits.js";
+export {
+  GENERATION_TEMPLATES,
+  ENABLED_GENERATION_TEMPLATES,
+  SMART_IMAGE_MODEL,
+  SMART_IMAGE_MODELS,
+  SMART_IMAGE_FAMILIES,
+  SMART_IMAGE_MODEL_IDS,
+  getSmartImageModel,
+  getSmartImageCapabilities,
+  resolveSmartImageAspect,
+  resolveSmartImageResolution,
+  SMART_IMAGE_ASPECTS,
+  SMART_IMAGE_RESOLUTIONS,
+  SMART_IMAGE_4K_COST_FACTOR,
+  getEnabledGenerationTemplate,
+  getGenerationTemplate,
+  MAX_ACTIVE_GENERATION_JOBS,
+  MAX_GENERATION_PROMPT_LENGTH,
+  IMAGE_SAMPLERS,
+  IMAGE_ASPECTS,
+  ADVANCED_LIMITS,
+  VIDEO_DURATIONS,
+  VIDEO_ADVANCED_LIMITS,
+  LORA_PRICE_MUSHIES,
+  CUSTOM_CHECKPOINT_PRICE_MUSHIES,
+  MAX_MODEL_FILE_BYTES,
+  computeImagePrice,
+  computeVideoPrice,
+  PLATFORM_STYLES,
+  getPlatformStyle,
+  platformStyleFamilies,
+  IMAGE_QUALITIES,
+  IMAGE_QUALITY_SPECS,
+  imageQualitySize,
+  platformStyleRecipe,
+  platformStylePrice,
+  DENOISE_MIN,
+  DENOISE_MAX,
+  DENOISE_DEFAULT,
+  closestAspect,
+  MAX_GENERATION_PRESETS,
+  GENERATION_ERROR_CODES,
+  classifyWorkerError,
+} from "./constants/generation.js";
+export type {
+  GenerationKind,
+  SmartImageParams,
+  SmartImageModelId,
+  SmartImageFamily,
+  SmartImageAspect,
+  SmartImageResolution,
+  GenerationTemplateInfo,
+  GenerationJobStatus,
+  ImageSampler,
+  VideoDuration,
+  PlatformStyleInfo,
+  PlatformStyleArch,
+  ImageQuality,
+  ImageAspectId,
+  GenerationErrorCode,
+} from "./constants/generation.js";
+export {
+  VIDEO_TEMPLATE_ID,
+  VIDEO_ASPECTS,
+  VIDEO_MODELS,
+  VIDEO_MODEL_IDS,
+  VIDEO_FAMILY_INFO,
+  VIDEO_PARTNER_MARKUP,
+  VIDEO_FAMILIES,
+  VIDEO_FEATURED_FAMILIES,
+  videoAspects,
+  VIDEO_TUNING_LIMITS,
+  VIDEO_LORA_PRICE_MUSHIES,
+  VIDEO_STYLE_FRAME_MUSHIES,
+  VIDEO_STYLE_FRAME_SECONDS,
+  getVideoModel,
+  videoDurationOptions,
+  videoDimensions,
+  videoRequestProblem,
+  computeVideoModelPrice,
+  estimateVideoSeconds,
+  videoUsesFast,
+} from "./constants/video-models.js";
+export type { VideoAspect, VideoFamily, VideoProvider, VideoModelSpec, VideoRequest } from "./constants/video-models.js";
+export { MODEL_TRAITS, getModelTraits } from "./constants/model-traits.js";
+export type { ModelStyle, ModelStrength, ModelTraits } from "./constants/model-traits.js";
 export {
   TAG_VOCABULARY,
   findTagEntry,
@@ -312,6 +411,8 @@ export {
   DEFAULT_POOL,
   DEFAULT_MIX_MODE,
   STUDIO_RECOMMENDED_MODEL,
+  STUDIO_FREE_DEFAULT_MODEL,
+  studioDefaultModel,
   PLAN_HIERARCHY,
   formatModelId,
   formatAvgCost,
@@ -338,63 +439,14 @@ export * from './game-source-story.js';
 export * from './game-source-plant.js';
 export * from "./model-cost-stats.js";
 
-export {
-  GENERATION_TEMPLATES,
-  ENABLED_GENERATION_TEMPLATES,
-  SMART_IMAGE_MODEL,
-  SMART_IMAGE_MODELS,
-  SMART_IMAGE_MODEL_IDS,
-  getSmartImageModel,
-  getSmartImageCapabilities,
-  resolveSmartImageAspect,
-  resolveSmartImageResolution,
-  SMART_IMAGE_ASPECTS,
-  SMART_IMAGE_RESOLUTIONS,
-  SMART_IMAGE_4K_COST_FACTOR,
-  getEnabledGenerationTemplate,
-  getGenerationTemplate,
-  MAX_ACTIVE_GENERATION_JOBS,
-  MAX_GENERATION_PROMPT_LENGTH,
-  IMAGE_SAMPLERS,
-  IMAGE_ASPECTS,
-  ADVANCED_LIMITS,
-  VIDEO_DURATIONS,
-  VIDEO_ADVANCED_LIMITS,
-  LORA_PRICE_MUSHIES,
-  CUSTOM_CHECKPOINT_PRICE_MUSHIES,
-  MAX_MODEL_FILE_BYTES,
-  computeImagePrice,
-  computeVideoPrice,
-  PLATFORM_STYLES,
-  getPlatformStyle,
-  platformStyleRecipe,
-  platformStylePrice,
-  DENOISE_MIN,
-  DENOISE_MAX,
-  DENOISE_DEFAULT,
-  closestAspect,
-  MAX_GENERATION_PRESETS,
-  GENERATION_ERROR_CODES,
-  classifyWorkerError,
-} from "./constants/generation.js";
-export type {
-  GenerationKind,
-  SmartImageParams,
-  SmartImageAspect,
-  SmartImageResolution,
-  GenerationTemplateInfo,
-  GenerationJobStatus,
-  ImageSampler,
-  VideoDuration,
-  PlatformStyleInfo,
-  ImageAspectId,
-  GenerationErrorCode,
-} from "./constants/generation.js";
+export { isUserMuted, muteExpiresAt, muteDurationSchema, type MuteDuration, type UserMuteState } from "./utils/user-mute.js";
 
 export { blendModelPopularity, type ModelPopularitySnapshot } from "./types/model-popularity.js";
 export { DISCOVERY_INTEREST_IDS, DISCOVERY_INTEREST_GROUPS, DISCOVERY_INTEREST_TAGS,
   discoveryInterestsForTags, discoveryStarterStrength, type DiscoveryInterestId } from "./constants/discovery-interests.js";
 export { MODEL_POPULARITY_SEED } from "./constants/model-popularity-seed.js";
+export { orderOfficialModels, type OfficialModelSort } from "./constants/official-model-order.js";
+export { PICKER_MODEL_FAMILIES, groupPlayModels, activeVariant, type PickerModelFamily, type PlayModelGroup, type PlayModelVariant, type ModelGroup, type ModelVariant, type GroupableModel } from "./constants/model-families.js";
 export type { StateValidationAudit, StateGuardSettings } from "./types/state-validation.js";
 export { parseStateGuardModel, stateGuardModelSelection, DEFAULT_STATE_GUARD_MODEL, FREE_STATE_GUARD_MODEL } from "./types/state-guard-model.js";
 export {
@@ -439,6 +491,7 @@ export type {
 export { MAX_IMAGE_BATCH_ITEMS } from "./types/image-batch.js";
 export { CHAT_IMAGE_MIME_TYPES, MAX_CHAT_IMAGES, MAX_CHAT_IMAGE_BYTES, MAX_CHAT_IMAGE_TOTAL_BYTES } from "./types/chat-images.js";
 export type { ChatImageInput, ImageMessageContent, ImageCompletionMessage } from "./types/chat-images.js";
+export { sideCompletionWorldbookIdsSchema, type SideCompletionWorldbookIds } from "./types/side-completion.js";
 export type { ImageBatchTarget, ImageBatchProposalItem, ImageBatchProposal,
   ImageBatchItemStatus, ImageBatchItem, ImageBatchSnapshot } from "./types/image-batch.js";
 
@@ -447,7 +500,7 @@ export { personaEntriesSchema, formatPersonaEntries, MAX_PERSONA_ENTRIES, MAX_PE
 export type { PersonaEntry } from "./types/persona-entries.js";
 export * from "./invite-race.js";
 export type { DeliveredPurchase, PurchaseReceipt } from "./types/purchase-receipt.js";
-export { KREW_ABOUT_HTML, KREW_LOADING_HTML, KREW_PAGE_CSS, KREW_PREVIEW_IMAGE } from "./krew-public-page.js";
+export { getKrewPublicPath, KREW_ABOUT_HTML, KREW_LOADING_HTML, KREW_PAGE_CSS, KREW_PREVIEW_IMAGE } from "./krew-public-page.js";
 
 export { KREW_CONFIG_ELEMENT_ID, getKrewPublicConfig, krewGameOrigin, normalizeKrewClientOrigin } from "./krew-config.js";
 export type { KrewPublicConfig } from "./krew-config.js";
@@ -467,3 +520,12 @@ export {
   parseProfileAddress,
 } from "./world-address.js";
 export type { WorldAddressParts, ParsedWorldAddress } from "./world-address.js";
+
+export * from "./types/asset-import.js";
+export * from "./creative-upload-policy.js";
+export { UNPERSON_ROOM_TIMING } from "./unperson-room-timing.js";
+
+export { parseCompletionResponseFormat, type CompletionResponseFormat } from "./completion-response-format.js";
+export { isStudioBuildProposal, type StudioBuildProposal } from "./types/studio-build.js";
+export * from "./changelog.js";
+export { isProviderBalanceError } from "./provider-balance-error.js";

@@ -14,6 +14,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import sharp from "sharp";
+import { abortable } from "./cancellation.js";
 import type { WorldDefinition } from "@yumina/engine";
 import { env } from "../env.js";
 import { createProvider } from "../llm/provider-factory.js";
@@ -23,8 +24,10 @@ import { getObjectBuffer, putObject } from "../s3.js";
 import type { MessageContent } from "../llm/types.js";
 import { sql } from "drizzle-orm";
 import { db } from "../../db/index.js";
-import { isExplicitMoment, negativeFor, normalizeTags, stripExplicit } from "./age.js";
+import { isExplicitMoment, negativeFor, normalizeTags } from "./age.js";
+import { canonTags, withCanon } from "./canon.js";
 import { perTurnImagesEnabled, turnImagePrefs } from "./availability.js";
+import { stripTurnVideos } from "../realtime-video/turn-clip.js";
 import { recordUsageLog } from "../usage-log.js";
 import { redis } from "../redis.js";
 import { markPlayerKeyDenied, playerKeyDenied, sideCallTier, type PlayerSideKey, type SideCallKeySource } from "../side-call-key.js";
@@ -44,6 +47,12 @@ const CAST_HEDGE_MS = 20_000;
 // checkpoint first: 36-47s measured 2026-10-03. At 30s those pictures were
 // abandoned just before they landed, so wait out a cold start.
 const DEPLOY_RENDER_TIMEOUT_MS = 60_000;
+// The edit model (~30 GB with its text encoder) draws in ~11s (one portrait)
+// to ~14s (two) on a machine that has it loaded. The deployment scales out to
+// several machines under load and a job can land on one that hasn't: then it
+// loads first, 70-95s measured in prod (2026-10-08). Shorter waits abandoned
+// those pictures and redrew them cold on the shared pool.
+const DEPLOY_EDIT_TIMEOUT_MS = 150_000;
 const PRIMARY_RENDER_TIMEOUT_MS = 45_000;
 // RunPod scales from zero: a cold worker loads the checkpoint first (~50s measured).
 const FALLBACK_RENDER_TIMEOUT_MS = 90_000;
@@ -53,7 +62,14 @@ const FALLBACK_RENDER_TIMEOUT_MS = 90_000;
 // (p50 10s); deepseek-v4.1-flash failed 2/32 (p50 8s); gemini-2.5-flash's
 // content filter blocked 6/32 and it swapped characters; gemini-3.5-flash-lite
 // is fast (1.5s) but blocked 9/32; qwen3.5-flash returned no JSON.
-const DEFAULT_TAG_MODELS = ["x-ai/grok-4.3", "deepseek/deepseek-v4.1-flash", "google/gemini-2.5-flash"];
+// Re-measured on 60 real prod turns (2026-10-10): gemini-2.5-flash answered
+// 56/60 at p50 1.9s and flagged as many explicit moments as grok (27 vs 28),
+// with the same people in them; grok-4.3 59/60 but p50 10s; deepseek only
+// 39/60 (empty or broken JSON). So gemini answers first, grok catches its
+// refusals (a refusal is quick, and a slow answer is hedged after HEDGE_MS).
+// gemini-2.5-flash retires on OpenRouter 2026-10-20 and no newer Gemini has
+// been measured here (3.5-flash-lite blocked 9/32), so grok-4.3 leads.
+const DEFAULT_TAG_MODELS = ["x-ai/grok-4.3", "deepseek/deepseek-v4.1-flash"];
 
 // Exactly one character and no player in shot: otherwise the model likes to
 // invent a second figure (often the unseen player, drawn small). Which head
@@ -68,22 +84,23 @@ const POV_SOLO_NEGATIVE = { girl: ", 2girls, multiple girls, clone", boy: ", 2bo
 // a system entry, a custom entry or the greeting. So the cast is read off the
 // whole card, once, and each person's body is kept apart from their clothes:
 // the body never changes between turns, the clothes change with the story.
-const CAST_SYSTEM = `You read an interactive-fiction card and write fixed appearance tags for its characters, for an anime illustration model (Illustrious SDXL, danbooru tags).
-Return ONLY JSON: {"player":"unknown","cast":[{"name":"<name>","aliases":["<other names>"],"who":"<who they are, max 12 words>","tags":"<body tags>","outfit":"<outfit tags>","minor":false}]}
+const CAST_SYSTEM = `You read an interactive-fiction card and write fixed appearance tags for its characters, for an anime illustration model (danbooru tags).
+Return ONLY JSON: {"player":"unknown","cast":[{"name":"<name>","aliases":["<other names>"],"who":"<who they are, max 12 words>","canon":"<danbooru character tag>, <danbooru copyright tag>","tags":"<body tags>","outfit":"<outfit tags>"}]}
 - player: the sex of the player's own character ("you"/{{user}}) when the card states or clearly implies it ("female", "male"), e.g. an otome card whose heroine is the player, or characters calling the player 哥哥/姐姐/怒那/欧巴; otherwise "unknown".
 - cast: the people who can appear on screen with the player, most important first (the card's lead or heroine first). Include EVERY name listed under "Character entries"; add at most 8 others. Not the player ({{user}}, "you", the protagonist the player controls), not groups, factions, places, systems or rules.
 - name: as the card writes it. aliases: nicknames, short forms, other-language or romanized forms the story may use.
-- tags: 6-14 comma-separated English danbooru tags for the body only: head count first (1girl, 1boy or 1other), then hair color and style, eye color, skin, body type and size, species features (animal ears, horns, tail, wings), and permanent marks (glasses, scars, tattoos). No clothes, names, pose, expression or personality. When the card gives no appearance, infer a plausible consistent one from their role.
-- outfit: 3-8 danbooru tags for what they usually wear.
-- minor: true if the card gives an age under 18, or calls them a child, a minor, an elementary or middle school student, or a high school student without stating an adult age. Otherwise false. Draw everyone at their real age: for someone under 18 use plain age tags (child, young girl, young boy, teenage); never loli, lolita or shota.`;
+- canon: only for a character taken from a published anime, manga, game, light novel or film (the card retells that work or borrows the character): their danbooru character tag, then the work's danbooru copyright tag, exactly as danbooru spells them, with spaces instead of underscores (e.g. "rias gremory, high school dxd", "makima (chainsaw man), chainsaw man", "hestia (danmachi), dungeon ni deai wo motomeru no wa machigatteiru darou ka"). Leave it "" when the character is the card's own invention, when you are not sure of the exact tag, or when the character is a minor in the source or is drawn there with a child's body or face (whatever their stated age): those are drawn from tags alone.
+- tags: 6-14 comma-separated English danbooru tags for the body only: head count first (1girl, 1boy or 1other), then hair color and style, eye color, skin, body type and size, species features (animal ears, horns, tail, wings), and permanent marks (glasses, scars, tattoos). For a character from a published work, their canonical design (exact hair and eye colors). No clothes, names, pose, expression or personality. When the card gives no appearance and the character is not from a published work, infer a plausible consistent one from their role.
+- outfit: 3-8 danbooru tags for what they usually wear (for a published character, their signature outfit).
+- Draw everyone as an adult: never child, loli, lolita or shota tags.`;
 
 const MOMENT_SYSTEM = `You turn the end of one interactive-story turn into an anime illustration prompt for an uncensored illustration model (danbooru tags).
 Explicit adult content is allowed. When nudity or sex is visible, tag it plainly with standard danbooru tags (nude, breasts, nipples, penis, pussy, sex, cowgirl position, fellatio, footjob, cum, ...). Never soften or leave it out; never add nudity or sex the text does not show.
 Draw the KEY MOMENT of this reply: the main visual event it is about (the sex act, the fight, the arrival, the reveal, the embrace), as far as it has gone by the end. If the reply winds down afterwards (an aftermath, someone leaving, the player left alone, a closing line of dialogue), still draw the main event with its characters in it. Draw an empty place only when no character is on screen anywhere in the reply.
 Return ONLY JSON:
-{"characters":[{"name":"<name>","look":"","outfit":"<tags>","outfit_lasting":false,"minor":false}],"player":"male","pov":false,"player_in_shot":false,"nsfw":false,"shot":"<shot>","action":"<tags>","scene":"<tags>","caption":"<one or two English sentences>"}
+{"characters":[{"name":"<name>","look":"","outfit":"<tags>","outfit_lasting":false}],"player":"male","pov":false,"player_in_shot":false,"nsfw":false,"shot":"<shot>","action":"<tags>","scene":"<tags>","caption":"<one or two English sentences>"}
 - characters: who is physically present and visible in the key moment, the most important first. Someone only mentioned, remembered, phoned or texted is not visible. The player ("you") is never listed, even when the story narrates the player's body. "Known characters" is a list to match against, not a list of who is here. Match a known character only when the reply uses that name or one of its other names, or clearly refers back to someone the reply already named that way ("she"/"他"). A person the reply calls by a name that is not in the list is a NEW character, even when their role sounds like a known one: give their look from how the reply describes them. Add someone new (including a monster or creature) only when the reply describes them as present; never invent extras.
-- name: a known character's given name; for someone the reply never names, a short description in the reply's language (修女, the guard, 老板娘). look: "" for a known character; for anyone else, 6-12 danbooru tags starting with 1girl, 1boy or 1other, then hair, eyes, body (appearance only, reused in later scenes). minor: true if the text makes them under 18 or a child.
+- name: a known character's given name; for someone the reply never names, a short description in the reply's language (修女, the guard, 老板娘). look: "" for a known character; for anyone else, 6-12 danbooru tags starting with 1girl, 1boy or 1other, then hair, eyes, body (appearance only, reused in later scenes).
 - outfit: what that character is wearing in the key moment, as 2-8 danbooru tags, ONLY from the text (the reply, or the player's line): clothes it names and their state (open shirt, skirt lift, pantyhose, torn clothes, bra, panties, towel, nude, naked apron...). "" when neither says anything about their clothes: the story already knows what they wear, so never guess.
 - outfit_lasting: true when outfit is what they wear from now on: they got dressed or changed clothes, the text describes their clothes for the first time, or the player's line says what someone should wear or look like (then outfit is exactly that). false for a passing state of the same clothes (unbuttoned, pulled aside, taken off for sex, wet, torn).
 - player: "male", "female" or "unknown": the player's sex, from the player's persona when given, otherwise from how the story addresses or describes "you" (pronouns; 怒那/欧尼/姐姐 = a woman is being addressed, 欧巴/哥哥/hyung = a man; body parts).
@@ -93,11 +110,35 @@ Return ONLY JSON:
 - One camera, one frame: pick the single main act or pose the key moment shows and the one angle that shows it best. Never combine two views of it (a face close-up plus the body from behind, a cut-in of the mouth): the model then draws a collage.
 - shot: one of close-up, upper body, cowboy shot, full body, from above, from side, from below, from behind.
 - Two people: action says how they are together, never just that they are there: hug, kiss, holding hands, carrying, princess carry, face-to-face, looking at another, back-to-back, sitting together, fighting, walking away, ... Two people standing side by side looking at the viewer is never the key moment.
-- caption: one or two plain English sentences saying exactly what the picture shows: each visible person described by their look instead of their name ("a silver-haired woman in a white haori"), what they are doing and to whom, where they are looking, and the place. Concrete and visual only; no names, story words or feelings beyond visible expressions. Sex is described as plainly as the tags. Through the player's eyes, write "the viewer".
+- caption: one or two plain English sentences saying exactly what the picture shows: each visible person described by their look instead of their name ("a silver-haired woman in a white haori"; a known character's hair and eye colors exactly as their listed look gives them), as a woman or a man, never a girl or a boy, what they are doing and to whom, where they are looking, and the place. Concrete and visual only; no names, story words or feelings beyond visible expressions. Sex is described as plainly as the tags. Through the player's eyes, write "the viewer".
 - action: at most 10 tags; scene: at most 8 tags. Only what a camera can see: pose, hands, expression, gaze, held props, place, time of day, lighting. No sounds, smells, feelings, story words or names. Do not repeat known characters' hair or eye colors.`;
 
+// The answers' shapes, sent as a strict JSON schema: in json_object mode Gemini
+// broke ~6% of its answers right after the characters array (a stray
+// `furlough: false,` or `",` where `],` belongs), and each broken answer sent
+// the turn on to a slower tagger (bench on 317 public greetings, 2026-10-13).
+const str_ = { type: "string" } as const;
+const bool_ = { type: "boolean" } as const;
+const object_ = (properties: Record<string, unknown>) =>
+  ({ type: "object", properties, required: Object.keys(properties), additionalProperties: false });
+export const MOMENT_SCHEMA = object_({
+  characters: { type: "array", items: object_({ name: str_, look: str_, outfit: str_, outfit_lasting: bool_ }) },
+  player: { type: "string", enum: ["male", "female", "unknown"] },
+  pov: bool_, player_in_shot: bool_, nsfw: bool_, shot: str_, action: str_, scene: str_, caption: str_,
+});
+export const CAST_SCHEMA = object_({
+  player: { type: "string", enum: ["male", "female", "unknown"] },
+  cast: { type: "array", items: object_({ name: str_, aliases: { type: "array", items: str_ }, who: str_, canon: str_, tags: str_, outfit: str_ }) },
+});
+interface JsonShape { name: string; schema: Record<string, unknown> }
+/** Taggers whose OpenRouter endpoints take a strict schema (each checked, 2026-10-13:
+ *  bad answers gemini 16/634, grok 4/317, deepseek 1/317, all upstream errors, none
+ *  malformed); any other model stays on json_object. */
+const SCHEMA_MODEL_RE = /^(google|x-ai|deepseek)\//;
+const schemaModel = (model: string) => SCHEMA_MODEL_RE.test(model);
+
 /** Why a turn got no picture. The first two are silent; the rest are shown. */
-export type TurnImageFailure = "off" | "nothing" | "busy" | "timeout" | "unavailable";
+export type TurnImageFailure = "off" | "nothing" | "busy" | "timeout" | "unavailable" | "cancelled";
 
 export type IllustrateResult = { ok: true; embed: string } | { ok: false; reason: TurnImageFailure };
 
@@ -116,7 +157,7 @@ function tagModels(): string[] {
 
 /** Who a tagging call is logged against (usage_logs, endpoint "turn-image-tagging"),
  *  and the player's own OpenRouter key when they play on one. */
-export interface UsageCtx { userId: string; sessionId: string; playerKey?: PlayerSideKey | null }
+export interface UsageCtx { userId: string; sessionId: string; playerKey?: PlayerSideKey | null; signal?: AbortSignal }
 
 /** The provider itself failed (auth, balance, upstream, network) — as opposed
  *  to the model answering badly. Only these move a call to Yumina's key. */
@@ -128,7 +169,9 @@ async function askOnce(
   model: string, system: string, userText: MessageContent, ctx: UsageCtx,
   key: { apiKey: string; source: SideCallKeySource } = { apiKey: env.YUMINA_OPENROUTER_KEY, source: "platform" },
   maxTokens = 900,
+  shape?: JsonShape,
 ): Promise<Record<string, unknown>> {
+  ctx.signal?.throwIfAborted();
   const provider = createProvider("openrouter", key.apiKey);
   const started = Date.now();
   let text = "";
@@ -138,12 +181,14 @@ async function askOnce(
     messages: [{ role: "system", content: system }, { role: "user", content: userText }],
     maxTokens,
     temperature: 0.3,
-    responseFormat: { type: "json_object" },
+    responseFormat: shape && schemaModel(model)
+      ? { type: "json_schema", json_schema: { name: shape.name, strict: true, schema: shape.schema } }
+      : { type: "json_object" },
     // Tagging needs no thinking, and grok-4.3 has no "minimal" level (it fell back to thinking).
     reasoningEffort: "none",
     singleAttempt: true,
     // Reading a whole card's cast (a long answer, once per card) takes longer than one turn's tags.
-    signal: AbortSignal.timeout(maxTokens > 2000 ? CAST_TIMEOUT_MS : TAG_TIMEOUT_MS),
+    signal: AbortSignal.any([AbortSignal.timeout(maxTokens > 2000 ? CAST_TIMEOUT_MS : TAG_TIMEOUT_MS), ...(ctx.signal ? [ctx.signal] : [])]),
   })) {
     if (chunk.type === "text") text += chunk.content;
     if (chunk.type === "done" && chunk.usage) usage = chunk.usage;
@@ -167,12 +212,13 @@ async function askOnce(
 }
 
 /** One model, on the player's key first when they have one. */
-async function askModel(model: string, system: string, userText: MessageContent, ctx: UsageCtx, maxTokens?: number): Promise<Record<string, unknown>> {
+async function askModel(model: string, system: string, userText: MessageContent, ctx: UsageCtx, maxTokens?: number, shape?: JsonShape): Promise<Record<string, unknown>> {
   const player = ctx.playerKey && !playerKeyDenied(ctx.playerKey, "chat") ? ctx.playerKey : null;
   if (player) {
     try {
-      return await askOnce(model, system, userText, ctx, { apiKey: player.apiKey, source: "byok" }, maxTokens);
+      return await askOnce(model, system, userText, ctx, { apiKey: player.apiKey, source: "byok" }, maxTokens, shape);
     } catch (error) {
+      ctx.signal?.throwIfAborted();
       const message = error instanceof Error ? error.message : String(error);
       // A bad answer or a timeout isn't the key's fault: the next model, as before.
       if (!(error instanceof TagProviderError) || isTimeout(message)) throw error;
@@ -180,12 +226,12 @@ async function askModel(model: string, system: string, userText: MessageContent,
       console.warn(`[PerTurnImage] player key failed for ${model}; retrying on the platform key`);
     }
   }
-  return askOnce(model, system, userText, ctx, undefined, maxTokens);
+  return askOnce(model, system, userText, ctx, undefined, maxTokens, shape);
 }
 
 /** Models in order; the next starts when one fails, or — hedging a slow
  *  answer — when one has been quiet for HEDGE_MS. The first good answer wins. */
-function askJson(system: string, userText: MessageContent, ctx: UsageCtx, maxTokens?: number): Promise<Record<string, unknown>> {
+function askJson(system: string, userText: MessageContent, ctx: UsageCtx, maxTokens?: number, shape?: JsonShape): Promise<Record<string, unknown>> {
   const models = tagModels();
   const hedgeMs = (maxTokens ?? 0) > 2000 ? CAST_HEDGE_MS : HEDGE_MS;
   return new Promise((resolve, reject) => {
@@ -194,16 +240,24 @@ function askJson(system: string, userText: MessageContent, ctx: UsageCtx, maxTok
     let settled = false;
     let last: unknown;
     let hedge: ReturnType<typeof setTimeout> | undefined;
+    const cleanup = () => { clearTimeout(hedge); ctx.signal?.removeEventListener("abort", abort); };
+    const abort = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(ctx.signal?.reason ?? new Error("Cancelled"));
+    };
+    ctx.signal?.addEventListener("abort", abort, { once: true });
     const launch = () => {
       if (settled || next >= models.length) return;
       const model = models[next++]!;
       running++;
       clearTimeout(hedge);
       if (next < models.length) hedge = setTimeout(launch, hedgeMs);
-      askModel(model, system, userText, ctx, maxTokens).then((result) => {
+      askModel(model, system, userText, ctx, maxTokens, shape).then((result) => {
         if (settled) return;
         settled = true;
-        clearTimeout(hedge);
+        cleanup();
         resolve(result);
       }, (error: unknown) => {
         running--;
@@ -213,11 +267,13 @@ function askJson(system: string, userText: MessageContent, ctx: UsageCtx, maxTok
         if (next < models.length) launch();
         else if (running === 0) {
           settled = true;
+          cleanup();
           reject(last instanceof Error ? last : new Error("tagging failed"));
         }
       });
     };
-    launch();
+    if (ctx.signal?.aborted) abort();
+    else launch();
   });
 }
 
@@ -228,13 +284,15 @@ interface Look {
   tags: string;
   /** What they usually wear; a turn's own outfit replaces it. */
   outfit?: string;
-  minor: boolean;
   /** The author's portrait of this character, if any: the character is drawn from it. */
   portrait?: string;
   /** Who they are, in a few words. */
   who?: string;
   /** Other names the story may use ("麻衣" for "樱岛麻衣", a romanized form). */
   aliases?: string[];
+  /** For a character from a published work, the tagger's "character, copyright"
+   *  danbooru names, unconfirmed: canonTags() checks them against danbooru. */
+  canon?: string;
 }
 
 // Many cards keep character sheets as system entries named "X - 角色卡" /
@@ -297,19 +355,20 @@ function lookKey(looks: Record<string, Look>, name: string): string | undefined 
 function toLook(raw: unknown): Look | null {
   if (typeof raw === "string" || Array.isArray(raw)) {
     const tags = str(raw);
-    return tags ? { tags: normalizeTags(tags, false), minor: false } : null;
+    return tags ? { tags: normalizeTags(tags) } : null;
   }
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
   const tags = str(r.tags) || str(r.look);
-  const minor = r.minor === true;
   if (!tags) return null;
   const outfit = str(r.outfit);
   const aliases = Array.isArray(r.aliases) ? r.aliases.filter((a): a is string => typeof a === "string" && a.trim() !== "") : [];
   const who = str(r.who);
+  const canon = str(r.canon).slice(0, 160);
   return {
-    tags: normalizeTags(tags, minor), minor,
+    tags: normalizeTags(tags),
     ...(outfit ? { outfit } : {}), ...(aliases.length ? { aliases } : {}), ...(who ? { who: who.slice(0, 80) } : {}),
+    ...(canon ? { canon } : {}),
   };
 }
 
@@ -347,7 +406,8 @@ const MAX_CACHED_CARDS = 2000;
 const CAST_RETRY_MS = 10 * 60_000;
 const CAST_TTL_S = 180 * 86_400;
 const cardLookCache = new Map<string, Promise<CardCast>>();
-const castKey = (hash: string) => `turnimg:cast:${hash}`;
+// cast2: read since looks carry canon names (2026-10-13); older reads have none.
+const castKey = (hash: string) => `turnimg:cast2:${hash}`;
 
 function cardLooks(world: WorldDefinition, ctx: UsageCtx): Promise<CardCast> {
   const chars = characterEntries(world);
@@ -359,7 +419,9 @@ function cardLooks(world: WorldDefinition, ctx: UsageCtx): Promise<CardCast> {
     looks = (async () => {
       const saved = await redis?.get(castKey(key)).catch(() => null);
       if (saved) return JSON.parse(saved) as CardCast;
-      const cast = await readCast(chars, text, ctx);
+      // This cache read may serve other draws too. Only the caller's own
+      // moment tagging and render carry its cancellation signal.
+      const cast = await readCast(chars, text, { ...ctx, signal: undefined });
       void redis?.set(castKey(key), JSON.stringify(cast), "EX", CAST_TTL_S).catch(() => { /* memory copy still holds it */ });
       return cast;
     })();
@@ -378,7 +440,7 @@ function cardLooks(world: WorldDefinition, ctx: UsageCtx): Promise<CardCast> {
 /** The tagger's reading of a card's cast, with authors' portraits read too. */
 function readCast(chars: { name: string; content: string; portrait?: string }[], text: string, ctx: UsageCtx): Promise<CardCast> {
   const listed = chars.length ? `Character entries: ${chars.map((c) => c.name).join(", ")}\n\n` : "";
-  return askJson(CAST_SYSTEM, listed + text, ctx, 2500).then(async (r) => {
+  return askJson(CAST_SYSTEM, listed + text, ctx, 2500, { name: "cast", schema: CAST_SCHEMA }).then(async (r) => {
     const out: Record<string, Look> = {};
     for (const raw of Array.isArray(r.cast) ? r.cast : []) {
       const name = str((raw as Record<string, unknown> | null)?.name);
@@ -395,9 +457,8 @@ function readCast(chars: { name: string; content: string; portrait?: string }[],
       if (!read) return;
       const key = Object.keys(out).find((k) => sameName(k, c.name)) ?? c.name;
       const prior = out[key];
-      const minor = prior?.minor ?? false;
       out[key] = {
-        ...prior, tags: normalizeTags(read.tags, minor), minor, portrait: c.portrait,
+        ...prior, tags: normalizeTags(read.tags), portrait: c.portrait,
         ...(read.outfit ? { outfit: read.outfit } : {}), who: prior?.who ?? firstSentence(c.content),
       };
     }));
@@ -460,6 +521,24 @@ function styleImage(ref: string): Promise<{ name: string; jpeg: Buffer }> {
     })();
     styleCache.set(ref, image);
     image.catch(() => styleCache.delete(ref));
+  }
+  return image;
+}
+
+const referenceCache = new Map<string, Promise<{ name: string; jpeg: Buffer }>>();
+
+/** A whole portrait for the edit model, which reads face, outfit and art
+ *  style off the full picture: at most ~1 MP, the size it works at. */
+function referenceImage(ref: string): Promise<{ name: string; jpeg: Buffer }> {
+  let image = referenceCache.get(ref);
+  if (!image) {
+    image = (async () => ({
+      name: `yumina_reference_${createHash("sha256").update(ref).digest("hex").slice(0, 16)}.jpg`,
+      jpeg: await sharp(await loadPortrait(ref)).rotate().resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+        .flatten({ background: "#ffffff" }).jpeg({ quality: 92 }).toBuffer(),
+    }))();
+    referenceCache.set(ref, image);
+    image.catch(() => referenceCache.delete(ref));
   }
   return image;
 }
@@ -564,7 +643,7 @@ const TRAILER_RE = /\n\s*(?:【\s*(?:去向|选项|回合结算|状态|choices|o
 /** The story text of a reply, split into what led up to the end and the end
  *  itself (its last ~450-900 characters, on paragraph or sentence boundaries). */
 export function momentText(reply: string): { before: string; final: string } {
-  let text = stripTurnImages(reply)
+  let text = stripTurnVideos(stripTurnImages(reply))
     .replace(/<options>[\s\S]*?<\/options>/gi, "")
     .replace(/\[[\w一-鿿]+:\s*[{[][\s\S]*?[}\]]\s*\]/g, "")
     .replace(/<speaker\s+id="([^"]*)">/gi, "$1: ")
@@ -628,6 +707,30 @@ function castParts(looks: string[]): { count: string; inline: string; bodies: st
 function str(v: unknown): string {
   if (Array.isArray(v)) return v.filter((t): t is string => typeof t === "string").map((t) => t.trim()).filter(Boolean).join(", ");
   return typeof v === "string" ? v.trim() : "";
+}
+
+// Two or more people: SDXL glues their bodies together (prod, 2026-10-08).
+const GROUP_NEGATIVE = ", fused bodies, conjoined, merged bodies";
+// Camera words that fight a first-person view: with "pov" also "from above"
+// the model drew top-down and upside-down bodies (prod, 2026-10-08).
+const POV_CAMERA_RE = /^(from above|from below|from side|upside[- ]down|dutch angle|fisheye)$/i;
+// The tagger writes ~10 tags into the weighted act group (the act, then
+// expressions, light, props): weighting all of them drowned the act itself.
+const WEIGHTED_ACT_TAGS = 4;
+
+/** An explicit prompt as the model draws it best: only the act's first tags
+ *  weighted (the rest follow plainly), and no camera angle fighting a pov. */
+export function tidyExplicitPrompt(prompt: string): string {
+  let out = prompt;
+  const group = out.match(/\(([^()]*):1\.25\)/);
+  if (group) {
+    const tags = group[1]!.split(",").map((t) => t.trim()).filter(Boolean);
+    const rest = tags.slice(WEIGHTED_ACT_TAGS);
+    out = out.replace(group[0], [`(${tags.slice(0, WEIGHTED_ACT_TAGS).join(", ")}:1.25)`, ...rest].join(", "));
+  }
+  const parts = out.split(/,(?![^(]*\))/).map((t) => t.trim()).filter(Boolean);
+  const pov = parts.some((t) => /^pov$/i.test(t));
+  return dedupeTags(parts.filter((t) => !(pov && POV_CAMERA_RE.test(t))).join(", "));
 }
 
 /** Each tag once, first place wins; a weighted group "(a, b:1.25)" stays whole. */
@@ -707,8 +810,177 @@ export interface TurnPrompt {
   bodies: string[];
   /** Portraits of the drawn characters, uploaded with the job. `slot` is the
    *  character's place in `bodies` (its half of a two-person frame); without
-   *  bodies the one portrait covers the whole frame. */
-  portraits?: { name: string; jpeg: Buffer; slot: number }[];
+   *  bodies the one portrait covers the whole frame. `look` is that
+   *  character's body tags, which tell the edit model who each image is. */
+  portraits?: { name: string; jpeg: Buffer; slot: number; look?: string }[];
+  /** Nudity, sex or suggestive content (age.ts isExplicitMoment). */
+  explicit?: boolean;
+}
+
+/** Which model draws a picture:
+ *   edit  — characters with portraits: Qwen-Image-Edit draws them from the
+ *           portraits (the IP-Adapter path drew the portrait's pose and grey
+ *           background instead of the scene, and dropped people: bench 2026-10-07);
+ *   anima — everything else when PER_TURN_IMAGE_ANIMA_MODEL is set: Anima reads
+ *           both the tags and the caption, and draws sex acts, groups and
+ *           scenery better than the story and SDXL routes it replaces;
+ *   story — no portraits, nothing explicit: Z-Anime from the caption (actions,
+ *           several people, signs and scenery come out as written);
+ *   sdxl  — everything else, and any host-specific recipe (RunPod). */
+export type TurnRoute = "edit" | "anima" | "story" | "sdxl";
+
+// A sex act in the picture. The edit model keeps a portrait's face through
+// nudity, a bath or a kiss, but never draws the act itself: a missionary scene
+// came out as the man lying beside her, a cowgirl POV as her kneeling alone
+// (bench 2026-10-08). Those go to SDXL, drawn from the characters' tags.
+const SEX_ACT_RE = /\b(sex|vaginal|anal|fellatio|irrumatio|deepthroat|handjob|footjob|paizuri|titjob|cunnilingus|69|cowgirl position|reverse cowgirl|missionary|doggystyle|mating press|penis|cum|masturbat\w*|fingering|grinding|tribadism|straddling)\b/i;
+
+export function turnRoute(prompt: TurnPrompt | string, recipe?: Recipe): TurnRoute {
+  if (typeof prompt === "string" || recipe) return "sdxl";
+  const portraits = prompt.portraits ?? [];
+  const sexAct = prompt.explicit === true && SEX_ACT_RE.test(prompt.scene);
+  // With Anima there, nudity leaves the edit model too: it paints bare skin
+  // over in flat white patches (bench 2026-10-10).
+  const bare = env.PER_TURN_IMAGE_ANIMA_MODEL !== "" && animaSafety(prompt) === "explicit";
+  if (portraits.length && env.PER_TURN_IMAGE_EDIT_MODEL && (!(sexAct || bare) || env.PER_TURN_IMAGE_EDIT_EXPLICIT === "1")) return "edit";
+  if (env.PER_TURN_IMAGE_ANIMA_MODEL) return "anima";
+  if (!portraits.length && env.PER_TURN_IMAGE_STORY_MODEL && !prompt.explicit && prompt.caption) return "story";
+  return "sdxl";
+}
+
+// Qwen-Image-Edit 2511 with its 8-step Lightning LoRA, wired as Comfy's
+// image_qwen_image_edit_2511 template (up to three reference images).
+const EDIT_LORA = "Qwen-Image-Edit-2511-Lightning-8steps-V1.0-bf16.safetensors";
+const EDIT_TEXT_ENCODER = "qwen_2.5_vl_7b_fp8_scaled.safetensors";
+const EDIT_VAE = "qwen_image_vae.safetensors";
+// Z-Anime is a Z-Image finetune: Z-Image's text encoder and VAE.
+const STORY_TEXT_ENCODER = "qwen_3_4b.safetensors";
+const STORY_VAE = "ae.safetensors";
+const ADULTS = "All characters are adults.";
+
+/** The edit model's instruction: the caption, then which image is whom. */
+export function editText(prompt: TurnPrompt): string {
+  const portraits = [...(prompt.portraits ?? [])].sort((a, b) => a.slot - b.slot);
+  const what = adultCaption(prompt.caption ?? "") || [prompt.scene, ...prompt.bodies].join(", ");
+  const who = portraits.map((p, i) => `image ${i + 1} is ${p.look ? `the character with ${p.look.replace(/^\s*1(girl|boy|other)\s*,\s*/i, "")}` : "one of them"}`).join("; ");
+  return [what,
+    `The characters are the people in the reference images (${who}). Keep each one's face, hair, eyes, body and species features exactly as in their reference image; their clothes and pose follow this description, not the reference.`,
+    "Anime illustration in the same art style as the reference images.", ADULTS].join(" ");
+}
+
+function buildEditWorkflow(prompt: TurnPrompt, seed: number): Record<string, unknown> {
+  const portraits = [...(prompt.portraits ?? [])].sort((a, b) => a.slot - b.slot).slice(0, 3);
+  const g: Record<string, { class_type: string; inputs: Record<string, unknown> }> = {
+    unet: { class_type: "UNETLoader", inputs: { unet_name: env.PER_TURN_IMAGE_EDIT_MODEL, weight_dtype: "default" } },
+    lora: { class_type: "LoraLoaderModelOnly", inputs: { model: ["unet", 0], lora_name: EDIT_LORA, strength_model: 1 } },
+    shift: { class_type: "ModelSamplingAuraFlow", inputs: { model: ["lora", 0], shift: 3.1 } },
+    norm: { class_type: "CFGNorm", inputs: { model: ["shift", 0], strength: 1 } },
+    clip: { class_type: "CLIPLoader", inputs: { clip_name: EDIT_TEXT_ENCODER, type: "qwen_image" } },
+    vae: { class_type: "VAELoader", inputs: { vae_name: EDIT_VAE } },
+  };
+  const images: Record<string, [string, number]> = {};
+  portraits.forEach((p, i) => {
+    g[`refimg${i}`] = { class_type: "LoadImage", inputs: { image: p.name } };
+    images[`image${i + 1}`] = [`refimg${i}`, 0];
+  });
+  Object.assign(g, {
+    posraw: { class_type: "TextEncodeQwenImageEditPlus", inputs: { clip: ["clip", 0], vae: ["vae", 0], prompt: editText(prompt), ...images } },
+    negraw: { class_type: "TextEncodeQwenImageEditPlus", inputs: { clip: ["clip", 0], vae: ["vae", 0], prompt: "", ...images } },
+    pos: { class_type: "FluxKontextMultiReferenceLatentMethod", inputs: { conditioning: ["posraw", 0], reference_latents_method: "index_timestep_zero" } },
+    neg: { class_type: "FluxKontextMultiReferenceLatentMethod", inputs: { conditioning: ["negraw", 0], reference_latents_method: "index_timestep_zero" } },
+    latent: { class_type: "EmptySD3LatentImage", inputs: { width: 832, height: 1216, batch_size: 1 } },
+    ks: { class_type: "KSampler", inputs: { model: ["norm", 0], positive: ["pos", 0], negative: ["neg", 0], latent_image: ["latent", 0],
+      seed, steps: 8, cfg: 1, sampler_name: "euler", scheduler: "simple", denoise: 1 } },
+    dec: { class_type: "VAEDecode", inputs: { samples: ["ks", 0], vae: ["vae", 0] } },
+    save: { class_type: "SaveImage", inputs: { images: ["dec", 0], filename_prefix: "yumina_turn" } },
+  });
+  return g;
+}
+
+function buildStoryWorkflow(prompt: TurnPrompt, seed: number): Record<string, unknown> {
+  return {
+    unet: { class_type: "UNETLoader", inputs: { unet_name: env.PER_TURN_IMAGE_STORY_MODEL, weight_dtype: "default" } },
+    shift: { class_type: "ModelSamplingAuraFlow", inputs: { model: ["unet", 0], shift: 3 } },
+    clip: { class_type: "CLIPLoader", inputs: { clip_name: STORY_TEXT_ENCODER, type: "lumina2" } },
+    vae: { class_type: "VAELoader", inputs: { vae_name: STORY_VAE } },
+    pos: { class_type: "CLIPTextEncode", inputs: { clip: ["clip", 0], text: `${adultCaption(prompt.caption ?? "")} Anime illustration. ${ADULTS}` } },
+    // A distilled model at cfg 1 never reads the negative.
+    neg: { class_type: "ConditioningZeroOut", inputs: { conditioning: ["pos", 0] } },
+    latent: { class_type: "EmptySD3LatentImage", inputs: { width: 832, height: 1216, batch_size: 1 } },
+    ks: { class_type: "KSampler", inputs: { model: ["shift", 0], positive: ["pos", 0], negative: ["neg", 0], latent_image: ["latent", 0],
+      seed, steps: 8, cfg: 1, sampler_name: "euler_ancestral", scheduler: "beta", denoise: 1 } },
+    dec: { class_type: "VAEDecode", inputs: { samples: ["ks", 0], vae: ["vae", 0] } },
+    save: { class_type: "SaveImage", inputs: { images: ["dec", 0], filename_prefix: "yumina_turn" } },
+  };
+}
+
+// Anima: Qwen3-0.6B text encoder and the Qwen-Image VAE (its model card's setup).
+const ANIMA_TEXT_ENCODER = "qwen_3_06b_base.safetensors";
+const ANIMA_VAE = "qwen_image_vae.safetensors";
+// Its card's prefix and negative. Score tags are left out: the card says they
+// push the Aesthetic and Turbo versions into slop.
+const ANIMA_QUALITY = "masterpiece, best quality, newest";
+const ANIMA_NEGATIVE = "worst quality, low quality, artist name, blurry, jpeg artifacts, chromatic aberration, multiple views, character sheet, reference sheet, split screen, comic";
+// SDXL-only prompt parts the scene carries: its quality tags, and the safety
+// tags Anima takes in its own words.
+const SDXL_ONLY_RE = /^(masterpiece|best quality|amazing quality|very aesthetic|absurdres|high quality|highres|nsfw|explicit|sensitive|safe)$/i;
+// Nudity or a sex act on screen: Anima's "explicit" safety tag. Suggestive
+// moments (underwear, cleavage) are "sensitive", the rest "safe".
+const NUDE_RE = /\b(nude|naked|nipples?|areolae?|pussy|penis|topless|bottomless|breasts out)\b/i;
+
+function animaSafety(prompt: TurnPrompt): "safe" | "sensitive" | "explicit" {
+  if (!prompt.explicit) return "safe";
+  return SEX_ACT_RE.test(prompt.scene) || NUDE_RE.test([prompt.scene, ...prompt.bodies].join(", ")) ? "explicit" : "sensitive";
+}
+
+/** Anima's prompt: its tag order (quality, safety, head count, the rest), then
+ *  the caption. Weights are dropped: Anima needs far higher ones than SDXL and
+ *  reads the act from the caption anyway. A distilled model at cfg 1 never
+ *  reads the negative, so adulthood is said in the positive. */
+export function animaText(prompt: TurnPrompt): string {
+  const people = prompt.bodies.map((body) => body.replace(/^\s*1(?:girl|boy|other)\s*,\s*/i, ""));
+  const tags = [prompt.scene, ...people].join(", ").replace(/\(([^()]+?):\d+(?:\.\d+)?\)/g, "$1")
+    .split(",").map((t) => t.trim()).filter((t) => t && !SDXL_ONLY_RE.test(t));
+  const head = dedupeTags([ANIMA_QUALITY, animaSafety(prompt), ...tags].join(", "));
+  return [`${head}.`, adultCaption(prompt.caption ?? ""), ADULTS].filter(Boolean).join(" ");
+}
+
+/** Anima reads the caption as English: "a young girl in the background" was
+ *  drawn as a child (bench 2026-10-10), where SDXL only ever read tags. */
+export function adultCaption(caption: string): string {
+  return caption
+    // "a young black-haired girl": the age word goes, however far from the noun.
+    .replace(/\b(?:little|young|tiny)\s+(?=(?:[\w-]+\s+){0,3}(?:girl|boy|woman|man|lady|kid|child)s?\b)/gi, "")
+    .replace(/\bgirls\b/gi, "women").replace(/\bgirl\b/gi, "woman")
+    .replace(/\bboys\b/gi, "men").replace(/\bboy\b/gi, "man")
+    .replace(/\ba\s+(?:kid|child|teen(?:ager)?|schoolgirl|schoolboy)\b/gi, "an adult")
+    .replace(/\b(?:kids|children|teens|teenagers|schoolgirls|schoolboys)\b/gi, "adults")
+    .replace(/\b(?:kid|child|teen(?:ager)?|schoolgirl|schoolboy)\b/gi, "adult")
+    .replace(/\b(?:petite|childlike|child-like|youthful|young-looking)\b/gi, "slim");
+}
+
+function animaRecipe(fine: boolean): Pick<Recipe, "steps" | "cfg" | "sampler" | "scheduler"> {
+  const turbo = /turbo/i.test(env.PER_TURN_IMAGE_ANIMA_MODEL);
+  const [steps, cfg, sampler, scheduler] = (env.PER_TURN_IMAGE_ANIMA_SAMPLING || (turbo ? "10:1:euler:simple" : "30:4:er_sde:simple")).split(":");
+  const base = { steps: Number(steps) || 10, cfg: Number(cfg) || 1, sampler: sampler || "euler", scheduler: scheduler || "simple" };
+  // A fine redraw takes the distill's longer schedule (its card: 8-12 steps).
+  return fine && turbo ? { ...base, steps: Math.max(base.steps, 12), sampler: "er_sde" } : base;
+}
+
+function buildAnimaWorkflow(prompt: TurnPrompt, seed: number, negative: string): Record<string, unknown> {
+  const recipe = animaRecipe(prompt.fine === true);
+  return {
+    unet: { class_type: "UNETLoader", inputs: { unet_name: env.PER_TURN_IMAGE_ANIMA_MODEL, weight_dtype: "default" } },
+    clip: { class_type: "CLIPLoader", inputs: { clip_name: ANIMA_TEXT_ENCODER, type: "stable_diffusion" } },
+    vae: { class_type: "VAELoader", inputs: { vae_name: ANIMA_VAE } },
+    pos: { class_type: "CLIPTextEncode", inputs: { clip: ["clip", 0], text: animaText(prompt) } },
+    neg: { class_type: "CLIPTextEncode", inputs: { clip: ["clip", 0], text: dedupeTags(`${ANIMA_NEGATIVE}, ${negative}`) } },
+    latent: { class_type: "EmptyLatentImage", inputs: { width: 832, height: 1216, batch_size: 1 } },
+    ks: { class_type: "KSampler", inputs: { model: ["unet", 0], positive: ["pos", 0], negative: ["neg", 0], latent_image: ["latent", 0],
+      seed, steps: recipe.steps, cfg: recipe.cfg, sampler_name: recipe.sampler, scheduler: recipe.scheduler, denoise: 1 } },
+    dec: { class_type: "VAEDecode", inputs: { samples: ["ks", 0], vae: ["vae", 0] } },
+    save: { class_type: "SaveImage", inputs: { images: ["dec", 0], filename_prefix: "yumina_turn" } },
+  };
 }
 
 // Portrait reference: NoobAI's IP-Adapter (generic SDXL adapters barely move
@@ -721,9 +993,23 @@ const PORTRAIT_CLIP_VISION = "CLIP-ViT-bigG-14-laion2B-39B-b160k.safetensors";
 const PORTRAIT_WEIGHT = 0.8;
 
 export function buildTurnWorkflow(prompt: TurnPrompt | string, seed: number, negative: string, recipe?: Recipe): Record<string, unknown> {
-  const { scene, bodies, portraits = [] } = typeof prompt === "string" ? { scene: prompt, bodies: [], portraits: [] } : prompt;
+  const route = turnRoute(prompt, recipe);
+  if (route === "edit") return buildEditWorkflow(prompt as TurnPrompt, seed);
+  if (route === "story") return buildStoryWorkflow(prompt as TurnPrompt, seed);
+  if (route === "anima") return buildAnimaWorkflow(prompt as TurnPrompt, seed, negative);
+  return buildSdxlWorkflow(prompt, seed, negative, recipe);
+}
+
+function buildSdxlWorkflow(prompt: TurnPrompt | string, seed: number, negative: string, hostRecipe?: Recipe): Record<string, unknown> {
+  const { scene, bodies } = typeof prompt === "string" ? { scene: prompt, bodies: [] } : prompt;
+  // With the edit model configured, portraits are its job: a moment it doesn't
+  // take (explicit, when not allowed) is drawn from the characters' tags.
+  const portraits = typeof prompt === "string" || env.PER_TURN_IMAGE_EDIT_MODEL ? [] : prompt.portraits ?? [];
   const caption = typeof prompt === "string" || env.PER_TURN_IMAGE_CAPTION !== "1" ? "" : prompt.caption ?? "";
-  recipe ??= primaryRecipe(portraits.length === 0, typeof prompt !== "string" && prompt.fine === true);
+  let recipe = hostRecipe ?? primaryRecipe(portraits.length === 0, typeof prompt !== "string" && prompt.fine === true);
+  if (!hostRecipe && typeof prompt !== "string" && prompt.explicit && env.PER_TURN_IMAGE_EXPLICIT_CHECKPOINT) {
+    recipe = { ...recipe, checkpoint: env.PER_TURN_IMAGE_EXPLICIT_CHECKPOINT };
+  }
   const g: Record<string, { class_type: string; inputs: Record<string, unknown> }> = {
     ckpt: { class_type: "CheckpointLoaderSimple", inputs: { ckpt_name: recipe.checkpoint } },
   };
@@ -797,33 +1083,44 @@ function classify(error: unknown): RenderError {
   return new RenderError(message, "unavailable");
 }
 
-async function renderOn(provider: GenerationProvider, workflow: Record<string, unknown>, timeoutMs: number, portraits: TurnPrompt["portraits"] = []): Promise<Buffer> {
+export async function renderOn(provider: GenerationProvider, workflow: Record<string, unknown>, timeoutMs: number, portraits: TurnPrompt["portraits"] = [], signal?: AbortSignal): Promise<Buffer> {
+  signal?.throwIfAborted();
   const graph = JSON.stringify(workflow);
   const used = portraits.filter((p) => graph.includes(p.name));
   const images = used.length ? used.map((p) => ({ name: p.name, imageBase64: p.jpeg.toString("base64") })) : undefined;
   const jobId = await provider.submit({ workflow, ...(images ? { images } : {}) }, null);
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 500));
-    const status = await provider.getStatus(jobId);
-    if (status.status === "failed" || status.status === "cancelled") throw new Error(status.error ?? "render failed");
-    if (status.status !== "succeeded") continue;
-    const out = status.outputs[0];
-    if (out?.buffer) return out.buffer;
-    if (out?.base64) return Buffer.from(out.base64, "base64");
-    throw new Error("render returned no image");
-  }
-  await provider.cancel(jobId).catch(() => {});
-  throw new RenderError(`render timed out after ${timeoutMs / 1000}s`, "timeout");
+  let stopping: Promise<void> | undefined;
+  const stop = () => stopping ??= (provider.cancelIsolated ? provider.cancelIsolated(jobId) : provider.cancel(jobId)).catch(() => {});
+  const cancel = () => { void stop(); };
+  signal?.addEventListener("abort", cancel, { once: true });
+  try {
+    if (signal?.aborted) { cancel(); signal.throwIfAborted(); }
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      await abortable(new Promise((r) => setTimeout(r, 500)), signal);
+      signal?.throwIfAborted();
+      const status = await abortable(provider.getStatus(jobId), signal);
+      signal?.throwIfAborted();
+      if (status.status === "failed" || status.status === "cancelled") throw new Error(status.error ?? "render failed");
+      if (status.status !== "succeeded") continue;
+      const out = status.outputs[0];
+      if (out?.buffer) return out.buffer;
+      if (out?.base64) return Buffer.from(out.base64, "base64");
+      throw new Error("render returned no image");
+    }
+    await stop();
+    throw new RenderError(`render timed out after ${timeoutMs / 1000}s`, "timeout");
+  } finally { signal?.removeEventListener("abort", cancel); }
 }
 
 /** Our deployment first (dedicated GPUs, warm), then the shared Comfy Cloud
  *  pool, then RunPod: each takes over when the one before errors or times out. */
-async function render(prompt: TurnPrompt, negative: string): Promise<{ png: Buffer; route: string }> {
+async function render(prompt: TurnPrompt, negative: string, signal?: AbortSignal): Promise<{ png: Buffer; route: string }> {
   const seed = Math.floor(Math.random() * 2 ** 31);
   const routes: { provider: GenerationProvider; route: string; recipe?: Recipe; timeoutMs: number; style: boolean }[] = [];
   const deploy = getComfyDeployProvider();
-  if (deploy) routes.push({ provider: deploy, route: "deployment", timeoutMs: DEPLOY_RENDER_TIMEOUT_MS, style: true });
+  const deployTimeout = turnRoute(prompt) === "edit" ? DEPLOY_EDIT_TIMEOUT_MS : DEPLOY_RENDER_TIMEOUT_MS;
+  if (deploy) routes.push({ provider: deploy, route: "deployment", timeoutMs: deployTimeout, style: true });
   // The shared Comfy Cloud pool, not the 自定义生图 deployment: that build
   // carries the platform checkpoints, not this workflow's models.
   const primary = getTurnImagePoolProvider();
@@ -833,10 +1130,12 @@ async function render(prompt: TurnPrompt, negative: string): Promise<{ png: Buff
 
   const failures: RenderError[] = [];
   for (const [i, r] of routes.entries()) {
+    signal?.throwIfAborted();
     try {
       const workflow = buildTurnWorkflow(prompt, seed, negative, r.recipe);
-      return { png: await renderOn(r.provider, workflow, r.timeoutMs, r.style ? prompt.portraits : undefined), route: r.route };
+      return { png: await renderOn(r.provider, workflow, r.timeoutMs, r.style ? prompt.portraits : undefined, signal), route: r.route };
     } catch (error) {
+      signal?.throwIfAborted();
       const failure = classify(error);
       failures.push(failure);
       const next = routes[i + 1];
@@ -867,6 +1166,7 @@ export function stripTurnImages(text: string): string {
 // ── Entry point ─────────────────────────────────────────────────────
 
 export interface IllustrateArgs {
+  signal?: AbortSignal;
   world: WorldDefinition;
   sessionId: string;
   playerText: string;
@@ -910,6 +1210,7 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
     return { looks: {}, player: "unknown" };
   });
   const known = card.looks;
+  ctx.signal?.throwIfAborted();
   const memory = await sessionMemory(args.sessionId);
   const remembered = memory.looks;
   const { before, final } = momentText(args.replyText);
@@ -924,7 +1225,7 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
     before ? `Reply:\n${before}` : "",
     `${before ? "Reply, continued to its end" : "Reply"}:\n${final}`,
     // Room for the caption too: at 900 a long scene's JSON could be cut off.
-  ].filter(Boolean).join("\n\n"), ctx, 1400);
+  ].filter(Boolean).join("\n\n"), ctx, 1400, { name: "moment", schema: MOMENT_SCHEMA });
 
   const nsfw = moment.nsfw === true;
   // A sex act always puts the camera in the player's eyes: a figure standing
@@ -952,12 +1253,10 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
       // Someone the card doesn't know (the story made her up this turn). With
       // no look from the tagger she is still drawn as herself, from her
       // clothes; standing in the card's lead would draw the wrong person.
-      look = toLook({ tags: entry.look, minor: entry.minor })
-        ?? { tags: normalizeTags(str(entry.outfit) || "1girl", entry.minor === true).split(", ").filter((t) => /^(1girl|1boy|1other|adult|child|young girl|young boy|teenage)$/i.test(t)).join(", "), minor: entry.minor === true };
+      look = toLook({ tags: entry.look })
+        ?? { tags: normalizeTags(str(entry.outfit) || "1girl").split(", ").filter((t) => /^(1girl|1boy|1other|adult)$/i.test(t)).join(", ") };
       if (name !== "__proto__") remembered[name] = look;
     }
-    // The turn may say someone is a minor that the card didn't: never the other way round.
-    if (look && entry.minor === true && !look.minor) look = { ...look, minor: true, tags: normalizeTags(look.tags, true) };
     if (look && !cast.some((c) => c.look === look)) {
       const worn = str(entry.outfit);
       const filed = key ?? name;
@@ -969,6 +1268,7 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
       shown.push(name);
     }
   }
+  ctx.signal?.throwIfAborted();
   saveSessionMemory(args.sessionId, memory);
   // Explicit if the tagger says so OR its own tags are sexual: a tagger that
   // drops the flag but still writes "nude" is not trusted with the flag.
@@ -981,28 +1281,26 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
     cast.push({ look: lead, outfit: outfitFor("", false, memory.outfits[leadName], lead.outfit) });
     shown.push(leadName);
   }
-  // The text models refuse sexual content about minors, but the image model
-  // is open-weight and refuses nothing, so this one check lives here. It is
-  // silent (no picture, no message) and only for explicit moments: ordinary
-  // scenes with the same characters are drawn as usual, at their own age.
-  const anyMinor = cast.some((c) => c.look.minor);
-  if (anyMinor && (explicit || isExplicitMoment(false, ...cast.map((c) => c.outfit)))) return { draw: false, shown };
-
   const people = cast.length > 0 || pov;
   // Up to three people share the prompt (a campfire with the whole party);
   // past that SDXL drops or merges them.
   const drawn = cast.slice(0, 3);
-  const minorShown = drawn.some((c) => c.look.minor);
-  // A minor on screen: nothing sexual or suggestive reaches the prompt.
-  const clean = (tags: string) => (minorShown ? stripExplicit(tags) : tags);
+  // A character from a published work is named the way danbooru names them,
+  // which draws their real design, explicit pictures included. A character
+  // with an author's portrait keeps the name too: the edit route draws from
+  // the portrait itself, but a picture it can't take (a sex act, nudity) goes
+  // to Anima with only the tags read off the portrait. Confirmed only for who
+  // is drawn (cached per name), so a big cast isn't a burst of lookups.
+  const names = await Promise.all(drawn.map((c) => (c.look.canon ? canonTags(c.look.canon) : "")));
   // The body never changes; the clothes are the ones the story last put them in.
-  const bodies = drawn.map((c) => [c.look.tags, clean(c.outfit)].filter(Boolean).join(", "));
+  // Normalized again here: looks cached before this change kept youth tags.
+  const bodies = drawn.map((c, i) => [withCanon(normalizeTags(c.look.tags), names[i] ?? ""), c.outfit].filter(Boolean).join(", "));
   // The player beside one character (asleep in his arms): an anonymous figure
   // of the player's sex takes the second half of the frame.
   const playerShown = moment.player_in_shot === true && !pov && !nsfw && drawn.length === 1 && (player === "female" || player === "male");
   if (playerShown) bodies.push(player === "female" ? "1girl, adult" : "1boy, adult");
   // An empty scene's "action" describes the unseen player.
-  const action = people ? clean(str(moment.action)) : "";
+  const action = people ? str(moment.action) : "";
   // A close-up of a whole-body pose (straddling, lying, kneeling) is two
   // views of it, which the model draws as a collage: frame the upper body.
   const shot = /close-?up/i.test(str(moment.shot)) && BODY_POSE_RE.test(action) ? "upper body" : str(moment.shot);
@@ -1010,25 +1308,30 @@ export async function planTurn(args: PlanArgs): Promise<TurnPlan> {
   const femalePov = pov && player === "female";
   // Illustrious draws a lone "1boy" as a girl often enough to notice.
   const soloMale = drawn.length === 1 && /(^|,\s*)1boy(\s*,|$)/.test(parts.inline) ? "male focus" : "";
-  const scene = dedupeTags([quality(), nsfw && people ? "nsfw, explicit" : "",
+  const scene = tidyExplicitPrompt(dedupeTags([quality(), nsfw && people ? "nsfw, explicit" : "",
     nsfw && action ? `(${action}:1.25)` : "",
     drawn.length ? parts.count || parts.inline : pov ? "" : "no humans, scenery", soloMale, pov ? (femalePov ? "pov, female pov" : "pov") : "",
-    people ? shot : "", nsfw ? "" : action, clean(str(moment.scene))].filter(Boolean).join(", "));
-  // Each of the first two drawn characters with a portrait is drawn from it
-  // (in their own half of a group frame).
-  const portraits = (await Promise.all(drawn.slice(0, 2).map(async (c, slot) => {
+    people ? shot : "", nsfw ? "" : action, str(moment.scene)].filter(Boolean).join(", ")));
+  // Each drawn character with a portrait is drawn from it: the edit model
+  // takes up to three whole portraits; the IP-Adapter path the first two,
+  // each over its own half of a group frame.
+  const edit = env.PER_TURN_IMAGE_EDIT_MODEL !== "";
+  const portraits = (await Promise.all(drawn.slice(0, edit ? 3 : 2).map(async (c, slot) => {
     if (!c.look.portrait) return null;
-    const image = await styleImage(c.look.portrait).catch((error) => {
+    const image = await (edit ? referenceImage : styleImage)(c.look.portrait).catch((error) => {
       console.warn("[PerTurnImage] portrait unreadable:", error instanceof Error ? error.message : error);
       return null;
     });
-    return image ? { ...image, slot } : null;
+    return image ? { ...image, slot, look: normalizeTags(c.look.tags) } : null;
   }))).filter((p) => p !== null);
-  const caption = minorShown ? "" : str(moment.caption).slice(0, 400);
-  const prompt: TurnPrompt = { scene, bodies: parts.bodies, ...(caption ? { caption } : {}), ...(portraits.length ? { portraits } : {}) };
+  const caption = str(moment.caption).slice(0, 400);
+  const prompt: TurnPrompt = {
+    scene, bodies: parts.bodies, explicit, ...(caption ? { caption } : {}), ...(portraits.length ? { portraits } : {}),
+  };
   const solo = drawn.length === 1 && !playerShown;
   const sex = soloMale || /(^|,\s*)1boy(\s*,|$)/.test(parts.inline) ? "boy" : "girl";
-  const negative = negativeFor(minorShown, !explicit, env.PER_TURN_IMAGE_NEGATIVE || undefined) + (solo ? (pov ? POV_SOLO_NEGATIVE : SOLO_NEGATIVE)[sex] : "");
+  const negative = negativeFor(!explicit, env.PER_TURN_IMAGE_NEGATIVE || undefined) + (solo ? (pov ? POV_SOLO_NEGATIVE : SOLO_NEGATIVE)[sex] : "")
+    + (drawn.length > 1 ? GROUP_NEGATIVE : "");
   return { draw: true, prompt, negative, shown, nsfw: explicit, pov, player };
 }
 
@@ -1041,12 +1344,14 @@ export async function illustrateTurn(args: IllustrateArgs): Promise<IllustrateRe
     const prefs = await turnImagePrefs(args.userId);
     if (!prefs.optedIn || (args.auto && !prefs.auto)) return { ok: false, reason: "off" };
     const ctx: UsageCtx = {
+      signal: args.signal,
       userId: args.userId, sessionId: args.sessionId,
       playerKey: args.playerKey ? { userId: args.userId, apiKey: args.playerKey } : null,
     };
-    const plan = await planTurn({
+    const plan = await abortable(planTurn({
       world: args.world, sessionId: args.sessionId, playerText: args.playerText, replyText: args.replyText, note: args.note, playerPersona: args.playerPersona, ctx,
-    });
+    }), args.signal);
+    args.signal?.throwIfAborted();
     if (!plan.draw) {
       console.log(`[PerTurnImage] not drawn (${plan.shown.join("/")})`);
       return { ok: false, reason: "nothing" };
@@ -1055,16 +1360,20 @@ export async function illustrateTurn(args: IllustrateArgs): Promise<IllustrateRe
 
     const tagged = Date.now();
     if (args.fine) prompt.fine = true;
-    const { png, route } = await render(prompt, negative);
+    const { png, route } = await render(prompt, negative, args.signal);
+    args.signal?.throwIfAborted();
     const jpeg = await sharp(png).jpeg({ quality: 86 }).toBuffer();
+    args.signal?.throwIfAborted();
     const key = `users/${args.userId}/turn-images/${randomUUID()}.jpg`;
     await putObject(key, jpeg, "image/jpeg");
-    console.log(`[PerTurnImage] tags ${tagged - started}ms, render+store ${Date.now() - tagged}ms via ${route}; ` +
+    console.log(`[PerTurnImage] tags ${tagged - started}ms, render+store ${Date.now() - tagged}ms via ${route} ` +
+      `(${route === getFallbackGenerationProvider()?.name ? "sdxl" : turnRoute(prompt)}); ` +
       `shown=${shown.join("/") || "-"} nsfw=${nsfw} pov=${pov} player=${plan.player || "-"} portraits=${prompt.portraits?.length ?? 0} ` +
       `prompt=${[prompt.scene, ...prompt.bodies].join(" | ").slice(0, 500)}`);
     // Same-origin path: the embed parser refuses anything but https / @asset / /cdn.
     return { ok: true, embed: `[image:/cdn/key/${Buffer.from(key).toString("base64url")}|alt=${(shown[0] ?? "scene").replace(/[|\]]/g, "")}]` };
   } catch (error) {
+    if (args.signal?.aborted) return { ok: false, reason: args.signal.reason === "cancelled" ? "cancelled" : "unavailable" };
     const reason = error instanceof RenderError ? error.kind : "unavailable";
     console.warn(`[PerTurnImage] failed (${reason}) after ${Date.now() - started}ms:`, error instanceof Error ? error.message : error);
     return { ok: false, reason };

@@ -1,6 +1,6 @@
 import { Lock, BookOpen, Download, X, Check } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { thumbnailImageUrl, fallbackToOriginalOnError } from "@/lib/asset-url";
+import { CroppedImage } from "@/lib/cover-crop";
 
 interface TombstoneCardProps {
   worldName: string;
@@ -49,9 +49,10 @@ export function LibraryTombstoneCard({
         )}
         <div className="absolute inset-0 overflow-hidden">
           {thumbnailUrl ? (
-            <img
-              src={thumbnailImageUrl(thumbnailUrl)}
-              onError={fallbackToOriginalOnError}
+            <CroppedImage
+              src={thumbnailUrl}
+              width={480}
+              crop={{ fit: "cover", x: 0, y: 0, zoom: 1 }}
               alt={worldName}
               className="h-full w-full object-cover grayscale opacity-30 transition-[transform,filter] duration-700 ease-out group-hover:scale-105 group-hover:blur-[2px]"
             />

@@ -1,30 +1,14 @@
 /**
- * Strips state-change directives from streaming text so they are never visible to the user.
- * Uses the same patterns as the engine's ResponseParser.
+ * Streaming text as the player should see it. One implementation: the
+ * engine's `cleanDisplayText`, which is the response parser's own clean text,
+ * so what streams is what the server will save. Pass the world's variable ids
+ * (the game-state keys) when known; without them only the generic criteria
+ * hide bracket lines (placeholder keys, operation words).
  */
-import { isPartialLeadingSpeakerTag, parseLeadingSpeakerTag } from "@yumina/engine";
+import { cleanDisplayText, type ReplyRule } from "@yumina/engine";
 
-// [variableId: operation value]
-const STANDARD = /\[([\w\p{L}\p{N}.$-]+):\s*(set|add|subtract|multiply|toggle|append|\+|-|\*)?\s*("(?:[^"\\]|\\.)*"|[\w\p{L}\p{N}.$-]+)?\]/gu;
-// [audio: trackId action ...]
-const AUDIO = /\[audio:\s*([\w\p{L}\p{N}-]+)\s+(play|stop|crossfade|volume)(?:\s+([\d.]+))?(?:\s+chain:([\w\p{L}\p{N}-]+))?\]/gu;
-// [variableId: op {json}] or [variableId: op [json]]
-const JSON_DIR = /\[([\w\p{L}\p{N}.$-]+):\s*(set|merge|push|delete)\s+(\{[\s\S]*?\}|\[[\s\S]*?\])\]/gu;
-// <UpdateVariable>...<JSONPatch>...</JSONPatch>...</UpdateVariable>
-const UPDATE_VAR = /<UpdateVariable>[\s\S]*?<\/UpdateVariable>/gi;
-// Standalone structural XML tags
-const STRUCTURAL_XML = /^\s*<\/?(maintext|option|sum|Analysis|UpdateVariable|JSONPatch|status_current_variable)\s*>\s*$/gim;
-// Trailing incomplete directive at end of streaming text: [word: ...
-const TRAILING_INCOMPLETE = /\[[\w\p{L}\p{N}.$-]+:[^\]]*$/u;
-
-export function stripDirectives(text: string): string {
-  return text
-    .replace(UPDATE_VAR, "")
-    .replace(AUDIO, "")
-    .replace(JSON_DIR, "")
-    .replace(STANDARD, "")
-    .replace(STRUCTURAL_XML, "")
-    .replace(TRAILING_INCOMPLETE, "");
+export function stripDirectives(text: string, variableIds?: Iterable<string>, replyRules?: readonly ReplyRule[]): string {
+  return cleanDisplayText(text, { variableIds, replyRules, streaming: true });
 }
 
 /**
@@ -36,10 +20,6 @@ export function stripDirectives(text: string): string {
  * hides it, and stripping it here would leave the bubble unable to tell "no
  * tag" from "tag not finished yet".
  */
-export function stripDirectivesForSandbox(text: string): string {
-  if (isPartialLeadingSpeakerTag(text)) return text;
-  const tag = parseLeadingSpeakerTag(text);
-  const rest = stripDirectives(tag.text);
-  return tag.speaker ? `[speaker: ${tag.speaker}]
-${rest}` : rest;
+export function stripDirectivesForSandbox(text: string, variableIds?: Iterable<string>, replyRules?: readonly ReplyRule[]): string {
+  return cleanDisplayText(text, { variableIds, replyRules, streaming: true, keepSpeakerTag: true });
 }

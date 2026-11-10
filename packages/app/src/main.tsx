@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useRef, useState } from "react";
 import { rememberShareInvite } from "@/lib/share-invite";
 import { createRoot } from "react-dom/client";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
+import { trackTikTokPageView } from "@/lib/analytics";
 import { PostHogProvider } from "@posthog/react";
 import { routeTree } from "./routeTree.gen";
 import {
@@ -10,7 +11,6 @@ import {
   shouldReloadForChunkError,
   clearChunkErrorFlag,
 } from "@/lib/stale-chunk-reload";
-import { installAudioUnlock } from "@/lib/ios-audio-unlock";
 import { installRouteScrollRestoration, prepareRouteScrollRestoration } from "@/lib/route-scroll-restoration";
 import { installDeployRefresh } from "@/lib/deploy-refresh";
 import { clearReadingPageBootstrap } from "@/lib/reading-page-canvas";
@@ -20,6 +20,7 @@ import "@/styles/globals.css";
 import { rememberArrival } from "@/lib/arrival-attribution";
 import { isAnalyticsEnabled } from "@/lib/analytics-enabled";
 import { getLandingRoute } from "@/edition/routes";
+import { OPEN_STUDIO_EVENT } from "@/lib/studio-navigation";
 
 rememberArrival();
 rememberShareInvite();
@@ -29,11 +30,6 @@ if (typeof window.requestIdleCallback === "undefined") {
   (window as unknown as Record<string, unknown>).requestIdleCallback = (cb: IdleRequestCallback) => window.setTimeout(cb, 1);
   (window as unknown as Record<string, unknown>).cancelIdleCallback = (id: number) => window.clearTimeout(id);
 }
-
-// Prime iOS audio on the first user gesture anywhere in the app, so that
-// later programmatic audio.play() calls (SDK BGM, playlist tracks) don't get
-// rejected by iOS's gesture-scope rule. No-op on desktop.
-installAudioUnlock();
 
 // Auto-reload when a dynamically imported chunk is stale (e.g., after a deploy).
 // Vite emits this event when a lazy route or code-split chunk 404s.
@@ -368,7 +364,13 @@ const router = createRouter({
 
 installRouteScrollRestoration(router);
 installDeployRefresh(router);
+window.addEventListener(OPEN_STUDIO_EVENT, (event) => {
+  const worldId = (event as CustomEvent<string>).detail;
+  if (worldId) void router.navigate({ to: "/app/studio/$worldId", params: { worldId } });
+});
 router.subscribe("onResolved", (event) => clearReadingPageBootstrap(document, event.toLocation.pathname));
+// TikTok pixel page views per SPA route (index.html fired the first one).
+router.subscribe("onResolved", (event) => trackTikTokPageView(event.toLocation.pathname));
 
 declare module "@tanstack/react-router" {
   interface Register {

@@ -46,6 +46,7 @@ RUN find packages/app/dist -name "*.map" -delete
 # ---- Runtime image --------------------------------------------------------
 FROM base AS runner
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pil ffmpeg && rm -rf /var/lib/apt/lists/*
 
 # Production dependencies only. The app package is not needed at runtime; its
 # built files are copied into the server's public folder below.
@@ -59,6 +60,7 @@ RUN pnpm install --frozen-lockfile --prod
 COPY --from=build /app/packages/shared/dist packages/shared/dist
 COPY --from=build /app/packages/engine/dist packages/engine/dist
 COPY --from=build /app/packages/server/dist packages/server/dist
+COPY --from=build /app/packages/server/scripts packages/server/scripts
 
 # Built frontend, served by the server as static files.
 COPY --from=build /app/packages/app/dist packages/server/public

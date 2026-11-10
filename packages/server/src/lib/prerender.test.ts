@@ -76,3 +76,17 @@ test("home and creator pages render a heading and a grid", () => {
   assert.match(creator, /<p>Writes small worlds\.<\/p>/);
   assert.match(creator, /pre-card/);
 });
+
+test("Krew listings link to the public game without exposing arbitrary game paths", () => {
+  const world = {
+    ...card, name: "Krew.io", description: "Sail with your crew.",
+    status: "published", isPublished: true, visibility: "public", ageRating: "all",
+    language: "en", tags: [], creatorId: "u1",
+  };
+  for (const gamePath of ["/krew", "/krew/"]) {
+    assert.match(renderWorld({ ...world, gamePath }, []), /<a href="\/krew">Play Krew\.io<\/a>/);
+  }
+  for (const gamePath of [null, undefined, "/krew?env=test", "/krew/room/ABCD", "javascript:alert(1)"]) {
+    assert.doesNotMatch(renderWorld({ ...world, gamePath }, []), /Play Krew\.io|href="javascript:/);
+  }
+});

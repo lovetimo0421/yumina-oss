@@ -7,6 +7,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitMiddleware } from "../middleware/rate-limit.js";
 import type { AppEnv } from "../lib/types.js";
 import { embedAndStoreWorld } from "../lib/embeddings.js";
+import { versionAssetRefs } from "../lib/world-version-asset-refs.js";
 import {
   lockVersionWorld, lockVersionDraft, restoreVersionDraft, makeVersionLive,
   VersionActionError, versionMatchesLiveSql,
@@ -64,12 +65,13 @@ worldVersionRoutes.post("/:id/versions", authMiddleware, async (c) => {
     }
     const draft = world.status === "published" ? await lockVersionDraft(tx, worldId) : null;
     const material = draft ?? world;
+    const schema = { ...material.schema, name: world.name };
     const [inserted] = await tx.insert(worldVersions).values({
       worldId, createdBy: creatorId, name, note, source: "manual",
-      schema: { ...material.schema, name: world.name }, thumbnailUrl: material.thumbnailUrl, ageRating: material.ageRating ?? "all",
+      schema, thumbnailUrl: material.thumbnailUrl, ageRating: material.ageRating ?? "all", ...versionAssetRefs(schema),
     }).returning();
     if (!inserted) throw new Error("Version could not be saved");
-    const { schema: _schema, ...metadata } = inserted;
+    const { schema: _schema, assetIds: _assetIds, assetPaths: _assetPaths, ...metadata } = inserted;
     return { kind: "ok" as const, version: metadata };
   });
   if (result.kind === "notFound") return c.json({ error: "World not found" }, 404);

@@ -79,6 +79,7 @@ const STATE_SYSTEM: SystemDefinition = {
   ],
   statePaths: [
     { path: "@vars.enabled.*", description: "Override a variable's enable gate (true/false) — inactive variables leave the AI prompt and player UI but keep their value", valueType: "boolean" },
+    { path: "@worldbooks.on.*", description: "Switch a scenario on or off (true/false). Read by scenarios whose activation is manual (只看启用开关) or keywords; the automatic modes ignore it", valueType: "boolean" },
   ],
 };
 

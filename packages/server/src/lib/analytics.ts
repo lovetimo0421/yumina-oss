@@ -91,6 +91,10 @@ export type ServerHubEventMap = {
     [mark: `t_${string}_ms`]: number | undefined;
     authenticated?: boolean;
     has_more?: boolean;
+    /** Page position where the reader had seen every eligible card once. */
+    caught_up_index?: number | null;
+    /** The request carried a client scroll id (no repeats across visits). */
+    scroll_continuity?: boolean;
     measurement_status?: "recorded" | "unavailable" | "off";
     snapshot_bytes?: number;
     /** Ranking experiment arm that produced this slate (Ship 1:

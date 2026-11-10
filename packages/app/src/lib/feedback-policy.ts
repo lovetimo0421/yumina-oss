@@ -45,7 +45,9 @@ export type FeedbackTextViolation = "empty" | "newline" | "length" | "exclamatio
  */
 export function toPillText(raw: unknown, max = FEEDBACK_MAX_CHARS): string {
   const flat = String(raw ?? "").replace(/\s+/g, " ").trim();
-  const firstSentence = flat.length > max ? (/^.*?[.!?。！？]/.exec(flat)?.[0] ?? flat) : flat;
+  // An ASCII period inside a decimal, filename or URL is not a sentence end.
+  // CJK sentence punctuation does not need a following space.
+  const firstSentence = flat.length > max ? (/^.*?(?:[.!?](?=\s|$)|[。！？])/.exec(flat)?.[0] ?? flat) : flat;
   const clamped = firstSentence.length > max ? `${firstSentence.slice(0, max - 1)}…` : firstSentence;
   return clamped.replace(/[!！]+$/, "");
 }

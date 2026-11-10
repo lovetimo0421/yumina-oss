@@ -7,7 +7,7 @@ import { pickLang } from "../../chat/i18n";
 import { ModelPickerModal, ModelTrigger } from "../../chat/model-picker-modal";
 import { SandboxPlatformOverlay } from "../../platform-overlay-portal";
 
-const DEFAULT_CONTEXT_MODEL = "google/gemini-2.5-flash-lite";
+const DEFAULT_CONTEXT_MODEL = "google/gemini-3.1-flash-lite";
 // The zero-cost play model (see @yumina/shared YUMINA_MODELS "Yumina Free").
 // Kept as a literal: the sandbox bundle avoids importing the full registry here.
 const FREE_CONTEXT_MODEL = "openrouter/free";
@@ -1034,7 +1034,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
           aria-modal="true"
           aria-label={tt("Memory & Summary", "记忆与摘要")}
         >
-        <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+        <div className="absolute inset-0 modal-backdrop" />
         <div
           onClick={(e) => e.stopPropagation()}
           className="relative z-10 flex max-h-[min(760px,calc(100dvh-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px)-4rem))] w-[min(840px,calc(100vw-1rem))] flex-col overflow-hidden rounded-2xl border border-white/[0.08] bg-[#17181b]/95 shadow-2xl shadow-black/45 backdrop-blur-xl"
@@ -1591,7 +1591,7 @@ export function SessionMemoryModal({ open, onClose }: SessionMemoryModalProps) {
             )}
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] px-5 py-3">
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-white/[0.06] px-5 py-3">
             {contextTab === "memory" ? (
               <button
                 onClick={handleClear}

@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronRight, Lock } from "lucide-react";
+import { clampPlayerSampling, PLAYER_SAMPLING_BOUNDS } from "@yumina/shared";
 import { isKimiAntiRepetitionModel } from "@/lib/kimi-repetition";
 import { useConfigStore } from "@/stores/config";
 import { useUserProfileStore } from "@/stores/user-profile";
@@ -58,10 +59,21 @@ export function AiConfigTab() {
   const isClaudeSelected =
     /(^|\/)anthropic\//i.test(selectedModel) || /claude/i.test(selectedModel);
   const isKimiSelected = isKimiAntiRepetitionModel(selectedModel);
-  const tempMax = isClaudeSelected ? 1 : 1.5;
+  const tempMax = isClaudeSelected ? 1 : PLAYER_SAMPLING_BOUNDS.temperature.max;
   useEffect(() => {
     if (isClaudeSelected && temperature > 1) setConfig("temperature", 1);
   }, [isClaudeSelected, temperature, setConfig]);
+
+  // Older sliders allowed penalties of -2..2 and temperature up to 2; the server
+  // now clamps those at request time. Snap a stored out-of-range value to what
+  // is actually sent, so the slider and its number don't claim a setting the
+  // story never gets.
+  useEffect(() => {
+    const sane = clampPlayerSampling({ temperature, frequencyPenalty, presencePenalty });
+    if (!Object.is(sane.temperature, temperature)) setConfig("temperature", sane.temperature);
+    if (!Object.is(sane.frequencyPenalty, frequencyPenalty)) setConfig("frequencyPenalty", sane.frequencyPenalty);
+    if (!Object.is(sane.presencePenalty, presencePenalty)) setConfig("presencePenalty", sane.presencePenalty);
+  }, [temperature, frequencyPenalty, presencePenalty, setConfig]);
 
   // Story memory never rides the plan ladder: every tier may set it freely,
   // bounded only by the overall limit in force.
@@ -315,8 +327,8 @@ export function AiConfigTab() {
                       <label className="text-sm font-medium text-main">{t("config.frequencyPenalty")}</label>
                       <span className="text-xs text-sub">{frequencyPenalty.toFixed(2)}</span>
                     </div>
-                    <input type="range" min={-2} max={2} step={0.01} value={frequencyPenalty} onChange={(e) => setConfig("frequencyPenalty", Number(e.target.value))} className="w-full accent-gold" />
-                    <div className="flex justify-between text-[11px] text-sub/60"><span>{t("config.encourage")}</span><span>{t("config.penalize")}</span></div>
+                    <input type="range" min={PLAYER_SAMPLING_BOUNDS.frequencyPenalty.min} max={PLAYER_SAMPLING_BOUNDS.frequencyPenalty.max} step={0.01} value={frequencyPenalty} onChange={(e) => setConfig("frequencyPenalty", Number(e.target.value))} className="w-full accent-gold" />
+                    <div className="flex justify-between text-[11px] text-sub/60"><span>{t("config.noPenalty")}</span><span>{t("config.penalize")}</span></div>
                   </div>
 
                   <div className="space-y-2">
@@ -324,8 +336,8 @@ export function AiConfigTab() {
                       <label className="text-sm font-medium text-main">{t("config.presencePenalty")}</label>
                       <span className="text-xs text-sub">{presencePenalty.toFixed(2)}</span>
                     </div>
-                    <input type="range" min={-2} max={2} step={0.01} value={presencePenalty} onChange={(e) => setConfig("presencePenalty", Number(e.target.value))} className="w-full accent-gold" />
-                    <div className="flex justify-between text-[11px] text-sub/60"><span>{t("config.encourage")}</span><span>{t("config.penalize")}</span></div>
+                    <input type="range" min={PLAYER_SAMPLING_BOUNDS.presencePenalty.min} max={PLAYER_SAMPLING_BOUNDS.presencePenalty.max} step={0.01} value={presencePenalty} onChange={(e) => setConfig("presencePenalty", Number(e.target.value))} className="w-full accent-gold" />
+                    <div className="flex justify-between text-[11px] text-sub/60"><span>{t("config.noPenalty")}</span><span>{t("config.penalize")}</span></div>
                   </div>
 
                   {isKimiSelected && (

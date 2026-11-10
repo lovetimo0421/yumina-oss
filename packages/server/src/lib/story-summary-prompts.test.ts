@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildEpisodeSummaryPrompt, recoverStoryMerge, withStoryMergeBudget } from "./story-summary-prompts.js";
@@ -135,7 +136,7 @@ test("merge recovery cannot loop or retry provider errors or cancellation", asyn
 
 test("complete summaries keep their final facts up to the storage ceiling and never bill a sliced result", async () => {
   const ending = "\n## Important Past Events\nThe bridge closed.";
-  const complete = "S".repeat(STORY_SUMMARY_MAX_CHARS - ending.length) + ending;
+  const complete = Array.from({length:1000},(_,i)=>createHash("sha256").update(String(i)).digest("hex")).join(" ").slice(0,STORY_SUMMARY_MAX_CHARS - ending.length) + ending;
   let billed = 0, recorded = 0;
   const finalize = (text: string) => finalizeStorySummaryOutput({
     text, stopReason: "stop",

@@ -48,7 +48,7 @@ export interface SandboxMessage {
   attachments?: SandboxMessageAttachment[] | null;
   createdAt: string;
   /** Host-side, not persisted: the per-turn picture is drawing, or why it wasn't drawn. */
-  turnImage?: { status: "drawing" } | { status: "failed"; reason: "busy" | "timeout" | "unavailable" | "credits" };
+  turnImage?: { status: "drawing"; cancelling?: boolean; cancelFailed?: boolean } | { status: "cancelled" } | { status: "failed"; reason: "busy" | "timeout" | "unavailable" | "credits" };
 }
 
 export interface SandboxCheckpoint {

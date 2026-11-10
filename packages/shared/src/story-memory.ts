@@ -38,13 +38,22 @@ export interface StoryMemoryInput {
    * dark and the behaviour change is a separate, revertible env flip.
    */
   newAccountsFrom?: Date | null;
+  /**
+   * The default for accounts that predate `newAccountsFrom` and never chose.
+   * `null` (env unset) = they keep their whole window, as before. Owner
+   * decision 2026-10-19: a long-context account resends up to its whole plan
+   * window every turn (Diamond/Ascendant spend two thirds of their credits on
+   * turns over 50k tokens), so carried-over accounts move to 32,000 paired
+   * with the story summary folding in what falls out of the window.
+   */
+  carriedOverDefault?: number | null;
 }
 
 export interface StoryMemoryResolution {
   /** Tokens of conversation kept word for word. */
   tokens: number;
   /** How we got there, for logs and for the settings UI to explain itself. */
-  source: "chosen" | "new-account-default" | "carried-over";
+  source: "chosen" | "new-account-default" | "carried-over-default" | "carried-over";
 }
 
 /**
@@ -66,7 +75,9 @@ export function resolveStoryMemory(input: StoryMemoryInput): StoryMemoryResoluti
   const isNewAccount =
     !!from && !!created && Number.isFinite(created.getTime()) && created.getTime() >= from.getTime();
 
-  return isNewAccount
-    ? { tokens: cap(SUGGESTED_STORY_MEMORY), source: "new-account-default" }
+  if (isNewAccount) return { tokens: cap(SUGGESTED_STORY_MEMORY), source: "new-account-default" };
+  const carried = input.carriedOverDefault;
+  return typeof carried === "number" && Number.isFinite(carried) && carried > 0
+    ? { tokens: cap(carried), source: "carried-over-default" }
     : { tokens: ceiling, source: "carried-over" };
 }

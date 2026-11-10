@@ -69,3 +69,25 @@ test("unrecognized errors keep their original text instead of a friendly lie", (
 test("empty input still yields a usable message", () => {
   assert.equal(classifyGenerationFailure("").message, "Generation failed");
 });
+
+test("provider balance failures use the resolved key, never the player's Mushies", () => {
+  for (const raw of [
+    'Custom endpoint error (402): {"error":{"message":"Insufficient Balance"}}',
+    "OpenRouter error (402): Insufficient credits. Add more credits to continue.",
+    'OpenAI error (429): {"error":{"code":"insufficient_quota","message":"You exceeded your current quota"}}',
+  ]) {
+    const privateFailure = classifyGenerationFailure(raw, { isByok: true });
+    assert.equal(privateFailure.code, "PRIVATE_API_BALANCE", raw);
+    assert.equal(privateFailure.message, "Your private API has insufficient balance. Check your provider account.");
+    const officialFailure = classifyGenerationFailure(raw, { isByok: false });
+    assert.equal(officialFailure.code, "UPSTREAM_BALANCE", raw);
+    assert.equal(officialFailure.message, "The model provider reports insufficient balance. Try another model or contact support.");
+    assert.equal(classifyGenerationFailure(raw).code, "UPSTREAM_BALANCE");
+  }
+});
+
+test("provider balance detection does not replace state, rate or free-pool failures", () => {
+  assert.equal(classifyGenerationFailure("Not enough mushies for the state update correction.", { isByok: true }).code, "STATE_VALIDATION");
+  assert.equal(classifyGenerationFailure("Rate limit exceeded: free-models-per-day-high-balance.", { isByok: true }).code, "FREE_POOL_EXHAUSTED");
+  assert.equal(classifyGenerationFailure("Rate limit exceeded (429)", { isByok: true }).code, "UPSTREAM_UNAVAILABLE");
+});

@@ -52,16 +52,33 @@
     "none": "プロンプトはまだありません。",
     "hubRow": "プロンプト広場でもっと探す",
     "manageInSettings": "設定 › プロンプト で管理",
-    "pos": "位置 {{n}}",
+    "pos": "順番 {{n}}",
     "section": {
-      "system": "System",
-      "inChat": "In-Chat",
-      "final": "Final"
+      "system": "最初",
+      "inChat": "会話中",
+      "final": "最後"
     },
     "sectionFull": {
-      "system": "System（システム）",
-      "inChat": "In-Chat（会話中）",
-      "final": "Final（最後）"
+      "system": "最初",
+      "inChat": "会話中",
+      "final": "最後"
+    },
+    "compose": {
+      "title": "自分でプロンプトを書く",
+      "explain": "ここに書いた内容は、メッセージを送るたびに AI に一緒に送られます。どのカードでも有効です。やめたいときは、プロンプトでスイッチをオフにしてください。",
+      "name": "名前",
+      "namePlaceholder": "名前（省略可）",
+      "content": "内容",
+      "contentPlaceholder": "例：毎回の返信で、周りの景色や音を少し多めに書いて。",
+      "save": "保存",
+      "saved": "保存しました。次のメッセージから反映されます。",
+      "failed": "保存できませんでした。もう一度お試しください。",
+      "more": "詳細設定"
+    },
+    "sectionHint": {
+      "system": "AI が最初に読む部分で、キャラ設定と一緒に置かれます。文体や人称など、ずっと守ってほしいルールに向いています。",
+      "inChat": "会話履歴の中に入ります。下の数字は、最新のメッセージから何件さかのぼるかです。",
+      "final": "AI が返信を書く直前に読むので、いちばん効きます。必ず守ってほしい指示に向いています。"
     }
   },
   "conflict": {

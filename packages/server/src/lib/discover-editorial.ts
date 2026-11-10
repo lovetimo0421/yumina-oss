@@ -118,12 +118,13 @@ export async function publishEditorial(database: Database, adminId: string, revi
 export async function searchEditorialWorlds(database: Database, query: string, offset: number) {
   const pattern = `%${query.replace(/[\\%_]/g, "\\$&")}%`;
   const groupKey = sql<string>`CASE WHEN ${worlds.languageGroupId} IS NULL THEN 'world:' || ${worlds.id} ELSE 'group:' || ${worlds.languageGroupId} END`;
+  const available = and(eq(worlds.isPublished, true), eq(worlds.status, "published"), eq(worlds.visibility, "public"));
   const groups = await database.select({ key: groupKey }).from(worlds).leftJoin(user, eq(worlds.creatorId, user.id))
-    .where(query ? or(eq(worlds.id, query), ilike(worlds.name, pattern), ilike(user.name, pattern), ilike(user.username, pattern)) : and(eq(worlds.isPublished, true), eq(worlds.status, "published")))
+    .where(and(available, query ? or(eq(worlds.id, query), ilike(worlds.name, pattern), ilike(user.name, pattern), ilike(user.username, pattern)) : undefined))
     .groupBy(groupKey).orderBy(sql`max(${worlds.createdAt}) DESC`, groupKey).limit(21).offset(offset);
   const keys = groups.slice(0, 20).map(g => g.key);
   if (!keys.length) return { worlds: [], nextCursor: null };
-  const rows = await database.select(editorialWorldSelection).from(worlds).leftJoin(user, eq(worlds.creatorId, user.id)).where(inArray(groupKey, keys)).orderBy(worlds.language, worlds.id);
+  const rows = await database.select(editorialWorldSelection).from(worlds).leftJoin(user, eq(worlds.creatorId, user.id)).where(and(available, inArray(groupKey, keys))).orderBy(worlds.language, worlds.id);
   rows.sort((a, b) => keys.indexOf(a.languageGroupId ? `group:${a.languageGroupId}` : `world:${a.id}`) - keys.indexOf(b.languageGroupId ? `group:${b.languageGroupId}` : `world:${b.id}`));
   return { worlds: await resolveArtwork(rows), nextCursor: groups.length > 20 ? String(offset + 20) : null };
 }

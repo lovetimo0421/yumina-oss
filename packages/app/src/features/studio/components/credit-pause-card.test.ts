@@ -222,3 +222,25 @@ test("recovery messages have translations in every supported locale", () => {
     for (const key of keys) assert.ok(typeof messages[key] === "string" && messages[key].trim(), `${locale}/${key}`);
   }
 });
+
+test("a preflight pause offers a cheaper model the balance covers; a saved result never does", async () => {
+  const cheaperLabel = translate("studio.aiChat.creditPause.cheaperModel", { model: "Deepseek V4 Pro" });
+  const preflight = pause({ phase: "preflight", hasSavedResult: false, cost: undefined, requiredCredits: 40, balance: 12, availableCredits: 12 });
+  let switched = 0;
+  const cheaperButton = (document: Document) => Array.from(document.querySelectorAll("button")).find(node => node.textContent === cheaperLabel);
+  await withCard({ pause: preflight, cheaper: { name: "Deepseek V4 Pro", stepCredits: 3 }, onSwitchModel: () => { switched++; } }, async view => {
+    const offer = cheaperButton(view.document);
+    assert.ok(offer, "cheaper model offered");
+    assert.ok(view.document.body.textContent?.includes(translate("studio.aiChat.creditPause.cheaperModelNote", { model: "Deepseek V4 Pro", amount: "3" })));
+    assert.equal(view.button("resume"), undefined, "no dead Continue next to a live choice");
+    assert.ok(view.button("topUp"));
+    await act(async () => offer!.click());
+    assert.equal(switched, 1);
+    assert.deepEqual(view.calls, { topUp: 0, resume: 0, refresh: 0 });
+
+    await view.render({ cheaper: { name: "Deepseek V4 Pro", stepCredits: 30 } });
+    assert.equal(cheaperButton(view.document), undefined, "not offered when the balance cannot cover it");
+    await view.render({ cheaper: { name: "Deepseek V4 Pro", stepCredits: 3 }, pause: pause({ balance: 12, availableCredits: 12 }) });
+    assert.equal(cheaperButton(view.document), undefined, "switching would discard a saved generation");
+  });
+});

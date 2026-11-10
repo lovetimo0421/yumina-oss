@@ -12,24 +12,26 @@ export interface PillProps {
   kind: PillKind;
   text: string;
   action?: PillAction;
-  /** Called when the user taps the pill body, presses Escape on the action, or hits the X. */
+  /** Body-tap dismissal is disabled when expanded so text can be selected. */
   onClose?: () => void;
-  /** Only the persistent variant shows an X (it has no timer). */
+  /** Persistent notices and expanded save errors need explicit dismissal. */
   showClose?: boolean;
   /** Spinner for in-flight progress. */
   busy?: boolean;
+  /** Actionable save failures retain the complete, selectable explanation. */
+  expanded?: boolean;
 }
 
 /**
  * The one feedback shape. Rendered by lib/feedback.tsx inside Sonner's <li>.
  * Styling lives in globals.css under "Feedback pills".
  */
-export function Pill({ kind, text, action, onClose, showClose, busy }: PillProps) {
+export function Pill({ kind, text, action, onClose, showClose, busy, expanded }: PillProps) {
   const closeLabel = (i18n.t as (k: string, o?: Record<string, unknown>) => string)("common:action.close", {
     defaultValue: "Close",
   });
   return (
-    <div className="yp-pill" data-kind={kind} onClick={kind === "persistent" ? undefined : onClose}>
+    <div className="yp-pill" data-kind={kind} data-expanded={expanded || undefined} onClick={kind === "persistent" || expanded ? undefined : onClose}>
       {kind === "error" && <AlertCircle className="yp-pill-icon" aria-hidden="true" />}
       {busy && <Loader2 className="yp-pill-icon yp-pill-spin" aria-hidden="true" />}
       <span className="yp-pill-text">{text}</span>

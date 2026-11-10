@@ -8,6 +8,9 @@ export interface DeliveredPurchase {
   bonusMushies: number;
   nextDrop: { amount: number; at: string } | null;
   preservesGift: boolean;
+  /** What Stripe charged, in the currency's minor unit, for ad-conversion values. */
+  amountCents?: number | null;
+  currency?: string | null;
 }
 
 export type PurchaseReceipt = DeliveredPurchase | {

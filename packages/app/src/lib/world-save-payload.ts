@@ -1,4 +1,4 @@
-import { createWorldSchema, updateWorldSchema, MAX_REQUEST_BODY_BYTES } from "@yumina/shared";
+import { createWorldSchema, updateWorldSchema, MAX_WORLD_SAVE_BODY_BYTES } from "@yumina/shared";
 
 export interface WorldSaveErrorOptions {
   /** The submitted snapshot, not a draft that may have changed during the request. */
@@ -66,7 +66,7 @@ export class WorldSavePayloadTooLargeError extends Error {
  */
 export function serializeWorldSavePayload(
   payload: Record<string, unknown>,
-  limit = MAX_REQUEST_BODY_BYTES,
+  limit = MAX_WORLD_SAVE_BODY_BYTES,
 ): string {
   const encoder = new TextEncoder();
   let body = JSON.stringify(payload);
@@ -91,7 +91,7 @@ export function serializeWorldSavePayload(
  * same "Failed to save" toast. Never replace or clear the unsaved draft. */
 export function worldSaveErrorMessage(status: number, body: unknown, options: WorldSaveErrorOptions = {}): string {
   if (status === 413) {
-    return message("tooLarge", options, { limit: (MAX_REQUEST_BODY_BYTES / 1024 / 1024).toFixed(1) });
+    return message("tooLarge", options, { limit: (MAX_WORLD_SAVE_BODY_BYTES / 1024 / 1024).toFixed(1) });
   }
   if (status === 401) return message("sessionExpired", options);
   // A proxy can return HTML, and internal 5xx messages aren't actionable to a creator.

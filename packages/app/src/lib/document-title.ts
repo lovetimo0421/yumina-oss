@@ -24,7 +24,8 @@ export type TabTitleKey =
   | "creator"
   | "signIn"
   | "createAccount"
-  | "krew";
+  | "krew"
+  | "updates";
 
 export const TAB_TITLE_EN: Record<TabTitleKey, string> = {
   home: "Yumina",
@@ -42,6 +43,7 @@ export const TAB_TITLE_EN: Record<TabTitleKey, string> = {
   signIn: "Sign in",
   createAccount: "Create account",
   krew: "Krew.io",
+  updates: "Updates",
 };
 
 const SECTION_KEYS: Array<[RegExp, TabTitleKey]> = [
@@ -60,6 +62,7 @@ const SECTION_KEYS: Array<[RegExp, TabTitleKey]> = [
   [/^\/app\/settings(\/|$)/, "settings"],
   [/^\/app\/plans(\/|$)/, "plans"],
   [/^\/app\/creator(\/|$)/, "creator"],
+  [/^\/app\/updates(\/|$)/, "updates"],
   [/^\/creator(\/|$)/, "creator"],
   [/^\/content(\/|$)/, "creator"],
   [/^\/login$/, "signIn"],

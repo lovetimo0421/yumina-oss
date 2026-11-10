@@ -12,7 +12,7 @@ export interface UploadProgress {
   bytesPerSecond: number;
 }
 
-const DEFAULT_REGISTER_TIMEOUT_MS = 20_000;
+const DEFAULT_REGISTER_TIMEOUT_MS = 60_000;
 const MIN_STORAGE_TIMEOUT_MS = 120_000; // 2 minutes base
 const TIMEOUT_PER_MB_MS = 10_000; // +10 seconds per MB
 const MAX_STORAGE_RETRIES = 1;
@@ -56,6 +56,7 @@ const FONT_MIME_ALIASES: Record<string, string> = {
 interface ApiResponse<T> {
   data?: T;
   error?: string;
+  code?: string;
 }
 
 interface PresignedUploadData {
@@ -72,6 +73,7 @@ interface UploadRequestContext {
 }
 
 export interface PresignedAssetUploadConfig {
+  releaseUrl?: string;
   file: File;
   preferredType?: UploadAssetType;
   prepareUrl: string;
@@ -89,6 +91,8 @@ export interface PresignedAssetUploadConfig {
   signal?: AbortSignal;
   onStage?: (stage: AssetUploadStage) => void;
   onReconciled?: () => void;
+  /** Cover sources are normalized before publication, so source size is not download size. */
+  normalizedByServer?: boolean;
   /**
    * When set, a raster image (not GIF/SVG) is downscaled to at most this many
    * pixels on its longest edge and re-encoded as JPEG before upload. Use for
@@ -213,6 +217,24 @@ async function withRetry(
       throw error;
     }
   }
+}
+
+/** Wait within the registration deadline, without re-uploading already transferred bytes. */
+function waitForUploadRetry(ms: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", abort);
+      reject(new DOMException("Upload cancelled", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", abort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
+  });
 }
 
 /** XHR-based upload that reports progress with speed — used in browsers when onProgress is provided */
@@ -380,9 +402,8 @@ async function downscaleImageFile(file: File, maxDimension: number, quality: num
   if (
     typeof document === "undefined" ||
     typeof createImageBitmap === "undefined" ||
-    !file.type.startsWith("image/") ||
-    file.type === "image/gif" ||
-    file.type === "image/svg+xml"
+    // Preserve PNG alpha and animated WebP for server-side processing.
+    file.type !== "image/jpeg"
   ) {
     return file;
   }
@@ -442,10 +463,12 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
   signal,
   onStage,
   onReconciled,
+  normalizedByServer = false,
   resizeImageMaxDimension,
   resizeImageQuality,
   onProgress,
-}: PresignedAssetUploadConfig): Promise<T> {
+  onPrepared,
+}: PresignedAssetUploadConfig & { onPrepared?: (key: string) => void }): Promise<T> {
   const f = fetchImpl ?? fetch;
   signal?.throwIfAborted();
   onStage?.("prepare");
@@ -459,7 +482,7 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
 
   // Warn (but don't block) on large files
   const LARGE_FILE_THRESHOLD = 10 * 1024 * 1024; // 10 MB
-  if (file.size > LARGE_FILE_THRESHOLD) {
+  if (!normalizedByServer && file.size > LARGE_FILE_THRESHOLD) {
     const sizeMB = (file.size / 1024 / 1024).toFixed(1);
     console.warn(`[Upload] Large file: ${file.name} (${sizeMB}MB) — may cause slow loading for users on mobile`);
     feedback.notice(
@@ -475,29 +498,45 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
   const prepareTimeout = createUploadTimeout(prepareTimeoutMs, signal);
   let preparePayload: ApiResponse<PresignedUploadData> | null;
   try {
-    const prepareResponse = await f(prepareUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: prepareCredentials,
-      signal: prepareTimeout.signal,
-      body: JSON.stringify({
-        filename: file.name,
-        contentType,
-        type: resolvedType,
-        sizeBytes: file.size,
-        ...(animated ? { animated: true } : {}),
-        ...prepareBody,
-      }),
-    });
+    for (;;) {
+      const prepareResponse = await f(prepareUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: prepareCredentials,
+        signal: prepareTimeout.signal,
+        body: JSON.stringify({
+          filename: file.name,
+          contentType,
+          type: resolvedType,
+          sizeBytes: file.size,
+          ...(animated ? { animated: true } : {}),
+          ...prepareBody,
+        }),
+      });
 
-    preparePayload = await parseApiResponse<PresignedUploadData>(prepareResponse);
+      preparePayload = await parseApiResponse<PresignedUploadData>(prepareResponse);
 
-    if (!prepareResponse.ok) {
-      throw new AssetUploadError(
-        "prepare",
-        getApiErrorMessage(preparePayload, "Failed to prepare upload"),
-        { status: prepareResponse.status }
-      );
+      // Another tab may occupy this account's slots. Wait within the existing
+      // prepare deadline; hourly/storage failures are not retried automatically.
+      if (prepareResponse.status === 429 && preparePayload?.code === "UPLOAD_BUSY") {
+        const delayMs = Math.max(1, Math.min(10, Number(prepareResponse.headers.get("Retry-After")) || 2)) * 1000;
+        await new Promise<void>((resolve, reject) => {
+          const stop = () => { clearTimeout(timer); reject(prepareTimeout.signal.reason); };
+          const timer = setTimeout(() => { prepareTimeout.signal.removeEventListener("abort", stop); resolve(); }, delayMs);
+          prepareTimeout.signal.addEventListener("abort", stop, { once: true });
+          if (prepareTimeout.signal.aborted) stop();
+        });
+        continue;
+      }
+
+      if (!prepareResponse.ok) {
+        throw new AssetUploadError(
+          "prepare",
+          getApiErrorMessage(preparePayload, "Failed to prepare upload"),
+          { status: prepareResponse.status }
+        );
+      }
+      break;
     }
   } catch (error) {
     if (signal?.aborted) signal.throwIfAborted();
@@ -507,8 +546,8 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
     prepareTimeout.cleanup();
   }
 
-  signal?.throwIfAborted();
   if (preparePayload?.data?.asset !== undefined) {
+    signal?.throwIfAborted();
     onReconciled?.();
     return preparePayload.data.asset as T;
   }
@@ -518,6 +557,7 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
   if (!uploadUrl || !key) {
     throw new AssetUploadError("prepare", "Failed to prepare upload");
   }
+  onPrepared?.(key);
 
   // Stage 2: Upload to S3 with retry on transient errors
   signal?.throwIfAborted();
@@ -541,31 +581,60 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
 
   signal?.throwIfAborted();
   onStage?.("register");
-  const registerTimeout = createUploadTimeout(registerTimeoutMs, signal);
+  return registerAssetWithRetry<T>(registerUrl, normalizedByServer ? { ...payload, processingMode: "async" } : payload,
+    { fetchImpl: f, timeoutMs: registerTimeoutMs, signal, credentials: registerCredentials, retryTransient: normalizedByServer });
+}
+
+/** Also used when an existing library asset needs cover normalization. */
+export async function registerAssetWithRetry<T>(registerUrl: string, payload: Record<string, unknown>, {
+  fetchImpl: f = fetch, timeoutMs = DEFAULT_REGISTER_TIMEOUT_MS, signal, credentials = "include", retryTransient = false,
+}: { fetchImpl?: typeof fetch; timeoutMs?: number; signal?: AbortSignal; credentials?: RequestCredentials; retryTransient?: boolean } = {}): Promise<T> {
+  const registerTimeout = createUploadTimeout(timeoutMs, signal);
+  const release = holdReload("upload");
+  let networkRetries = 0, busyRetries = 0;
   try {
-    const registerResponse = await f(registerUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: registerCredentials,
-      body: JSON.stringify(payload),
-      signal: registerTimeout.signal,
-    });
+    for (;;) {
+      let registerResponse: Response;
+      try {
+        registerResponse = await f(registerUrl, {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials,
+          body: JSON.stringify(payload), signal: registerTimeout.signal,
+        });
+      } catch (error) {
+        if (!retryTransient || registerTimeout.signal.aborted || isAbortError(error) || networkRetries++ >= 1) throw error;
+        await waitForUploadRetry(1000, registerTimeout.signal);
+        continue;
+      }
 
-    const registerPayload = await parseApiResponse<T>(registerResponse);
+      const registerPayload = await parseApiResponse<T>(registerResponse);
+      if (registerResponse.status === 202 && registerPayload?.code === "COVER_PROCESSING") {
+        await waitForUploadRetry(2000, registerTimeout.signal);
+        continue;
+      }
+      if (registerResponse.status === 503 && registerPayload?.code === "IMAGE_PROCESSOR_BUSY" && busyRetries++ < 10) {
+        const seconds = Number(registerResponse.headers.get("Retry-After") ?? 3);
+        await waitForUploadRetry(Math.min(5000, Math.max(0, Number.isFinite(seconds) ? seconds * 1000 : 3000)), registerTimeout.signal);
+        continue;
+      }
+      if (retryTransient && [502, 504].includes(registerResponse.status) && networkRetries++ < 1) {
+        await waitForUploadRetry(1000, registerTimeout.signal);
+        continue;
+      }
 
-    if (!registerResponse.ok) {
-      throw new AssetUploadError(
-        "register",
-        getApiErrorMessage(registerPayload, "Failed to register asset"),
-        { status: registerResponse.status }
-      );
+      if (!registerResponse.ok) {
+        throw new AssetUploadError(
+          "register",
+          getApiErrorMessage(registerPayload, "Failed to register asset"),
+          { status: registerResponse.status }
+        );
+      }
+
+      if (registerPayload?.data === undefined) {
+        throw new AssetUploadError("register", "Failed to register asset");
+      }
+
+      return registerPayload.data;
     }
-
-    if (registerPayload?.data === undefined) {
-      throw new AssetUploadError("register", "Failed to register asset");
-    }
-
-    return registerPayload.data;
   } catch (error) {
     if (error instanceof AssetUploadError) throw error;
 
@@ -576,14 +645,25 @@ async function uploadAssetWithPresignedUrlUnguarded<T>({
     throw new AssetUploadError("register", `Failed to ${getStageLabel("register")}`, { cause: error });
   } finally {
     registerTimeout.cleanup();
+    release();
   }
 }
 
 /** Public entry: identical to the inner function, but blocks deploy reloads mid-upload (spec §5). */
 export async function uploadAssetWithPresignedUrl<T>(config: PresignedAssetUploadConfig): Promise<T> {
   const release = holdReload("upload");
+  let preparedKey: string | undefined;
   try {
-    return await uploadAssetWithPresignedUrlUnguarded<T>(config);
+    return await uploadAssetWithPresignedUrlUnguarded<T>({ ...config, onPrepared: key => { preparedKey = key; } });
+  } catch (error) {
+    if (config.releaseUrl && config.prepareBody?.requestId && preparedKey) {
+      try {
+        await (config.fetchImpl ?? fetch)(config.releaseUrl, { method: "POST", credentials: "include",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: config.prepareBody.requestId, key: preparedKey }),
+          signal: AbortSignal.timeout(5_000) });
+      } catch { /* Expiry remains the fallback when cancellation cannot reach the server. */ }
+    }
+    throw error;
   } finally {
     release();
   }

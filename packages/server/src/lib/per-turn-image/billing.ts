@@ -52,7 +52,7 @@ function priceFor(used: number, unlimited: boolean) {
 /** For showing next to the switch. The real price is set by reserveTurnImage. */
 export async function turnImageQuote(userId: string): Promise<TurnImageQuote> {
   const { wallet, balance } = await checkBalance(userId);
-  const unlimited = (PLANS[wallet.plan] ?? PLANS.free).unlimited;
+  const unlimited = (PLANS[wallet.plan as keyof typeof PLANS] ?? PLANS.free).unlimited;
   const { price, listPrice, freeLeft } = priceFor(await usedTurnImages(wallet.id, db), unlimited);
   return { price, listPrice, freeLeft, unlimited, balance, affordable: balance >= price };
 }
@@ -66,23 +66,28 @@ export interface TurnImageCharge {
   /** Free pictures left after this one. */
   freeLeft: number;
   balance: number;
+  addonDebited?: number;
 }
+
+const inTransaction = (database: LedgerDatabase) => typeof (database as { rollback?: unknown }).rollback === "function";
 
 /** Takes payment for one draw before it runs: a 0 row while free, the list
  *  price after. `charge` is null when the player can't pay. `drawId` must be
  *  new for every draw. */
-export async function reserveTurnImage(userId: string, drawId: string): Promise<{ charge: TurnImageCharge } | { charge: null; price: number; balance: number }> {
+export async function reserveTurnImage(userId: string, drawId: string, database: LedgerDatabase = db): Promise<{ charge: TurnImageCharge } | { charge: null; price: number; balance: number }> {
   const referenceId = `${REF_PREFIX}${drawId}`;
-  const { wallet } = await checkBalance(userId); // creates the wallet if missing
-  const unlimited = (PLANS[wallet.plan] ?? PLANS.free).unlimited;
-  return db.transaction(async (tx) => {
+  const wallet = inTransaction(database)
+    ? (await database.select().from(creditWallets).where(eq(creditWallets.userId, userId)))[0]!
+    : (await checkBalance(userId)).wallet;
+  const unlimited = (PLANS[wallet.plan as keyof typeof PLANS] ?? PLANS.free).unlimited;
+  const run = async (tx: LedgerDatabase) => {
     const [locked] = await tx.select().from(creditWallets).where(eq(creditWallets.id, wallet.id)).for("update");
     if (!locked) throw new Error("WALLET_MISSING");
     const { price, freeLeft } = priceFor(await usedTurnImages(locked.id, tx), unlimited);
     if (price > 0) {
       try {
-        const { newBalance } = await deductCredits(userId, price, referenceId, "Illustrated reply", tx);
-        return { charge: { userId, referenceId, price, unlimited, freeLeft, balance: newBalance } };
+        const { newBalance, newAddonBalance } = await deductCredits(userId, price, referenceId, "Illustrated reply", tx);
+        return { charge: { userId, referenceId, price, unlimited, freeLeft, balance: newBalance, addonDebited: Math.max(0, locked.addonBalance - newAddonBalance) } };
       } catch (error) {
         if (error instanceof Error && error.message === "INSUFFICIENT_CREDITS") {
           return { charge: null, price, balance: (error as { balance?: number }).balance ?? locked.balance };
@@ -99,18 +104,22 @@ export async function reserveTurnImage(userId: string, drawId: string): Promise<
       referenceId,
     }, tx);
     return { charge: { userId, referenceId, price: 0, unlimited, freeLeft: unlimited ? freeLeft : Math.max(0, freeLeft - 1), balance: locked.balance } };
-  });
+  };
+  return inTransaction(database) ? run(database) : database.transaction(run);
 }
 
 /** Gives a draw back when its picture didn't land: the mushies, or the free slot. */
-export async function refundTurnImage(charge: TurnImageCharge): Promise<void> {
-  if (charge.price > 0) {
-    await refundCredits(charge.userId, charge.price, charge.referenceId, "Illustrated reply not drawn");
-    return;
-  }
-  await db.transaction(async (tx) => {
+export async function refundTurnImage(charge: TurnImageCharge, database: LedgerDatabase = db): Promise<void> {
+  const run = async (tx: LedgerDatabase) => {
     const [locked] = await tx.select().from(creditWallets).where(eq(creditWallets.userId, charge.userId)).for("update");
     if (!locked) return;
+    const [refunded] = await tx.select({ id: creditTransactions.id }).from(creditTransactions)
+      .where(and(eq(creditTransactions.walletId, locked.id), eq(creditTransactions.referenceId, charge.referenceId), eq(creditTransactions.type, "refund"))).limit(1);
+    if (refunded) return;
+    if (charge.price > 0) {
+      await refundCredits(charge.userId, charge.price, charge.referenceId, "Illustrated reply not drawn", tx, charge.addonDebited ?? 0);
+      return;
+    }
     await insertHashedTransaction({
       walletId: locked.id,
       amount: 0,
@@ -119,5 +128,7 @@ export async function refundTurnImage(charge: TurnImageCharge): Promise<void> {
       description: "Illustrated reply not drawn",
       referenceId: charge.referenceId,
     }, tx);
-  });
+  };
+  if (inTransaction(database)) await run(database);
+  else await database.transaction(run);
 }

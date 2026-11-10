@@ -55,6 +55,7 @@ import {
 } from "../db/schema.js";
 import { planMeetsMinimum, type PlanId } from "./plan-config.js";
 import { FORGE_RUNGS, INVITE_QUEST_PAYOUT, PLANS_V2, questMultiplierV2, type QuestPayoutTable } from "./plan-config-v2.js";
+import { QUEST_TURN_ENDPOINTS_SQL } from "./quest-turn-endpoints.js";
 import type { LedgerDatabase } from "./transaction-hash.js";
 
 /**
@@ -264,7 +265,7 @@ async function turnsPerWorld(
       .where(and(
         eq(playSessions.userId, userId),
         // Studio playtest sessions are ephemeral, and the rest of the board
-        // counts play through `usage_logs.endpoint IN (send,regenerate,continue)`
+        // counts play through `usage_logs.endpoint IN QUEST_TURN_ENDPOINTS`
         // which already excludes them. Without this the two halves of one board
         // disagree about what counts as playing, and a creator clears the
         // 10-turn daily and the 50-turn weekly inside their own draft.
@@ -331,7 +332,7 @@ export async function questProgress(
   const chatTurns = and(
     eq(usageLogs.userId, userId),
     gte(usageLogs.createdAt, windowStart), lt(usageLogs.createdAt, windowEnd),
-    sql`${usageLogs.endpoint} IN ('send','regenerate','continue')`,
+    sql`${usageLogs.endpoint} IN (${sql.raw(QUEST_TURN_ENDPOINTS_SQL)})`,
     gt(usageLogs.completionTokens, 0),
   );
   const first = async (rows: Promise<{ n: unknown }[]>) => Number((await rows)[0]?.n ?? 0);

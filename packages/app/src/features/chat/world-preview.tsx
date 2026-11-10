@@ -538,6 +538,7 @@ export function WorldPreview({
         entries={worldDef?.entries ?? []}
         loreUiBindings={worldDef?.loreUiBindings ?? []}
         worldbooks={worldDef?.worldbooks ?? []}
+        replyRules={worldDef?.replyRules}
       />
       {signUpBanner}
     </div>

@@ -2,6 +2,7 @@ import type { Variable, Effect, GameState, WorldDefinition, Directive, RuleRunti
 import { createEmptyRuleState } from "../rules/rule-state.js";
 import { getByPath } from "./path-utils.js";
 import { POISON_SYSTEM, poisonPeriodAdvance, settlePoisonState } from "../systems/poison-survival.js";
+import { evaluateFormula } from "./formula.js";
 
 type VariableValue = number | string | boolean | Record<string, unknown> | unknown[];
 
@@ -199,12 +200,47 @@ export class GameStateManager {
       };
     }
 
+    if (changes.length > 0) changes.push(...this.recomputeFormulas());
+
     for (const change of changes) {
       for (const listener of this.listeners) {
         listener(change.variableId, change.oldValue, change.newValue);
       }
     }
 
+    return changes;
+  }
+
+  /** Formula variables, worked out again from the values they read. Two
+   *  passes, so one formula may read another. */
+  recomputeFormulas(): Array<{ variableId: string; oldValue: VariableValue; newValue: VariableValue }> {
+    const formulas = [...this.variables.values()].filter((v) => typeof v.formula === "string" && v.formula.trim());
+    if (formulas.length === 0) return [];
+    const changes: Array<{ variableId: string; oldValue: VariableValue; newValue: VariableValue }> = [];
+    const lookup = (name: string): unknown => {
+      const id = this.variables.has(name) ? name : this.nameToId.get(name);
+      if (id) return this.state.variables[id];
+      const dot = name.indexOf(".");
+      if (dot > 0) {
+        const head = name.slice(0, dot);
+        const rootId = this.variables.has(head) ? head : this.nameToId.get(head);
+        if (rootId) return getByPath(this.state.variables, `${rootId}${name.slice(dot)}`);
+      }
+      return undefined;
+    };
+    for (let pass = 0; pass < 2; pass++) {
+      for (const v of formulas) {
+        const value = evaluateFormula(v.formula!, lookup);
+        if (value === null) continue;
+        const oldValue = this.state.variables[v.id];
+        const next = this.validateValue(v, v.type === "boolean" ? value !== 0 : v.type === "string" ? String(value) : value);
+        if (oldValue === next) continue;
+        this.state = { ...this.state, variables: { ...this.state.variables, [v.id]: next } };
+        const prior = changes.find((c) => c.variableId === v.id);
+        if (prior) prior.newValue = next;
+        else changes.push({ variableId: v.id, oldValue: oldValue as VariableValue, newValue: next });
+      }
+    }
     return changes;
   }
 
@@ -221,7 +257,13 @@ export class GameStateManager {
   settleSystems(): Array<{ variableId: string; oldValue: VariableValue; newValue: VariableValue }> {
     if (!this.poisonSurvival) return [];
     const before = this.state;
-    this.state = settlePoisonState(before);
+    const next = settlePoisonState(before);
+    for (const variable of this.variables.values()) {
+      if (variable.type === "boolean" && variable.onceTrue && before.variables[variable.id] === true) {
+        next.variables[variable.id] = this.validateValue(variable, next.variables[variable.id]!);
+      }
+    }
+    this.state = next;
     return Object.entries(this.state.variables).flatMap(([variableId, newValue]) => {
       const oldValue = before.variables[variableId];
       return oldValue !== undefined && JSON.stringify(oldValue) !== JSON.stringify(newValue)
@@ -288,14 +330,16 @@ export class GameStateManager {
     };
   }
 
-  /** Expire directives whose duration has been exceeded */
+  /** Expire directives whose duration has been exceeded. A directive marked
+   *  `persistent: false` with no duration is a one-shot: it lasts one turn. */
   expireDirectives(currentTurn: number): Directive[] {
     const ruleState = this.getRuleState();
     const expired: Directive[] = [];
     const remaining: Directive[] = [];
 
     for (const d of ruleState.activeDirectives) {
-      if (d.duration !== undefined && currentTurn - d.injectedAtTurn >= d.duration) {
+      const duration = d.duration ?? (d.persistent === false ? 1 : undefined);
+      if (duration !== undefined && currentTurn - d.injectedAtTurn >= duration) {
         expired.push(d);
       } else {
         remaining.push(d);
@@ -332,6 +376,20 @@ export class GameStateManager {
       ruleState: {
         ...ruleState,
         toggledEntries: { ...ruleState.toggledEntries, [entryId]: enabled },
+      },
+    };
+  }
+
+  /** Switch a module on or off at runtime. Read by the `manual` and
+   *  `keywords` activation modes; the automatic modes ignore it, so a
+   *  condition-gated module can never disagree with its own conditions. */
+  toggleWorldbook(worldbookId: string, on: boolean): void {
+    const ruleState = this.getRuleState();
+    this.state = {
+      ...this.state,
+      ruleState: {
+        ...ruleState,
+        toggledWorldbooks: { ...(ruleState.toggledWorldbooks ?? {}), [worldbookId]: on },
       },
     };
   }
@@ -605,6 +663,16 @@ export class GameStateManager {
     return out;
   }
 
+  private blockedWrites: Array<{ variableId: string; reason: "once-true"; attemptedValue: VariableValue }> = [];
+
+  /** Constraint refusals are distinct from malformed JSON and may come from
+   * either AI writes or authored rules. Draining never changes game state. */
+  drainBlockedWrites(): Array<{ variableId: string; reason: "once-true"; attemptedValue: VariableValue }> {
+    const out = this.blockedWrites;
+    this.blockedWrites = [];
+    return out;
+  }
+
   /**
    * A `json` variable currently holding a list/object must not be replaced
    * wholesale by a bare scalar: `[items: set delete 1, delete 0]` is a model
@@ -643,6 +711,11 @@ export class GameStateManager {
     variable: Variable,
     value: VariableValue
   ): VariableValue {
+    if (variable.type === "boolean" && variable.onceTrue === true &&
+        this.state.variables[variable.id] === true && value !== true) {
+      this.blockedWrites.push({ variableId: variable.id, reason: "once-true", attemptedValue: value });
+      return true;
+    }
     if (variable.type === "json") return value;
     if (variable.type === "number" && typeof value === "number") {
       let v = value;
@@ -707,6 +780,7 @@ export class GameStateManager {
       prevVars: { ...(safeRuleState.prevVars ?? {}) },
       toggledEntries: { ...(safeRuleState.toggledEntries ?? {}) },
       toggledVariables: { ...(safeRuleState.toggledVariables ?? {}) },
+      toggledWorldbooks: { ...(safeRuleState.toggledWorldbooks ?? {}) },
     };
   }
 }

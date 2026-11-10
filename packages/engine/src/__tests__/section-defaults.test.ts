@@ -43,4 +43,17 @@ describe("deriveSectionDefaultsForEntry", () => {
     expect(deriveSectionDefaultsForEntry(bound, "chat-history")).toEqual({ alwaysSend: false, depth: 4 });
     expect(deriveSectionDefaultsForEntry(bound, "examples")).toEqual({ alwaysSend: false, role: "example" });
   });
+
+  it("remembers the role an entry had before the examples and gives it back on the way out", () => {
+    const character = { conditions: [], role: "character" as const };
+    const into = deriveSectionDefaultsForEntry(character, "examples");
+    expect(into).toEqual({ alwaysSend: true, role: "example", roleBeforeExample: "character" });
+    const back = deriveSectionDefaultsForEntry({ conditions: [], role: "example", roleBeforeExample: into.roleBeforeExample }, "system-presets");
+    expect(back).toEqual({ alwaysSend: true, role: "character", roleBeforeExample: undefined });
+  });
+
+  it("turns a born example into plain lore when it leaves the examples", () => {
+    expect(deriveSectionDefaultsForEntry({ conditions: [], role: "example" }, "chat-history"))
+      .toEqual({ alwaysSend: false, depth: 4, role: "custom", roleBeforeExample: undefined });
+  });
 });

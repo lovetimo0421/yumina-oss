@@ -18,6 +18,9 @@ interface SectionVisibility {
 
 interface StudioSidebarState {
   sectionVisibility: SectionVisibility;
+  /** Shared by all preview surfaces for this app session; never persisted. */
+  previewGreetingIdByWorld: Record<string, string>;
+  setPreviewGreetingId: (worldKey: string, id: string) => void;
   previewVariableOverridesByWorld: Record<
     string,
     Record<string, PreviewVariableValue>
@@ -44,7 +47,17 @@ export const useStudioSidebarStore = create<StudioSidebarState>()(
   persist(
     (set) => ({
       sectionVisibility: DEFAULT_SECTION_VISIBILITY,
+      previewGreetingIdByWorld: {},
       previewVariableOverridesByWorld: {},
+
+      setPreviewGreetingId: (worldKey, id) =>
+        set((state) => {
+          if (state.previewGreetingIdByWorld[worldKey] === id) return state;
+          const next = { ...state.previewGreetingIdByWorld, [worldKey]: id };
+          const keys = Object.keys(next);
+          for (const key of keys.slice(0, Math.max(0, keys.length - 20))) delete next[key];
+          return { previewGreetingIdByWorld: next };
+        }),
 
       setSectionVisibility: (section, visible) =>
         set((state) => ({

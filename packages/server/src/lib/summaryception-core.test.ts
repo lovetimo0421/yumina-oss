@@ -38,8 +38,8 @@ test("formats Summaryception prompt block without exposing snippet controls", as
 test("layered generation and promotion share one language check and disable correction retries", () => {
   const source = readFileSync(new URL("./summaryception.ts", import.meta.url), "utf8");
   const wrapper = source.slice(source.indexOf("async function generateSummaryceptionText("), source.indexOf("function buildSummaryceptionPrompt("));
-  assert.match(wrapper, /return correctSummaryLanguageOnce\(/);
-  assert.match(wrapper, /generate: \(prompt\) => generateSummaryceptionCandidate\(\{ \.\.\.args, prompt, singleAttempt: true \}\)/);
+  assert.match(wrapper, /await correctSummaryLanguageOnce\(/);
+  assert.match(wrapper, /await generateSummaryceptionCandidate\(\{ \.\.\.args, prompt, singleAttempt: true \}\)/);
   assert.match(source, /singleAttempt: args\.singleAttempt/);
   assert.match(source, /fallbackModels: args\.singleAttempt \|\|/);
   const calls = [...source.matchAll(/await generateSummaryceptionText\(\{([\s\S]*?)prompt:/g)];

@@ -13,6 +13,13 @@ describe("main engine JSON write protection", () => {
     expect(result).toMatchObject({ outcome: "valid-updates", speaker: "Mia Chen", cleanText: "She smiles." });
     expect(result.effects).toHaveLength(1);
   });
+  it("ignores bookkeeping wrappers: rationale quotes are not writes, empty blocks are not trailing text", () => {
+    const result = fixture().parse(
+      `She smiles. [health: subtract 1]\n<rationale>\nShe is hurt [health: subtract 1].\n</rationale>\n${updated(1)}\n[state-changes]\n\n</state-changes>\n<directive>\n</directive>`,
+    );
+    expect(result).toMatchObject({ outcome: "valid-updates", cleanText: "She smiles." });
+    expect(result.effects).toHaveLength(1);
+  });
   it("preserves speaker metadata when relocating a terminal receipt", () => {
     const result = fixture().parse(`[speaker: Mia Chen]\nShe smiles.\n${updated(1)}\n[health: subtract 1]`);
     expect(result).toMatchObject({ outcome: "valid-updates", speaker: "Mia Chen", repaired: true });

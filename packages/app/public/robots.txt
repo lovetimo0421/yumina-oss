@@ -1,4 +1,7 @@
 User-agent: *
+# Content Signals (contentsignals.org): search engines and AI answers may use
+# public pages; training rights are not granted here.
+Content-Signal: search=yes, ai-input=yes, ai-train=no
 Allow: /app/hub
 Allow: /app/community
 Allow: /app/bundles
@@ -6,6 +9,9 @@ Allow: /app/worlds
 Allow: /app/users/
 Allow: /login
 Allow: /register
+Allow: /blog
+Allow: /blog/
+Allow: /llms.txt
 
 Disallow: /api/
 Allow: /api/partners/krew/config$

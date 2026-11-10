@@ -18,8 +18,10 @@ import {
   Check,
   Image as ImageIcon,
   ScrollText,
+  Clapperboard,
 } from "lucide-react";
 import {
+  currentVideoState,
   useYumina,
   COMPOSER_DRAFT_EVENT,
   type BranchContext,
@@ -28,6 +30,7 @@ import {
 import { ModelTrigger } from "./model-picker-modal";
 import { VoicePanelButton } from "./voice-panel";
 import { ComposerPopover } from "./composer-popover";
+import { useComposerGuard } from "./composer-guard";
 import { MicButton, VoiceRecordingOverlay, useHoldToTalkKey, useVoiceInput } from "./voice-input";
 import { makeChatT } from "./i18n";
 import { useTurnImageSettings } from "./turn-images";
@@ -58,7 +61,7 @@ export function MessageInput() {
     restartChat,
     clearPendingChoices,
     openPersonaManager,
-    openModelPicker,
+    openModelPicker: openSharedModelPicker,
     openSessionManager,
     sharePlaythrough,
     messages,
@@ -66,6 +69,7 @@ export function MessageInput() {
     branchFromMessage,
     navigate,
   } = api;
+  const openModelPicker = () => openSharedModelPicker();
   const t = useMemo(() => makeChatT(api.language), [api.language]);
   const generationBlocked = isStreaming || !!api.modelFallback;
   const canSendMessage = api.capabilities?.canSendMessage !== false
@@ -121,6 +125,9 @@ export function MessageInput() {
   const [actionsOpen, setActionsOpen] = useState(false);
   const { settings: turnImages, setAuto: setAutoTurnImages, refresh: refreshTurnImages } = useTurnImageSettings(api);
   useEffect(() => { if (actionsOpen) refreshTurnImages(); }, [actionsOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Scene video (experimental): offered here once the player turned it on in Settings.
+  const [filmOn, setFilmOn] = useState(() => { const s = currentVideoState(); return !!(s?.offered && s.optedIn); });
+  useEffect(() => api.realtimeVideo.onEvent((e) => { if (e.type === "state") setFilmOn(!!(e.state.offered && e.state.optedIn)); }), [api]);
   const [branchOpen, setBranchOpen] = useState(false);
   const [branchCtx, setBranchCtx] = useState<BranchContext | null>(null);
   const [branchLoading, setBranchLoading] = useState(false);
@@ -139,6 +146,8 @@ export function MessageInput() {
   // Only when there IS a launchable tool to collapse — otherwise keep the plain
   // inline model pill.
   const toolbarRef = useRef<HTMLDivElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  useComposerGuard(cardRef, textareaRef, !readOnly && canSendMessage);
   const isNarrow = useIsNarrow(toolbarRef, 520);
   const toolMenuCount = useToolMenuCount();
   // 「发送图片」 and 「提示词」 live in the "+" menu, so the toolbar is just
@@ -510,7 +519,7 @@ export function MessageInput() {
             bottom-full) and must escape the card bounds, or it gets clipped by
             the composer. The only child whose background reaches a rounded
             corner is the restart-confirm banner, which rounds its own top. */}
-        <div className="play-composer-card glass relative rounded-2xl">
+        <div ref={cardRef} className="play-composer-card glass relative rounded-2xl">
           <VoiceRecordingOverlay voice={voice} autoSend={voiceInput.mode === "auto" && !content.trim()} />
           {/* Restart confirmation banner */}
           {confirmRestart && (
@@ -554,6 +563,7 @@ export function MessageInput() {
           <div className="play-composer-grow" data-replicated-value={content}>
             <textarea
               ref={textareaRef}
+              id="yumina-composer-input"
               value={content}
               maxLength={MAX_USER_MESSAGE_CHARS}
               onChange={(e) => setContent(clampComposerMessage(e.target.value))}
@@ -719,6 +729,22 @@ export function MessageInput() {
                             className={`relative inline-flex h-[1.15em] w-[2.1em] shrink-0 items-center rounded-full transition-colors ${turnImages.auto ? "bg-primary" : "bg-muted-foreground/30"}`}
                           >
                             <span className={`absolute h-[0.85em] w-[0.85em] rounded-full bg-background shadow transition-all ${turnImages.auto ? "left-[1.1em]" : "left-[0.15em]"}`} />
+                          </span>
+                        </button>
+                      </>
+                    )}
+                    {filmOn && (
+                      <>
+                        {!turnImages?.available && <div className="my-1 h-px bg-border" />}
+                        <button
+                          role="menuitem"
+                          onClick={() => { setActionsOpen(false); api.realtimeVideo.openWindow(); }}
+                          className="flex w-full items-center gap-3 rounded-md px-3.5 py-[0.65em] text-base text-foreground/80 transition-colors hover:bg-accent"
+                        >
+                          <Clapperboard className="h-[1.15em] w-[1.15em]" />
+                          <span className="flex min-w-0 flex-1 flex-col text-left">
+                            <span>{t("sceneVideo")}</span>
+                            <span className="text-xs text-muted-foreground">{t("sceneVideoHint")}</span>
                           </span>
                         </button>
                       </>

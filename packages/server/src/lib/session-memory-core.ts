@@ -115,7 +115,11 @@ export function classifyMemoryOutput(args: {
 }
 
 export const MEMORY_UPDATE_MIN_TURNS = 3;
-export const MEMORY_UPDATE_MIN_CHARS = 4_000;
+/** Early trigger for fewer than three pending turns. Roughly three long turns:
+ * at 4,000 one long reply (prod exchange p90 4.6k, 10/12–10/19) ran the full
+ * rewrite every turn. Unprocessed turns stay in raw history, so waiting for
+ * the third turn loses nothing (−27% incremental runs in a replay of that week). */
+export const MEMORY_UPDATE_MIN_CHARS = 15_000;
 export const MEMORY_BATCH_MAX_CHARS = 60_000;
 
 /** Input must be the oldest unprocessed rows, ending no later than lag-one.
@@ -153,11 +157,13 @@ export function shouldUpdateSessionMemory(args: {
   pendingChars: number;
   hasMemory: boolean;
   failed: boolean;
-  overBudget: boolean;
   force?: boolean;
 }): boolean {
+  // An over-target memory is no longer a reason to run every turn: output up
+  // to MAX_MEMORY_CHARS is accepted, and memoryBudgetInstruction asks every
+  // batched update to compress it anyway.
   if (args.pendingTurns === 0) return false;
-  return !!args.force || !args.hasMemory || args.failed || args.overBudget
+  return !!args.force || !args.hasMemory || args.failed
     || args.pendingTurns >= MEMORY_UPDATE_MIN_TURNS || args.pendingChars >= MEMORY_UPDATE_MIN_CHARS;
 }
 
@@ -502,10 +508,7 @@ export function selectLaggedRebuildWindow(rows: MemoryTranscriptRow[]): LaggedRe
 export function formatSessionMemoryForPrompt(
   memory: unknown,
   opts?: {
-    /** The player edited/deleted a message this memory may still describe
-     *  (see playSessions.sessionMemoryStaleAt). The standing soft caveat below
-     *  was not enough to stop a model from re-asserting an edited-away fact,
-     *  so a stale memory gets a targeted, imperative warning instead. */
+    /** Hide derived facts until the edited transcript has been rebuilt. */
     staleSinceEdit?: boolean;
     /** Player-pinned notes (playSessions.sessionMemoryPinned). Listed FIRST
      *  and marked authoritative so they win over auto-written facts; injected
@@ -515,7 +518,7 @@ export function formatSessionMemoryForPrompt(
 ): string | null {
   const normalized = normalizeSessionMemory(memory);
   const memoryText =
-    !normalized.text || isDegenerateSessionMemoryText(normalized.text) ? "" : normalized.text;
+    opts?.staleSinceEdit || !normalized.text || isDegenerateSessionMemoryText(normalized.text) ? "" : normalized.text;
   const pinned = normalizePinnedMemory(opts?.pinned);
   if (!memoryText && !pinned) return null;
 
@@ -530,11 +533,6 @@ export function formatSessionMemoryForPrompt(
     lines.push(
       "The following is editable continuity memory for this play session. Treat it as durable context, but prefer the recent visible chat if there is a direct contradiction.",
     );
-    if (opts?.staleSinceEdit) {
-      lines.push(
-        "IMPORTANT: The player has EDITED or REMOVED earlier messages since this memory was written. Any detail below that the current transcript no longer supports (locations, events, wording) is obsolete — follow the transcript, never this memory, wherever they disagree.",
-      );
-    }
     lines.push(memoryText);
   }
   return lines.join("\n");

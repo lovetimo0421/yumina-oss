@@ -1,4 +1,19 @@
 {
+  "mediaGuidelines": {
+    "effectiveNotice": "新规则于2026年10月24日23:59（美国太平洋时间）生效。",
+    "publicTitle": "封面与预览规则",
+    "assetsTitle": "使用素材前请注意",
+    "profileTitle": "公开个人主页图片规则",
+    "limited": "有限制：",
+    "limitless": "无限制：",
+    "limitedRule": "所有素材都须无性暗示、适合工作场合查看，游戏内素材也一样。",
+    "limitlessPublicRule": "封面和预览不得有裸体、性行为或严重血腥画面。私密部位须用不透明衣物遮盖。",
+    "limitlessAssetsRule": "合规的成人媒体仅限有年龄限制的游戏内使用。封面和公开预览须保持非露骨。",
+    "profileSafe": "头像和横幅须无性暗示、适合工作场合查看。",
+    "profileExplicit": "不得有裸体、性行为或严重血腥画面，即使你的世界设为无限制。",
+    "blurRule": "模糊或遮挡条不能豁免违规。",
+    "fullRules": "完整图片规则"
+  },
   "imageViewer": {
     "zoomOut": "缩小",
     "resetZoom": "重置缩放",
@@ -22,13 +37,14 @@
     "partner": "推广数据",
     "messages": "私信",
     "installApp": "添加到主屏幕",
-    "prompts": "提示词"
+    "prompts": "提示词",
+    "updates": "更新日志"
   },
   "tabTitle": {
     "home": "Yumina梦坞",
     "discover": "发现",
     "community": "社区",
-    "bundles": "资源包",
+    "bundles": "模块与提示词",
     "create": "创建",
     "library": "库",
     "quests": "任务",
@@ -39,7 +55,8 @@
     "creator": "创作者",
     "signIn": "登录",
     "createAccount": "创建账户",
-    "krew": "Krew.io"
+    "krew": "Krew.io",
+    "updates": "更新日志"
   },
   "mobile": {
     "menu": "菜单",
@@ -53,13 +70,17 @@
   },
   "search": {
     "hub": "搜索世界、角色、故事...",
-    "library": "搜索库..."
+    "library": "搜索库...",
+    "bundles": "搜索卡片模块、作者或功能..."
   },
   "aria": {
     "showSidebar": "显示侧边栏",
     "hideSidebar": "隐藏侧边栏",
     "closeNav": "关闭导航菜单",
-    "openNav": "打开导航菜单"
+    "openNav": "打开导航菜单",
+    "pagination": "分页",
+    "prevPage": "上一页",
+    "nextPage": "下一页"
   },
   "auth": {
     "signInToContinue": "登录以继续",
@@ -83,7 +104,10 @@
       "sendMessages": "发送私信",
       "viewSensitiveContent": "查看无限制内容",
       "writeReviews": "撰写评论"
-    }
+    },
+    "signUpToContinue": "注册即可继续",
+    "signUpFree": "免费注册",
+    "haveAccountSignIn": "已有账号，登录"
   },
   "hint": {
     "sidebarCollapse": "将鼠标悬停在左侧边缘以显示菜单"
@@ -134,7 +158,7 @@
   "notifications": {
     "settings": "通知设置",
     "socialEventAnnouncement": "YUMINA 分享活动规则已更新，点击查看参与详情。",
-    "socialEventInitialApproved": "你的社媒帖子已通过初审，并发放 {{amount}} Mushies。",
+    "socialEventInitialApproved": "你的社媒帖子已通过初审，并发放 {{amount}} 蘑菇币。",
     "socialEventNeedsChanges": "你的活动投稿需要修改，点此查看审核意见。",
     "socialEventInitialRejected": "你的活动投稿未通过初审。",
     "socialEventDisqualified": "你的活动投稿已被取消资格。",
@@ -225,7 +249,7 @@
     "tipRefunded": "一笔 {{amount}} 的打赏已退款",
     "wechatRenewalReminder": "你的方案即将到期——点击续费",
     "reviewSubmitted": "你的作品「{{worldName}}」已提交审核。我们会在 24 小时内通知你。",
-    "reviewApproved": "你的作品「{{worldName}}」已通过审核，已在 Discover 上线。",
+    "reviewApproved": "你的作品「{{worldName}}」已通过审核，已在发现页上线。",
     "reviewRejected": "你的作品「{{worldName}}」需要修改（{{reason}}）。",
     "reviewRejectedWithDetail": "你的作品「{{worldName}}」需要修改（{{reason}}）：{{detail}}",
     "reviewPendingAdmin": "{{author}} 提交了「{{worldName}}」等待审核",
@@ -241,7 +265,7 @@
     "newReviewCommentOnly": "{{reviewer}} 评论了你的 {{worldName}} 卡：{{comment}}",
     "newComment": "{{commenter}} 评论了 {{worldName}}",
     "platformAnnouncement": "官方公告：{{title}}",
-    "socialEventVerifiedSettlementFloor": "你的活动终审已经完成。我们已核实你提交的公开帖子。虽然本次没有产生额外的传播分档位补发，你仍获得 {{amount}} Mushies 终审完成奖励，现已到账。感谢你的分享与耐心等待！",
+    "socialEventVerifiedSettlementFloor": "你的活动终审已经完成。我们已核实你提交的公开帖子。虽然本次没有产生额外的传播分档位补发，你仍获得 {{amount}} 蘑菇币终审完成奖励，现已到账。感谢你的分享与耐心等待！",
     "newFriend": "你和 {{name}} 成为了好友",
     "newFriendNoName": "你交到了一位新朋友",
     "friendInvite": "{{name}} 邀请你玩 {{worldName}}",
@@ -296,7 +320,8 @@
     },
     "giftBonusExpires": "{{amount}} 奖励蘑菇于 {{date}} 到期",
     "promptPackApproved": "你的提示词「{{packTitle}}」审核通过，已出现在提示词广场",
-    "promptPackRejected": "你的提示词「{{packTitle}}」没通过审核，原因见 库 › 提示词"
+    "promptPackRejected": "你的提示词「{{packTitle}}」没通过审核，原因见 库 › 提示词",
+    "planGiftReceived": "你收到了一份 {{days}} 天的 {{plan}} 会员礼物。"
   },
   "time": {
     "justNow": "刚刚",
@@ -478,7 +503,7 @@
   "languageLabel": "语言",
   "creatorHub": "创作者中心",
   "openingStandalone": "正在打开独立创作者站点...",
-  "loadingStudio": "正在加载 Studio...",
+  "loadingStudio": "正在打开编辑器…",
   "friends": {
     "title": "好友",
     "subtitle": "互相关注即成为好友",
@@ -518,5 +543,126 @@
       "popupFailed": "登录未完成。请关闭此窗口再试一次。",
       "backToGame": "返回 Krew.io"
     }
+  },
+  "planAlert": {
+    "cancelsOn": "你的订阅将于 {{date}} 取消，在此之前仍可使用当前权益。",
+    "downgradesOn": "你的套餐将于 {{date}} 降级。",
+    "giftExpiresOn": "你的赠送套餐将于 {{date}} 到期。",
+    "dismiss": "关闭"
+  },
+  "studioNotYours": "这个世界不是你的，只能打开自己创建的卡。",
+  "studioLoadFailed": "这个世界没能加载出来。检查一下网络再试试。",
+  "backToMyWorlds": "我的世界",
+  "userMute": {
+    "until": "禁言至 {{date}}",
+    "permanent": "永久禁言",
+    "help": "禁言期间无法发帖、评论、发布动态或发送私信，仍可浏览和游玩故事。"
+  },
+  "communityMutedPermanent": "你已被永久禁言，无法在社区和评论区发言。",
+  "notFound": {
+    "title": "找不到这个页面",
+    "description": "链接可能写错了，或者页面已经搬走了。",
+    "back": "返回",
+    "home": "回到发现",
+    "library": "回到库"
+  },
+  "macroYou": "你",
+  "sensitiveCover": {
+    "hidden": "封面已隐藏",
+    "description": "此封面可能包含敏感内容。",
+    "show": "显示此封面",
+    "settings": "媒体设置",
+    "hide": "隐藏封面"
+  },
+  "updates": {
+    "title": "更新日志",
+    "intro": "Yumina 最近的变化。",
+    "filterLabel": "按板块筛选",
+    "all": "全部",
+    "empty": "还没有更新。",
+    "emptyArea": "这个板块还没有更新。",
+    "error": "更新日志加载失败。",
+    "retry": "重试",
+    "unrestrictedOnly": "解除限制",
+    "internal": "内部",
+    "internalNote": "你是管理员，所以也能看到标着「内部」的团队条目，其他人看不到。",
+    "copyLink": "复制链接",
+    "copied": "链接已复制",
+    "admin": {
+      "new": "新建更新",
+      "edit": "编辑",
+      "hide": "隐藏",
+      "unhide": "取消隐藏",
+      "delete": "删除",
+      "restore": "恢复代码里的版本",
+      "history": "历史",
+      "badgeHidden": "已隐藏",
+      "badgeEdited": "网页修改过",
+      "badgeWebOnly": "网页发布",
+      "confirmDelete": "永久删除这条更新？修改历史会保留。",
+      "confirmRestore": "放弃网页上的修改，恢复成代码里的版本？",
+      "actionFailed": "操作没有成功，请重试。",
+      "editorNew": "新建更新",
+      "editorEdit": "编辑更新",
+      "fromFileNote": "这条来自代码仓库。保存后网页版本会覆盖它，之后可以随时恢复代码里的版本。",
+      "date": "日期",
+      "slug": "短名（用在链接里）",
+      "slugHint": "小写字母、数字和横线，例如 new-editor",
+      "link": "链接",
+      "audience": "谁能看到",
+      "audiencePublic": "所有人",
+      "audienceInternal": "仅团队（内部）",
+      "audienceUnrestricted": "解除限制用户",
+      "areas": "板块",
+      "entryTitle": "标题",
+      "body": "正文（Markdown，每行一条用 · 开头）",
+      "preview": "预览",
+      "previewEmpty": "写正文后这里会显示预览。",
+      "required": "必填",
+      "translate": "自动翻译繁中、西语、日语",
+      "translating": "翻译中…",
+      "translateNeeds": "先填好中文和英文的标题和正文。",
+      "translated": "已填入翻译，保存前请检查一遍。",
+      "translateOverwrite": "会覆盖繁中、西语、日语现有的内容，继续吗？",
+      "translateFailed": "翻译失败：{{message}}",
+      "save": "保存",
+      "saving": "保存中…",
+      "cancel": "取消",
+      "loadingEntry": "正在加载…",
+      "errDate": "日期无效，请选一个日期。",
+      "errAudience": "请选择谁能看到。",
+      "errAreas": "至少选一个板块。",
+      "errTitle": "{{lang}} 的标题必填。",
+      "errBody": "{{lang}} 的正文必填。",
+      "errId": "短名不对或已经有同名的更新：只能用小写字母、数字和横线。",
+      "errConflict": "这条刚被别人改过。关掉后重新打开再改。",
+      "errGeneric": "保存失败，请重试。",
+      "historyTitle": "修改历史",
+      "historyEmpty": "这条还没有在网页上改过。",
+      "actCreate": "创建",
+      "actEdit": "编辑",
+      "actHide": "隐藏",
+      "actUnhide": "取消隐藏",
+      "actRestore": "恢复代码版本",
+      "actDelete": "删除",
+      "more": "更多操作",
+      "style": "样式",
+      "highlightToggle": "重点：标题稍大，并在发现页提示一次",
+      "kindStandard": "普通",
+      "kindRoundup": "改进与修复汇总（紧凑，4 条后折叠）",
+      "copyLink": "复制链接"
+    },
+    "new": "新",
+    "expandAll": "展开全部 {{count}} 条",
+    "collapse": "收起",
+    "footer": "更新日志从 2026 年 9 月开始记录",
+    "bannerNew": "新",
+    "bannerView": "查看",
+    "bannerDismiss": "不再提示这条",
+    "unseen": "有新的更新",
+    "showEarlier": "查看更早的更新 · {{count}} 条",
+    "subtitle": "每一次改动，都记在这里。",
+    "statLatest": "最近更新",
+    "statCount": "{{month}}以来 <b>{{count}}</b> 次更新"
   }
 }

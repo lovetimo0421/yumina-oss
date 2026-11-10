@@ -15,6 +15,15 @@ import { sql } from "drizzle-orm";
  *   - admin/analytics dashboards
  *   - Studio per-variant views
  */
+/** Temporary (owner, 2026-10-22): players see a paused download number while the real one keeps
+ * counting. On: every player-facing count reads display_download_count (null = 0, so worlds published
+ * after the freeze show 0). Ranking, tips and thresholds always use the live download_count. */
+export const downloadDisplayFrozen = process.env.DOWNLOAD_DISPLAY_FROZEN === "true";
+/** Per-row player-facing download number (creator totals and lists). */
+export const displayDownloadColumn = downloadDisplayFrozen
+  ? sql<number>`COALESCE(worlds.display_download_count, 0)`
+  : sql<number>`worlds.download_count`;
+
 export const aggregatedCounters = {
   downloadCount: sql<number>`COALESCE(
     (SELECT SUM(w_agg.download_count)::int FROM worlds w_agg
@@ -22,6 +31,21 @@ export const aggregatedCounters = {
        AND w_agg.language_group_id = worlds.language_group_id),
     worlds.download_count
   )`,
+
+  /** What players are shown; equals downloadCount unless the display is frozen. */
+  displayDownloadCount: downloadDisplayFrozen
+    ? sql<number>`COALESCE(
+      (SELECT SUM(COALESCE(w_agg.display_download_count, 0))::int FROM worlds w_agg
+       WHERE w_agg.language_group_id IS NOT NULL
+         AND w_agg.language_group_id = worlds.language_group_id),
+      COALESCE(worlds.display_download_count, 0)
+    )`
+    : sql<number>`COALESCE(
+      (SELECT SUM(w_agg.download_count)::int FROM worlds w_agg
+       WHERE w_agg.language_group_id IS NOT NULL
+         AND w_agg.language_group_id = worlds.language_group_id),
+      worlds.download_count
+    )`,
 
   messageCount: sql<number>`COALESCE(
     (SELECT SUM(w_agg.message_count)::int FROM worlds w_agg

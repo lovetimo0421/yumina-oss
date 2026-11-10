@@ -44,9 +44,9 @@ test("uninstalled extension leaves parser result unchanged and reserves no token
   const result = await validateTurnOutput(absent, { parsed } as unknown as TurnOutputContext);
   assert.equal(result.parsed, parsed);
   assert.equal(calls, 0);
-  assert.deepEqual(guardPrompt(absent), { content: "", reserve: 0 });
-  assert.equal(guardPrompt(installed).content, "contract");
-  assert.ok(guardPrompt(installed).reserve > 64);
+  assert.deepEqual(guardPrompt(absent, { world, state: makeState() }), { content: "", reserve: 0 });
+  assert.equal(guardPrompt(installed, { world, state: makeState() }).content, "contract");
+  assert.ok(guardPrompt(installed, { world, state: makeState() }).reserve > 64);
 });
 
 test("installed validator is awaited before returning the replacement effects", async () => {

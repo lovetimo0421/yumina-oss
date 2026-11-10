@@ -61,6 +61,7 @@ export interface GenerationProvider {
   ): Promise<string>;
   getStatus(providerJobId: string): Promise<ProviderStatusResult>;
   cancel(providerJobId: string): Promise<void>;
+  cancelIsolated?(providerJobId: string): Promise<void>;
   /** Live queue/worker signal for user-facing transparency. Null = unknown. */
   getCapacity?(): Promise<CapacitySnapshot | null>;
 }

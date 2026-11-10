@@ -9,6 +9,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import { rateLimitMiddleware } from "../middleware/rate-limit.js";
 import { applyModelRedirect, MODEL_ID_PATTERN } from "../lib/llm/model-redirects.js";
 import type { AppEnv } from "../lib/types.js";
+import { newModelChoice, planBlockReason } from "../lib/plan-model-gate.js";
 import { calculateCost } from "../lib/credit-service.js";
 import { warmModelPriceCache } from "../lib/model-price-cache.js";
 import {
@@ -39,7 +40,7 @@ import {
   updateSummaryceptionSnippet,
 } from "../lib/summaryception.js";
 import { normalizeSessionSummaryImplementation } from "../lib/summaryception-core.js";
-import { resolveMemorySystemSettings } from "../lib/memory-systems.js";
+import { resolveMemorySystemSettings, sessionWorldRequiresStorySummary } from "../lib/memory-systems.js";
 import { isExtensionInstalled } from "../lib/extensions.js";
 import { summaryJobs, summaryJobKey } from "../lib/summary-job-store.js";
 import { isActiveSummaryJob } from "../lib/summary-job-core.js";
@@ -48,6 +49,7 @@ import { hasUncertainMemoryCoverage } from "../lib/session-memory-core.js";
 import { memoryCursorAfterSettingsChange } from "../lib/session-memory-guards.js";
 import { normalizeSessionSummaryLanguage } from "../lib/summary-language.js";
 import { canRunMemoryQa, memoryQaPage } from "../lib/session-memory-qa.js";
+import { dropMemoryVersions } from "../lib/session-memory-versions.js";
 import type { GenerateParams } from "../lib/llm/types.js";
 import {
   estimateTextTokens,
@@ -64,10 +66,12 @@ async function requireSessionMemoryExtension(
   next: Next,
 ) {
   const currentUser = c.get("user");
-  if (!(await isExtensionInstalled(currentUser.id, SESSION_MEMORY_EXTENSION_KEY))) {
-    return c.json({ error: "Extension not installed", code: "EXTENSION_NOT_INSTALLED" }, 403);
-  }
-  return next();
+  if (await isExtensionInstalled(currentUser.id, SESSION_MEMORY_EXTENSION_KEY)) return next();
+  // A card can switch the story summary on for everyone who plays it; the
+  // panel that shows and edits that summary opens for them too.
+  const sessionId = c.req.param("sessionId");
+  if (sessionId && await sessionWorldRequiresStorySummary(sessionId, currentUser.id)) return next();
+  return c.json({ error: "Extension not installed", code: "EXTENSION_NOT_INSTALLED" }, 403);
 }
 
 // This router is mounted at /api/sessions, alongside core chat/session routes
@@ -314,7 +318,7 @@ async function toSummaryPayload(row: typeof playSessions.$inferSelect): Promise<
   const summary = normalizeStorySummaryText(row.summary);
   const model = applyModelRedirect(row.summaryModel || DEFAULT_STORY_SUMMARY_MODEL);
   const implementation = normalizeSessionSummaryImplementation(row.summaryImplementation);
-  const memorySystems = await resolveMemorySystemSettings(row.userId, row);
+  const memorySystems = await resolveMemorySystemSettings(row.userId, row, { authorRequired: await sessionWorldRequiresStorySummary(row.id, row.userId) });
   const mode = "threshold" satisfies SessionSummaryMode;
   const triggerTokens = normalizeSessionSummaryTriggerTokens(row.summaryTriggerTokens);
   const recentTailTokens = normalizeSessionSummaryRecentTailTokens(row.summaryRecentTailTokens);
@@ -386,6 +390,21 @@ sessionMemoryRoutes.get("/:sessionId/summary", async (c) => {
   return c.json({ data: await toSummaryPayload(row) });
 });
 
+/** A background model above the player's plan is refused where it is chosen,
+ *  so they hear why instead of the run quietly switching to the default.
+ *  Each pair is [sent, stored]: the panel resends the stored model with every
+ *  memory or summary edit, and a model saved before this check must not
+ *  block those edits — only a change to a new model is checked. */
+async function refusePlanModel(c: Context<AppEnv>, userId: string, ...pairs: Array<[string | null | undefined, string | null | undefined]>) {
+  for (const [sent, stored] of pairs) {
+    const model = newModelChoice(sent, stored, applyModelRedirect);
+    if (!model) continue;
+    const blocked = await planBlockReason(userId, model);
+    if (blocked) return c.json({ error: blocked.reason, code: "MODEL_NOT_ALLOWED", model, requiredPlan: blocked.requiredPlan }, 403);
+  }
+  return null;
+}
+
 sessionMemoryRoutes.patch("/:sessionId/summary", async (c) => {
   const currentUser = c.get("user");
   const sessionId = c.req.param("sessionId");
@@ -394,6 +413,8 @@ sessionMemoryRoutes.patch("/:sessionId/summary", async (c) => {
   const body = parsed.data;
   const row = await loadOwnedSession(sessionId, currentUser.id);
   if (!row) return c.json({ error: "Session not found" }, 404);
+  const refused = await refusePlanModel(c, currentUser.id, [body.model, row.summaryModel], [body.summaryceptionModel, row.summaryceptionModel]);
+  if (refused) return refused;
 
   const summary = normalizeStorySummaryText(body.summary ?? row.summary ?? "");
   const model = applyModelRedirect(body.model ?? row.summaryModel ?? DEFAULT_STORY_SUMMARY_MODEL);
@@ -455,6 +476,8 @@ sessionMemoryRoutes.patch("/:sessionId/summary/settings", async (c) => {
   const body = parsed.data;
   const row = await loadOwnedSession(sessionId, currentUser.id);
   if (!row) return c.json({ error: "Session not found" }, 404);
+  const refused = await refusePlanModel(c, currentUser.id, [body.model, row.summaryModel], [body.summaryceptionModel, row.summaryceptionModel]);
+  if (refused) return refused;
 
   const model = applyModelRedirect(body.model ?? row.summaryModel ?? DEFAULT_STORY_SUMMARY_MODEL);
   const summaryceptionModel = body.summaryceptionModel || row.summaryceptionModel
@@ -500,7 +523,7 @@ sessionMemoryRoutes.patch("/:sessionId/summary/settings", async (c) => {
           ? row.summaryError
           : null,
       ...(language !== normalizeSessionSummaryLanguage(row.summaryLanguage) ? {
-        sessionMemoryStatus: "idle" as const, sessionMemorySourceHash: null,
+        sessionMemoryStatus: "idle" as const,
         sessionMemoryClaimedAt: null, sessionMemoryRetryCount: 0,
         sessionMemoryError: null,
         sessionMemoryProcessedMessageId: memoryCursorAfterSettingsChange(),
@@ -522,6 +545,8 @@ sessionMemoryRoutes.patch("/:sessionId/memory/settings", async (c) => {
   const body = parsed.data;
   const row = await loadOwnedSession(sessionId, currentUser.id);
   if (!row) return c.json({ error: "Session not found" }, 404);
+  const refused = await refusePlanModel(c, currentUser.id, [body.model, row.sessionMemoryModel]);
+  if (refused) return refused;
 
   const model = applyModelRedirect(body.model ?? row.sessionMemoryModel ?? DEFAULT_SESSION_MEMORY_MODEL);
   const included = typeof body.included === "boolean" ? body.included : row.sessionMemoryIncluded;
@@ -538,7 +563,8 @@ sessionMemoryRoutes.patch("/:sessionId/memory/settings", async (c) => {
       summaryLanguage: language,
       sessionMemoryProcessedMessageId: memoryCursorAfterSettingsChange(),
       sessionMemoryStatus: "idle",
-      sessionMemorySourceHash: null,
+      // Preserve provenance while invalidating the worker via status/model.
+      // Toggling memory must not certify or forget an unfinished repair.
       sessionMemoryClaimedAt: null,
       sessionMemoryRetryCount: 0,
       sessionMemoryError: null,
@@ -636,6 +662,7 @@ sessionMemoryRoutes.post("/:sessionId/summary/compact", rateLimitMiddleware("ai-
       : normalizeSessionSummaryImplementation(body.implementation);
     const result = implementation === "summaryception"
       ? await compactSummaryceptionForSession({
+          retryPartial: true,
           sessionId,
           userId: currentUser.id,
           fallbackModel: model || rowBefore.summaryceptionModel || rowBefore.summaryModel || DEFAULT_STORY_SUMMARY_MODEL,
@@ -706,6 +733,8 @@ sessionMemoryRoutes.patch("/:sessionId/memory", async (c) => {
 
   const row = await loadOwnedSession(sessionId, currentUser.id);
   if (!row) return c.json({ error: "Session not found" }, 404);
+  const refused = await refusePlanModel(c, currentUser.id, [body.model, row.sessionMemoryModel]);
+  if (refused) return refused;
 
   const model = body.model ?? row.sessionMemoryModel;
   const memory = body.memory === undefined
@@ -768,6 +797,8 @@ sessionMemoryRoutes.patch("/:sessionId/memory/model", async (c) => {
   const model = applyModelRedirect(parsed.data.model);
   const row = await loadOwnedSession(sessionId, currentUser.id);
   if (!row) return c.json({ error: "Session not found" }, 404);
+  const refused = await refusePlanModel(c, currentUser.id, [parsed.data.model, row.sessionMemoryModel]);
+  if (refused) return refused;
 
   discardQueuedSessionMemoryUpdates(sessionId);
 
@@ -814,6 +845,8 @@ sessionMemoryRoutes.delete("/:sessionId/memory", async (c) => {
     .returning();
 
   if (!updated) return c.json({ error: "Session not found" }, 404);
+  // A cleared memory must not come back through a rebuild.
+  await dropMemoryVersions(sessionId);
   return c.json({ data: await toPayload(updated) });
 });
 

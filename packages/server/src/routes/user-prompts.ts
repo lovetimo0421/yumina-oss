@@ -6,6 +6,7 @@ import { userPrompts, promptFolders } from "../db/schema.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../lib/types.js";
 import { getUnrestrictEligibility, UNRESTRICT_KIND } from "../lib/unrestrict.js";
+import { convertSillyTavernPreset } from "../lib/sillytavern-preset.js";
 
 const PROMPT_KINDS = new Set([UNRESTRICT_KIND]);
 const API_ROLES = new Set(["system", "user", "assistant"]);
@@ -300,10 +301,12 @@ userPromptsRoutes.get("/export", async (c) => {
   });
 });
 
-// POST /api/user-prompts/import — import from JSON
+// POST /api/user-prompts/import — import from JSON: a Yumina export, or a
+// SillyTavern preset (converted first; ?name= is the file name for its folder).
 userPromptsRoutes.post("/import", async (c) => {
   const userId = c.get("user").id;
-  const body = await c.req.json<{
+  const raw = await c.req.json<unknown>();
+  const body = (convertSillyTavernPreset(raw, c.req.query("name")) ?? raw) as {
     folders?: Array<{ name: string; enabled?: boolean; id?: string }>;
     prompts?: Array<{
       name: string;
@@ -318,7 +321,7 @@ userPromptsRoutes.post("/import", async (c) => {
       apiRole?: string | null;
       autoModels?: string[] | null;
     }>;
-  }>();
+  };
 
   // Create folder ID mapping (old ID → new ID)
   const folderMap = new Map<string, string>();

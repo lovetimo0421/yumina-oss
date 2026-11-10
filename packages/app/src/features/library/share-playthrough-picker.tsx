@@ -77,7 +77,7 @@ export function SharePlaythroughPicker({ worldId, worldName, languageGroupId, op
 
   return createPortal(
     <div className="fixed inset-0 z-[94] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/78 animate-in fade-in duration-150" onClick={onClose} />
+      <div className="absolute inset-0 modal-backdrop animate-in fade-in duration-150" onClick={onClose} />
       <div className="relative z-10 mx-4 flex max-h-[80vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-white/[0.07] bg-[#1B1C22] shadow-[0_24px_70px_rgba(0,0,0,0.5)] animate-in fade-in zoom-in-95 duration-200">
         <div className="h-1 w-full bg-gradient-to-r from-primary/60 via-amber-400/70 to-transparent" />
         <div className="flex items-start gap-3 px-5 pb-3 pt-5">

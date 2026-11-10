@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { SandboxBridge, type ApiHandler, type StreamHandler } from "./bridge-parent";
-import type { ChannelDataMap, SandboxMode } from "../../../sandbox/protocol";
+import type { ChannelDataMap, SandboxMode, VoiceEvent } from "../../../sandbox/protocol";
 import type { StateChannel } from "@yumina/engine";
 import { SANDBOX_DOC_URL } from "@/lib/sandbox-doc-url";
 import { SandboxBootTiming } from "@/lib/sandbox-boot-timing";
@@ -27,7 +27,7 @@ export function useSandbox(opts: {
   active?: boolean;
   onApiCall: ApiHandler;
   onStreamCall?: StreamHandler;
-  onError?: (message: string) => void;
+  onError?: (message: string, diagnostic?: import("@/lib/tsx/diagnostics").CodeDiagnostic) => void;
   onResize?: (height: number) => void;
   /** Sandbox self-diagnostics (e.g. scroll-clamp corrections) for analytics. */
   onDiag?: (event: string, data: Record<string, string | number | boolean>) => void;
@@ -76,7 +76,7 @@ export function useSandbox(opts: {
     const bridge = new SandboxBridge({
       onApiCall: (method, args) => onApiCallRef.current(method, args),
       onStreamCall: (method, args, cbs) => onStreamCallRef.current?.(method, args, cbs),
-      onError: (message) => onErrorRef.current?.(message),
+      onError: (message, diagnostic) => onErrorRef.current?.(message, diagnostic),
       onResize: (height) => onResizeRef.current?.(height),
       onDiag: (event, data) => onDiagRef.current?.(event, data),
       onComposerDraft: (text) => onComposerDraftRef.current?.(text),
@@ -145,9 +145,10 @@ export function useSandbox(opts: {
       compiledCode?: string,
       compileError?: string,
       mode?: SandboxMode,
+      diagnostic?: import("@/lib/tsx/diagnostics").CodeDiagnostic,
     ) => {
       bootTimingRef.current?.mark("install_requested");
-      bridgeRef.current?.installRoot(entryFile, files, compiledCode, compileError, mode);
+      bridgeRef.current?.installRoot(entryFile, files, compiledCode, compileError, mode, diagnostic);
     },
     [],
   );
@@ -167,6 +168,10 @@ export function useSandbox(opts: {
     bridgeRef.current?.sendAudioEnded(trackId);
   }, []);
 
+  const sendVoicePlaybackFrame = useCallback((frame: import('../../../sandbox/protocol').VoicePlaybackFrame) => {
+    bridgeRef.current?.sendVoicePlaybackFrame(frame);
+  }, []);
+
   const restoreComposerDraft = useCallback((text: string) => {
     bridgeRef.current?.restoreComposerDraft(text);
   }, []);
@@ -177,6 +182,22 @@ export function useSandbox(opts: {
 
   const sendRoomFrame = useCallback((frame: Record<string, unknown>) => {
     bridgeRef.current?.sendRoomFrame(frame);
+  }, []);
+
+  const sendVideoEvent = useCallback((event: Record<string, unknown>) => {
+    bridgeRef.current?.sendVideoEvent(event);
+  }, []);
+
+  const sendStoryEvent = useCallback((event: { id: string; name: string; ai?: { channel: string; id: string; name: string; text: string; fields: Record<string, unknown> }; code?: { reactionId: string; source: string; names: Record<string, string> } }) => {
+    bridgeRef.current?.sendStoryEvent(event);
+  }, []);
+
+  const sendVoiceEvent = useCallback((event: VoiceEvent) => {
+    if (bridgeRef.current) bridgeRef.current.sendVoiceEvent(event);
+    else if (event.type === "video-frame") {
+      event.frame.close();
+      void onApiCallRef.current("realtimeVoice.ackVideoFrame", [event.id]);
+    }
   }, []);
 
   const openMemoryPanel = useCallback(() => {
@@ -198,9 +219,13 @@ export function useSandbox(opts: {
     pushChannel,
     setMediaSuspended,
     sendAudioEnded,
+    sendVoicePlaybackFrame,
     restoreComposerDraft,
     restoreTranscriptPosition,
     sendRoomFrame,
+    sendVoiceEvent,
+    sendVideoEvent,
+    sendStoryEvent,
     openMemoryPanel,
   };
 }

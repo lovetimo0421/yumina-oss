@@ -9,6 +9,9 @@ interface MessageActionsProps {
   isLastAssistant: boolean;
   isLastMessage: boolean;
   onEditStart: () => void;
+  /** A swipe switch for this message is still landing — editing now would
+   *  seed the box with the swipe that is about to leave (edit-target.ts). */
+  editDisabled?: boolean;
 }
 
 // Popover sits above the trigger button. We anchor with position:fixed +
@@ -43,6 +46,7 @@ export function MessageActions({
   isLastAssistant,
   isLastMessage,
   onEditStart,
+  editDisabled = false,
 }: MessageActionsProps) {
   const api = useYumina();
   const t = useMemo(() => makeChatT(api.language), [api.language]);
@@ -50,6 +54,12 @@ export function MessageActions({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmRevert, setConfirmRevert] = useState(false);
   const [branching, setBranching] = useState(false);
+  useEffect(() => {
+    if (api.isStreaming) {
+      setConfirmDelete(false);
+      setConfirmRevert(false);
+    }
+  }, [api.isStreaming]);
   // Double-tap lock for regenerate: api.isStreaming flips only after a host
   // round-trip, so an unguarded fast second tap = two generations, two charges.
   const [regenPending, setRegenPending] = useState(false);
@@ -136,6 +146,7 @@ export function MessageActions({
   };
 
   const handleDelete = async () => {
+    if (api.isStreaming) return;
     try {
       const ok = await api.deleteMessage(message.id);
       if (!ok) {
@@ -148,6 +159,7 @@ export function MessageActions({
   };
 
   const handleRevert = async () => {
+    if (api.isStreaming) return;
     setConfirmRevert(false);
     try {
       await api.revertToMessage(message.id);
@@ -223,6 +235,7 @@ export function MessageActions({
             </button>
             <button
               onClick={handleDelete}
+              disabled={api.isStreaming}
               className="flex h-7 items-center gap-1 rounded-md bg-destructive/20 px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/30 active:bg-destructive/30 [@media(hover:none)]:min-h-10"
             >
               <svg
@@ -269,6 +282,7 @@ export function MessageActions({
             </button>
             <button
               onClick={handleRevert}
+              disabled={api.isStreaming}
               className="flex h-7 items-center gap-1 rounded-md bg-destructive/20 px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/30 active:bg-destructive/30 [@media(hover:none)]:min-h-10"
             >
               <svg
@@ -413,7 +427,7 @@ export function MessageActions({
         </svg>
       </ActionBtn>
 
-      <ActionBtn onClick={onEditStart} title={t("edit")}>
+      <ActionBtn onClick={onEditStart} title={t("edit")} disabled={editDisabled || api.isStreaming}>
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="14"
@@ -456,7 +470,7 @@ export function MessageActions({
         <ActionBtn
           onClick={handleRegenerate}
           title={t("regenerate")}
-          disabled={regenPending}
+          disabled={regenPending || api.isStreaming}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -486,6 +500,7 @@ export function MessageActions({
           ref={revertBtnRef}
           onClick={() => setConfirmRevert(true)}
           title={t("revertToHere")}
+          disabled={api.isStreaming}
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -508,6 +523,7 @@ export function MessageActions({
         ref={deleteBtnRef}
         onClick={() => setConfirmDelete(true)}
         title={t("delete")}
+        disabled={api.isStreaming}
         className="hover:text-destructive"
       >
         <svg

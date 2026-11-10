@@ -94,6 +94,14 @@ export function resolveSandboxImageSrc(src: string): string {
   return chatImageUrl(assetId);
 }
 
+/** A video ref plays straight from /cdn/ — the image resizer would break it. */
+function resolveSandboxVideoSrc(src: string): string {
+  const trimmed = src.trim();
+  if (CDN_PATH_RE.test(trimmed)) return trimmed;
+  if (!ASSET_SRC_RE.test(trimmed)) return trimmed;
+  return `/cdn/${trimmed.startsWith("@asset:") ? trimmed.slice(7) : trimmed}`;
+}
+
 function clampHeight(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_HTML_EMBED_HEIGHT;
   return Math.min(
@@ -319,7 +327,7 @@ function renderMessageUncached(raw: string): string {
   // Restore rich image cards.
   html = html.replace(/\x00IM(\d+)\x00/g, (_match, idx) => {
     const embed = imageEmbeds[Number(idx)];
-    return embed ? renderImageEmbedHtml(embed, resolveSandboxImageSrc) : "";
+    return embed ? renderImageEmbedHtml(embed, resolveSandboxImageSrc, resolveSandboxVideoSrc) : "";
   });
 
   // Restore iframe-based html ui blocks.
@@ -345,6 +353,7 @@ function renderMessageUncached(raw: string): string {
       "i",
       "a",
       "iframe",
+      "video",
     ],
     ALLOWED_ATTR: [
       "class",
@@ -358,6 +367,13 @@ function renderMessageUncached(raw: string): string {
       "target",
       "sandbox",
       "loading",
+      // [video:…] embeds: muted autoplay loops, or a clip with controls.
+      "autoplay",
+      "muted",
+      "loop",
+      "playsinline",
+      "controls",
+      "preload",
     ],
   });
 

@@ -4,6 +4,7 @@ import { isCreatorHost } from "@/lib/creator-hub-url";
 import { ensureLocalSession } from "@/edition/local-sign-in";
 import { getEditionInfo } from "@/edition/edition";
 import { HOSTED_ROUTES } from "@/edition/routes";
+import { NotFoundPage } from "@/components/not-found-page";
 
 export const Route = createFileRoute("/app")({
   beforeLoad: async () => {
@@ -19,4 +20,5 @@ export const Route = createFileRoute("/app")({
       <Outlet />
     </AppShell>
   ),
+  notFoundComponent: () => <NotFoundPage />,
 });

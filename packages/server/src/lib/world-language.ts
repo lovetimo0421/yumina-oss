@@ -22,7 +22,13 @@ export function resolveHubLanguageScope(
   lang?: string | null,
   includeOtherLanguages = false,
 ): HubLanguage | null {
-  return includeOtherLanguages ? null : normalizeHubLanguage(lang);
+  if (includeOtherLanguages) return null;
+  // A viewer on an unsupported locale (e.g. a stale "ko") gets the English
+  // feed, which is what the app falls back to; only the explicit "all
+  // languages" button widens the pool (owner, 2026-10-15). No lang at all
+  // (creator pages, API clients) keeps the unscoped catalog.
+  if (!lang?.trim()) return null;
+  return normalizeHubLanguage(lang) ?? "en";
 }
 
 /**

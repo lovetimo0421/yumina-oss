@@ -86,7 +86,7 @@ export const EVENT_PROOF_ALLOWED_MIME_TYPES = [
 ] as const;
 
 // ── Chat / Completions ───────────────────────────────────
-export const MAX_USER_MESSAGE_CHARS = 15_000;
+export const MAX_USER_MESSAGE_CHARS = 50_000;
 export const MAX_COMPLETION_MESSAGES = 50;
 export const MAX_COMPLETION_TOTAL_CHARS = 50_000;
 
@@ -98,6 +98,8 @@ export const MAX_ASSET_SIZE_OTHER = 10 * 1024 * 1024;  // 10 MB
 
 // ── Request body ─────────────────────────────────────────
 export const MAX_REQUEST_BODY_BYTES = 5 * 1024 * 1024; // 5 MB
+/** World create/save requests contain the complete project JSON. */
+export const MAX_WORLD_SAVE_BODY_BYTES = 10 * 1024 * 1024; // 10 MiB
 
 // ── Rate limit tiers ─────────────────────────────────────
 export type RateLimitTier =
@@ -118,8 +120,10 @@ export interface RateLimitConfig {
 }
 
 export const RATE_LIMITS: Record<RateLimitTier, RateLimitConfig> = {
-  "media-generation": { max: 30, windowSeconds: 3600 },
   "ai-generation":    { max: 6,   windowSeconds: 60 },
+  // ComfyUI image/video jobs. Real capacity control is the per-user active-job
+  // cap + mushie cost; this only stops scripted submit storms.
+  "media-generation": { max: 30,  windowSeconds: 3600 },
   "content-creation": { max: 60,  windowSeconds: 3600 },
   "community-replies":{ max: 30,  windowSeconds: 3600 },
   "social-actions":   { max: 60,  windowSeconds: 60 },

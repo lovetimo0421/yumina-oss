@@ -5,20 +5,63 @@
 // then the picture, or says why there isn't one.
 
 export type TurnImageFailureReason = "busy" | "timeout" | "unavailable" | "credits";
-export type TurnImageStatus = { status: "drawing" } | { status: "failed"; reason: TurnImageFailureReason };
+export type TurnImageStatus = { status: "drawing"; cancelling?: boolean; cancelFailed?: boolean } | { status: "cancelled" } | { status: "failed"; reason: TurnImageFailureReason };
 
 interface TurnImageSettings { available: boolean; auto: boolean }
 interface IllustrateResponse { ok: boolean; reason?: string; content?: string; charged?: number; balance?: number }
 
-const apiBase = import.meta.env.VITE_API_URL || "";
+const apiBase = import.meta.env?.VITE_API_URL || "";
 // Reasons the player is told about. "off", "nothing" and "stale" end quietly.
 const SHOWN_REASONS = new Set<string>(["busy", "timeout", "unavailable", "credits"]);
 
 let settings: Promise<TurnImageSettings | null> | null = null;
 // Latest draw per message: an older draw that finishes late (its reply was
 // regenerated meanwhile) must not clear the newer one's placeholder.
-const latestDraw = new Map<string, number>();
-let drawCounter = 0;
+const latestDraw = new Map<string, { id: string; cancellation?: Promise<boolean> }>();
+
+/** The server confirms both cancellation and refund before we clear the card. */
+export async function cancelTurnImage(messageId: string): Promise<boolean> {
+  const draw = latestDraw.get(messageId);
+  if (!draw) return false;
+  if (draw.cancellation) return draw.cancellation;
+  const { useChatStore } = await import("@/stores/chat");
+  const store = () => useChatStore.getState();
+  if (latestDraw.get(messageId) !== draw) return false;
+  // Recheck after the dynamic import: two clicks must share one request.
+  if (draw.cancellation) return draw.cancellation;
+  store().updateMessage(messageId, { turnImage: { status: "drawing", cancelling: true } });
+  draw.cancellation = (async () => {
+    try {
+      const r = await fetch(`${apiBase}/api/messages/${messageId}/illustrate/cancel`, {
+        method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ drawId: draw.id }), signal: AbortSignal.timeout(30_000),
+      });
+      if (!r.ok) throw new Error("Cancellation not confirmed");
+      const { data } = await r.json() as { data: { ok: boolean; status: string; content?: string; balance?: number } };
+      if (!data.ok && data.status !== "completed") throw new Error("Cancellation not confirmed");
+      if (latestDraw.get(messageId) !== draw) return data.ok;
+      latestDraw.delete(messageId);
+      if (typeof data.balance === "number") {
+        const { syncCreditsFromMessageResponse } = await import("@/edition/slots.state");
+        syncCreditsFromMessageResponse({ cost: 0, balance: data.balance });
+      }
+      const current = store().messages.find((m) => m.id === messageId);
+      if (current) {
+        if (data.status === "completed" && data.content) {
+          const active = current.activeSwipeIndex ?? 0;
+          const swipes = current.swipes?.map((s, i) => i === active ? { ...s, content: data.content! } : s);
+          store().updateMessage(messageId, { content: data.content, ...(swipes ? { swipes } : {}), turnImage: undefined });
+        } else store().updateMessage(messageId, { turnImage: { status: "cancelled" } });
+      }
+      forgetTurnImageSettings();
+      return data.ok;
+    } catch {
+      if (latestDraw.get(messageId) === draw) store().updateMessage(messageId, { turnImage: { status: "drawing", cancelFailed: true } });
+      return false;
+    } finally { draw.cancellation = undefined; }
+  })();
+  return draw.cancellation;
+}
 
 async function turnImageSettings(): Promise<TurnImageSettings | null> {
   settings ??= fetch(`${apiBase}/api/messages/turn-images/settings`, { credentials: "include" })
@@ -48,7 +91,7 @@ export async function drawTurnImage(messageId: string, auto: boolean, note?: str
   // A second click while drawing is ignored; an after-turn call always runs
   // (a regenerated reply replaces the one still drawing, which comes back stale).
   if (!auto && message.turnImage?.status === "drawing") return { ok: false, reason: "busy" };
-  const draw = ++drawCounter;
+  const draw = { id: crypto.randomUUID() } as { id: string; cancellation?: Promise<boolean> };
   latestDraw.set(messageId, draw);
   store().updateMessage(messageId, { turnImage: { status: "drawing" } });
 
@@ -58,15 +101,17 @@ export async function drawTurnImage(messageId: string, auto: boolean, note?: str
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ auto, ...(note ? { note } : {}), ...(fine ? { fine } : {}) }),
+      body: JSON.stringify({ drawId: draw.id, auto, ...(note ? { note } : {}), ...(fine ? { fine } : {}) }),
     });
-    // 403: the player hasn't opted in (Settings › Display › Experimental) — end quietly.
+    // 403: the player switched it off (Settings › Display › Story illustrations) — end quietly.
     result = r.ok ? ((await r.json()) as { data: IllustrateResponse }).data
       : { ok: false, reason: r.status === 403 ? "off" : "unavailable" };
   } catch {
     result = { ok: false, reason: "unavailable" };
   }
 
+  if (draw.cancellation) await draw.cancellation;
+  if (latestDraw.get(messageId) !== draw) return result;
   if (typeof result.balance === "number") {
     const { syncCreditsFromMessageResponse } = await import("@/edition/slots.state");
     syncCreditsFromMessageResponse({ cost: result.charged ?? 0, balance: result.balance });
@@ -84,6 +129,8 @@ export async function drawTurnImage(messageId: string, auto: boolean, note?: str
     const active = current.activeSwipeIndex ?? 0;
     const swipes = current.swipes?.map((s, i) => (i === active ? { ...s, content: result.content! } : s));
     store().updateMessage(messageId, { content: result.content, ...(swipes ? { swipes } : {}), turnImage: undefined });
+  } else if (result.reason === "cancelled") {
+    store().updateMessage(messageId, { turnImage: { status: "cancelled" } });
   } else if (result.reason && SHOWN_REASONS.has(result.reason)) {
     store().updateMessage(messageId, { turnImage: { status: "failed", reason: result.reason as TurnImageFailureReason } });
   } else {

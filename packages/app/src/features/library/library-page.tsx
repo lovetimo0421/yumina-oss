@@ -14,7 +14,7 @@ import { useEdition } from "@/edition/edition";
 import { LibraryDetailPanel } from "./library-detail-panel";
 import { LibraryFavoritesView } from "./library-favorites-view";
 import { useLibrarySearchStore, type LibraryTab } from "@/stores/library-search";
-import { Gamepad2, Hammer, Image, Package, ScrollText, Search } from "lucide-react";
+import { Gamepad2, Hammer, Image, Package, ScrollText } from "lucide-react";
 import {
   captureStoryReturnContext,
   navigateToStoryReturn,
@@ -28,6 +28,8 @@ export function LibraryPage() {
   const loading = useWorldsStore(s => s.loading);
   const fetchWorlds = useWorldsStore(s => s.fetchWorlds);
   const libraryLoading = useLibraryStore(s => s.loading);
+  const libraryItems = useLibraryStore(s => s.items);
+  const libraryFetchedAt = useLibraryStore(s => s.lastFetchedAt);
   const fetchLibrary = useLibraryStore(s => s.fetchLibrary);
   const { data: session } = useSession();
   const { isAuthenticated } = useAuthGuard();
@@ -97,6 +99,18 @@ export function LibraryPage() {
     setSelectedItem(null);
   }, [defaultViewRequestId, setActiveTab, features.library]);
 
+  // A creator with drafts and no installed games used to land on an empty
+  // Games shelf and wonder where their card went. Once both lists are in,
+  // open My Projects instead — once, so a deliberate tab choice sticks.
+  const autoOpenedProjects = useRef(false);
+  useEffect(() => {
+    if (autoOpenedProjects.current || !userId || loading || libraryLoading || !libraryFetchedAt) return;
+    if (activeTab !== "games" || libraryItems.length > 0 || view === "assets" || searchWorldId) return;
+    if (!worlds.some((world) => world.creatorId === userId)) return;
+    autoOpenedProjects.current = true;
+    setActiveTab("projects");
+  }, [activeTab, libraryFetchedAt, libraryItems.length, libraryLoading, loading, searchWorldId, setActiveTab, userId, view, worlds]);
+
   const searchSelectedItem = useMemo(() => {
     if (!searchWorldId || loading || worlds.length === 0 || !session?.user?.id) return null;
     return worlds.find((world) => world.id === searchWorldId) ?? null;
@@ -110,9 +124,14 @@ export function LibraryPage() {
     }
   }, [returnKey, returnTo, searchWorldId]);
 
-  const effectiveSelectedItem = selectedItem ?? searchSelectedItem;
-  const effectiveActiveTab: LibraryTab = searchSelectedItem
-    ? searchSelectedItem.creatorId === userId
+  // The URL is the source of truth. Browser Back only changes `?worldId=`, so a
+  // tapped selection that no longer matches it is stale and must not win —
+  // otherwise one card renders under another card's ownership (a stranger's
+  // game shown as "My Projects" with Edit and Download JSON unlocked).
+  const effectiveSelectedItem =
+    selectedItem && selectedItem.id === searchWorldId ? selectedItem : searchSelectedItem;
+  const effectiveActiveTab: LibraryTab = effectiveSelectedItem
+    ? effectiveSelectedItem.creatorId === userId
       ? "projects"
       : "games"
     : hiddenTabs.has(activeTab)
@@ -215,17 +234,6 @@ export function LibraryPage() {
             <h1 className="library-page-title text-4xl font-black text-foreground drop-shadow-lg">
               {t("page.title")}
             </h1>
-          </div>
-
-          <div className="library-header-search relative w-full md:max-w-[30rem]">
-            <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={t("page.searchPlaceholder")}
-              className="w-full rounded-full border border-white/5 bg-white/5 py-3 pl-11 pr-4 text-sm text-foreground placeholder:text-muted-foreground/60 transition-all focus:border-white/10 focus:bg-white/10 focus:outline-none"
-            />
           </div>
         </div>
 

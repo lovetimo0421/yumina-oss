@@ -44,6 +44,10 @@ interface UserProfile {
   defaultStoryMemory?: number | null;
   /** The server offers per-turn pictures (experimental; Settings shows the opt-in only then). */
   turnImagesOffered?: boolean;
+  /** The server offers scene video (experimental; the player and its Settings switch show only then). */
+  filmOffered?: boolean;
+  /** The fal live stream engine is available too. */
+  filmFalOffered?: boolean;
 }
 
 interface UserProfileState {
@@ -84,6 +88,8 @@ function mapProfileResponse(data: Record<string, unknown>): UserProfile {
     defaultStoryMemory: typeof data.defaultStoryMemory === "number" && Number.isFinite(data.defaultStoryMemory)
       ? data.defaultStoryMemory : null,
     turnImagesOffered: data.turnImagesOffered === true,
+    filmOffered: data.filmOffered === true,
+    filmFalOffered: data.filmFalOffered === true,
   };
 }
 

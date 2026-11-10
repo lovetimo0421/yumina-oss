@@ -1,5 +1,9 @@
+import { sameJson } from "../../lib/json-equality";
+
 interface Cursor { id: string; createdAt: string }
 interface Page<T> { data: T[]; meta?: { hasMore?: boolean } }
+interface RefreshResult<T> { messages: T; hasEarlierMessages: boolean }
+
 function compare(a: Cursor, b: Cursor): number {
   // Server timestamps preserve PostgreSQL microseconds. Date alone rounds
   // same-ms turns and can mistake a newer row for an older loaded boundary.
@@ -13,10 +17,18 @@ function compare(a: Cursor, b: Cursor): number {
 /** Refresh only the loaded range, in bounded pages. An authoritative reload of
  * that range handles deleted/reverted rows as well as edits; a blind union
  * with cached history would resurrect deleted messages. Commit atomically. */
+export function refreshMessageWindow<T extends Cursor>(
+  existing: T[],
+  load: (before?: Cursor) => Promise<Page<T>>,
+): Promise<RefreshResult<T[]> | null>;
+export function refreshMessageWindow<T extends Cursor>(
+  existing: readonly T[],
+  load: (before?: Cursor) => Promise<Page<T>>,
+): Promise<RefreshResult<readonly T[]> | null>;
 export async function refreshMessageWindow<T extends Cursor>(
   existing: readonly T[],
   load: (before?: Cursor) => Promise<Page<T>>,
-): Promise<{ messages: T[]; hasEarlierMessages: boolean } | null> {
+): Promise<RefreshResult<readonly T[]> | null> {
   const oldest = existing.find((row) => !row.id.startsWith("__pending_"));
   // Byte-limited pages can contain a single large turn. Bound by rows rather
   // than assuming 200 rows per request; cursor progress is checked below.
@@ -32,8 +44,11 @@ export async function refreshMessageWindow<T extends Cursor>(
     if (!response.meta?.hasMore || !first || !oldest || compare(first, oldest) <= 0) {
       const retained = oldest && response.meta?.hasMore
         ? result.filter((row) => compare(row, oldest) >= 0) : result;
+      const messages = [...new Map(retained.map((row) => [row.id, row])).values()];
       return {
-        messages: [...new Map(retained.map((row) => [row.id, row])).values()],
+        // A foreground reload of equal JSON must not replace history identity:
+        // pending state PATCH confirmations use that identity to detect restores.
+        messages: sameJson(existing, messages) ? existing : messages,
         hasEarlierMessages: Boolean(response.meta?.hasMore) || retained.length < result.length,
       };
     }

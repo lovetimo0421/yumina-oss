@@ -1,13 +1,16 @@
+import { refreshSessionGreeting } from "../lib/refresh-session-greeting.js";
+import { historyCacheBreakpoint } from "../lib/history-cache-breakpoint.js";
 import { bodyLimit } from "hono/body-limit";
+import { appendPendingContext } from "../lib/pending-context.js";
 import { loadMessagePage, messagePageCursor } from "../lib/message-page.js";
 import { validateChatImages, storeChatImages, restoreChatImages, imagePromptChars } from "../lib/chat-images.js";
 import { assertImageModel } from "../lib/llm/image-capability.js";
 import { usageObservation } from "../lib/usage-observation.js";
 import { edition } from "../edition/index.js";
 import { Hono } from "hono";
-import { setImmediate as yieldForIO } from "node:timers/promises";
 import { guardPrompt, TurnOutputAttempt, appendTurnStateChanges } from "../lib/turn-output-validation.js";
 import type { StateValidationAudit } from "@yumina/shared";
+import { setImmediate as yieldForIO } from "node:timers/promises";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { eq, and, or, desc, gt, lt, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -55,6 +58,7 @@ import { getUserApiKey, resolveOpenRouterKeyForUser, resolveProviderForModel } f
 import { isForkOrphaned } from "../lib/fork-orphan.js";
 import {
   GameStateManager,
+  matchWorldbookSwitches,
   PromptBuilder,
   ResponseParser,
   StructuredResponseParser,
@@ -71,12 +75,24 @@ import {
   preserveSetupScopedVariables,
   filterAiEffects,
   filterAiAudioEffects,
-  filterResumableAudioEffects,
   resolveSceneImageDirectives,
+  resolveBackgroundDirectives,
+  BACKGROUND_METADATA_KEY,
+  computeActiveWorldbookIds,
+  applyHistoryLimit,
+  resolveHistoryLimit,
+  resolveRequestedMaxContext,
+  filterResumableAudioEffects,
   hasImageVariable,
 } from "@yumina/engine";
-import type { WorldDefinition, GameEvent, Effect, Variable } from "@yumina/engine";
+import type { WorldDefinition, UserPrompt, GameEvent, Effect, Variable } from "@yumina/engine";
+import { applyReplyRules } from "@yumina/engine";
 import { applyJudgeSceneImages, continuityGloballyEnabled, runContinuityTurn } from "../lib/continuity/run.js";
+import { guardRebuiltBatch, repairMissedUpdates } from "../lib/continuity/missed-updates.js";
+import { buildChangeTrace, describeDroppedAiWrites } from "../lib/change-trace.js";
+import { appendVariableAudit, buildVariableAudit, type StoredVariableAudit } from "../lib/variable-audit.js";
+import { createPromptTracer } from "../lib/prompt-trace.js";
+import { liveSceneMessage, normalizeLiveScene, takeStoryEvents } from "../lib/live-scene.js";
 
 /** Last player line in a history slice — what the continuity judge reads
  *  alongside the reply on regenerate/continue, where no fresh message exists. */
@@ -84,7 +100,20 @@ function lastUserText(rows: ReadonlyArray<{ role: string; content: string }>): s
   for (let i = rows.length - 1; i >= 0; i--) if (rows[i]!.role === "user") return rows[i]!.content;
   return "";
 }
-
+import {
+  advanceRunMemories,
+  buildContextInputBlocks,
+  ensureActiveRunMemories,
+  invalidateRunMemoryText,
+  restoreRunMemories,
+  promptHistory,
+  type RunMemories,
+} from "../lib/run-scopes.js";
+import { pickNarratorModel } from "../lib/station-model.js";
+import { voiceTag } from "../lib/group-reply.js";
+import { scheduleRunSummary } from "../lib/run-summary.js";
+import { dueWorkers, scheduleWorkerRun } from "../lib/worker-station.js";
+import type { MessageContent, ContentPart } from "../lib/llm/types.js";
 import type { AppEnv } from "../lib/types.js";
 import { captureServerEvent } from "../lib/analytics.js";
 import { retrieveLorebookEntries } from "../lib/lorebook-retriever.js";
@@ -94,18 +123,21 @@ import { appendPersonaSystemMessage, buildPersonaSystemMessage } from "../lib/pe
 import { resolvePersonaForSession } from "../lib/resolve-persona.js";
 import { checkRateLimit, acquireConcurrency, releaseConcurrency, checkTurnImageRate, claimTurnImageDaily } from "../middleware/rate-limit.js";
 import { fineAvailable, illustrateTurn, stripTurnImages } from "../lib/per-turn-image/illustrate.js";
+import { stripTurnVideos } from "../lib/realtime-video/turn-clip.js";
 import { perTurnImagesEnabled, turnImagePrefs } from "../lib/per-turn-image/availability.js";
-import { refundTurnImage, reserveTurnImage, turnImageQuote } from "../lib/per-turn-image/billing.js";
+import { turnImageQuote } from "../lib/per-turn-image/billing.js";
+import { cancelTurnImageTask, deliverTurnImageTask, failTurnImageTask, recoverExpiredTurnImages, startTurnImageTask, watchTurnImageTask } from "../lib/per-turn-image/tasks.js";
 import { redis } from "../lib/redis.js";
-import { checkBalance, validateModelAccess, calculateCost, deductCredits, getModelCostRates, estimateCreditsFromChars, estimateTokensFromChars } from "../lib/credit-service.js";
+import { checkBalance, validateModelAccess, calculateCost, deductCreditsUpToBalance, getModelCostRates, estimateCreditsFromChars, estimateTokensFromChars } from "../lib/credit-service.js";
 import { insertHashedTransaction } from "../lib/transaction-hash.js";
+import { storySamplingParams } from "../lib/station-sampling.js";
 import { MidStreamTracker } from "../lib/credit-guard.js";
 import { PLANS } from "../lib/plan-config.js";
 import { getAllModelPrices } from "../lib/model-price-cache.js";
 import { getModelPopularity } from "../lib/model-popularity.js";
 import { getModelCostStats } from "../lib/model-cost-stats.js";
 import type { ModelCostStats } from "@yumina/shared";
-import { DEFAULT_MODEL, MAX_USER_MESSAGE_CHARS, PLAY_MODELS, PLAY_MODEL_IDS, RETIRED_PLAY_MODEL_IDS, resolveStoryMemory, resolveLorebookBudget } from "@yumina/shared";
+import { DEFAULT_MODEL, MAX_USER_MESSAGE_CHARS, PLAY_MODELS, PLAY_MODEL_IDS, RETIRED_PLAY_MODEL_IDS, resolveStoryMemory, resolveLorebookBudget, type StoryMemoryResolution } from "@yumina/shared";
 import { env } from "../lib/env.js";
 import {
   compactTurnOverflowIfNeeded,
@@ -113,6 +145,7 @@ import {
   injectMemoryPromptBlocks,
   loadBoundedRawHistory,
   loadTurnMemoryBlocks,
+  resolveTurnWorldDefinition,
   scheduleTurnMemoryUpdates,
   type TurnPromptMessage,
 } from "../lib/turn-memory.js";
@@ -124,7 +157,7 @@ import {
 import { generationBaseline, messageGenerationState, regenerationState, reconcileRegenerationState } from "../lib/regeneration-state.js";
 import { normalizeGameState, reconcileTurnState } from "../lib/game-state.js";
 import { thinSnapshotForStorage, pruneSessionSnapshots } from "../lib/snapshot.js";
-import { messageContentUpdate } from "../lib/message-edit.js";
+import { messageContentUpdate, messageEditWhere } from "../lib/message-edit.js";
 import { viewerSeesWorkingCopy } from "../lib/working-copy.js";
 import { resolveSessionVariables } from "../lib/pending-edit.js";
 import {
@@ -146,7 +179,7 @@ function turnStoryMemory(args: {
   override: number | undefined;
   maxContext: number;
   accountCreatedAt: Date | null | undefined;
-}): { tokens: number; source: "chosen" | "new-account-default" | "carried-over" } {
+}): StoryMemoryResolution {
   const raw = env.STORY_MEMORY_DEFAULT_AT;
   const parsed = raw ? Date.parse(raw) : Number.NaN;
   return resolveStoryMemory({
@@ -154,6 +187,7 @@ function turnStoryMemory(args: {
     maxContext: args.maxContext,
     accountCreatedAt: args.accountCreatedAt ?? null,
     newAccountsFrom: Number.isFinite(parsed) ? new Date(parsed) : null,
+    carriedOverDefault: env.STORY_MEMORY_CARRIED_OVER_DEFAULT ?? null,
   });
 }
 
@@ -209,8 +243,9 @@ async function resolveModel(requestedModel: string | undefined): Promise<string>
 }
 
 type SwipeWithUsage = {
-  modelFallback?: import("@yumina/shared").ModelFallbackRecord;
+  variableAudit?: StoredVariableAudit;
   stateValidation?: StateValidationAudit;
+  modelFallback?: import("@yumina/shared").ModelFallbackRecord;
   content: string;
   rawContent?: string;
   stateChanges?: Record<string, unknown>;
@@ -328,6 +363,16 @@ function computeCacheDepthOffset(worldDef: WorldDefinition): number {
 const reactionEvaluator = new ReactionEvaluator();
 const promptBuilder = new PromptBuilder();
 const responseParser = new ResponseParser();
+
+/** Apply a `[bg: id]` the reply asked for.
+ *
+ *  Stored in metadata, not as a variable: `currentBg` is the platform's own
+ *  slot, and GameStateManager refuses a write to a variable the world never
+ *  declared. Unknown handles never reach here — the resolver dropped them. */
+function applyBackgroundDirective(stateManager: GameStateManager, backgroundId: string | null): void {
+  if (!backgroundId) return;
+  stateManager.setMetadata(BACKGROUND_METADATA_KEY, backgroundId);
+}
 
 /** The session's gallery record: every scene image the story has shown so
  *  far, kept in state metadata like `activeAudio` so it survives reloads and
@@ -472,7 +517,13 @@ function setCachedWorldDef(worldId: string, updatedAt: Date | null, worldDef: Wo
   worldDefCache.set(worldId, { worldDef, updatedAt: updatedAt.getTime() });
 }
 
-async function loadSessionContext(sessionId: string, userId: string) {
+/**
+ * `closeWhenCreatorBlocked`: generation routes pass it so a block in either
+ * direction between the player and the card's creator reads as "not found",
+ * matching GET /api/worlds/:id. It answers before the multi-MB schema load.
+ * Edit/delete/swipe bookkeeping on the player's own rows leaves it off.
+ */
+async function loadSessionContext(sessionId: string, userId: string, opts: { closeWhenCreatorBlocked?: boolean } = {}) {
   // Lightweight query: pull session + world metadata + updatedAt, but NOT the
   // multi-MB schema JSONB. Schema is fetched separately on cache miss only.
   const rows = await db
@@ -489,6 +540,9 @@ async function loadSessionContext(sessionId: string, userId: string) {
       sourceWorldIsPublished: sourceWorld.isPublished,
       sourceWorldPublishedAt: sourceWorld.publishedAt,
       sourceWorldCreatorId: sourceWorld.creatorId,
+      // Folded into this query so generation pays no extra round trip; each
+      // direction is a user_blocks_pair_uniq index probe. Other callers skip it.
+      creatorBlocked: !opts.closeWhenCreatorBlocked ? sql<boolean>`FALSE` : sql<boolean>`EXISTS (SELECT 1 FROM user_blocks ub WHERE ${worlds.creatorId} <> ${userId} AND ((ub.blocker_id = ${userId} AND ub.blocked_id = ${worlds.creatorId}) OR (ub.blocker_id = ${worlds.creatorId} AND ub.blocked_id = ${userId})))`,
     })
     .from(playSessions)
     .innerJoin(worlds, eq(playSessions.worldId, worlds.id))
@@ -500,6 +554,7 @@ async function loadSessionContext(sessionId: string, userId: string) {
   if (rows.length === 0) return null;
 
   const row = rows[0]!;
+  if (opts.closeWhenCreatorBlocked && row.creatorBlocked) return null;
   const sourceWorldTakenDown = isForkOrphaned({
     sourceWorldId: row.worldSourceWorldId,
     sourceStatus: row.sourceWorldStatus,
@@ -562,6 +617,7 @@ async function loadSessionContext(sessionId: string, userId: string) {
     worldDef = { ...worldDef, continuity: { ...worldDef.continuity, enabled: false } };
   }
 
+  await refreshSessionGreeting(sessionId, userId, worldDef);
   const gameState = normalizeGameState(worldDef, row.session.state);
 
   return {
@@ -702,6 +758,8 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     retryMessageId?: string;
     modelFallback?: unknown;
     attachments?: Array<{ type: string; data: string; mimeType: string; name: string }>;
+    /** 现场: what the card's interface shows right now (api.setScene). */
+    scene?: unknown;
     overrides?: {
       maxTokens?: number;
       maxContext?: number;
@@ -735,7 +793,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     }, 400);
   }
 
-  const context = await loadSessionContext(sessionId, currentUser.id);
+  const context = await loadSessionContext(sessionId, currentUser.id, { closeWhenCreatorBlocked: true });
   if (!context) {
     return c.json({ error: "Session not found" }, 404);
   }
@@ -757,7 +815,8 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     );
   }
 
-  const { worldDef, gameState } = context;
+  let { worldDef } = context;
+  const { gameState } = context;
   if (worldDef.systems?.includes("kochuu-survival-v1")) {
     const status = new GameStateManager(worldDef, gameState).get("game-status");
     if (status === "dead" || status === "won") return c.json({ error: "本局已结束。可查看记录、回退或重新开局。", code: "GAME_ENDED" }, 409);
@@ -783,19 +842,47 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   const effectiveGameState =
     characterCreation?.seededState ?? gameState;
 
-  const model = await resolveModel(body.model);
-  const [activeUserPrompts] = await Promise.all([
-    loadUserPrompts(currentUser.id, { modelId: model }),
-  ]);
+  // A keyword switch chooses both the narrator's prompt AND its model for
+  // this turn. Resolve it before provider access/credit checks, not afterward.
+  const stateManager = new GameStateManager(worldDef, effectiveGameState);
+  // A behaviour's "tell the AI for N turns" lasts N replies. Nothing expired
+  // directives, so every timed one stayed in the prompt for the rest of the
+  // session. Drop the ones that ran out, against the turn they were counted
+  // from, before this turn starts (the generation baseline that regenerate
+  // reuses is taken after this).
+  const expiredDirectives = stateManager.expireDirectives(stateManager.getSnapshot().turnCount);
+  if (expiredDirectives.length > 0) {
+    console.log(`[Messages] ${sessionId} expired ${expiredDirectives.length} timed directive(s): ${expiredDirectives.map((d) => `${d.id}@${d.injectedAtTurn}+${d.duration ?? "once"}`).join(", ")}`);
+  }
+  stateManager.incrementTurn();
+  const moduleSwitch = matchWorldbookSwitches(
+    worldDef.worldbooks,
+    rawUserContent,
+    stateManager.getRuleState().toggledWorldbooks ?? {},
+  );
+  for (const id of moduleSwitch.on) stateManager.toggleWorldbook(id, true);
+  for (const id of moduleSwitch.off) stateManager.toggleWorldbook(id, false);
+
+  const playerModel = await resolveModel(body.model);
 
   // Protected worlds (allowCustomApi=false) must use official keys to prevent prompt leaking via BYOK
   const isProtectedWorld = context.worldAllowCustomApi === false && context.worldCreatorId !== currentUser.id;
+  // 模块总控: the active narrator station may ask for its own model.
+  const { model, station: narratorStation } = await pickNarratorModel({
+    worldDef,
+    state: stateManager.getSnapshot(),
+    playerModel,
+    userId: currentUser.id,
+    forceOfficial: isProtectedWorld,
+  });
+  // After the narrator pick, so per-model-bound prompts match the model that generates.
+  const activeUserPrompts = await loadUserPrompts(currentUser.id, { modelId: model });
   const resolved = await resolveProviderForModel(currentUser.id, model, { forceOfficial: isProtectedWorld, allowRetiredForAccessCheck: true });
   if (!resolved) {
     if (isProtectedWorld) {
       return c.json({ error: "This world requires an official model. The creator has restricted this world to protect its content.", code: "PROTECTED_WORLD" }, 403);
     }
-    return c.json({ error: "No API key configured for this provider. Add one in Settings." }, 400);
+    return c.json({ error: "No API key configured for this provider. Add one in Settings.", code: "NO_API_KEY" }, 400);
   }
 
   // Official key users get rate limiting, concurrency limits, credit checks, and suspend checks.
@@ -841,7 +928,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     }
   };
   const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
-  const rawMaxContext = clamp(body.overrides?.maxContext ?? worldDef.settings?.maxContext ?? 200000, 4096, 2000000);
+  const rawMaxContext = clamp(resolveRequestedMaxContext(worldDef.settings, body.overrides?.maxContext), 4096, 2000000);
   const userMaxContext = (useProtections && walletCheck?.wallet.memoryCap) ? Math.min(rawMaxContext, walletCheck.wallet.memoryCap) : rawMaxContext;
   // Clamp to the selected model's real context window so a big world + long history
   // never overflows it (e.g. DeepSeek's 163,840 cap → OpenRouter pre-flight 400).
@@ -895,7 +982,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   const attachmentMeta = inputImages.length ? await storeChatImages(currentUser.id, inputImages) : undefined;
 
   // Save user message (skip in continue mode — no new user message)
-  let userMsg: { id: string } | null = null;
+  let userMsg: { id: string; createdAt?: Date | null } | null = null;
   if (!isContinueMode) {
     // Mix-mode auto-retry re-POSTs the same send after a mid-generation error,
     // but attempt #1 already persisted the user row (the insert runs before the
@@ -918,7 +1005,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
         latest.createdAt != null &&
         Date.now() - latest.createdAt.getTime() < 2 * 60 * 1000)
       ) {
-        userMsg = { id: latest!.id };
+        userMsg = { id: latest!.id, createdAt: latest!.createdAt };
       }
     }
     if (typeof body.retryMessageId === "string" && !userMsg) {
@@ -955,27 +1042,44 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     }
   }
 
+  if (characterCreation) {
+    // Extensions reset their derived per-session state (summaries, memory);
+    // the returned fields merge into this one atomic update with the state.
+    const invalidation = collectExtensionInvalidation({ reason: "character-creation", sessionId });
+    context.session.runMemories = restoreRunMemories(null, worldDef.worldbooks, effectiveGameState,
+      (userMsg?.createdAt ?? new Date()).toISOString(), crypto.randomUUID()) as unknown as Record<string, unknown>;
+    await db
+      .update(playSessions)
+      .set({
+        state: effectiveGameState as unknown as Record<string, unknown>,
+        ...invalidation.sessionFields,
+        runMemories: context.session.runMemories,
+        updatedAt: new Date(),
+      })
+      .where(eq(playSessions.id, sessionId));
+    await invalidation.runAfter();
+  }
+
   const turnMemory = await loadTurnMemoryBlocks({
     ownerUserId: context.session.userId,
     sessionId,
     session: context.session,
+    world: worldDef,
     suppressSummaryBlocks: Boolean(characterCreation),
   });
-  const outputContract = guardPrompt(turnMemory.dispatch);
+  worldDef = await resolveTurnWorldDefinition(turnMemory, context.session, worldDef);
   // No awaited compaction anywhere on this path: the post-turn background job
   // owns threshold compaction (a one-turn summary lag by design), and the
   // final-budget overflow pass below only SCHEDULES background compaction —
   // this turn trims, the repaired summary lands next turn.
 
   // Build prompt
-  const stateManager = new GameStateManager(worldDef, effectiveGameState);
-  stateManager.incrementTurn();
 
   // Load non-compacted message history for AI prompt (compacted ones excluded).
   // Bounded window (newest RAW_HISTORY_MAX_ROWS) — the clamp keeps only the
   // recent tail that fits maxContext anyway; loading the full backlog froze
   // the event loop on mega sessions (2026-08-11 outage).
-  const historyRows = await loadBoundedRawHistory(sessionId, turnMemory);
+  const historyRows = await loadBoundedRawHistory(sessionId, turnMemory, { activeUserMessageId: userMsg?.id });
   const currentRunHistory = limitHistoryToCurrentRun(historyRows);
 
   // Populate macro context (lastMessage, lastUserMessage, etc.)
@@ -994,6 +1098,11 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   });
 
   const snapshot = stateManager.getSnapshot();
+  const outputContract = guardPrompt(turnMemory.dispatch, { world: worldDef, state: snapshot });
+  const turnBoundaryAt = new Date(userMsg?.createdAt ?? currentRunHistory.at(-1)?.createdAt ?? Date.now()).toISOString();
+  const initialRunMemories = (context.session.runMemories as RunMemories | null) ?? null;
+  const promptRunMemories = advanceRunMemories(initialRunMemories, worldDef.worldbooks,
+    effectiveGameState, snapshot, snapshot, turnBoundaryAt, turnBoundaryAt).memories;
 
   // Deterministic entry retrieval (engine-level matching)
   const scanDepth = worldDef.settings?.lorebookScanDepth ?? 2;
@@ -1032,24 +1141,30 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
 
   // 1. System messages — only alwaysSend entries (stable prefix for caching)
   const systemMessages = promptBuilder.buildSystemMessages(worldDef, snapshot, undefined, activeUserPrompts, snapshot.ruleState?.activeDirectives ?? [], snapshot.ruleState?.toggledEntries ?? {});
+  const promptTracer = createPromptTracer();
   contextMessages.push(...systemMessages);
+  promptTracer.take(contextMessages, "lore");
 
   // 1.5. Auto-inject active persona description into prompt
   appendPersonaSystemMessage(contextMessages, activePersona);
+  promptTracer.take(contextMessages, "persona");
 
-  // 2. Static format reference — behavior rules, directive syntax, audio (cacheable, per-world constant)
+  // 2. Authored format reference — stable while runtime eligibility is unchanged.
   const staticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef, {
-    activeGreetingId: stateManager.getSnapshot().activeGreetingId,
+    activeGreetingId: snapshot.activeGreetingId,
+    state: snapshot,
   });
   if (staticFormatBlock) {
     contextMessages.push({ role: "system", content: staticFormatBlock });
   }
+  promptTracer.take(contextMessages, "platform");
 
   // 3. Example dialogue (parsed into user/assistant pairs with [Example Chat] markers)
   const exampleMessages = promptBuilder.buildExampleMessages(worldDef, snapshot, undefined, activeUserPrompts, snapshot.ruleState?.toggledEntries ?? {});
   if (exampleMessages.length > 0) {
     contextMessages.push(...exampleMessages);
   }
+  promptTracer.take(contextMessages, "examples");
 
   // Mark the stable prefix boundary for caching — everything above is alwaysSend + persona + static + examples,
   // all of which are invariant across turns. Keyword-triggered system entries go AFTER this boundary so they
@@ -1062,6 +1177,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   if (triggeredSystemMessages.length > 0) {
     contextMessages.push(...triggeredSystemMessages);
   }
+  promptTracer.take(contextMessages, "lore-triggered");
 
   // 3.3. [Start a new Chat] marker before real history
   if (currentRunHistory.length > 0) {
@@ -1070,25 +1186,61 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
 
   // 3.5 Inject memory blocks (story summary / summaryception / session memory)
   const memoryIndices = injectMemoryPromptBlocks(contextMessages, turnMemory);
+  promptTracer.take(contextMessages, "memory");
+
+  // 3.7. 副本记忆: the narrating module's memory scope (own runs only, when
+  // it says so) and then the archive fold — messages of a CLOSED run of an
+  // archiving module leave the context, replaced by that run's memory block
+  // (lib/run-scopes.ts). Prompt-side only: the stored transcript keeps every
+  // word, and macros/lorebook-scan above read the real tail.
+  const activeBookIdsNow = computeActiveWorldbookIds(worldDef.worldbooks, snapshot);
+  const runFold = promptHistory(
+    currentRunHistory,
+    promptRunMemories,
+    worldDef.worldbooks,
+    activeBookIdsNow,
+  );
+
+  // 3.8. 记忆订阅: while a subscriber module is active, its sources' archived
+  // runs stand in the context — regardless of how far the actual messages
+  // have scrolled out of the window — skipping any run whose fold block is
+  // already visible in the history below.
+  for (const block of buildContextInputBlocks({
+    worldbooks: worldDef.worldbooks,
+    activeBookIds: activeBookIdsNow,
+    memories: promptRunMemories,
+    alreadyInHistory: runFold.emittedRecords,
+    rows: currentRunHistory,
+    variables: worldDef.variables,
+    state: snapshot,
+  })) {
+    contextMessages.push(block);
+  }
+  promptTracer.take(contextMessages, "inputs");
 
   // 4. Actual message history (with depth entries injected)
   const depthEntries = promptBuilder.buildDepthEntries(worldDef, snapshot, matchedEntries, activeUserPrompts, snapshot.ruleState?.toggledEntries ?? {});
-  const historyMessages: PromptMessage[] = currentRunHistory.map((m) => ({
+  // Author-controlled window: the latest N messages only (card or narrating
+  // module setting). Prompt-side only — the transcript keeps every word.
+  const historyWindow = applyHistoryLimit(runFold.rows, resolveHistoryLimit(worldDef, activeBookIdsNow));
+  const historyMessages: PromptMessage[] = historyWindow.map((m) => ({
     role: m.role as "user" | "assistant" | "system",
     content: m.content,
-    sourceMessageId: m.id,
-    imageTokens: m.imageTokens,
+    sourceMessageId: "id" in m ? m.id : undefined,
+    imageTokens: "imageTokens" in m ? m.imageTokens : 0,
   }));
 
+  promptTracer.takeHistory(historyMessages);
+  const injectedDepthMessages = new Set<PromptMessage>();
   for (const de of depthEntries) {
     const insertIdx = Math.max(0, historyMessages.length - de.depth);
-    historyMessages.splice(insertIdx, 0, {
-      role: de.apiRole,
-      content: de.content,
-    });
+    const injected: PromptMessage = { role: de.apiRole, content: de.content };
+    injectedDepthMessages.add(injected);
+    historyMessages.splice(insertIdx, 0, injected);
   }
 
   let historyStart = contextMessages.length;
+  promptTracer.take(historyMessages, "lore-triggered");
   contextMessages.push(...historyMessages);
 
   // 7. Triggered lorebook entries now flow through buildDepthEntries (injected at depth 0 by default).
@@ -1106,6 +1258,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     // Clear pending context so it's only injected once
     stateManager.setMetadata("pendingContext", undefined);
   }
+  promptTracer.take(contextMessages, "pending");
 
   // 8. Format instructions + variable summary (only if world has variables or audio)
   const lastTurnChanges = await loadLastTurnChanges(currentRunHistory);
@@ -1113,12 +1266,21 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   if (formatBlock) {
     contextMessages.push({ role: "system", content: formatBlock });
   }
+  promptTracer.take(contextMessages, "state");
+  const liveScene = normalizeLiveScene(body.scene);
+  if (liveScene) {
+    const sceneMessage = liveSceneMessage(liveScene);
+    contextMessages.push(sceneMessage);
+    promptTracer.tag(sceneMessage, "scene");
+  }
+  // 游戏数据: only what the answering AI is wired to read.
 
   // 9. Post-history entries (jailbreak / post-history instructions — after all chat)
   const postHistoryEntries = promptBuilder.buildPostHistoryEntries(worldDef, snapshot, matchedEntries, activeUserPrompts);
   for (const entry of postHistoryEntries) {
     contextMessages.push({ role: entry.apiRole, content: entry.content });
   }
+  promptTracer.take(contextMessages, "post");
 
   const antiRepetitionInstruction = antiRepetitionInstructionForModel(model);
   if (antiRepetitionInstruction) {
@@ -1126,7 +1288,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   }
 
   // Trim only chat history (middle), preserving system prefix + post-history suffix
-  const suffixCount = postHistoryEntries.length + (formatBlock ? 1 : 0) + (antiRepetitionInstruction ? 1 : 0);
+  const suffixCount = postHistoryEntries.length + (formatBlock ? 1 : 0) + (liveScene ? 1 : 0) + (antiRepetitionInstruction ? 1 : 0);
   // Depth entries and pending context live INSIDE the trim window but are not
   // conversation. Story memory is a budget for what the player said and the
   // AI replied; a world that injects a lot of keyword-triggered lore must not
@@ -1162,6 +1324,9 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
     suffixCount,
     model,
     historyWindowBudget,
+    // The step is sized from the chosen story memory, not the per-turn
+    // allowance above, so the trim boundaries hold still between turns.
+    storyMemory.tokens,
   );
 
   if (outputContract.content) chatMessages.push({ role: "system", content: outputContract.content });
@@ -1169,7 +1334,11 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
   // (max of MIN_CACHE_DEPTH_OFFSET and deepest keyword-triggered depth + 1) so every
   // volatile depth entry lands in the uncached tail.
   const cacheDepthOffset = computeCacheDepthOffset(worldDef);
-  const cacheBreakpointIndex = chatMessages.length - 1 - suffixCount - (outputContract.content ? 1 : 0) - cacheDepthOffset;
+  const cacheBreakpointIndex = historyCacheBreakpoint(
+    chatMessages,
+    injectedDepthMessages,
+    chatMessages.length - 1 - suffixCount - (outputContract.content ? 1 : 0) - cacheDepthOffset,
+  );
 
   // Two-breakpoint caching: (1) end of stable prefix (cheap insurance if triggered system
   // entries ever fire — always-send content stays cached), (2) depth-resilient floor.
@@ -1251,11 +1420,11 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
 
     const stopKeepalive = startKeepalive(stream);
     let actualModel = model;
+    let correctionModel = model;
     // OpenRouter generation id seen on streamed chunks — lets an explicit stop
     // be settled against the provider's billed cost (lib/stopped-generation.ts).
     let observedProviderRequestId: string | undefined;
     let pendingFallbackError: ReturnType<typeof modelFallbackError> = null;
-    let correctionModel = model;
     // Set when Yumina Free's pool was exhausted upstream and the provider
     // re-ran this turn on the paid fallback. It keeps the turn billed at
     // Free's zero rate — see FREE_ROUTER_FALLBACK_MODEL.
@@ -1293,15 +1462,11 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
         model,
         messages: providerMessages,
         maxTokens: clamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
-        temperature: clamp(body.overrides?.temperature ?? worldDef.settings?.temperature ?? 1.0, 0, 2),
-        topP: body.overrides?.topP ?? worldDef.settings?.topP,
-        frequencyPenalty: body.overrides?.frequencyPenalty ?? worldDef.settings?.frequencyPenalty,
-        presencePenalty: body.overrides?.presencePenalty ?? worldDef.settings?.presencePenalty,
+        // The player's sampling unless the card locked its own (samplingPolicy "author").
+        ...storySamplingParams(worldDef.settings, body.overrides, clamp),
         repetitionPenalty: antiRepetitionInstruction
           ? body.overrides?.repetitionPenalty
           : undefined,
-        topK: body.overrides?.topK ?? worldDef.settings?.topK,
-        minP: body.overrides?.minP ?? worldDef.settings?.minP,
         reasoningEffort: body.overrides?.reasoningEffort,
         // When the user disables streaming in settings, body.overrides.streaming === false.
         // Undefined/true falls through to the provider's default streaming path.
@@ -1347,9 +1512,9 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           });
         }
 
-        if (chunk.type === "text") {
-          if (chunk.providerRequestId) observedProviderRequestId = chunk.providerRequestId;
-          fullContent += chunk.content;
+        // Reasoning is billed output too: count it toward the balance, or a long
+        // think runs past what the player can pay before any text arrives.
+        if (chunk.type === "reasoning" || chunk.type === "text") {
           streamedOutputChars += chunk.content.length;
 
           // Mid-stream credit check: stop if estimated cost exceeds balance.
@@ -1387,6 +1552,11 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
               return;
             }
           }
+        }
+
+        if (chunk.type === "text") {
+          if (chunk.providerRequestId) observedProviderRequestId = chunk.providerRequestId;
+          fullContent += chunk.content;
 
           // Filter out leaked thinking blocks (e.g. Gemini Flash Lite <fiction-mode> reasoning)
           const filtered = receiptFilter.push(thinkingFilter.push(chunk.content));
@@ -1434,7 +1604,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           // Record the failure on the user row. Before this, a failed turn left
           // zero trace in the DB: the player saw silence and we could only find
           // failures by hunting for orphaned user messages. See lib/turn-failure.ts.
-          const failure = classifyGenerationFailure(chunk.content);
+          const failure = classifyGenerationFailure(chunk.content, { isByok: resolved.isByok });
           await markTurnFailed(userMsg?.id, failure.message, failure.code);
           await sse({
             event: "error",
@@ -1477,7 +1647,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           // Parse response — use structured parser for JSON responses, regex for others
           const legacyParsed = structuredParser.isStructuredResponse(fullContent)
             ? structuredParser.parse(fullContent)
-            : responseParser.parse(fullContent, undefined, { shieldImages: !hasImageVariable(worldDef) });
+            : responseParser.parse(fullContent, undefined, { shieldImages: !hasImageVariable(worldDef), world: worldDef });
           const { parsed: parseResult } = await outputAttempt.validate({
             world: worldDef, state: stateManager.getSnapshot(), raw: fullContent, parsed: legacyParsed,
             provider: provider, model: correctionModel, maxContext: maxContext, signal: abortController.signal,
@@ -1486,11 +1656,26 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           }, async (audit) => { await sse({ event: "state-validation", data: JSON.stringify(audit) }); });
           let cleanText = parseResult.cleanText;
           const effects = parseResult.effects;
+          // 回复处理: the card's rules take tagged blocks out of the reply.
+          const replyRules = applyReplyRules(worldDef, cleanText);
+          cleanText = replyRules.text;
+          effects.push(...replyRules.effects);
+          // State the story model forgot to write (decision model spots it, the
+          // platform correction model writes only those variables).
+          const missed = await repairMissedUpdates({
+            world: worldDef, state: stateManager.getSnapshot(), playerText: userContent, replyText: cleanText, effects,
+            guardCorrected: guardRebuiltBatch(outputAttempt.audit),
+            userId: currentUser.id, sessionId, path: "send", signal: abortController.signal,
+            unapplied: parseResult.unapplied, storyModel: actualModel,
+          });
+          effects.push(...missed.effects);
+          const storyEvents = takeStoryEvents(effects, worldDef, liveScene);
+          storyEvents.push(...replyRules.events);
           const choices: string[] = [];
           const parserAudioEffects = filterAiAudioEffects(worldDef.audioTracks ?? [], parseResult.audioEffects);
 
           // Fallback: if no effects but content looks like it has segments, use incremental extractor
-          if (!outputAttempt.enabled && effects.length === 0 && fullContent.includes('"segments"')) {
+          if (!outputAttempt.guarding && effects.length === 0 && fullContent.includes('"segments"')) {
             console.warn("[Messages] No effects from parser — attempting fallback segment extraction");
             const fallbackExtractor = new IncrementalSegmentExtractor();
             const stripped = fullContent.replace(/^```(?:json|JSON)?\s*\n?/, "").replace(/\n?\s*```\s*$/, "");
@@ -1518,17 +1703,24 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
             hasAudioDirective: parseResult.audioEffects.length > 0,
             userId: currentUser.id, sessionId, path: "send", signal: abortController.signal,
             playerOpenRouterKey: turnPlayerOpenRouterKey(resolved, currentUser.id),
+            storyEffects: effects,
           });
           cleanText = applyJudgeSceneImages(worldDef, cleanText, continuity);
-          // The per-turn picture is drawn after the turn (POST /messages/:id/illustrate);
-          // drop any the model copied from an earlier reply in its history.
-          cleanText = stripTurnImages(cleanText);
+          // The per-turn picture and clip come after the turn (POST /messages/:id/illustrate,
+          // /realtime-video/turn-clip/:id); drop any the model copied from an earlier reply.
+          cleanText = stripTurnVideos(stripTurnImages(cleanText));
 
           // Expand `[image: handle]` scene directives into the shared embed
           // syntax before the text is persisted or rendered anywhere.
           const sceneImageResult = resolveSceneImageDirectives(cleanText, worldDef.sceneImages ?? []);
           cleanText = sceneImageResult.text;
           rememberRevealedSceneImages(stateManager, sceneImageResult.shown);
+
+          // `[bg: id]` is an instruction to the renderer, not body text — the
+          // resolver strips it and hands back the handle to store.
+          const bgResult = resolveBackgroundDirectives(cleanText, worldDef.backgrounds ?? []);
+          cleanText = bgResult.text;
+          applyBackgroundDirective(stateManager, bgResult.backgroundId);
 
           // Whether anything reached the user. Used below to (a) tag the usage_log
           // so we can monitor empty-response rates per model, and (b) skip credit
@@ -1541,12 +1733,14 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           if (aiWriteFilter.dropped.length > 0) {
             console.log(`[Messages] Dropped ${aiWriteFilter.dropped.length} AI directive(s) to non-AI-writable vars: ${aiWriteFilter.dropped.map((e) => e.variableId).join(", ")}`);
           }
+          const droppedAiWrites = describeDroppedAiWrites(worldDef, stateManager.getSnapshot(), aiWriteFilter.dropped);
           const changes = stateManager.applyEffects([...aiWriteFilter.kept, ...continuity.effects]);
           // A refused write is a model fumbling JSON syntax over a whole list
           // (`[items: set delete 1, delete 0]`). The engine keeps the old value;
           // say so, because the failure is otherwise invisible until a player
           // notices their inventory is gone.
           const rejectedWrites = stateManager.drainRejectedWrites();
+          const blockedAiWrites = stateManager.drainBlockedWrites();
           if (rejectedWrites.length > 0) {
             console.log(`[Messages] Refused ${rejectedWrites.length} malformed JSON write(s): ${rejectedWrites.map((w) => w.variableId).join(", ")}`);
           }
@@ -1577,10 +1771,17 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
             turnEvents,
             worldDef.reactions ?? [],
             worldDef.rules ?? [],
+            { worldbooks: worldDef.worldbooks },
           );
           const ruleChanges = systemResult.changes;
           const allChanges = [...seedChanges, ...changes, ...ruleChanges];
+          const blockedRuleWrites = stateManager.drainBlockedWrites();
           outputAttempt.recordChanges(changes, ruleChanges);
+          const changeTrace = buildChangeTrace({
+            world: worldDef, repairEffects: missed.effects, guardCorrected: guardRebuiltBatch(outputAttempt.audit),
+            setupCount: seedChanges.length, aiAndJudge: changes, judgeEffects: continuity.effects, kept: aiWriteFilter.kept,
+            rules: systemResult, dropped: droppedAiWrites, rejected: rejectedWrites, decisions: continuity.decisions, questions: continuity.questions,
+          });
 
           // Collect all audio effects (from parser + from @ system effects)
           // Judge-picked audio sits between the AI's own directives and the
@@ -1598,9 +1799,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           }
 
           // Store pending context messages for next turn (from @ai.context / @prompt.context)
-          if (systemResult.contextMessages.length > 0) {
-            stateManager.setMetadata("pendingContext", systemResult.contextMessages);
-          }
+          appendPendingContext(stateManager, systemResult.contextMessages);
 
           const finalState = stateManager.getSnapshot();
 
@@ -1700,9 +1899,9 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
             return;
           }
 
-          // A policy refusal ("我无法满足…" / "I can't continue…") is kept and
-          // billed like any reply; the flag only lets the client offer a
-          // switch-model / unrestrict bar under it.
+          // A policy refusal ("我无法满足…" / "I can't continue…") is kept but
+          // not billed (see wasFiltered below); the flag lets the client offer
+          // a switch-model / unrestrict bar under it.
           const isRefusal = detectRefusal(cleanText);
           if (isRefusal) {
             captureServerEvent(currentUser.id, "llm_refusal_detected", {
@@ -1730,6 +1929,10 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
             return;
           }
 
+          // 副本 run boundaries: did this turn's effects open or close a
+          // runScoped module? Detected against the pre-turn state; recorded
+          // atomically with the state save below so a crash can't leave the
+          // ledger disagreeing with the state that moved it.
           // Save assistant message + update session state atomically
           outputAttempt.audit.appliedCount = changes.length;
           if (useProtections && !planConfig.unlimited && hasVisibleContent && !(grokTrialBypass && actualModel === GROK_TRIAL_MODEL)
@@ -1738,20 +1941,30 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
             await outputAttempt.prepareStoryCharge({ model: actualModel, promptTokens: chunk.usage?.promptTokens ?? 0,
               completionTokens: chunk.usage?.completionTokens ?? 0, providerCostUsd: freeRouterFallbackServed ? undefined : chunk.usage?.providerCostUsd });
           }
-          const { assistantMsg, persistedState } = await db.transaction(async (tx) => {
+          const { assistantMsg, closedRunRecords, persistedState, runGeneration } = await db.transaction(async (tx) => {
             // Lock + re-read the session row BEFORE writing. A card's custom UI
             // patches state through PATCH /:id/state while this turn streams
             // (every api.setVariable); the blind `set state = finalState` below
             // used to destroy every one of those writes. Reconcile instead:
             // this turn only owns the keys it actually changed.
             const lockedSession = await tx.execute(
-              sql`SELECT state FROM play_sessions WHERE id = ${sessionId} FOR UPDATE`,
+              sql`SELECT state, run_memories FROM play_sessions WHERE id = ${sessionId} FOR UPDATE`,
             );
-            const liveState = (lockedSession.rows[0] as { state: Record<string, unknown> } | undefined)?.state;
-            await outputAttempt.checkCommit(tx, liveState, finalState);
-            const turnState = reconcileTurnState(worldDef, liveState, effectiveGameState, finalState);
+            const lockedSessionRow = lockedSession.rows[0] as
+              | { state: Record<string, unknown>; run_memories?: RunMemories | null }
+              | undefined;
+            if (!lockedSessionRow || lockedSessionRow.run_memories?.generation !== initialRunMemories?.generation) {
+              throw new Error("Session history changed while generating. Please retry this turn.");
+            }
+            await outputAttempt.checkCommit(tx, lockedSessionRow.state, finalState);
             const generationSnapshot = thinSnapshotForStorage(
-              generationBaseline(worldDef, liveState, effectiveGameState, snapshot, finalState) as unknown as Record<string, unknown>,
+              generationBaseline(worldDef, lockedSessionRow.state, effectiveGameState, snapshot, finalState) as unknown as Record<string, unknown>,
+            );
+            const turnState = reconcileTurnState(
+              worldDef,
+              lockedSessionRow?.state,
+              effectiveGameState,
+              finalState,
             );
             const turnSnapshot = thinSnapshotForStorage(
               turnState as unknown as Record<string, unknown>,
@@ -1775,7 +1988,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
                 swipes: [
                   {
                     content: cleanText,
-                    rawContent: fullContent,
+                    rawContent: voiceTag(worldDef, narratorStation?.id) + fullContent,
                     stateValidation: outputAttempt.enabled ? outputAttempt.audit : undefined,
                     stateChanges:
                       allChanges.length > 0
@@ -1783,6 +1996,13 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
                         : undefined,
                     stateSnapshot: turnSnapshot,
                     generationState: generationSnapshot,
+                    variableAudit: appendVariableAudit(undefined, buildVariableAudit({
+                      path: "send", state: turnState, changes: allChanges, trace: changeTrace, continuity, repair: missed,
+                      blocked: [
+                        ...blockedAiWrites.map(b => ({ ...b, phase: "ai" as const })),
+                        ...blockedRuleWrites.map(b => ({ ...b, phase: "rule" as const })),
+                      ],
+                    })),
                     createdAt: new Date().toISOString(),
                     modelFallback: parseModelFallbackRecord(body.modelFallback, model),
                     model: actualModel,
@@ -1794,19 +2014,68 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
               })
               .returning();
 
+            const applied = advanceRunMemories(lockedSessionRow.run_memories, worldDef.worldbooks,
+              normalizeGameState(worldDef, lockedSessionRow.state), snapshot, turnState,
+              turnBoundaryAt, (assistantMsgResult[0]!.createdAt ?? new Date()).toISOString(), effectiveGameState);
+
             await tx
               .update(playSessions)
               .set({
                 state: turnState as unknown as Record<string, unknown>,
+                runMemories: applied.memories as unknown as Record<string, unknown>,
                 updatedAt: new Date(),
               })
               .where(eq(playSessions.id, sessionId));
 
-            return { assistantMsg: assistantMsgResult[0]!, persistedState: turnState };
+            return {
+              assistantMsg: assistantMsgResult[0]!,
+              closedRunRecords: applied.closedRecords,
+              persistedState: turnState,
+              runGeneration: applied.memories.generation,
+            };
           });
           replyPersisted = true;
           outputAttempt.markCommitted();
           if (outputAttempt.started) await sse({ event: "state-validation", data: JSON.stringify(outputAttempt.audit) });
+
+          // A closed run gets its archived memory written in the background —
+          // the fold shows a neutral stub until it lands.
+          for (const record of closedRunRecords) {
+            const book = (worldDef.worldbooks ?? []).find((wb) => wb.id === record.bookId);
+            if (book) {
+              scheduleRunSummary({
+                sessionId,
+                userId: currentUser.id,
+                worldName: worldDef.name,
+                book,
+                record,
+              });
+            }
+          }
+
+          // 工位: the same transition may wake background modules — the
+          // chronicler that reads the dungeon just closed, the analyst whose
+          // condition just came true. They run after the reply is persisted,
+          // so nothing the player is waiting on depends on them.
+          for (const { book, cause } of dueWorkers({
+            worldDef,
+            prevState: effectiveGameState,
+            nextState: persistedState as unknown as typeof effectiveGameState,
+            closedRecords: closedRunRecords,
+            turnCount: (finalState as unknown as { turnCount?: number }).turnCount,
+            answeredBy: narratorStation?.id ?? null,
+          })) {
+            scheduleWorkerRun({
+              expectedGeneration: runGeneration,
+              sessionId,
+              userId: currentUser.id,
+              worldName: worldDef.name,
+              worldDef,
+              book,
+              state: persistedState as unknown as typeof effectiveGameState,
+              cause,
+            });
+          }
 
           // The mix-mode retry path reuses a dangling user row instead of
           // inserting a duplicate, so a row that failed earlier can succeed
@@ -1868,7 +2137,8 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
           let creditsCost: number | undefined;
           let creditsBalance: number | undefined;
           let grokTrialUsed = false;
-          const wasFiltered = chunk.stopReason === "content_filter" || chunk.stopReason === "SAFETY";
+          // A policy refusal is free, like a filtered reply: the player got no story.
+          const wasFiltered = chunk.stopReason === "content_filter" || chunk.stopReason === "SAFETY" || isRefusal;
           if (outputAttempt.storyCharge) {
             await refundTrialIfClaimed();
             creditsCost = outputAttempt.storyCharge.cost;
@@ -1908,12 +2178,12 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
                   // for as free. Drop it so the 0/0 rate is what applies.
                   providerCostUsd: freeRouterFallbackServed ? undefined : chunk.usage?.providerCostUsd,
                 });
-                const result = await deductCredits(
+                const result = await deductCreditsUpToBalance(
                   currentUser.id, cost, usageLogId,
                   `${actualModel} — ${pTokens + cTokens} tokens`,
                 );
-                creditsCost = cost;
-                creditsBalance = result.newBalance;
+                creditsCost = result?.creditsDeducted ?? 0;
+                creditsBalance = result?.newBalance ?? 0;
               } catch (err) {
                 console.error("[Credit] Deduction failed:", err instanceof Error ? err.message : err);
               }
@@ -1950,10 +2220,13 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
               // Raw pre-parse LLM output. The client mirrors the swipe the
               // server just persisted so the "view raw" toggle works without
               // a page refresh (it reads swipes[active].rawContent).
-              rawContent: fullContent,
+              rawContent: voiceTag(worldDef, narratorStation?.id) + fullContent,
               generationState: thinSnapshotForStorage(snapshot as unknown as Record<string, unknown>),
               stateValidation: outputAttempt.enabled ? outputAttempt.audit : undefined,
               stateChanges: allChanges,
+              changeTrace,
+              promptTrace: promptTracer.build(chatMessages, { speaker: narratorStation, model }),
+              ...(storyEvents.length > 0 ? { storyEvents } : {}), ...(replyRules.channels.length > 0 ? { replyChannels: replyRules.channels } : {}),
               state: persistedState,
               model: actualModel,
               modelFallback: parseModelFallbackRecord(body.modelFallback, model),
@@ -1963,6 +2236,12 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
               audioEffects: allAudioEffects.length > 0 ? allAudioEffects : undefined,
               sceneImages: sceneImageResult.shown.length > 0 ? sceneImageResult.shown.map((img) => img.id) : undefined,
               notifications: systemResult.notifications.length > 0 ? systemResult.notifications : undefined,
+              firedIds: systemResult.firedIds,
+              // Which lore actually reached the model this turn. The engine
+              // can say which entries COULD fire, never which did — only the
+              // words said decide — so the canvas can light up a row only if
+              // the turn that used it reports back.
+              injectedEntryIds: matchedEntries.map((e) => e.id),
               credits: creditsPayload(creditsCost, creditsBalance),
               ...(isRefusal && { refusal: true }),
             }),
@@ -2030,7 +2309,7 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
       });
       const catchFailure = isShutdown
         ? { code: FAILURE_CODE.INTERRUPTED, message: catchErrorMsg }
-        : classifyGenerationFailure(catchErrorMsg);
+        : classifyGenerationFailure(catchErrorMsg, { isByok: resolved.isByok });
       if (!replyPersisted) {
         await markTurnFailed(userMsg?.id, catchFailure.message, catchFailure.code);
       }
@@ -2074,7 +2353,12 @@ messageRoutes.post("/sessions/:sessionId/messages", bodyLimit({ maxSize: 24 * 10
 messageRoutes.patch("/messages/:id", async (c) => {
   const currentUser = c.get("user");
   const messageId = c.req.param("id");
-  const body = await c.req.json<{ content: string }>();
+  const body = await c.req.json<{ content: string; expectedSwipeIndex?: unknown }>();
+  // The variant the player's edit box was opened on. Absent for old clients
+  // and for rows without variants; present, a mismatch is refused rather than
+  // writing the text over whichever variant is active now.
+  const expectedSwipeIndex = typeof body.expectedSwipeIndex === "number" && Number.isInteger(body.expectedSwipeIndex)
+    ? body.expectedSwipeIndex : undefined;
 
   // Verify ownership via session
   const msgRows = await db
@@ -2101,22 +2385,32 @@ messageRoutes.patch("/messages/:id", async (c) => {
     return c.json({ error: "Not authorized" }, 403);
   }
 
-  const result = await db
-    .update(messages)
-    .set({ ...messageContentUpdate(body.content), stateValidation: null })
-    .where(eq(messages.id, messageId))
-    .returning();
+  const swipeChanged = () => c.json({
+    error: "This reply switched to another version while you were editing. Open the editor again.",
+    code: "SWIPE_CHANGED",
+  }, 409);
+  if (expectedSwipeIndex !== undefined && (msg.activeSwipeIndex ?? 0) !== expectedSwipeIndex) {
+    return swipeChanged();
+  }
 
-  // Use the post-write row: compaction may have marked this message compacted
-  // between the ownership read and this update. The fresh flag ensures the
-  // following invalidation cannot miss a just-committed summary.
+  let updatedMessage: typeof msg | undefined;
   await runExtensionInvalidation({
     reason: "message-edited",
     sessionId: msg.sessionId,
-    messageFlags: result[0] ?? msg,
+    worldDef: (await loadSessionContext(msg.sessionId, currentUser.id))?.worldDef,
+    messageFlags: msg,
+  }, undefined, db, async (tx) => {
+    // Re-checked in the write itself: a swipe can land between the read above
+    // and this update.
+    [updatedMessage] = await tx.update(messages).set({ ...messageContentUpdate(body.content), stateValidation: null })
+      .where(messageEditWhere(messageId, expectedSwipeIndex)).returning();
+    // Compaction may have marked this row since the ownership read. Collect
+    // invalidation from the returned row while the session is still locked.
+    return { messageFlags: updatedMessage ?? msg };
   });
 
-  return c.json({ data: result[0] });
+  if (!updatedMessage && expectedSwipeIndex !== undefined) return swipeChanged();
+  return c.json({ data: updatedMessage });
 });
 
 // GET /api/messages/turn-images/settings — can this player use per-turn
@@ -2125,6 +2419,7 @@ messageRoutes.get("/messages/turn-images/settings", async (c) => {
   const currentUser = c.get("user");
   const prefs = await turnImagePrefs(currentUser.id);
   const available = perTurnImagesEnabled() && prefs.optedIn;
+  await recoverExpiredTurnImages(currentUser.id);
   const quote = available ? await turnImageQuote(currentUser.id) : null;
   return c.json({ data: {
     available,
@@ -2132,6 +2427,26 @@ messageRoutes.get("/messages/turn-images/settings", async (c) => {
     fine: available && fineAvailable(),
     ...(quote ? { price: quote.listPrice, freeLeft: quote.freeLeft, unlimited: quote.unlimited } : {}),
   } });
+});
+
+const turnImageDrawId = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+messageRoutes.post("/messages/:id/illustrate/cancel", async (c) => {
+  const currentUser = c.get("user");
+  const body = await c.req.json<{ drawId?: string }>().catch(() => ({} as { drawId?: string }));
+  if (!turnImageDrawId(body.drawId)) return c.json({ error: "Invalid draw id" }, 400);
+  const messageId = c.req.param("id");
+  const [msg] = await db.select().from(messages).where(eq(messages.id, messageId));
+  if (!msg || msg.role !== "assistant") return c.json({ error: "Message not found" }, 404);
+  const [session] = await db.select({ id: playSessions.id }).from(playSessions)
+    .where(and(eq(playSessions.id, msg.sessionId), eq(playSessions.userId, currentUser.id)));
+  if (!session) return c.json({ error: "Not authorized" }, 403);
+  const status = await cancelTurnImageTask(body.drawId, currentUser.id, messageId);
+  if (status === "invalid") return c.json({ error: "Draw not found" }, 404);
+  const quote = await turnImageQuote(currentUser.id);
+  // If delivery won the row lock, show the delivered image without claiming a refund.
+  const [current] = status === "completed" ? await db.select({ content: messages.content }).from(messages).where(eq(messages.id, messageId)) : [];
+  return c.json({ data: { ok: status === "cancelled" || status === "failed", status, balance: quote.balance, freeLeft: quote.freeLeft, ...(current ? { content: current.content } : {}) } });
 });
 
 // POST /api/messages/:id/illustrate — draw (or redraw) the picture for one reply.
@@ -2142,7 +2457,9 @@ messageRoutes.get("/messages/turn-images/settings", async (c) => {
 // with 403 before anything is read, charged or drawn.
 messageRoutes.post("/messages/:id/illustrate", async (c) => {
   const currentUser = c.get("user");
-  const body = await c.req.json<{ auto?: boolean; note?: string; fine?: boolean }>().catch(() => ({} as { auto?: boolean; note?: string; fine?: boolean }));
+  const body = await c.req.json<{ auto?: boolean; note?: string; fine?: boolean; drawId?: string }>().catch(() => ({} as { auto?: boolean; note?: string; fine?: boolean; drawId?: string }));
+  if (body.drawId !== undefined && !turnImageDrawId(body.drawId)) return c.json({ error: "Invalid draw id" }, 400);
+  const drawId = body.drawId ?? crypto.randomUUID();
   const note = typeof body.note === "string" ? body.note.trim().slice(0, 200) : "";
   if (!perTurnImagesEnabled()) return c.json({ data: { ok: false, reason: "unavailable" } });
   const prefs = await turnImagePrefs(currentUser.id);
@@ -2157,6 +2474,12 @@ messageRoutes.post("/messages/:id/illustrate", async (c) => {
   const [session] = await db.select({ id: playSessions.id }).from(playSessions)
     .where(and(eq(playSessions.id, msg.sessionId), eq(playSessions.userId, currentUser.id)));
   if (!session) return c.json({ error: "Not authorized" }, 403);
+  // A reply that is the model refusing ("I can't continue…") has no scene: an
+  // automatic draw pictured an empty room and charged for it. A player who
+  // asks for this one with the button still gets it.
+  if (body.auto === true && detectRefusal(stripTurnVideos(stripTurnImages(msg.content)))) {
+    return c.json({ data: { ok: false, reason: "nothing" } });
+  }
   const ctx = await loadSessionContext(msg.sessionId, currentUser.id);
   if (!ctx?.worldDef) return c.json({ error: "World not found" }, 404);
   const [prevUser] = await db.select({ content: messages.content }).from(messages)
@@ -2173,15 +2496,16 @@ messageRoutes.post("/messages/:id/illustrate", async (c) => {
       return c.json({ data: { ok: false, reason: "unavailable" } });
     }
     // Paid before drawing, under the wallet lock; given back unless the picture lands.
-    const reserved = await reserveTurnImage(currentUser.id, crypto.randomUUID());
-    if (!reserved.charge) return c.json({ data: { ok: false, reason: "credits", price: reserved.price, balance: reserved.balance } });
+    const reserved = await startTurnImageTask(drawId, currentUser.id, messageId);
+    if (!reserved.charge) return c.json({ data: { ok: false, ...reserved } });
     const charge = reserved.charge;
-    let delivered = false;
+    const task = watchTurnImageTask(drawId);
     try {
       const replyText = stripTurnImages(msg.content);
       // Who "you" is (name, sex, looks): cards rarely say, the player's persona often does.
       const persona = await resolvePersonaForSession(ctx.session).catch(() => null);
       const result = await illustrateTurn({
+        signal: task.signal,
         world: ctx.worldDef, sessionId: msg.sessionId,
         playerText: prevUser?.content ?? "", replyText, ...(note ? { note } : {}), ...(body.fine === true ? { fine: true } : {}), userId: currentUser.id, auto: false,
         playerKey: await illustrationPlayerKey(currentUser.id, msg.model),
@@ -2190,16 +2514,20 @@ messageRoutes.post("/messages/:id/illustrate", async (c) => {
       if (!result.ok) return c.json({ data: { ok: false, reason: result.reason } });
       // The reply may have been regenerated, edited or deleted while this drew;
       // then the picture belongs to text that no longer exists.
-      const [current] = await db.select({ content: messages.content }).from(messages).where(eq(messages.id, messageId));
-      if (!current || stripTurnImages(current.content) !== replyText) return c.json({ data: { ok: false, reason: "stale" } });
-      const content = `${replyText.trimEnd()}\n\n${result.embed}`;
-      const [updated] = await db.update(messages).set(messageContentUpdate(content))
-        .where(and(eq(messages.id, messageId), eq(messages.content, current.content))).returning();
-      if (!updated) return c.json({ data: { ok: false, reason: "stale" } });
-      delivered = true;
+      const updated = await deliverTurnImageTask(drawId, async (tx) => {
+        const [current] = await tx.select({ content: messages.content }).from(messages).where(eq(messages.id, messageId));
+        // A scene-video clip landing meanwhile is not a change: the picture joins it.
+        if (!current || stripTurnVideos(stripTurnImages(current.content)) !== stripTurnVideos(replyText)) return null;
+        const content = `${stripTurnImages(current.content).trimEnd()}\n\n${result.embed}`;
+        const [landed] = await tx.update(messages).set(messageContentUpdate(content))
+          .where(and(eq(messages.id, messageId), eq(messages.content, current.content))).returning();
+        return landed ?? null;
+      });
+      if (!updated) return c.json({ data: { ok: false, reason: task.signal.reason === "cancelled" ? "cancelled" : "stale" } });
       return c.json({ data: { ok: true, content: updated.content, charged: charge.price, balance: charge.balance, freeLeft: charge.freeLeft } });
     } finally {
-      if (!delivered) await refundTurnImage(charge).catch((error) => {
+      task.close();
+      await failTurnImageTask(drawId).catch((error) => {
         console.error("[PerTurnImage] refund failed:", charge.referenceId, error instanceof Error ? error.message : error);
       });
     }
@@ -2237,12 +2565,14 @@ messageRoutes.delete("/messages/:id", async (c) => {
     return c.json({ error: "Not authorized" }, 403);
   }
 
-  const deleted = await db.delete(messages).where(eq(messages.id, messageId)).returning();
-
   await runExtensionInvalidation({
     reason: "message-deleted",
     sessionId: msg.sessionId,
-    messageFlags: deleted[0] ?? msg,
+    worldDef: (await loadSessionContext(msg.sessionId, currentUser.id))?.worldDef,
+    messageFlags: msg,
+  }, undefined, db, async (tx) => {
+    const [deleted] = await tx.delete(messages).where(eq(messages.id, messageId)).returning();
+    return { messageFlags: deleted ?? msg };
   });
 
   return c.json({ data: { deleted: true } });
@@ -2255,6 +2585,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     model?: string;
     modelFallback?: unknown;
+    scene?: unknown;
     overrides?: {
       maxTokens?: number;
       maxContext?: number;
@@ -2312,7 +2643,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     }, 400);
   }
 
-  const context = await loadSessionContext(msg.sessionId, currentUser.id);
+  const context = await loadSessionContext(msg.sessionId, currentUser.id, { closeWhenCreatorBlocked: true });
   if (!context) {
     return c.json({ error: "Session context not found" }, 404);
   }
@@ -2334,8 +2665,16 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     );
   }
 
-  const { worldDef, gameState } = context;
-  const model = await resolveModel(body.model);
+  let { worldDef } = context;
+  const { gameState } = context;
+  const playerModel = await resolveModel(body.model);
+  const { model, station: narratorStation } = await pickNarratorModel({
+    worldDef,
+    state: gameState,
+    playerModel,
+    userId: currentUser.id,
+    forceOfficial: context.worldAllowCustomApi === false && context.worldCreatorId !== currentUser.id,
+  });
   const [activeUserPrompts] = await Promise.all([
     loadUserPrompts(currentUser.id, { modelId: model }),
   ]);
@@ -2346,7 +2685,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     if (isProtectedWorld) {
       return c.json({ error: "This world requires an official model. The creator has restricted this world to protect its content.", code: "PROTECTED_WORLD" }, 403);
     }
-    return c.json({ error: "No API key configured for this provider" }, 400);
+    return c.json({ error: "No API key configured for this provider. Add one in Settings.", code: "NO_API_KEY" }, 400);
   }
 
   if (!resolved.isByok && RETIRED_PLAY_MODEL_IDS.has(model)) {
@@ -2421,13 +2760,17 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     stateChanges: activeSwipe?.stateChanges ?? msg.stateChanges,
   }, previousRows[0]?.stateSnapshot);
   const stateManager = new GameStateManager(worldDef, regenBase);
+  // Same expiry as the send that started this turn. A reply stored without a
+  // generation baseline borrows the previous reply's rule state, taken before
+  // that expiry ran; for a baseline it is a no-op.
+  stateManager.expireDirectives(stateManager.getSnapshot().turnCount - 1);
   const regenTurnMemory = await loadTurnMemoryBlocks({
     ownerUserId: context.session.userId,
     sessionId: msg.sessionId,
     session: context.session,
+    world: worldDef,
   });
-
-  const outputContract = guardPrompt(regenTurnMemory.dispatch);
+  worldDef = await resolveTurnWorldDefinition(regenTurnMemory, context.session, worldDef);
 
   // Get non-compacted messages up to (but not including) the one being
   // regenerated. Bounded window — `upTo` anchors it at the target message's
@@ -2459,11 +2802,18 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   });
 
   const snapshot = stateManager.getSnapshot();
+  const outputContract = guardPrompt(regenTurnMemory.dispatch, { world: worldDef, state: snapshot });
 
   // Deterministic entry retrieval (engine-level matching)
+  const regenInitialMemories = (context.session.runMemories as RunMemories | null) ?? null;
+  const regenBoundaryAt = new Date(msg.createdAt ?? Date.now()).toISOString();
+  // The replaced reply must not survive through its old archive or worker output.
+  const regenPromptMemories = ensureActiveRunMemories(
+    invalidateRunMemoryText(regenInitialMemories, regenBoundaryAt, crypto.randomUUID()),
+    worldDef.worldbooks, snapshot, regenBoundaryAt);
   const regenClamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
   const scanDepth = worldDef.settings?.lorebookScanDepth ?? 2;
-  const rawRegenMaxContext = regenClamp(body.overrides?.maxContext ?? worldDef.settings?.maxContext ?? 200000, 4096, 2000000);
+  const rawRegenMaxContext = regenClamp(resolveRequestedMaxContext(worldDef.settings, body.overrides?.maxContext), 4096, 2000000);
   const userRegenMaxContext = (useProtections && walletCheck?.wallet.memoryCap) ? Math.min(rawRegenMaxContext, walletCheck.wallet.memoryCap) : rawRegenMaxContext;
   // Clamp to the model's real window (see send path) — DeepSeek 163,840 etc.
   const regenMaxContext = clampMaxContextToModel(
@@ -2507,24 +2857,30 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
 
   // 1. System messages — only alwaysSend entries (stable prefix for caching)
   const regenSystemMessages = promptBuilder.buildSystemMessages(worldDef, snapshot, undefined, activeUserPrompts, snapshot.ruleState?.activeDirectives ?? [], snapshot.ruleState?.toggledEntries ?? {});
+  const promptTracer = createPromptTracer();
   regenContextMessages.push(...regenSystemMessages);
+  promptTracer.take(regenContextMessages, "lore");
 
   // 1.5. Auto-inject active persona description into prompt
   appendPersonaSystemMessage(regenContextMessages, activePersona);
+  promptTracer.take(regenContextMessages, "persona");
 
   // 2. Static format reference — behavior rules, directive syntax, audio (cacheable)
   const regenStaticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef, {
-    activeGreetingId: stateManager.getSnapshot().activeGreetingId,
+    activeGreetingId: snapshot.activeGreetingId,
+    state: snapshot,
   });
   if (regenStaticFormatBlock) {
     regenContextMessages.push({ role: "system", content: regenStaticFormatBlock });
   }
+  promptTracer.take(regenContextMessages, "platform");
 
   // 3. Example dialogue
   const regenExampleMessages = promptBuilder.buildExampleMessages(worldDef, snapshot, undefined, activeUserPrompts, snapshot.ruleState?.toggledEntries ?? {});
   if (regenExampleMessages.length > 0) {
     regenContextMessages.push(...regenExampleMessages);
   }
+  promptTracer.take(regenContextMessages, "examples");
 
   // Mark stable prefix boundary for caching (keyword-triggered entries go after this point).
   const regenStablePrefixEnd = regenContextMessages.length - 1;
@@ -2534,6 +2890,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   if (regenTriggeredSystem.length > 0) {
     regenContextMessages.push(...regenTriggeredSystem);
   }
+  promptTracer.take(regenContextMessages, "lore-triggered");
 
   // 3. [Start a new Chat] + history with depth entries
   if (priorMessages.length > 0) {
@@ -2542,24 +2899,49 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
 
   // Inject memory blocks (story summary / summaryception / session memory)
   const regenMemoryIndices = injectMemoryPromptBlocks(regenContextMessages, regenTurnMemory);
+  promptTracer.take(regenContextMessages, "memory");
+
+  // 副本记忆 fold + 记忆订阅 — same as the send path (see 3.7/3.8 there).
+  const regenActiveBookIds = computeActiveWorldbookIds(worldDef.worldbooks, snapshot);
+  const regenRunFold = promptHistory(
+    priorMessages,
+    regenPromptMemories,
+    worldDef.worldbooks,
+    regenActiveBookIds,
+  );
+  for (const block of buildContextInputBlocks({
+    worldbooks: worldDef.worldbooks,
+    activeBookIds: regenActiveBookIds,
+    memories: regenPromptMemories,
+    alreadyInHistory: regenRunFold.emittedRecords,
+    rows: priorMessages,
+    variables: worldDef.variables,
+    state: snapshot,
+  })) {
+    regenContextMessages.push(block);
+  }
+  promptTracer.take(regenContextMessages, "inputs");
 
   const regenDepthEntries = promptBuilder.buildDepthEntries(worldDef, snapshot, matchedEntries, activeUserPrompts, snapshot.ruleState?.toggledEntries ?? {});
-  const regenHistoryMessages: PromptMessage[] = priorMessages.map((m) => ({
+  const regenHistoryWindow = applyHistoryLimit(regenRunFold.rows, resolveHistoryLimit(worldDef, regenActiveBookIds));
+  const regenHistoryMessages: PromptMessage[] = regenHistoryWindow.map((m) => ({
     role: m.role as "user" | "assistant" | "system",
     content: m.content,
-    sourceMessageId: m.id,
-    imageTokens: m.imageTokens,
+    sourceMessageId: "id" in m ? m.id : undefined,
+    imageTokens: "imageTokens" in m ? m.imageTokens : 0,
   }));
 
+  promptTracer.takeHistory(regenHistoryMessages);
+  const regenInjectedDepthMessages = new Set<PromptMessage>();
   for (const de of regenDepthEntries) {
     const insertIdx = Math.max(0, regenHistoryMessages.length - de.depth);
-    regenHistoryMessages.splice(insertIdx, 0, {
-      role: "system" as const,
-      content: de.content,
-    });
+    const injected: PromptMessage = { role: "system", content: de.content };
+    regenInjectedDepthMessages.add(injected);
+    regenHistoryMessages.splice(insertIdx, 0, injected);
   }
 
   let regenHistoryStart = regenContextMessages.length;
+  promptTracer.take(regenHistoryMessages, "lore-triggered");
   regenContextMessages.push(...regenHistoryMessages);
 
   // 6. Triggered lorebook entries now flow through buildDepthEntries (injected at depth 0 by default).
@@ -2571,6 +2953,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     regenContextMessages.push({ role: (ctx.role as "system" | "user") ?? "system", content: ctx.message });
   }
   if (regenPendingContext.length) stateManager.setMetadata("pendingContext", undefined);
+  promptTracer.take(regenContextMessages, "pending");
 
   // 7. Format instructions (only if variables/audio). Last-turn changes come
   // from priorMessages (history EXCLUDES the message being regenerated), so
@@ -2580,19 +2963,28 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
   if (regenFormatBlock) {
     regenContextMessages.push({ role: "system", content: regenFormatBlock });
   }
+  promptTracer.take(regenContextMessages, "state");
+  const liveScene = normalizeLiveScene(body.scene);
+  if (liveScene) {
+    const sceneMessage = liveSceneMessage(liveScene);
+    regenContextMessages.push(sceneMessage);
+    promptTracer.tag(sceneMessage, "scene");
+  }
+  // 游戏数据: only what the answering AI is wired to read.
 
   // 8. Post-history entries
   const regenPostHistory = promptBuilder.buildPostHistoryEntries(worldDef, snapshot, matchedEntries, activeUserPrompts);
   for (const entry of regenPostHistory) {
     regenContextMessages.push({ role: entry.apiRole, content: entry.content });
   }
+  promptTracer.take(regenContextMessages, "post");
 
   const regenAntiRepetitionInstruction = antiRepetitionInstructionForModel(model);
   if (regenAntiRepetitionInstruction) {
     regenContextMessages.push({ role: "system", content: regenAntiRepetitionInstruction });
   }
 
-  const regenSuffixCount = regenPostHistory.length + (regenFormatBlock ? 1 : 0) + (regenAntiRepetitionInstruction ? 1 : 0);
+  const regenSuffixCount = regenPostHistory.length + (regenFormatBlock ? 1 : 0) + (liveScene ? 1 : 0) + (regenAntiRepetitionInstruction ? 1 : 0);
   // Depth entries and pending context live INSIDE the trim window but are not
   // conversation. Story memory is a budget for what the player said and the
   // AI replied; a world that injects a lot of keyword-triggered lore must not
@@ -2625,12 +3017,17 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
     regenSuffixCount,
     model,
     regenHistoryWindowBudget,
+    regenStoryMemory.tokens,
   );
 
   // Two-breakpoint caching (see send path for rationale): stable prefix + depth-resilient floor.
   if (outputContract.content) chatMessages.push({ role: "system", content: outputContract.content });
   const regenCacheDepthOffset = computeCacheDepthOffset(worldDef);
-  const regenCacheBreakpointIndex = chatMessages.length - 1 - regenSuffixCount - (outputContract.content ? 1 : 0) - regenCacheDepthOffset;
+  const regenCacheBreakpointIndex = historyCacheBreakpoint(
+    chatMessages,
+    regenInjectedDepthMessages,
+    chatMessages.length - 1 - regenSuffixCount - (outputContract.content ? 1 : 0) - regenCacheDepthOffset,
+  );
   const regenBreakpoints = Array.from(new Set([regenStablePrefixEnd, regenCacheBreakpointIndex].filter((i) => i >= 0))).sort((a, b) => a - b);
 
   const providerMessages = await restoreChatImages(msg.sessionId, chatMessages);
@@ -2680,11 +3077,11 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
 
     const stopKeepalive = startKeepalive(stream);
     let actualModel = model;
+    let correctionModel = model;
     // OpenRouter generation id seen on streamed chunks — lets an explicit stop
     // be settled against the provider's billed cost (lib/stopped-generation.ts).
     let observedProviderRequestId: string | undefined;
     let pendingFallbackError: ReturnType<typeof modelFallbackError> = null;
-    let correctionModel = model;
     // Set when Yumina Free's pool was exhausted upstream and the provider
     // re-ran this turn on the paid fallback. It keeps the turn billed at
     // Free's zero rate — see FREE_ROUTER_FALLBACK_MODEL.
@@ -2714,15 +3111,11 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
         model,
         messages: providerMessages,
         maxTokens: regenClamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
-        temperature: regenClamp(body.overrides?.temperature ?? worldDef.settings?.temperature ?? 1.0, 0, 2),
-        topP: body.overrides?.topP ?? worldDef.settings?.topP,
-        frequencyPenalty: body.overrides?.frequencyPenalty ?? worldDef.settings?.frequencyPenalty,
-        presencePenalty: body.overrides?.presencePenalty ?? worldDef.settings?.presencePenalty,
+        // The player's sampling unless the card locked its own (samplingPolicy "author").
+        ...storySamplingParams(worldDef.settings, body.overrides, regenClamp),
         repetitionPenalty: regenAntiRepetitionInstruction
           ? body.overrides?.repetitionPenalty
           : undefined,
-        topK: body.overrides?.topK ?? worldDef.settings?.topK,
-        minP: body.overrides?.minP ?? worldDef.settings?.minP,
         reasoningEffort: body.overrides?.reasoningEffort,
         stream: body.overrides?.streaming,
         ...(worldDef.settings?.structuredOutput && { responseFormat: { type: "json_object" as const } }),
@@ -2762,10 +3155,9 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           });
         }
 
-        if (chunk.type === "text") {
-          if (chunk.providerRequestId) observedProviderRequestId = chunk.providerRequestId;
-          fullContent += chunk.content;
-
+        // Reasoning is billed output too: count it toward the balance, or a long
+        // think runs past what the player can pay before any text arrives.
+        if (chunk.type === "reasoning" || chunk.type === "text") {
           // Mid-stream credit check: ran dry mid-reply. End cleanly with a
           // NO_CREDITS error (out-of-mushies toast + popup) instead of the old
           // `break`, which skipped the catch handler and surfaced as a silent
@@ -2794,6 +3186,11 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             });
             return;
           }
+        }
+
+        if (chunk.type === "text") {
+          if (chunk.providerRequestId) observedProviderRequestId = chunk.providerRequestId;
+          fullContent += chunk.content;
 
           const filtered = receiptFilter.push(thinkingFilter.push(chunk.content));
           if (filtered) {
@@ -2826,9 +3223,14 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             pendingFallbackError = fallbackError;
             return;
           }
+          // Same classification as send so the client gets the action code
+          // (CONTENT_FILTER → "retry / switch model"). No markTurnFailed here:
+          // regenerate/continue act on an existing reply, and marking the user
+          // row failed would flag a turn that still has a valid answer.
           await sse({
             event: "error",
-            data: JSON.stringify({ error: chunk.content }),
+            // Stable code for the client's localized copy (the text stays raw).
+            data: JSON.stringify({ error: chunk.content, code: classifyGenerationFailure(chunk.content, { isByok: resolved.isByok }).code ?? undefined }),
           });
           return;
         }
@@ -2854,26 +3256,43 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           // Parse response — use structured parser for JSON responses, regex for others
           const legacyParsed = structuredParser.isStructuredResponse(fullContent)
             ? structuredParser.parse(fullContent)
-            : responseParser.parse(fullContent, undefined, { shieldImages: !hasImageVariable(worldDef) });
+            : responseParser.parse(fullContent, undefined, { shieldImages: !hasImageVariable(worldDef), world: worldDef });
           const { parsed: regenParseResult } = await outputAttempt.validate({
             world: worldDef, state: stateManager.getSnapshot(), raw: fullContent, parsed: legacyParsed,
             provider: regenProvider, model: correctionModel, maxContext: regenMaxContext, signal: abortController.signal,
             stopReason: chunk.stopReason, history: providerMessages,
             cacheEnabled: regenBreakpoints.length > 0, stream: body.overrides?.streaming,
           }, async (audit) => { await sse({ event: "state-validation", data: JSON.stringify(audit) }); });
+          // 回复处理 (see the send path).
+          const regenReplyRules = applyReplyRules(worldDef, regenParseResult.cleanText);
+          regenParseResult.cleanText = regenReplyRules.text;
+          regenParseResult.effects.push(...regenReplyRules.effects);
+          // Forgotten state writes (see the send path).
+          const regenMissed = await repairMissedUpdates({
+            world: worldDef, state: stateManager.getSnapshot(), playerText: lastUserText(priorMessages), replyText: regenParseResult.cleanText,
+            effects: regenParseResult.effects, guardCorrected: guardRebuiltBatch(outputAttempt.audit),
+            userId: currentUser.id, sessionId: msg.sessionId, path: "regenerate", signal: abortController.signal,
+            unapplied: regenParseResult.unapplied, storyModel: actualModel,
+          });
+          regenParseResult.effects.push(...regenMissed.effects);
           // Continuity judge (see the send path).
           const regenContinuity = await runContinuityTurn({
             world: worldDef, stateManager, playerText: lastUserText(priorMessages), replyText: regenParseResult.cleanText,
             hasAudioDirective: regenParseResult.audioEffects.length > 0,
             userId: currentUser.id, sessionId: msg.sessionId, path: "regenerate", signal: abortController.signal,
             playerOpenRouterKey: turnPlayerOpenRouterKey(resolved, currentUser.id),
+            storyEffects: regenParseResult.effects,
           });
           // Per-turn picture: drawn after the turn, as on the send path.
-          const regenTextWithImage = stripTurnImages(applyJudgeSceneImages(worldDef, regenParseResult.cleanText, regenContinuity));
+          const regenTextWithImage = stripTurnVideos(stripTurnImages(applyJudgeSceneImages(worldDef, regenParseResult.cleanText, regenContinuity)));
           const regenSceneImageResult = resolveSceneImageDirectives(regenTextWithImage, worldDef.sceneImages ?? []);
-          const cleanText = regenSceneImageResult.text;
           rememberRevealedSceneImages(stateManager, regenSceneImageResult.shown);
+          const regenBgResult = resolveBackgroundDirectives(regenSceneImageResult.text, worldDef.backgrounds ?? []);
+          const cleanText = regenBgResult.text;
+          applyBackgroundDirective(stateManager, regenBgResult.backgroundId);
           const effects = regenParseResult.effects;
+          const storyEvents = takeStoryEvents(effects, worldDef, liveScene);
+          storyEvents.push(...regenReplyRules.events);
           const choices: string[] = [];
           const regenParserAudioEffects = filterAiAudioEffects(worldDef.audioTracks ?? [], regenParseResult.audioEffects);
 
@@ -2885,12 +3304,14 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           if (regenWriteFilter.dropped.length > 0) {
             console.log(`[Messages] Dropped ${regenWriteFilter.dropped.length} AI directive(s) to non-AI-writable vars: ${regenWriteFilter.dropped.map((e) => e.variableId).join(", ")}`);
           }
+          const regenDroppedAiWrites = describeDroppedAiWrites(worldDef, stateManager.getSnapshot(), regenWriteFilter.dropped);
           const changes = stateManager.applyEffects([...regenWriteFilter.kept, ...regenContinuity.effects]);
           // A refused write is a model fumbling JSON syntax over a whole list
           // (`[items: set delete 1, delete 0]`). The engine keeps the old value;
           // say so, because the failure is otherwise invisible until a player
           // notices their inventory is gone.
           const rejectedWrites = stateManager.drainRejectedWrites();
+          const blockedAiWrites = stateManager.drainBlockedWrites();
           if (rejectedWrites.length > 0) {
             console.log(`[Messages] Refused ${rejectedWrites.length} malformed JSON write(s): ${rejectedWrites.map((w) => w.variableId).join(", ")}`);
           }
@@ -2913,10 +3334,17 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             regenEvents,
             worldDef.reactions ?? [],
             worldDef.rules ?? [],
+            { worldbooks: worldDef.worldbooks },
           );
           const ruleChanges = regenSystemResult.changes;
           const allChanges = [...changes, ...ruleChanges];
+          const blockedRuleWrites = stateManager.drainBlockedWrites();
           outputAttempt.recordChanges(changes, ruleChanges);
+          const changeTrace = buildChangeTrace({
+            world: worldDef, repairEffects: regenMissed.effects, guardCorrected: guardRebuiltBatch(outputAttempt.audit),
+            aiAndJudge: changes, judgeEffects: regenContinuity.effects, kept: regenWriteFilter.kept,
+            rules: regenSystemResult, dropped: regenDroppedAiWrites, rejected: rejectedWrites, decisions: regenContinuity.decisions, questions: regenContinuity.questions,
+          });
 
           const allRegenAudioEffects = [...regenParserAudioEffects, ...regenContinuity.audioEffects, ...regenSystemResult.audioEffects];
           // Persist the looping subset only — see the send path for why.
@@ -2924,9 +3352,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           if (resumableRegenAudio.length > 0) {
             stateManager.setMetadata("activeAudio", resumableRegenAudio);
           }
-          if (regenSystemResult.contextMessages.length > 0) {
-            stateManager.setMetadata("pendingContext", regenSystemResult.contextMessages);
-          }
+          appendPendingContext(stateManager, regenSystemResult.contextMessages);
 
           const finalState = stateManager.getSnapshot();
 
@@ -2975,7 +3401,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             return;
           }
 
-          // Policy refusal: kept and billed; flagged for the client bar.
+          // Policy refusal: kept, not billed; flagged for the client bar.
           const isRefusal = detectRefusal(cleanText);
           if (isRefusal) {
             captureServerEvent(currentUser.id, "llm_refusal_detected", {
@@ -2987,7 +3413,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           const existingSwipes = (msg.swipes ?? []) as SwipeWithUsage[];
           const newSwipe = {
             content: cleanText,
-            rawContent: fullContent,
+            rawContent: voiceTag(worldDef, narratorStation?.id) + fullContent,
             generationState: thinSnapshotForStorage(snapshot as unknown as Record<string, unknown>),
             stateValidation: outputAttempt.enabled ? outputAttempt.audit : undefined,
             stateChanges:
@@ -3028,15 +3454,22 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             // whatever PATCH /:id/state committed while this regeneration
             // streamed instead of overwriting it.
             const lockedSession = await tx.execute(
-              sql`SELECT state FROM play_sessions WHERE id = ${msg.sessionId} FOR UPDATE`,
+              sql`SELECT state, run_memories FROM play_sessions WHERE id = ${msg.sessionId} FOR UPDATE`,
             );
-            const liveState = (lockedSession.rows[0] as { state: Record<string, unknown> } | undefined)?.state;
+            const locked = lockedSession.rows[0] as { state: Record<string, unknown>; run_memories: RunMemories | null } | undefined;
+            if (!locked || locked.run_memories?.generation !== regenInitialMemories?.generation) {
+              throw new Error("Session history changed while generating. Please retry this turn.");
+            }
+            const liveState = locked.state;
             await outputAttempt.checkCommit(tx, liveState, finalState);
             const turnState = reconcileRegenerationState(worldDef, liveState, gameState, finalState);
             // All alternatives retain the message's original starting state.
             const generationSnapshot = thinSnapshotForStorage(
               generationBaseline(worldDef, liveState, gameState, snapshot, finalState) as unknown as Record<string, unknown>,
             );
+            const applied = advanceRunMemories(locked.run_memories, worldDef.worldbooks,
+              normalizeGameState(worldDef, liveState), snapshot, turnState, regenBoundaryAt, regenBoundaryAt, gameState);
+            const runMemories = invalidateRunMemoryText(applied.memories, regenBoundaryAt, regenPromptMemories.generation!);
             const turnSnapshot = thinSnapshotForStorage(
               turnState as unknown as Record<string, unknown>,
             );
@@ -3052,7 +3485,15 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
                 stateSnapshot: turnSnapshot,
                 swipes: updatedSwipes.map((swipe, index) =>
                   index === updatedSwipes.length - 1
-                    ? { ...swipe, stateSnapshot: turnSnapshot, generationState: generationSnapshot }
+                    ? { ...swipe, stateSnapshot: turnSnapshot, generationState: generationSnapshot,
+                        variableAudit: appendVariableAudit(undefined, buildVariableAudit({
+                          path: "regenerate", state: turnState, changes: allChanges, trace: changeTrace,
+                          continuity: regenContinuity, repair: regenMissed,
+                          blocked: [
+                            ...blockedAiWrites.map(b => ({ ...b, phase: "ai" as const })),
+                            ...blockedRuleWrites.map(b => ({ ...b, phase: "rule" as const })),
+                          ],
+                        })) }
                     : swipe,
                 ),
                 activeSwipeIndex: updatedSwipes.length - 1,
@@ -3067,6 +3508,7 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
               .update(playSessions)
               .set({
                 state: turnState as unknown as Record<string, unknown>,
+                runMemories: runMemories as unknown as Record<string, unknown>,
                 updatedAt: new Date(),
               })
               .where(eq(playSessions.id, msg.sessionId));
@@ -3104,7 +3546,8 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
           let creditsCost: number | undefined;
           let creditsBalance: number | undefined;
           let grokTrialUsed = false;
-          const wasFiltered = chunk.stopReason === "content_filter" || chunk.stopReason === "SAFETY";
+          // A policy refusal is free, like a filtered reply: the player got no story.
+          const wasFiltered = chunk.stopReason === "content_filter" || chunk.stopReason === "SAFETY" || isRefusal;
           if (outputAttempt.storyCharge) {
             await refundTrialIfClaimed();
             creditsCost = outputAttempt.storyCharge.cost;
@@ -3133,12 +3576,12 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
                   // for as free. Drop it so the 0/0 rate is what applies.
                   providerCostUsd: freeRouterFallbackServed ? undefined : chunk.usage?.providerCostUsd,
                 });
-                const result = await deductCredits(
+                const result = await deductCreditsUpToBalance(
                   currentUser.id, cost, usageLogId,
                   `${actualModel} — ${pTokens + cTokens} tokens (regenerate)`,
                 );
-                creditsCost = cost;
-                creditsBalance = result.newBalance;
+                creditsCost = result?.creditsDeducted ?? 0;
+                creditsBalance = result?.newBalance ?? 0;
               } catch (err) {
                 console.error("[Credit] Deduction failed:", err instanceof Error ? err.message : err);
               }
@@ -3173,10 +3616,13 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
               content: cleanText,
               // Raw pre-parse LLM output — lets the client append the new
               // swipe locally (count + "view raw") without a refresh.
-              rawContent: fullContent,
+              rawContent: voiceTag(worldDef, narratorStation?.id) + fullContent,
               generationState: thinSnapshotForStorage(snapshot as unknown as Record<string, unknown>),
               stateValidation: outputAttempt.enabled ? outputAttempt.audit : undefined,
               stateChanges: allChanges,
+              changeTrace,
+              promptTrace: promptTracer.build(chatMessages, { speaker: narratorStation, model }),
+              ...(storyEvents.length > 0 ? { storyEvents } : {}), ...(regenReplyRules.channels.length > 0 ? { replyChannels: regenReplyRules.channels } : {}),
               state: persistedState,
               model: actualModel,
               modelFallback: parseModelFallbackRecord(body.modelFallback, model),
@@ -3188,6 +3634,8 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
               audioEffects: allRegenAudioEffects.length > 0 ? allRegenAudioEffects : undefined,
               sceneImages: regenSceneImageResult.shown.length > 0 ? regenSceneImageResult.shown.map((img) => img.id) : undefined,
               notifications: regenSystemResult.notifications.length > 0 ? regenSystemResult.notifications : undefined,
+              firedIds: regenSystemResult.firedIds,
+              injectedEntryIds: matchedEntries.map((e) => e.id),
               credits: creditsPayload(creditsCost, creditsBalance),
               ...(isRefusal && { refusal: true }),
             }),
@@ -3234,7 +3682,8 @@ messageRoutes.post("/messages/:id/regenerate", async (c) => {
             error: isShutdown
               ? "Server is restarting — your reply was interrupted. Please resend."
               : err instanceof Error ? err.message : "Regeneration failed",
-            ...(isShutdown && { code: "SERVER_RESTART" }),
+            code: isShutdown ? "SERVER_RESTART"
+              : classifyGenerationFailure(err instanceof Error ? err.message : "", { isByok: resolved.isByok }).code ?? undefined,
           }),
         });
       } catch { /* client disconnected */ }
@@ -3265,6 +3714,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as {
     model?: string;
     modelFallback?: unknown;
+    scene?: unknown;
     overrides?: {
       maxTokens?: number;
       maxContext?: number;
@@ -3281,7 +3731,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     };
   };
 
-  const context = await loadSessionContext(sessionId, currentUser.id);
+  const context = await loadSessionContext(sessionId, currentUser.id, { closeWhenCreatorBlocked: true });
   if (!context) {
     return c.json({ error: "Session not found" }, 404);
   }
@@ -3303,12 +3753,20 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     );
   }
 
-  const { worldDef, gameState } = context;
+  let { worldDef } = context;
+  const { gameState } = context;
   if (worldDef.systems?.includes("kochuu-survival-v1")) {
     const status = new GameStateManager(worldDef, gameState).get("game-status");
     if (status === "dead" || status === "won") return c.json({ error: "本局已结束。可查看记录、回退或重新开局。", code: "GAME_ENDED" }, 409);
   }
-  const model = await resolveModel(body.model);
+  const playerModel = await resolveModel(body.model);
+  const { model, station: narratorStation } = await pickNarratorModel({
+    worldDef,
+    state: gameState,
+    playerModel,
+    userId: currentUser.id,
+    forceOfficial: context.worldAllowCustomApi === false && context.worldCreatorId !== currentUser.id,
+  });
   const [activeUserPrompts] = await Promise.all([
     loadUserPrompts(currentUser.id, { modelId: model }),
   ]);
@@ -3319,7 +3777,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     if (isProtectedWorld) {
       return c.json({ error: "This world requires an official model. The creator has restricted this world to protect its content.", code: "PROTECTED_WORLD" }, 403);
     }
-    return c.json({ error: "No API key configured for this provider. Add one in Settings." }, 400);
+    return c.json({ error: "No API key configured for this provider. Add one in Settings.", code: "NO_API_KEY" }, 400);
   }
 
   if (!resolved.isByok && RETIRED_PLAY_MODEL_IDS.has(model)) {
@@ -3352,7 +3810,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     }
   };
   const contClamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v));
-  const rawContMaxContext = contClamp(body.overrides?.maxContext ?? worldDef.settings?.maxContext ?? 200000, 4096, 2000000);
+  const rawContMaxContext = contClamp(resolveRequestedMaxContext(worldDef.settings, body.overrides?.maxContext), 4096, 2000000);
   const userContMaxContext = (useProtections && walletCheck?.wallet.memoryCap) ? Math.min(rawContMaxContext, walletCheck.wallet.memoryCap) : rawContMaxContext;
   // Clamp to the model's real window (see send path) — DeepSeek 163,840 etc.
   const maxContext = clampMaxContextToModel(
@@ -3424,8 +3882,9 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     ownerUserId: context.session.userId,
     sessionId,
     session: context.session,
+    world: worldDef,
   });
-  const outputContract = guardPrompt(contTurnMemory.dispatch);
+  worldDef = await resolveTurnWorldDefinition(contTurnMemory, context.session, worldDef);
   // No awaited pre-history compaction here — same rationale as the send path:
   // background owns threshold compaction; the final-budget overflow pass below
   // only schedules background compaction (this turn trims).
@@ -3453,8 +3912,14 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   });
 
   const snapshot = stateManager.getSnapshot();
+  const outputContract = guardPrompt(contTurnMemory.dispatch, { world: worldDef, state: snapshot });
 
   // Entry retrieval
+  const contInitialMemories = (context.session.runMemories as RunMemories | null) ?? null;
+  const contBoundaryAt = new Date(lastAssistantMsg.createdAt ?? Date.now()).toISOString();
+  const contPromptMemories = ensureActiveRunMemories(
+    invalidateRunMemoryText(contInitialMemories, contBoundaryAt, crypto.randomUUID()),
+    worldDef.worldbooks, snapshot, contBoundaryAt);
   const scanDepth = worldDef.settings?.lorebookScanDepth ?? 2;
   const budgetPercent = worldDef.settings?.lorebookBudgetPercent ?? 100;
   const budgetCap = worldDef.settings?.lorebookBudgetCap ?? 0;
@@ -3489,24 +3954,30 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
 
   // 1. System messages — only alwaysSend entries (stable prefix for caching)
   const contSystemMessages = promptBuilder.buildSystemMessages(worldDef, snapshot, undefined, activeUserPrompts, snapshot.ruleState?.activeDirectives ?? [], snapshot.ruleState?.toggledEntries ?? {});
+  const promptTracer = createPromptTracer();
   contextMessages.push(...contSystemMessages);
+  promptTracer.take(contextMessages, "lore");
 
   // 1.5. Auto-inject active persona description into prompt
   appendPersonaSystemMessage(contextMessages, activePersona);
+  promptTracer.take(contextMessages, "persona");
 
   // 2. Static format reference — behavior rules, directive syntax, audio (cacheable)
   const contStaticFormatBlock = promptBuilder.buildStaticFormatBlock(worldDef, {
-    activeGreetingId: stateManager.getSnapshot().activeGreetingId,
+    activeGreetingId: snapshot.activeGreetingId,
+    state: snapshot,
   });
   if (contStaticFormatBlock) {
     contextMessages.push({ role: "system", content: contStaticFormatBlock });
   }
+  promptTracer.take(contextMessages, "platform");
 
   // Example dialogue
   const contExampleMessages = promptBuilder.buildExampleMessages(worldDef, snapshot, undefined, activeUserPrompts, snapshot.ruleState?.toggledEntries ?? {});
   if (contExampleMessages.length > 0) {
     contextMessages.push(...contExampleMessages);
   }
+  promptTracer.take(contextMessages, "examples");
 
   // Mark stable prefix boundary for caching (keyword-triggered entries go after this point).
   const contStablePrefixEnd = contextMessages.length - 1;
@@ -3516,6 +3987,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   if (contTriggeredSystem.length > 0) {
     contextMessages.push(...contTriggeredSystem);
   }
+  promptTracer.take(contextMessages, "lore-triggered");
 
   // [Start a new Chat] + full history (last assistant message stays as partial turn)
   if (currentRunHistory.length > 0) {
@@ -3524,24 +3996,49 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
 
   // Inject memory blocks (story summary / summaryception / session memory)
   const contMemoryIndices = injectMemoryPromptBlocks(contextMessages, contTurnMemory);
+  promptTracer.take(contextMessages, "memory");
+
+  // 副本记忆 fold + 记忆订阅 — same as the send path (see 3.7/3.8 there).
+  const contActiveBookIds = computeActiveWorldbookIds(worldDef.worldbooks, snapshot);
+  const contRunFold = promptHistory(
+    currentRunHistory,
+    contPromptMemories,
+    worldDef.worldbooks,
+    contActiveBookIds,
+  );
+  for (const block of buildContextInputBlocks({
+    worldbooks: worldDef.worldbooks,
+    activeBookIds: contActiveBookIds,
+    memories: contPromptMemories,
+    alreadyInHistory: contRunFold.emittedRecords,
+    rows: currentRunHistory,
+    variables: worldDef.variables,
+    state: snapshot,
+  })) {
+    contextMessages.push(block);
+  }
+  promptTracer.take(contextMessages, "inputs");
 
   const depthEntries = promptBuilder.buildDepthEntries(worldDef, snapshot, matchedEntries, activeUserPrompts, snapshot.ruleState?.toggledEntries ?? {});
-  const historyMessages: PromptMessage[] = currentRunHistory.map((m) => ({
+  const contHistoryWindow = applyHistoryLimit(contRunFold.rows, resolveHistoryLimit(worldDef, contActiveBookIds));
+  const historyMessages: PromptMessage[] = contHistoryWindow.map((m) => ({
     role: m.role as "user" | "assistant" | "system",
     content: m.content,
-    sourceMessageId: m.id,
-    imageTokens: m.imageTokens,
+    sourceMessageId: "id" in m ? m.id : undefined,
+    imageTokens: "imageTokens" in m ? m.imageTokens : 0,
   }));
 
+  promptTracer.takeHistory(historyMessages);
+  const contInjectedDepthMessages = new Set<PromptMessage>();
   for (const de of depthEntries) {
     const insertIdx = Math.max(0, historyMessages.length - de.depth);
-    historyMessages.splice(insertIdx, 0, {
-      role: de.apiRole,
-      content: de.content,
-    });
+    const injected: PromptMessage = { role: de.apiRole, content: de.content };
+    contInjectedDepthMessages.add(injected);
+    historyMessages.splice(insertIdx, 0, injected);
   }
 
   let contHistoryStart = contextMessages.length;
+  promptTracer.take(historyMessages, "lore-triggered");
   contextMessages.push(...historyMessages);
 
   // Triggered lorebook entries now flow through buildDepthEntries (injected at depth 0 by default).
@@ -3555,18 +4052,27 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
   if (contFormatBlock) {
     contextMessages.push({ role: "system", content: contFormatBlock });
   }
+  promptTracer.take(contextMessages, "state");
+  const liveScene = normalizeLiveScene(body.scene);
+  if (liveScene) {
+    const sceneMessage = liveSceneMessage(liveScene);
+    contextMessages.push(sceneMessage);
+    promptTracer.tag(sceneMessage, "scene");
+  }
+  // 游戏数据: only what the answering AI is wired to read.
 
   const contPostHistory = promptBuilder.buildPostHistoryEntries(worldDef, snapshot, matchedEntries, activeUserPrompts);
   for (const entry of contPostHistory) {
     contextMessages.push({ role: entry.apiRole, content: entry.content });
   }
+  promptTracer.take(contextMessages, "post");
 
   const contAntiRepetitionInstruction = antiRepetitionInstructionForModel(model);
   if (contAntiRepetitionInstruction) {
     contextMessages.push({ role: "system", content: contAntiRepetitionInstruction });
   }
 
-  const contSuffixCount = contPostHistory.length + (contFormatBlock ? 1 : 0) + (contAntiRepetitionInstruction ? 1 : 0);
+  const contSuffixCount = contPostHistory.length + (contFormatBlock ? 1 : 0) + (liveScene ? 1 : 0) + (contAntiRepetitionInstruction ? 1 : 0);
   // Depth entries and pending context live INSIDE the trim window but are not
   // conversation. Story memory is a budget for what the player said and the
   // AI replied; a world that injects a lot of keyword-triggered lore must not
@@ -3588,12 +4094,16 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
     nonRawHistoryMessages: contNonRawHistoryMessages,
     indices: contMemoryIndices,
   });
-  const chatMessages = await promptBuilder.buildMessageHistoryAsync(contextMessages, yieldForIO, maxContext - outputContract.reserve, contHistoryStart, contSuffixCount, model, contHistoryWindowBudget);
+  const chatMessages = await promptBuilder.buildMessageHistoryAsync(contextMessages, yieldForIO, maxContext - outputContract.reserve, contHistoryStart, contSuffixCount, model, contHistoryWindowBudget, storyMemory.tokens);
 
   // Two-breakpoint caching (see send path for rationale): stable prefix + depth-resilient floor.
   if (outputContract.content) chatMessages.push({ role: "system", content: outputContract.content });
   const contCacheDepthOffset = computeCacheDepthOffset(worldDef);
-  const contCacheBreakpointIndex = chatMessages.length - 1 - contSuffixCount - (outputContract.content ? 1 : 0) - contCacheDepthOffset;
+  const contCacheBreakpointIndex = historyCacheBreakpoint(
+    chatMessages,
+    contInjectedDepthMessages,
+    chatMessages.length - 1 - contSuffixCount - (outputContract.content ? 1 : 0) - contCacheDepthOffset,
+  );
   const contBreakpoints = Array.from(new Set([contStablePrefixEnd, contCacheBreakpointIndex].filter((i) => i >= 0))).sort((a, b) => a - b);
 
   // The last message in chatMessages should be the assistant's existing content.
@@ -3647,11 +4157,11 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
 
     const stopKeepalive = startKeepalive(stream);
     let actualModel = model;
+    let correctionModel = model;
     // OpenRouter generation id seen on streamed chunks — lets an explicit stop
     // be settled against the provider's billed cost (lib/stopped-generation.ts).
     let observedProviderRequestId: string | undefined;
     let pendingFallbackError: ReturnType<typeof modelFallbackError> = null;
-    let correctionModel = model;
     // Set when Yumina Free's pool was exhausted upstream and the provider
     // re-ran this turn on the paid fallback. It keeps the turn billed at
     // Free's zero rate — see FREE_ROUTER_FALLBACK_MODEL.
@@ -3665,15 +4175,11 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
         model,
         messages: providerMessages,
         maxTokens: contClamp(body.overrides?.maxTokens ?? worldDef.settings?.maxTokens ?? 4096, 256, 32768),
-        temperature: contClamp(body.overrides?.temperature ?? worldDef.settings?.temperature ?? 1.0, 0, 2),
-        topP: body.overrides?.topP ?? worldDef.settings?.topP,
-        frequencyPenalty: body.overrides?.frequencyPenalty ?? worldDef.settings?.frequencyPenalty,
-        presencePenalty: body.overrides?.presencePenalty ?? worldDef.settings?.presencePenalty,
+        // The player's sampling unless the card locked its own (samplingPolicy "author").
+        ...storySamplingParams(worldDef.settings, body.overrides, contClamp),
         repetitionPenalty: contAntiRepetitionInstruction
           ? body.overrides?.repetitionPenalty
           : undefined,
-        topK: body.overrides?.topK ?? worldDef.settings?.topK,
-        minP: body.overrides?.minP ?? worldDef.settings?.minP,
         reasoningEffort: body.overrides?.reasoningEffort,
         stream: body.overrides?.streaming,
         ...(worldDef.settings?.structuredOutput && { responseFormat: { type: "json_object" as const } }),
@@ -3713,10 +4219,9 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           });
         }
 
-        if (chunk.type === "text") {
-          if (chunk.providerRequestId) observedProviderRequestId = chunk.providerRequestId;
-          continuationContent += chunk.content;
-
+        // Reasoning is billed output too: count it toward the balance, or a long
+        // think runs past what the player can pay before any text arrives.
+        if (chunk.type === "reasoning" || chunk.type === "text") {
           // Mid-stream credit check: ran dry mid-reply. End cleanly with a
           // NO_CREDITS error (out-of-mushies toast + popup) instead of the old
           // `break`, which skipped the catch handler and surfaced as a silent
@@ -3745,6 +4250,11 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
             });
             return;
           }
+        }
+
+        if (chunk.type === "text") {
+          if (chunk.providerRequestId) observedProviderRequestId = chunk.providerRequestId;
+          continuationContent += chunk.content;
 
           const filtered = receiptFilter.push(thinkingFilter.push(chunk.content));
           if (filtered) {
@@ -3777,9 +4287,14 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
             pendingFallbackError = fallbackError;
             return;
           }
+          // Same classification as send so the client gets the action code
+          // (CONTENT_FILTER → "retry / switch model"). No markTurnFailed here:
+          // regenerate/continue act on an existing reply, and marking the user
+          // row failed would flag a turn that still has a valid answer.
           await sse({
             event: "error",
-            data: JSON.stringify({ error: chunk.content }),
+            // Stable code for the client's localized copy (the text stays raw).
+            data: JSON.stringify({ error: chunk.content, code: classifyGenerationFailure(chunk.content, { isByok: resolved.isByok }).code ?? undefined }),
           });
           return;
         }
@@ -3805,13 +4320,25 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           // Parse the continuation — use structured parser for JSON responses, regex for others
           const legacyParsed = structuredParser.isStructuredResponse(continuationContent)
             ? structuredParser.parse(continuationContent)
-            : responseParser.parse(continuationContent, undefined, { shieldImages: !hasImageVariable(worldDef) });
+            : responseParser.parse(continuationContent, undefined, { shieldImages: !hasImageVariable(worldDef), world: worldDef });
           const { parsed: contParseResult } = await outputAttempt.validate({
             world: worldDef, state: stateManager.getSnapshot(), raw: continuationContent, parsed: legacyParsed,
             provider: provider, model: correctionModel, maxContext: maxContext, signal: abortController.signal,
             stopReason: chunk.stopReason, history: providerMessages,
             cacheEnabled: contBreakpoints.length > 0, stream: body.overrides?.streaming,
           }, async (audit) => { await sse({ event: "state-validation", data: JSON.stringify(audit) }); });
+          // 回复处理 (see the send path), on the new segment.
+          const contReplyRules = applyReplyRules(worldDef, contParseResult.cleanText);
+          contParseResult.cleanText = contReplyRules.text;
+          contParseResult.effects.push(...contReplyRules.effects);
+          // Forgotten state writes (see the send path), on the new segment only.
+          const contMissed = await repairMissedUpdates({
+            world: worldDef, state: stateManager.getSnapshot(), playerText: lastUserText(currentRunHistory), replyText: contParseResult.cleanText,
+            effects: contParseResult.effects, guardCorrected: guardRebuiltBatch(outputAttempt.audit),
+            userId: currentUser.id, sessionId, path: "continue", signal: abortController.signal,
+            unapplied: contParseResult.unapplied, storyModel: actualModel,
+          });
+          contParseResult.effects.push(...contMissed.effects);
           // Continuity judge (see the send path). A continuation is judged on
           // its own new segment, against the last player line.
           const contContinuity = await runContinuityTurn({
@@ -3819,12 +4346,17 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
             hasAudioDirective: contParseResult.audioEffects.length > 0,
             userId: currentUser.id, sessionId, path: "continue", signal: abortController.signal,
             playerOpenRouterKey: turnPlayerOpenRouterKey(resolved, currentUser.id),
+            storyEffects: contParseResult.effects,
           });
           const contTextWithImage = applyJudgeSceneImages(worldDef, contParseResult.cleanText, contContinuity);
           const contSceneImageResult = resolveSceneImageDirectives(contTextWithImage, worldDef.sceneImages ?? []);
-          const cleanContinuation = contSceneImageResult.text;
           rememberRevealedSceneImages(stateManager, contSceneImageResult.shown);
+          const contBgResult = resolveBackgroundDirectives(contSceneImageResult.text, worldDef.backgrounds ?? []);
+          const cleanContinuation = contBgResult.text;
+          applyBackgroundDirective(stateManager, contBgResult.backgroundId);
           const effects = contParseResult.effects;
+          const storyEvents = takeStoryEvents(effects, worldDef, liveScene);
+          storyEvents.push(...contReplyRules.events);
           const contAudioEffects = filterAiAudioEffects(worldDef.audioTracks ?? [], contParseResult.audioEffects);
 
           // See main send path: don't charge for invisible work.
@@ -3835,21 +4367,25 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           if (contWriteFilter.dropped.length > 0) {
             console.log(`[Messages] Dropped ${contWriteFilter.dropped.length} AI directive(s) to non-AI-writable vars: ${contWriteFilter.dropped.map((e) => e.variableId).join(", ")}`);
           }
+          const contDroppedAiWrites = describeDroppedAiWrites(worldDef, stateManager.getSnapshot(), contWriteFilter.dropped);
           const changes = stateManager.applyEffects([...contWriteFilter.kept, ...contContinuity.effects]);
           // A refused write is a model fumbling JSON syntax over a whole list
           // (`[items: set delete 1, delete 0]`). The engine keeps the old value;
           // say so, because the failure is otherwise invisible until a player
           // notices their inventory is gone.
           const rejectedWrites = stateManager.drainRejectedWrites();
+          const blockedAiWrites = stateManager.drainBlockedWrites();
           if (rejectedWrites.length > 0) {
             console.log(`[Messages] Refused ${rejectedWrites.length} malformed JSON write(s): ${rejectedWrites.map((w) => w.variableId).join(", ")}`);
           }
           outputAttempt.audit.appliedCount = changes.length;
 
-          // Evaluate reactions via event-based dispatch (continue: no user message)
+          // Evaluate reactions via event-based dispatch (continue: no user message).
+          // No turn:complete: continuing extends a reply whose turn already
+          // completed (a stopped send is discarded, never persisted), and firing
+          // it again rolled every-turn dice twice and spent maxFireCount.
           const contEvents: GameEvent[] = [
             buildMessageAIEvent(cleanContinuation),
-            buildTurnCompleteEvent(stateManager.getSnapshot().turnCount),
           ];
           for (const change of changes) {
             contEvents.push({ type: "state:changed", variableId: change.variableId, oldValue: change.oldValue, newValue: change.newValue });
@@ -3860,10 +4396,17 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
             contEvents,
             worldDef.reactions ?? [],
             worldDef.rules ?? [],
+            { worldbooks: worldDef.worldbooks },
           );
           const ruleChanges = contSystemResult.changes;
           const allChanges = [...changes, ...ruleChanges];
+          const blockedRuleWrites = stateManager.drainBlockedWrites();
           outputAttempt.recordChanges(changes, ruleChanges);
+          const changeTrace = buildChangeTrace({
+            world: worldDef, repairEffects: contMissed.effects, guardCorrected: guardRebuiltBatch(outputAttempt.audit),
+            aiAndJudge: changes, judgeEffects: contContinuity.effects, kept: contWriteFilter.kept,
+            rules: contSystemResult, dropped: contDroppedAiWrites, rejected: rejectedWrites, decisions: contContinuity.decisions, questions: contContinuity.questions,
+          });
 
           const allAudioEffects = [...contAudioEffects, ...contContinuity.audioEffects, ...contSystemResult.audioEffects];
           // Persist the looping subset only — see the send path for why.
@@ -3871,9 +4414,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           if (resumableContAudio.length > 0) {
             stateManager.setMetadata("activeAudio", resumableContAudio);
           }
-          if (contSystemResult.contextMessages.length > 0) {
-            stateManager.setMetadata("pendingContext", contSystemResult.contextMessages);
-          }
+          appendPendingContext(stateManager, contSystemResult.contextMessages);
 
           const finalState = stateManager.getSnapshot();
 
@@ -4009,14 +4550,21 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           // against the live row instead of overwriting it.
           const persistedState = await db.transaction(async (tx) => {
             const lockedSession = await tx.execute(
-              sql`SELECT state FROM play_sessions WHERE id = ${sessionId} FOR UPDATE`,
+              sql`SELECT state, run_memories FROM play_sessions WHERE id = ${sessionId} FOR UPDATE`,
             );
-            const liveState = (lockedSession.rows[0] as { state: Record<string, unknown> } | undefined)?.state;
+            const locked = lockedSession.rows[0] as { state: Record<string, unknown>; run_memories: RunMemories | null } | undefined;
+            if (!locked || locked.run_memories?.generation !== contInitialMemories?.generation) {
+              throw new Error("Session history changed while generating. Please retry this turn.");
+            }
+            const liveState = locked.state;
             await outputAttempt.checkCommit(tx, liveState, finalState);
             const turnState = reconcileTurnState(worldDef, liveState, gameState, finalState);
             const generationSnapshot = thinSnapshotForStorage(
               generationBaseline(worldDef, liveState, gameState, originalBaseline, finalState) as unknown as Record<string, unknown>,
             );
+            const applied = advanceRunMemories(locked.run_memories, worldDef.worldbooks,
+              normalizeGameState(worldDef, liveState), snapshot, turnState, contBoundaryAt, contBoundaryAt, gameState);
+            const runMemories = invalidateRunMemoryText(applied.memories, contBoundaryAt, contPromptMemories.generation!);
             const turnSnapshot = thinSnapshotForStorage(
               turnState as unknown as Record<string, unknown>,
             );
@@ -4029,7 +4577,15 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
                 stateSnapshot: turnSnapshot,
                 swipes: updatedSwipes.map((swipe, index) =>
                   index === (existingSwipes.length > 0 ? activeSwipeIndex : 0)
-                    ? { ...swipe, stateSnapshot: turnSnapshot, generationState: generationSnapshot }
+                    ? { ...swipe, stateSnapshot: turnSnapshot, generationState: generationSnapshot,
+                        variableAudit: appendVariableAudit((swipe as SwipeWithUsage).variableAudit, buildVariableAudit({
+                          path: "continue", state: turnState, changes: allChanges, trace: changeTrace,
+                          continuity: contContinuity, repair: contMissed,
+                          blocked: [
+                            ...blockedAiWrites.map(b => ({ ...b, phase: "ai" as const })),
+                            ...blockedRuleWrites.map(b => ({ ...b, phase: "rule" as const })),
+                          ],
+                        })) }
                     : swipe,
                 ),
                 activeSwipeIndex:
@@ -4043,6 +4599,7 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
               .update(playSessions)
               .set({
                 state: turnState as unknown as Record<string, unknown>,
+                runMemories: runMemories as unknown as Record<string, unknown>,
                 updatedAt: new Date(),
               })
               .where(eq(playSessions.id, sessionId));
@@ -4074,7 +4631,8 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
           let creditsCost: number | undefined;
           let creditsBalance: number | undefined;
           let grokTrialUsed = false;
-          const wasFiltered = chunk.stopReason === "content_filter" || chunk.stopReason === "SAFETY";
+          // A policy refusal is free, like a filtered reply: the player got no story.
+          const wasFiltered = chunk.stopReason === "content_filter" || chunk.stopReason === "SAFETY" || continuationRefused;
           if (outputAttempt.storyCharge) {
             await refundTrialIfClaimed();
             creditsCost = outputAttempt.storyCharge.cost;
@@ -4103,12 +4661,12 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
                   // for as free. Drop it so the 0/0 rate is what applies.
                   providerCostUsd: freeRouterFallbackServed ? undefined : chunk.usage?.providerCostUsd,
                 });
-                const result = await deductCredits(
+                const result = await deductCreditsUpToBalance(
                   currentUser.id, cost, usageLogId,
                   `${actualModel} — ${pTokens + cTokens} tokens (continue)`,
                 );
-                creditsCost = cost;
-                creditsBalance = result.newBalance;
+                creditsCost = result?.creditsDeducted ?? 0;
+                creditsBalance = result?.newBalance ?? 0;
               } catch (err) {
                 console.error("[Credit] Deduction failed:", err instanceof Error ? err.message : err);
               }
@@ -4148,6 +4706,9 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
               messageId: lastAssistantMsg.id,
               content: finalContent,
               stateChanges: allChanges,
+              changeTrace,
+              promptTrace: promptTracer.build(chatMessages, { speaker: narratorStation, model }),
+              ...(storyEvents.length > 0 ? { storyEvents } : {}), ...(contReplyRules.channels.length > 0 ? { replyChannels: contReplyRules.channels } : {}),
               state: persistedState,
               model: actualModel,
               modelFallback: parseModelFallbackRecord(body.modelFallback, model),
@@ -4156,6 +4717,8 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
               audioEffects: allAudioEffects.length > 0 ? allAudioEffects : undefined,
               sceneImages: contSceneImageResult.shown.length > 0 ? contSceneImageResult.shown.map((img) => img.id) : undefined,
               notifications: contSystemResult.notifications.length > 0 ? contSystemResult.notifications : undefined,
+              firedIds: contSystemResult.firedIds,
+              injectedEntryIds: matchedEntries.map((e) => e.id),
               credits: creditsPayload(creditsCost, creditsBalance),
               ...(isRefusal && { refusal: true }),
             }),
@@ -4202,7 +4765,8 @@ messageRoutes.post("/sessions/:sessionId/continue", async (c) => {
             error: isShutdown
               ? "Server is restarting — your reply was interrupted. Please resend."
               : err instanceof Error ? err.message : "Continue failed",
-            ...(isShutdown && { code: "SERVER_RESTART" }),
+            code: isShutdown ? "SERVER_RESTART"
+              : classifyGenerationFailure(err instanceof Error ? err.message : "", { isByok: resolved.isByok }).code ?? undefined,
           }),
         });
       } catch { /* client disconnected */ }
@@ -4256,6 +4820,44 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
     return c.json({ error: "Not authorized" }, 403);
   }
 
+  type StoredSwipe = { stateValidation?: StateValidationAudit; content: string; stateChanges?: Record<string, unknown>; stateSnapshot?: Record<string, unknown>; model?: string; tokenCount?: number };
+  const writeSwipe = async (index: number, swipe: StoredSwipe, adoptGreeting = false) => {
+    const worldDef = (await loadSessionContext(msg.sessionId, currentUser.id))?.worldDef;
+    const worldVariables = adoptGreeting && swipe.stateSnapshot
+      ? worldDef?.variables ?? await resolveSessionVariables(sessionRows[0]!.worldId, currentUser.id)
+      : [];
+    let effectiveState = sessionRows[0]!.state as Record<string, unknown>;
+    await runExtensionInvalidation(
+      { reason: "message-swiped", sessionId: msg.sessionId, messageFlags: msg, worldDef },
+      undefined, db, async (tx, lockedSession) => {
+        const restoredState = swipe.stateSnapshot ?? null;
+        effectiveState = restoredState ?? lockedSession.state as Record<string, unknown>;
+        if (adoptGreeting && restoredState && msg.createdAt) {
+          const earlier = await tx.select({ id: messages.id }).from(messages)
+            .where(and(eq(messages.sessionId, msg.sessionId), lt(messages.createdAt, msg.createdAt))).limit(1);
+          if (earlier.length === 0) {
+            // Opening snapshots start from defaults. Preserve the creator's
+            // setup choices from the state protected by this same row lock.
+            effectiveState = preserveSetupScopedVariables(worldVariables as Variable[],
+              lockedSession.state as { variables?: Record<string, unknown> }, restoredState);
+          }
+        }
+        const [updatedMessage] = await tx.update(messages).set({
+          content: swipe.content, activeSwipeIndex: index,
+          stateChanges: swipe.stateChanges ?? null,
+          // A rewind checkpoint keeps only the row's snapshot (its swipes' are
+          // stripped): it describes the active swipe, so it cannot stand in
+          // for another one.
+          stateSnapshot: restoredState ?? (index === (msg.activeSwipeIndex ?? 0) ? msg.stateSnapshot : null),
+          stateValidation: swipe.stateValidation ?? null,
+          model: swipe.model ?? null, tokenCount: swipe.tokenCount ?? null,
+        }).where(eq(messages.id, messageId)).returning();
+        return { messageFlags: updatedMessage ?? msg, sessionFields: restoredState ? { state: effectiveState } : undefined };
+      },
+    );
+    return effectiveState;
+  };
+
   // Index-based swipe: allow jumping to any swipe on any message (used by switchGreeting)
   if (typeof body.index === "number") {
     const swipes = (msg.swipes ?? []) as Array<{
@@ -4274,62 +4876,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
     const swipe = swipes[targetIndex]!;
     const restoredState = swipe.stateSnapshot ?? null;
 
-    const [updatedMessage] = await db
-      .update(messages)
-      .set({
-        content: swipe.content,
-        activeSwipeIndex: targetIndex,
-        stateValidation: swipe.stateValidation ?? null,
-        stateChanges: swipe.stateChanges ?? null,
-        stateSnapshot: restoredState ?? msg.stateSnapshot,
-        model: swipe.model ?? null,
-        tokenCount: swipe.tokenCount ?? null,
-      })
-      .where(eq(messages.id, messageId))
-      .returning();
-
-    await runExtensionInvalidation(
-      { reason: "message-swiped", sessionId: msg.sessionId, messageFlags: updatedMessage ?? msg },
-      restoredState ? { state: restoredState } : undefined,
-    );
-
-    const currentSessionState = sessionRows[0]!.state as Record<string, unknown>;
-
-    // If this is the session's FIRST message (the greeting), switching openings
-    // also adopts that greeting's preset into the live session state, so the
-    // chosen route's initialVariables take effect for subsequent turns. Scoped
-    // to the first message so mid-conversation swipe-jumps never clobber state.
-    let adoptedSessionState: Record<string, unknown> | null = null;
-    if (restoredState && msg.createdAt) {
-      const earlier = await db
-        .select({ id: messages.id })
-        .from(messages)
-        .where(and(eq(messages.sessionId, msg.sessionId), lt(messages.createdAt, msg.createdAt)))
-        .limit(1);
-      if (earlier.length === 0) {
-        // Each opening's snapshot is built from world defaults, so adopting it
-        // would wipe setup-scoped choices (e.g. the cast the player picked on a
-        // pre-game screen before choosing the opening). Carry those forward —
-        // resolving the variable defs from the worldDef THIS viewer plays (the
-        // held working copy when the creator playtests their own published card)
-        // so a setup-scoped var that exists only in the held draft is still
-        // recognised. Reading from live worlds.schema missed it → the K-pop
-        // "选X只出X" bug on published cards whose fix was held in draft.
-        const worldVariables = (await resolveSessionVariables(
-          sessionRows[0]!.worldId,
-          currentUser.id,
-        )) as Variable[];
-        adoptedSessionState = preserveSetupScopedVariables(
-          worldVariables,
-          currentSessionState as { variables?: Record<string, unknown> },
-          restoredState as Record<string, unknown>,
-        );
-        await db
-          .update(playSessions)
-          .set({ state: adoptedSessionState })
-          .where(eq(playSessions.id, msg.sessionId));
-      }
-    }
+    const effectiveState = await writeSwipe(targetIndex, swipe, true);
 
     return c.json({
       data: {
@@ -4338,7 +4885,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
         content: swipe.content,
         stateValidation: swipe.stateValidation ?? null,
         stateChanges: swipe.stateChanges,
-        state: adoptedSessionState ?? restoredState ?? currentSessionState,
+        state: effectiveState,
         stateRestored: !!restoredState,
         model: swipe.model ?? null,
         tokenCount: swipe.tokenCount ?? null,
@@ -4374,8 +4921,6 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
     tokenCount?: number;
   }>;
   const currentIndex = msg.activeSwipeIndex ?? 0;
-  const currentSessionState = sessionRows[0]!.state as Record<string, unknown>;
-
   if (body.direction === "left") {
     if (currentIndex <= 0) {
       return c.json({ error: "Already at first swipe" }, 400);
@@ -4385,24 +4930,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
     const swipe = swipes[newIndex]!;
     const restoredState = swipe.stateSnapshot ?? null;
 
-    const [updatedMessage] = await db
-      .update(messages)
-      .set({
-        content: swipe.content,
-        activeSwipeIndex: newIndex,
-        stateValidation: swipe.stateValidation ?? null,
-        stateChanges: swipe.stateChanges ?? null,
-        stateSnapshot: restoredState ?? msg.stateSnapshot,
-        model: swipe.model ?? null,
-        tokenCount: swipe.tokenCount ?? null,
-      })
-      .where(eq(messages.id, messageId))
-      .returning();
-
-    await runExtensionInvalidation(
-      { reason: "message-swiped", sessionId: msg.sessionId, messageFlags: updatedMessage ?? msg },
-      restoredState ? { state: restoredState } : undefined,
-    );
+    const effectiveState = await writeSwipe(newIndex, swipe);
 
     return c.json({
       data: {
@@ -4411,7 +4939,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
         content: swipe.content,
         stateValidation: swipe.stateValidation ?? null,
         stateChanges: swipe.stateChanges,
-        state: restoredState ?? currentSessionState,
+        state: effectiveState,
         stateRestored: !!restoredState,
         model: swipe.model ?? null,
         tokenCount: swipe.tokenCount ?? null,
@@ -4426,24 +4954,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
     const swipe = swipes[newIndex]!;
     const restoredState = swipe.stateSnapshot ?? null;
 
-    const [updatedMessage] = await db
-      .update(messages)
-      .set({
-        content: swipe.content,
-        activeSwipeIndex: newIndex,
-        stateValidation: swipe.stateValidation ?? null,
-        stateChanges: swipe.stateChanges ?? null,
-        stateSnapshot: restoredState ?? msg.stateSnapshot,
-        model: swipe.model ?? null,
-        tokenCount: swipe.tokenCount ?? null,
-      })
-      .where(eq(messages.id, messageId))
-      .returning();
-
-    await runExtensionInvalidation(
-      { reason: "message-swiped", sessionId: msg.sessionId, messageFlags: updatedMessage ?? msg },
-      restoredState ? { state: restoredState } : undefined,
-    );
+    const effectiveState = await writeSwipe(newIndex, swipe);
 
     return c.json({
       data: {
@@ -4452,7 +4963,7 @@ messageRoutes.post("/messages/:id/swipe", async (c) => {
         content: swipe.content,
         stateValidation: swipe.stateValidation ?? null,
         stateChanges: swipe.stateChanges,
-        state: restoredState ?? currentSessionState,
+        state: effectiveState,
         stateRestored: !!restoredState,
         model: swipe.model ?? null,
         tokenCount: swipe.tokenCount ?? null,

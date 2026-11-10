@@ -92,3 +92,17 @@ test("copied scene image embeds are dropped when the judge decides, kept as dire
   assert.equal(kept, "她笑了。\n\n[image: cafe]\n\n雨还在下。");
   assert.deepEqual(resolveSceneImageDirectives(kept, [img]).shown.map((i) => i.id), ["cafe"]);
 });
+
+test("an unsure judge takes the story model's direction as a second opinion, matched by id or display name", async () => {
+  globalThis.fetch = (async () => new Response(JSON.stringify({
+    answers: { var__hp: { type: "choice", probabilities: { "-10": 0.6, "0": 0.4 } } }, usage: { input_tokens: 1, output_tokens: 1 },
+  }), { status: 200 })) as typeof fetch;
+  const w = world([{ id: "hp", name: "生命值", type: "number", precise: true, defaultValue: 80, min: 0, max: 100, deltaUp: 30, deltaDown: 35 }]);
+  const alone = await runContinuityTurn({ ...args(w), userId: `u-${crypto.randomUUID()}` });
+  assert.equal(alone.ran, true);
+  assert.deepEqual(alone.effects, []);
+  const byName = await runContinuityTurn({ ...args(w), userId: `u-${crypto.randomUUID()}`, storyEffects: [{ variableId: "生命值", operation: "subtract", value: 12 }] });
+  assert.deepEqual(byName.effects, [{ variableId: "hp", operation: "set", value: 74 }]);
+  const against = await runContinuityTurn({ ...args(w), userId: `u-${crypto.randomUUID()}`, storyEffects: [{ variableId: "hp", operation: "add", value: 5 }] });
+  assert.deepEqual(against.effects, []);
+});

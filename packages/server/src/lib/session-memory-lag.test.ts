@@ -98,7 +98,7 @@ test("incremental + rebuild code paths both go through the lagged selectors", ()
   assert.match(src, /const safeTip = replies\[1\]/, "incremental range must stop at the second-newest reply");
   assert.match(src, /pendingMemoryRange\(row.id, safeTip.id, cursor\?\.id \?\? null\)/, "pending range must use that lagged boundary");
   assert.match(src, /selectPendingMemoryBatch\(transcriptRows[,)]/, "incremental update must process the contiguous pending batch");
-  assert.match(src, /selectLaggedRebuildWindow\(/, "full rebuild must exclude the last exchange");
+  assert.match(src, /pendingMemoryRange\(args.sessionId, safeTip, cursor\)/, "full rebuild pages through the fixed lag-one boundary");
   assert.match(src, /\.limit\(MAX_REBUILD_TRANSCRIPT_ROWS\)/, "full rebuild must not load unbounded history");
   assert.match(src, /\.limit\(MAX_INCREMENTAL_TRANSCRIPT_ROWS\)/, "per-turn updates must not load unbounded history");
 

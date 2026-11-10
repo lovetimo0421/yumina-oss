@@ -13,7 +13,7 @@ import {
   Globe,
 } from "lucide-react";
 import { feedback } from "@/lib/feedback";
-import { formatPlaytimeHours } from "@/lib/playtime";
+import { formatPlaytimeShort } from "@/lib/playtime";
 import { formatTimeAgo } from "@/lib/format-time";
 import type { LanguageVariant } from "@/lib/languages";
 import { LANGUAGE_SHORT, variantRowLabels } from "@/lib/languages";
@@ -23,6 +23,7 @@ import {
   SESSION_MODAL_SURFACE_CLASS,
 } from "@/components/session-modal-styles";
 import { useSession } from "@/lib/auth-client";
+import { soleCurrentLanguageVariant } from "@/components/version-picker-modal";
 import { getCachedSessions, setCachedSessions } from "@/lib/session-picker-cache";
 import { WorldPersonaIconMenu } from "@/features/chat/world-persona-menu";
 import { usePersonasStore } from "@/stores/personas";
@@ -77,6 +78,11 @@ function SessionPickerModalImpl({
   const { t: tProfile } = useTranslation("profile");
   const contentRef = useRef<HTMLDivElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  const fetchControllerRef = useRef<AbortController | null>(null);
+  const refreshPendingRef = useRef(false);
+  const deleteLockRef = useRef(false);
+  const scopeRef = useRef(0);
   const hasVariants = variants.length > 1;
 
   // The cached list is scoped to the signed-in user (see session-picker-cache):
@@ -96,6 +102,10 @@ function SessionPickerModalImpl({
   const [renameValue, setRenameValue] = useState("");
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selecting, setSelecting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const [deletingSelected, setDeletingSelected] = useState(false);
   const [showVersionPicker, setShowVersionPicker] = useState(false);
   const [newSessionVersionId, setNewSessionVersionId] = useState<string>(world.id);
   const [showAllLanguages, setShowAllLanguages] = useState(false);
@@ -118,6 +128,13 @@ function SessionPickerModalImpl({
       : variantsInCurrentLanguage;
 
   const fetchSessions = useCallback(async (showSpinner = true) => {
+    if (deleteLockRef.current) {
+      refreshPendingRef.current = true;
+      return;
+    }
+    fetchControllerRef.current?.abort();
+    const controller = new AbortController();
+    fetchControllerRef.current = controller;
     if (showSpinner) {
       setLoadingSessions(true);
     }
@@ -127,21 +144,24 @@ function SessionPickerModalImpl({
         : `worldId=${encodeURIComponent(world.id)}`;
       const res = await fetch(`${apiBase}/api/sessions?${params}`, {
         credentials: "include",
+        signal: controller.signal,
       });
       if (res.ok) {
         const { data } = await res.json();
         const nextSessions = data ?? [];
+        if (controller.signal.aborted) return;
         setCachedSessions(userId, cacheKey, nextSessions);
         setSessions(nextSessions);
       }
     } catch {
       // silent
     } finally {
-      setLoadingSessions(false);
+      if (!controller.signal.aborted) setLoadingSessions(false);
     }
   }, [cacheKey, hasVariants, userId, world.id, world.languageGroupId]);
 
   useEffect(() => {
+    scopeRef.current += 1;
     if (open) {
       const cached = getCachedSessions<SessionItem>(userId, cacheKey);
       if (cached) {
@@ -149,6 +169,7 @@ function SessionPickerModalImpl({
         setLoadingSessions(false);
         void fetchSessions(false);
       } else {
+        setSessions([]);
         void fetchSessions(true);
       }
       setRenamingId(null);
@@ -156,15 +177,32 @@ function SessionPickerModalImpl({
       setShowVersionPicker(false);
       setNewSessionVersionId(world.id);
       setShowAllLanguages(false);
+      setSelecting(false);
+      setSelectedIds(new Set());
+      setConfirmBulkDelete(false);
     }
+    return () => { fetchControllerRef.current?.abort(); scopeRef.current += 1; };
   }, [cacheKey, open, fetchSessions, userId, world.id]);
+
+  useEffect(() => {
+    if (open && !deletingSelected && deletingId === null && refreshPendingRef.current) {
+      refreshPendingRef.current = false;
+      void fetchSessions(false);
+    }
+  }, [open, deletingSelected, deletingId, fetchSessions]);
 
   useEffect(() => {
     if (!open) return;
     const handler = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (deleteLockRef.current) return;
         if (renamingId) {
           setRenamingId(null);
+        } else if (confirmBulkDelete) {
+          setConfirmBulkDelete(false);
+        } else if (selecting) {
+          setSelecting(false);
+          setSelectedIds(new Set());
         } else if (showVersionPicker) {
           setShowVersionPicker(false);
         } else {
@@ -173,9 +211,76 @@ function SessionPickerModalImpl({
       }
     };
     document.addEventListener("keydown", handler);
-    contentRef.current?.focus();
     return () => document.removeEventListener("keydown", handler);
-  }, [open, onClose, renamingId, showVersionPicker]);
+  }, [open, onClose, renamingId, showVersionPicker, confirmBulkDelete, selecting]);
+
+  useEffect(() => {
+    if (open) contentRef.current?.focus();
+  }, [open]);
+
+  const selectedSessions = sessions.filter((session) => selectedIds.has(session.id));
+  const allSelected = sessions.length > 0 && selectedSessions.length === sessions.length;
+  const mutationBlocked = deletingSelected || deletingId !== null || !!creating;
+
+  useEffect(() => {
+    if (selectAllRef.current) {
+      selectAllRef.current.indeterminate = selectedSessions.length > 0 && !allSelected;
+    }
+  }, [allSelected, selectedSessions.length, open, loadingSessions, selecting]);
+
+  const toggleSelected = (sessionId: string) => {
+    if (deleteLockRef.current || mutationBlocked) return;
+    setRenamingId(null);
+    setConfirmDeleteId(null);
+    setConfirmBulkDelete(false);
+    setShowVersionPicker(false);
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    if (deleteLockRef.current || mutationBlocked || selectedSessions.length === 0) return;
+    deleteLockRef.current = true;
+    setDeletingSelected(true);
+    fetchControllerRef.current?.abort();
+    setLoadingSessions(false);
+    const scope = scopeRef.current;
+    const deleted = new Set<string>();
+    const failed = new Set<string>();
+    try {
+      // Bound concurrency so selecting hundreds of saves does not flood the API.
+      for (let offset = 0; offset < selectedSessions.length; offset += 4) {
+        await Promise.all(selectedSessions.slice(offset, offset + 4).map(async (session) => {
+          try {
+            const res = await fetch(`${apiBase}/api/sessions/${session.id}`, {
+              method: "DELETE", credentials: "include",
+            });
+            if (res.ok || res.status === 404) deleted.add(session.id);
+            else failed.add(session.id);
+          } catch {
+            failed.add(session.id);
+          }
+        }));
+      }
+      const remaining = sessions.filter((session) => !deleted.has(session.id));
+      setCachedSessions(userId, cacheKey, remaining);
+      if (scope !== scopeRef.current) return;
+      setSessions(remaining);
+      setSelectedIds(failed);
+      if (failed.size === 0) setSelecting(false);
+      if (failed.size > 0) {
+        feedback.error(t("header.bulkDeleteFailed", { count: failed.size }));
+      }
+    } finally {
+      deleteLockRef.current = false;
+      setDeletingSelected(false);
+      setConfirmBulkDelete(false);
+    }
+  };
 
   // All sessions shown — no filtering by variant
   const sessionOrdinalMap = new Map(
@@ -222,6 +327,11 @@ function SessionPickerModalImpl({
   const submitRename = (sessionId: string) => void applyRename(sessionId, renameValue.trim().slice(0, 100));
 
   const handleDelete = async (sessionId: string) => {
+    if (deleteLockRef.current || mutationBlocked) return;
+    deleteLockRef.current = true;
+    fetchControllerRef.current?.abort();
+    setLoadingSessions(false);
+    const scope = scopeRef.current;
     setDeletingId(sessionId);
     const fail = () =>
       feedback.error(t("feedback.sessionDeleteFailed"), {
@@ -234,21 +344,35 @@ function SessionPickerModalImpl({
         credentials: "include",
       });
       if (!res.ok) {
+        if (scope !== scopeRef.current) return;
         fail();
         return;
       }
+      setCachedSessions(userId, cacheKey, sessions.filter((session) => session.id !== sessionId));
+      if (scope !== scopeRef.current) return;
       // The row leaves the list — that is the confirmation.
       setSessions((prev) => prev.filter((session) => session.id !== sessionId));
     } catch {
-      fail();
+      if (scope === scopeRef.current) fail();
     } finally {
+      deleteLockRef.current = false;
       setDeletingId(null);
       setConfirmDeleteId(null);
     }
   };
 
+  // Only one version in the reader's language (the other variants are
+  // translations they did not ask for): start it — the chooser used to
+  // expand with that single option and take a second click.
+  const onlyCurrentLanguageVersion = soleCurrentLanguageVariant(variants, i18n.language);
+
   const handleNewSessionClick = () => {
+    if (deleteLockRef.current) return;
     if (usePersonasStore.getState().savingSelection || usePersonasStore.getState().selectionFailed) return;
+    if (hasVariants && onlyCurrentLanguageVersion) {
+      onCreateSession(onlyCurrentLanguageVersion.id);
+      return;
+    }
     if (hasVariants) {
       setShowVersionPicker((prev) => {
         if (!prev) {
@@ -271,14 +395,14 @@ function SessionPickerModalImpl({
     <div className="fixed inset-0 z-[90] flex items-center justify-center">
       <div
         className={SESSION_MODAL_BACKDROP_CLASS}
-        onClick={onClose}
+        onClick={() => { if (!deleteLockRef.current) onClose(); }}
       />
 
       <div
         ref={contentRef}
         role="dialog"
         aria-modal="true"
-        aria-label="Session picker"
+        aria-label={t("header.sessions")}
         tabIndex={-1}
         className={`${SESSION_MODAL_SURFACE_CLASS} max-w-[28rem]`}
       >
@@ -287,12 +411,32 @@ function SessionPickerModalImpl({
             <h2 className="text-[0.95rem] font-semibold text-foreground">{world.name}</h2>
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
+            {(sessions.length > 0 || selecting) && (
+              <button
+                type="button"
+                disabled={mutationBlocked || loadingSessions}
+                aria-pressed={selecting}
+                onClick={() => {
+                  if (deleteLockRef.current) return;
+                  setSelecting((prev) => !prev);
+                  setSelectedIds(new Set());
+                  setRenamingId(null);
+                  setConfirmDeleteId(null);
+                  setConfirmBulkDelete(false);
+                  setShowVersionPicker(false);
+                }}
+                className="mr-1 rounded-lg px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10 focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+              >
+                {t(selecting ? "header.finishSelectingSessions" : "header.selectSessions")}
+              </button>
+            )}
             {/* Per-world persona pin — only rendered for users who have personas */}
-            <WorldPersonaIconMenu worldId={showVersionPicker ? newSessionVersionId : world.id} disabled={!!creating} />
+            <WorldPersonaIconMenu worldId={showVersionPicker ? newSessionVersionId : world.id} disabled={mutationBlocked} />
             <button
               type="button"
               onClick={onClose}
-              aria-label="Close"
+              disabled={deletingSelected || deletingId !== null}
+              aria-label={t("common:action.close")}
               className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/40 transition-colors hover:bg-white/5 hover:text-muted-foreground"
             >
               <X className="h-4 w-4" />
@@ -314,7 +458,7 @@ function SessionPickerModalImpl({
                 const isConfirming = confirmDeleteId === session.id;
                 const isDeleting = deletingId === session.id;
                 const displayName =
-                  session.name?.trim() || `Session ${sessionOrdinalMap.get(session.id) ?? 1}`;
+                  session.name?.trim() || t("header.sessionOrdinal", { n: sessionOrdinalMap.get(session.id) ?? 1 });
                 const badge = hasVariants ? versionBadgeText(session, variants) : null;
 
                 if (isRenaming) {
@@ -357,14 +501,21 @@ function SessionPickerModalImpl({
                 return (
                   <div
                     key={session.id}
-                    className={`group rounded-xl border border-transparent px-3.5 py-3 transition-all hover:border-white/[0.06] hover:bg-white/[0.02] ${
-                      !isConfirming ? "cursor-pointer" : ""
-                    }`}
+                    className={`group rounded-xl border px-3.5 py-3 transition-all hover:border-white/[0.06] hover:bg-white/[0.02] ${
+                      selectedIds.has(session.id) ? "border-primary/20 bg-primary/[0.06]" : "border-transparent"
+                    } ${!isConfirming && !mutationBlocked ? "cursor-pointer" : ""}`}
                     onClick={() => {
-                      if (!isConfirming) onSelectSession(session.id);
+                      if (isConfirming || deleteLockRef.current || mutationBlocked) return;
+                      if (selecting) toggleSelected(session.id);
+                      else onSelectSession(session.id);
                     }}
                   >
                     <div className="flex items-center gap-2">
+                      {selecting && (
+                        <label className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-lg hover:bg-white/5" onClick={(event) => event.stopPropagation()}>
+                          <input type="checkbox" checked={selectedIds.has(session.id)} disabled={mutationBlocked} aria-label={t("header.selectSession", { name: displayName })} onChange={() => toggleSelected(session.id)} className="h-4 w-4 accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" />
+                        </label>
+                      )}
                       <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground/90">
                         {displayName}
                       </span>
@@ -380,6 +531,7 @@ function SessionPickerModalImpl({
                         <button
                           type="button"
                           onClick={() => startRename(session)}
+                          disabled={mutationBlocked || selecting}
                           className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/50 transition-colors hover:bg-white/[0.06] hover:text-foreground"
                           title={t("header.renameSession")}
                           aria-label={t("header.renameSession")}
@@ -389,6 +541,7 @@ function SessionPickerModalImpl({
                         <button
                           type="button"
                           onClick={() => setConfirmDeleteId(session.id)}
+                          disabled={mutationBlocked || selecting}
                           className="flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground/50 transition-colors hover:bg-destructive/10 hover:text-destructive"
                           title={t("header.deleteSession")}
                           aria-label={t("header.deleteSession")}
@@ -405,7 +558,7 @@ function SessionPickerModalImpl({
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
-                        {formatPlaytimeHours(session.playtimeSeconds)} played
+                        {t("header.playedFor", { time: formatPlaytimeShort(session.playtimeSeconds, i18n.language) })}
                       </span>
                       <span className="flex items-center gap-1">
                         <Clock className="h-3 w-3" />
@@ -459,12 +612,63 @@ function SessionPickerModalImpl({
 
         <div className="mx-5 h-px bg-white/[0.06]" />
         <div className="px-4 py-3.5">
+          {selecting && (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-foreground/90">
+                <input
+                  ref={selectAllRef}
+                  type="checkbox"
+                  checked={allSelected}
+                  disabled={mutationBlocked || sessions.length === 0}
+                  aria-label={t("header.selectAllSessions")}
+                  onChange={() => {
+                    if (deleteLockRef.current) return;
+                    setSelectedIds(allSelected ? new Set() : new Set(sessions.map((session) => session.id)));
+                    setRenamingId(null);
+                    setConfirmDeleteId(null);
+                    setConfirmBulkDelete(false);
+                    setShowVersionPicker(false);
+                  }}
+                  className="h-4 w-4 accent-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+                />
+                {t(allSelected ? "header.deselectAllSessions" : "header.selectAllSessions")}
+              </label>
+              {selectedSessions.length > 0 && (
+                <button
+                  type="button"
+                  disabled={mutationBlocked}
+                  onClick={() => setConfirmBulkDelete(true)}
+                  className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+                >
+                  {deletingSelected ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  {t("header.deleteSelectedSessions", { count: selectedSessions.length })}
+                </button>
+              )}
+            </div>
+          )}
+
+          {confirmBulkDelete && (
+            <div className="mt-2 rounded-lg border border-destructive/20 bg-destructive/[0.04] p-3">
+              <p role="alert" className="text-sm text-foreground">
+                {t("header.bulkDeleteConfirm", { count: selectedSessions.length })}
+              </p>
+              <div className="mt-2 flex justify-end gap-2">
+                <button type="button" disabled={deletingSelected} onClick={() => setConfirmBulkDelete(false)} className="min-h-11 rounded-lg px-3 text-sm text-foreground transition-colors hover:bg-white/5 focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
+                  {t("common:action.cancel")}
+                </button>
+                <button type="button" disabled={mutationBlocked} onClick={() => void handleBulkDelete()} className="flex min-h-11 items-center gap-2 rounded-lg bg-destructive px-3 text-sm font-medium text-destructive-foreground transition-colors hover:bg-destructive/90 focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50">
+                  {deletingSelected && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {t("common:action.delete")}
+                </button>
+              </div>
+            </div>
+          )}
           {/* Inline version picker — expands above the button */}
           {showVersionPicker && hasVariants && (
             <div className="mb-3 space-y-1">
               <div className="mb-2 flex items-center justify-between px-0.5">
-                <p className="text-[11px] font-medium text-muted-foreground/50">
-                  Select a version
+                <p className="text-[11px] font-medium text-muted-foreground/70">
+                  {t("header.chooseVersion")}
                 </p>
                 {hasOtherLanguageVariants && (
                   <button
@@ -528,13 +732,13 @@ function SessionPickerModalImpl({
               })}
             </div>
           )}
-          <button
+          {!selecting && <button
             type="button"
             onClick={showVersionPicker ? () => {
               if (usePersonasStore.getState().savingSelection || usePersonasStore.getState().selectionFailed) return;
               setShowVersionPicker(false); onCreateSession(newSessionVersionId);
             } : handleNewSessionClick}
-            disabled={creating || selectionBlocked}
+            disabled={creating || selectionBlocked || deletingSelected || deletingId !== null}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary/90 px-4 py-2.5 text-sm font-semibold text-primary-foreground transition-all hover:bg-primary disabled:opacity-50"
           >
             {creating ? (
@@ -542,9 +746,19 @@ function SessionPickerModalImpl({
             ) : (
               <Plus className="h-4 w-4" />
             )}
-            {t("header.newSession")}
-          </button>
+            {showVersionPicker ? t("header.startThisVersion") : t("header.newSession")}
+          </button>}
           {selectionBlocked && <p role="status" className="mt-2 text-sm text-muted-foreground">{tProfile(selectionFailed ? "persona.session.creationBlocked" : "persona.session.waitSelection")}</p>}
+          {showVersionPicker && (
+            <button
+              type="button"
+              onClick={() => setShowVersionPicker(false)}
+              disabled={creating}
+              className="mt-2 w-full rounded-lg py-1.5 text-xs text-muted-foreground/60 transition-colors hover:text-foreground disabled:opacity-50"
+            >
+              {t("common:action.cancel")}
+            </button>
+          )}
         </div>
       </div>
     </div>,

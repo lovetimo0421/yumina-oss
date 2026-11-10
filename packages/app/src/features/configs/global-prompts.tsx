@@ -214,7 +214,7 @@ export function GlobalPrompts({ embedded = false }: { embedded?: boolean }) {
     reader.onload = () => {
       try {
         const json = JSON.parse(reader.result as string);
-        importPrompts(json);
+        importPrompts(json, file.name);
       } catch {
         // invalid json
       }
@@ -581,6 +581,10 @@ function PromptRow({
   const [editSection, setEditSection] = useState(prompt.section);
   const [editDepth, setEditDepth] = useState(prompt.depth ?? 4);
   const [editPosition, setEditPosition] = useState<number | "">(prompt.position ?? "");
+  // No role stored means system: that is how the prompt builder sends it.
+  const [editRole, setEditRole] = useState(prompt.apiRole ?? "system");
+  const roleOptions = (["system", "user", ...(prompt.apiRole === "assistant" ? ["assistant"] as const : [])] as const)
+    .map((value) => ({ value, label: t(`customPrompts.role.${value}`) }));
 
   if (editing) {
     return (
@@ -629,7 +633,22 @@ function PromptRow({
           >
             <PositionInput value={editPosition} onChange={setEditPosition} />
           </Field>
+          {/* Who the model hears it from. A pack's or a SillyTavern preset's
+              「最后」 lines arrive as the player's words; some players want
+              them as rules instead (a player, 10/21). */}
+          <Field label={t("customPrompts.fieldRole")} title={t("customPrompts.roleHelp")}>
+            <Select
+              value={editRole}
+              onValueChange={(v) => setEditRole(v as typeof editRole)}
+              options={roleOptions}
+              triggerClassName={FIELD_TRIGGER_CLASS}
+              contentClassName={FIELD_MENU_CLASS}
+            />
+          </Field>
         </div>
+        {SECTION_KEYS[editSection] && (
+          <p className="text-xs leading-relaxed text-muted-foreground">{tu(`prompts.sectionHint.${SECTION_KEYS[editSection]!}`)}</p>
+        )}
         <FormActions
           onCancel={onCancelEdit}
           onDelete={() => void onDelete(prompt.id)}
@@ -641,6 +660,7 @@ function PromptRow({
               section: editSection,
               ...(editSection === "chat-history" && { depth: editDepth }),
               position: editPosition === "" ? null : editPosition,
+              apiRole: editRole === "system" ? null : editRole,
             });
             onCancelEdit();
           }}
@@ -653,6 +673,7 @@ function PromptRow({
   const meta = [
     sectionKey ? tu(`prompts.section.${sectionKey}`) : prompt.section,
     prompt.position != null ? tu("prompts.pos", { n: prompt.position }) : null,
+    prompt.apiRole && prompt.apiRole !== "system" ? t("customPrompts.sentAs", { role: t(`customPrompts.role.${prompt.apiRole}`) }) : null,
     prompt.sourceType === "pack" ? tu("chips.fromHub") : null,
   ].filter(Boolean).join(" · ");
   const boundFamilies = prompt.autoModels ?? [];

@@ -85,6 +85,12 @@ export function LibraryGameGrid({
   const hasMore = useLibraryStore((s) => s.hasMore);
   const fetchMore = useLibraryStore((s) => s.fetchMore);
   const removeFromLibrary = useLibraryStore((s) => s.removeFromLibrary);
+  const markUpdateSeen = useLibraryStore((s) => s.markUpdateSeen);
+  // Opening or playing a card is how the player "sees" its update, so either
+  // clears the dot. Only cards that show it make the request.
+  const seeUpdate = (li: LibraryItem) => {
+    if (li.hasUpdate) void markUpdateSeen(li.worldId);
+  };
   const navigate = useNavigate();
 
   const { handlePlay } = usePlayWithLanguage({
@@ -343,10 +349,10 @@ export function LibraryGameGrid({
         <LibraryGameCard
           key={li.libraryId}
           item={syntheticItem}
-          onClick={() => onSelectItem(syntheticItem)}
+          onClick={() => { seeUpdate(li); onSelectItem(syntheticItem); }}
           status="installed"
           hasUpdate={li.hasUpdate}
-          onPlay={() => void startPlay({ id: li.worldId, name: li.worldName, thumbnailUrl: li.worldThumbnailUrl, language: li.worldLanguage, languageGroupId: li.worldLanguageGroupId ?? null })}
+          onPlay={() => { seeUpdate(li); void startPlay({ id: li.worldId, name: li.worldName, thumbnailUrl: li.worldThumbnailUrl, language: li.worldLanguage, languageGroupId: li.worldLanguageGroupId ?? null }); }}
           playPending={playPendingId === li.worldId}
           onEdit={canFork ? () => handleEditClick(syntheticItem) : undefined}
           onDelete={() => setConfirmRemoveId({ worldId: li.worldId, worldName: li.worldName, thumbnailUrl: li.worldThumbnailUrl })}
@@ -368,13 +374,13 @@ export function LibraryGameGrid({
       <LibraryGameCard
         key={li.libraryId}
         item={worldItem}
-        onClick={() => onSelectItem(worldItem)}
+        onClick={() => { seeUpdate(li); onSelectItem(worldItem); }}
         status="installed"
         hasUpdate={li.hasUpdate}
         onEdit={canForkWorld ? () => handleEditClick(worldItem) : undefined}
         onDelete={() => setConfirmRemoveId({ worldId: li.worldId, worldName: worldItem.name, thumbnailUrl: worldItem.thumbnailUrl })}
         deleteTitle={t("games.removeFromLibrary")}
-        onPlay={() => void startPlay({ id: worldItem.id, name: worldItem.name, thumbnailUrl: worldItem.thumbnailUrl, language: worldItem.language, languageGroupId: li.worldLanguageGroupId ?? null })}
+        onPlay={() => { seeUpdate(li); void startPlay({ id: worldItem.id, name: worldItem.name, thumbnailUrl: worldItem.thumbnailUrl, language: worldItem.language, languageGroupId: li.worldLanguageGroupId ?? null }); }}
         playPending={playPendingId === li.worldId}
         onDownload={canDownloadWorld ? () => handleDownload(worldItem.id, worldItem.name) : undefined}
         onToggleFavorite={features.hub ? () => void toggleFavorite(li.worldId, { worldName: worldItem.name, worldThumbnailUrl: worldItem.thumbnailUrl }) : undefined}
@@ -447,7 +453,7 @@ export function LibraryGameGrid({
             <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
               <Search size={48} className="mb-4 opacity-20" />
               <p className="text-sm">
-                No results for &ldquo;{searchQuery}&rdquo; - try clearing your search.
+                {t("games.noResults", { query: searchQuery })}
               </p>
             </div>
           ) : (

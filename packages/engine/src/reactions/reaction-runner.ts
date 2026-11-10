@@ -1,8 +1,9 @@
 import type { GameEvent, Reaction } from "../events/types.js";
-import type { Rule, AudioEffect } from "../types/index.js";
+import type { Rule, AudioEffect, Worldbook } from "../types/index.js";
 import type { GameStateManager } from "../state/game-state-manager.js";
 import { ReactionEvaluator } from "./reaction-evaluator.js";
 import { processSystemEffects, applySystemEffects } from "../systems/effect-processor.js";
+import { isMemberActive } from "../lorebook/worldbook.js";
 
 /** Aggregated outcome of running a reaction chain to completion. */
 export interface ReactionRunResult {
@@ -11,14 +12,19 @@ export interface ReactionRunResult {
   /** Audio effects emitted by fired reactions. */
   audioEffects: AudioEffect[];
   /** Player notifications emitted by fired reactions. */
-  notifications: Array<{ message: string; style: string }>;
+  notifications: Array<{ message: string; style: string; title?: string; image?: string }>;
   /** One-shot context messages for the next AI turn. */
   contextMessages: Array<{ message: string; role: string }>;
   /** IDs of every reaction that fired across the chain. */
   firedIds: string[];
+  /** Parallel to `changes`: the reactions that fired in the hop which made
+   *  each change. Effects are pooled per hop, so a hop where two fired names
+   *  both. Empty = derived by system settlement, not by a reaction. */
+  changeCauses: string[][];
 }
 
 const DEFAULT_MAX_DEPTH = 5;
+const MAX_CHAIN_DEPTH_CAP = 20;
 
 /**
  * Evaluate reactions against `initialEvents` and follow the chain: effects that
@@ -41,9 +47,13 @@ export function runReactionChain(
   initialEvents: GameEvent[],
   reactions: Reaction[],
   rules: Rule[],
-  options?: { maxDepth?: number },
+  options?: { maxDepth?: number; worldbooks?: Worldbook[] },
 ): ReactionRunResult {
-  const maxDepth = options?.maxDepth ?? DEFAULT_MAX_DEPTH;
+  // A behaviour may ask for a longer chain (maxChainDepth); each one still fires
+  // at most once per chain, so the bound only caps how far a cascade travels.
+  const maxDepth = options?.maxDepth ?? Math.min(MAX_CHAIN_DEPTH_CAP,
+    Math.max(DEFAULT_MAX_DEPTH, ...reactions.map((r) => r.maxChainDepth ?? 0)));
+  const worldbooks = options?.worldbooks;
 
   const cooldownById = new Map<string, number | undefined>();
   for (const r of rules) cooldownById.set(r.id, r.cooldownTurns);
@@ -55,6 +65,7 @@ export function runReactionChain(
     notifications: [],
     contextMessages: [],
     firedIds: [],
+    changeCauses: [],
   };
 
   let activeReactions = reactions;
@@ -63,7 +74,16 @@ export function runReactionChain(
   let depth = 0;
 
   while (events.length > 0 && depth < maxDepth && (activeReactions.length > 0 || activeRules.length > 0)) {
-    const result = evaluator.evaluateMultiple(events, activeReactions, activeRules, stateManager.getSnapshot(), { oncePerReaction: true });
+    const snapshot = stateManager.getSnapshot();
+    // Module gate, re-checked per hop against the live snapshot: reactions of
+    // an inactive worldbook (module) don't evaluate this hop, but stay in the
+    // active set — a module switched on mid-chain joins the following hops.
+    const eligibleReactions = activeReactions.filter((r) => isMemberActive(r.worldbookId, worldbooks, snapshot));
+    const eligibleRules = activeRules.filter((r) => isMemberActive(r.worldbookId, worldbooks, snapshot));
+    const result = evaluator.evaluateMultiple(events, eligibleReactions, eligibleRules, snapshot, { oncePerReaction: true });
+    // A failed behaviour's notice and a moment's card come straight from the
+    // evaluator; the system effects below cannot say them.
+    if (result.notices?.length) out.notifications.push(...result.notices);
     if (result.firedIds.length === 0) break;
 
     const systemResult = processSystemEffects(result.effects);
@@ -77,6 +97,7 @@ export function runReactionChain(
     }
 
     out.changes.push(...changes);
+    out.changeCauses.push(...changes.map(() => [...firedThisHop]));
     out.audioEffects.push(...systemResult.audioEffects);
     out.notifications.push(...systemResult.notifications);
     out.contextMessages.push(...systemResult.contextMessages);
@@ -101,13 +122,15 @@ export function runReactionChain(
 
   const settledChanges = stateManager.settleSystems();
   out.changes.push(...settledChanges);
+  out.changeCauses.push(...settledChanges.map(() => []));
   if (settledChanges.length && depth < maxDepth) {
     // Derived deaths still emit events (e.g. the card's death sound). Fired
     // rules stay retired when settlement re-enters the bounded chain.
     const settled = runReactionChain(evaluator, stateManager,
       settledChanges.map(change => ({ type: "state:changed" as const, ...change })),
-      activeReactions, activeRules, { maxDepth: maxDepth - depth - 1 });
+      activeReactions, activeRules, { maxDepth: maxDepth - depth - 1, worldbooks });
     out.changes.push(...settled.changes);
+    out.changeCauses.push(...settled.changeCauses);
     out.audioEffects.push(...settled.audioEffects);
     out.notifications.push(...settled.notifications);
     out.contextMessages.push(...settled.contextMessages);

@@ -72,10 +72,13 @@ test("bounded batches only advance across complete exchanges and can drain witho
 });
 
 test("short conversations batch up; initial, large, failed and explicit updates bypass the delay", () => {
-  const base = { pendingTurns: 1, pendingChars: 100, hasMemory: true, failed: false, overBudget: false };
+  const base = { pendingTurns: 1, pendingChars: 100, hasMemory: true, failed: false };
   assert.equal(shouldUpdateSessionMemory(base), false);
   assert.equal(shouldUpdateSessionMemory({ ...base, pendingTurns: 2 }), false);
-  for (const change of [{ pendingTurns: 3 }, { pendingChars: 4000 }, { hasMemory: false }, { failed: true }, { overBudget: true }, { force: true }]) {
+  // One or two long replies wait for the third turn; they stay in raw history.
+  assert.equal(shouldUpdateSessionMemory({ ...base, pendingChars: 6_000 }), false);
+  assert.equal(shouldUpdateSessionMemory({ ...base, pendingTurns: 2, pendingChars: 14_000 }), false);
+  for (const change of [{ pendingTurns: 3 }, { pendingChars: 15_000 }, { hasMemory: false }, { failed: true }, { force: true }]) {
     assert.equal(shouldUpdateSessionMemory({ ...base, ...change }), true);
   }
   assert.equal(shouldUpdateSessionMemory({ ...base, pendingTurns: 0, force: true, failed: true }), false);

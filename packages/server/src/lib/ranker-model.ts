@@ -80,8 +80,19 @@ function walkTree(node: LgbNode, features: Float64Array): number {
 }
 
 /** binary: sigmoid → P(click). regression: raw log1p(minutes). tweedie:
- * exp(raw) → expected minutes (the zero-inflated time-value objective). */
-export type RankerModelKind = "binary" | "regression" | "tweedie";
+ * exp(raw) → expected minutes (the zero-inflated time-value objective).
+ * lambdarank: raw ranking score (logit units, only differences matter). */
+export type RankerModelKind = "binary" | "regression" | "tweedie" | "lambdarank";
+
+/** How a model's output combines with the hand-tuned score.
+ *  - "lift": the time-value model; engagement.ts adds MODEL_WEIGHT·ln-lift
+ *    to the full hand-tuned score (every model before residual-v1).
+ *  - "residual-v1": a LambdaRank model trained with the hand-tuned score as
+ *    its init_score, on the 53 ranker inputs plus the score's own parts
+ *    (RESIDUAL_COMPONENT_NAMES). Its raw output is the learned correction in
+ *    logit units; dividing by `handScale` (logit per hand point) puts it on
+ *    the hand-score scale, so served score = hand score + raw / handScale. */
+export type RankerComposition = "lift" | "residual-v1";
 
 export interface RankerModelHandle {
   id: number;
@@ -93,6 +104,11 @@ export interface RankerModelHandle {
    * the baseline the serving lift is a ratio against (see engagement.ts).
    * 0 for binary models. */
   valueBaseline: number;
+  /** "residual-v1" only when the trainer declared it AND gave a positive
+   * hand scale; anything else is "lift" (the pre-residual behaviour). */
+  composition?: RankerComposition;
+  /** residual-v1: logit units per hand-score point (trainer's metrics.hand_scale). */
+  handScale?: number;
   /** binary → P(click) via sigmoid; regression → raw predicted value
    * (log1p-minutes; caller applies expm1). Missing features default to 0. */
   predict(featuresByName: Record<string, number>): number;
@@ -105,6 +121,7 @@ export function buildRankerModel(
   modelJson: LgbModelJson,
   featureNames: string[],
   valueBaseline = 0,
+  composition: { composition?: unknown; handScale?: unknown } = {},
 ): RankerModelHandle {
   if (!Array.isArray(modelJson.tree_info) || modelJson.tree_info.length === 0) {
     throw new Error("model has no trees");
@@ -120,13 +137,25 @@ export function buildRankerModel(
   const objective = modelJson.objective ?? "";
   const kind: RankerModelKind = objective.startsWith("tweedie") ? "tweedie"
     : objective.startsWith("regression") ? "regression"
+    : objective.startsWith("lambdarank") ? "lambdarank"
     : "binary";
+  const handScale = Number(composition.handScale);
+  const residual = composition.composition === "residual-v1" && kind === "lambdarank"
+    && Number.isFinite(handScale) && handScale > 0;
+  // A ranking score has no probability or minutes meaning; without a valid
+  // residual declaration there is no way to combine it, so refuse the model
+  // (the loader keeps the previous handle / falls back to engage_v1).
+  if (kind === "lambdarank" && !residual) {
+    throw new Error("lambdarank model without a residual-v1 composition and positive hand_scale");
+  }
 
   return {
     id,
     featureNames: names,
     kind,
     valueBaseline,
+    composition: residual ? "residual-v1" : "lift",
+    handScale: residual ? handScale : 0,
     predict(featuresByName: Record<string, number>): number {
       const vec = new Float64Array(names.length);
       for (const [name, value] of Object.entries(featuresByName)) {
@@ -142,7 +171,7 @@ export function buildRankerModel(
       }
       let raw = 0;
       for (const tree of trees) raw += walkTree(tree, vec);
-      if (kind === "regression") return raw;
+      if (kind === "regression" || kind === "lambdarank") return raw;
       if (kind === "tweedie") return Math.exp(raw);
       return 1 / (1 + Math.exp(-raw));
     },
@@ -205,11 +234,12 @@ export async function loadPublishedRankerModel(db: Database): Promise<RankerMode
     // minutes the serving lift is a ratio against. Absent for legacy binary
     // models; buildRankerModel ignores it for those.
     const metrics = (typeof row.metrics === "string" ? JSON.parse(row.metrics) : row.metrics) as
-      | { value_baseline_min?: number }
+      | { value_baseline_min?: number; composition?: string; hand_scale?: number }
       | null;
     const valueBaseline = Number(metrics?.value_baseline_min) || 0;
 
-    cachedHandle = buildRankerModel(headId, modelJson, featureNames ?? [], valueBaseline);
+    cachedHandle = buildRankerModel(headId, modelJson, featureNames ?? [], valueBaseline,
+      { composition: metrics?.composition, handScale: metrics?.hand_scale });
     cachedHeadId = headId;
     loadFailedForId = null;
     console.log(`[ranker] loaded published model id=${headId} (${cachedHandle.featureNames.length} features)`);

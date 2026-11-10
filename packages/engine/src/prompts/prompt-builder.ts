@@ -3,27 +3,162 @@ import type {
   GameState,
   WorldEntry,
   Directive,
+  Variable,
 } from "../types/index.js";
-import { expandMacros } from "./macros.js";
-import { estimateTokens } from "./token-utils.js";
+import { expandMacros, primaryCharacterEntry } from "./macros.js";
+import { estimateTokens, estimateTokensByChars } from "./token-utils.js";
 import { filterEntriesByActiveWorldbooks } from "../lorebook/worldbook.js";
 import { filterEntriesByActiveLoreSlots } from "../lorebook/lore-slot.js";
-import { isVariableBoundEntry } from "../lorebook/entry-triggers.js";
-import { isAiReadable, isContinuityOwned, isSceneImageJudgeOn } from "../state/variable-activation.js";
+import { isStandbyOn, isVariableBoundEntry } from "../lorebook/entry-triggers.js";
+import { isAiReadable, isAiWritable, isContinuityOwned, isSceneImageJudgeOn } from "../state/variable-activation.js";
 import { getAiAudioTracks } from "../audio/ai-audio.js";
 import { getAiSceneImages, buildSceneImagePromptBlock, resolveSceneImageDirectives } from "../parser/scene-image-directives.js";
+import { buildBackgroundPromptBlock } from "../parser/background-directives.js";
+import { aiSelectableBackgrounds } from "../world/background.js";
 import { buildSpeakerFormatBlock } from "./speaker-tag.js";
 
-/** Static (state-free) check: could the AI ever see this variable? Used by the
- *  cached prefix blocks, which must not depend on per-turn activation — the
- *  dynamic <game-state> block applies the full isAiReadable/isAiWritable gate. */
+/** State-free compatibility check for callers without a runtime snapshot. */
 function isAiExposedStatic(v: { internal?: boolean; aiAccess?: "write" | "read" | "none" }): boolean {
   return !v.internal && (v.aiAccess ?? "write") !== "none";
 }
 
 /** Static check: may AI directives ever write this variable? */
-function isAiWritableStatic(v: { internal?: boolean; aiAccess?: "write" | "read" | "none" }): boolean {
-  return !v.internal && (v.aiAccess ?? "write") === "write";
+function isAiWritableStatic(v: { internal?: boolean; formula?: string; aiAccess?: "write" | "read" | "none" }): boolean {
+  return !v.internal && !v.formula && (v.aiAccess ?? "write") === "write";
+}
+
+/** A short sample value of a string variable for an example line. */
+function sampleString(v: Variable): string {
+  const option = v.options?.find((o) => o.trim());
+  if (option) return option.trim();
+  const d = typeof v.defaultValue === "string" ? v.defaultValue.trim() : "";
+  return d && d.length <= 24 && !d.includes("\n") ? d : "…";
+}
+
+/**
+ * The directive examples in the format block, written with THIS world's own
+ * AI-writable variable ids. A placeholder format line (`[variableId: …]`)
+ * was copied literally by models (`[variable: mood: set "angry"]`,
+ * `[variableId: game-state.location: …]`), and generic ids (`hp`, `gold`)
+ * invited writes to variables the card does not have. One line per type the
+ * world has, up to three variables; the generic lines only for a world where
+ * none of those types is writable. Depends on definitions only, so the block
+ * stays byte-stable across turns (cacheable).
+ */
+export function buildDirectiveExamples(writable: Variable[]): { examples: string[]; stringId?: string; jsonLines: string[] } {
+  const firstOf = (type: Variable["type"]) => writable.find((v) => v.type === type);
+  const picks = (["number", "string", "json", "boolean"] as const)
+    .map(firstOf)
+    .filter((v): v is Variable => v !== undefined)
+    .slice(0, 3);
+  const examples: string[] = [];
+  let stringId: string | undefined;
+  const jsonLines: string[] = [];
+  for (const v of picks) {
+    if (v.type === "number") {
+      examples.push(`Numbers:   [${v.id}: +1]   [${v.id}: -1]   [${v.id}: set ${typeof v.defaultValue === "number" ? v.defaultValue : 0}]`);
+    } else if (v.type === "string") {
+      stringId = v.id;
+      examples.push(`Text:      [${v.id}: set ${JSON.stringify(sampleString(v))}]`);
+    } else if (v.type === "boolean") {
+      examples.push(`Switches:  [${v.id}: toggle]   [${v.id}: set true]`);
+    } else if (v.type === "json") {
+      const d = v.defaultValue;
+      if (Array.isArray(d)) {
+        examples.push(`Lists:     [${v.id}: push "new item"]   [${v.id}: delete 0]`);
+        jsonLines.push(
+          `  [${v.id}: push {"name": "…"}]   append to the list`,
+          `  [${v.id}: delete 0]               remove the item at index 0`,
+        );
+      } else {
+        const key = d && typeof d === "object" ? Object.keys(d)[0] : undefined;
+        const field = key && /^[\w\p{L}\p{N}$·・-]+$/u.test(key) ? key : "field";
+        const sample = key && d && typeof d === "object" ? (d as Record<string, unknown>)[key] : undefined;
+        const value = typeof sample === "number" || typeof sample === "boolean" ? String(sample) : '"…"';
+        examples.push(`Objects:   [${v.id}.${field}: set ${value}]`);
+        jsonLines.push(
+          `  [${v.id}.${field}: set ${value}]   one field at a dot-path`,
+          `  [${v.id}: merge {"${field}": ${value}}]   patch several fields at once`,
+          `  [${v.id}: delete "${field}"]   remove a key`,
+        );
+      }
+    }
+  }
+  if (!examples.length) {
+    examples.push('Numbers:   [hp: -10]   [gold: +50]', 'Text:      [location: set "forest"]', 'Switches:  [hasKey: toggle]');
+  }
+  return { examples, stringId, jsonLines };
+}
+
+/** Smallest trim step, so a modest story memory still moves in whole scenes. */
+const HISTORY_STEP_FLOOR = 4_000;
+/** About one message in this many may anchor the trim grid. */
+const HISTORY_ANCHOR_EVERY = 32;
+
+/**
+ * How far the start of the history jumps when it has to move. A third of the
+ * player's story memory: the window keeps 2/3 to all of it (5/6 on average)
+ * and the cached conversation survives a third of a budget of new turns
+ * before it is cut again. Sized from a number that holds still between turns
+ * (`basis`), never from the per-turn budget, or the grid would wobble with
+ * every keyword-triggered entry. When the budget actually left is under
+ * three steps (a big world under the overall ceiling), the step halves until
+ * it fits, which keeps the coarser grid's lines.
+ */
+function historyTrimStep(basis: number, budget: number): number {
+  let step = Math.max(HISTORY_STEP_FLOOR, (Number.isFinite(basis) ? basis : budget) / 3);
+  while (step > budget / 3 && step > 1) step /= 2;
+  return step;
+}
+
+/** A stored message's own fingerprint picks it, so the pick survives the
+ *  loaded window sliding past older rows. FNV-1a over role, length and the
+ *  opening: stable for one message, cheap for a long one. */
+function isHistoryAnchor(msg: ChatMessage): boolean {
+  const key = `${msg.role}:${msg.content.length}:${msg.content.slice(0, 256)}`;
+  let h = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) {
+    h ^= key.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0) % HISTORY_ANCHOR_EVERY === 0;
+}
+
+/**
+ * Where the kept history starts once it no longer fits: the first grid
+ * boundary at or after `fill`, the oldest message a plain newest-first fill
+ * would keep. Lines fall every `step` tokens counted from an anchor among the
+ * dropped messages; a message that starts on or past a line its predecessor
+ * started before is a boundary. Lines depend only on old messages, so the cut
+ * holds still turn after turn until the tail outgrows the budget, then jumps
+ * a whole step, which is what lets a cached conversation stay cached.
+ */
+function* steppedHistoryCut(history: ChatMessage[], fill: number, step: number): Generator<void, number, void> {
+  if (fill >= history.length - 1) return fill;
+  // The oldest dropped message its fingerprint picks; the oldest message
+  // when none is. Only dropped ones: the kept tail carries this turn's
+  // injected lore, which comes and goes.
+  let anchor = 0;
+  for (let i = 0; i < fill; i++) {
+    if (isHistoryAnchor(history[i]!)) {
+      anchor = i;
+      break;
+    }
+    yield;
+  }
+  // Positions by the character heuristic, not the model's tokenizer: one
+  // cheap pass, and the grid does not move when the player switches models.
+  const lineOf: number[] = [];
+  let at = 0;
+  for (let i = anchor; i < history.length; i++) {
+    lineOf.push(Math.floor(at / step));
+    at += estimateTokensByChars(history[i]!.content) + (history[i]!.imageTokens ?? 0);
+    yield;
+  }
+  for (let i = fill; i < history.length; i++) {
+    if (lineOf[i - anchor]! > lineOf[i - 1 - anchor]!) return i;
+  }
+  return fill;
 }
 
 export interface ChatMessage {
@@ -50,11 +185,6 @@ export interface UserPrompt {
   /** Message role the prompt is sent as. Omitted = "system". */
   apiRole?: "system" | "user" | "assistant";
 }
-/** Escape special regex characters in a string */
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /** Sort entries by position (ascending numeric) */
 function entrySort(a: WorldEntry, b: WorldEntry): number {
   const aPos = a.position ?? Infinity;
@@ -143,6 +273,11 @@ function renderChangeValueForPrompt(value: unknown): string {
     : rendered;
 }
 
+/** Directive positions with their own slot in the prompt. Everything else —
+ *  "auto", "depth" (allowed by the schema, never given a slot) or an unknown
+ *  value — goes with the auto directives instead of being silently dropped. */
+const PLACED_DIRECTIVE_POSITIONS = new Set<string>(["top", "before_char", "after_char", "bottom"]);
+
 /**
  * Composes LLM prompts from world definition + current state.
  * Uses the unified WorldEntry[] model — entries are grouped by position slot,
@@ -190,13 +325,10 @@ export class PromptBuilder {
     // `[image: img1]` in it gets the same expansion an AI reply gets — the
     // renderer never sees a handle it cannot resolve.
     const images = world.sceneImages ?? [];
-    return world.entries
-      .filter((e) => e.role === "greeting" && e.enabled)
-      .sort(entrySort)
-      .map((e) => {
-        const text = this.interpolate(e.content, world, state);
-        return images.length > 0 ? resolveSceneImageDirectives(text, images).text : text;
-      });
+    return this.buildGreetingEntries(world).map((e) => {
+      const text = this.interpolate(e.content, world, state);
+      return images.length > 0 ? resolveSceneImageDirectives(text, images).text : text;
+    });
   }
 
   /** The ordered greeting ENTRIES (same filter + entrySort order as
@@ -204,8 +336,10 @@ export class PromptBuilder {
    *  initialVariables for "scenario presets" — aligned index-for-index with
    *  the strings buildGreetings returns. */
   buildGreetingEntries(world: WorldDefinition): WorldEntry[] {
+    // Templates seed an empty greeting (its guidance lives in the editor
+    // placeholder). Empty means "no opening yet" — never a blank narrator turn.
     return world.entries
-      .filter((e) => e.role === "greeting" && e.enabled)
+      .filter((e) => e.role === "greeting" && e.enabled && e.content.trim().length > 0)
       .sort(entrySort);
   }
 
@@ -222,7 +356,7 @@ export class PromptBuilder {
     preCollected?: WorldEntry[]
   ): { content: string; depth: number; apiRole: "system" | "user" | "assistant" }[] {
     const allEntries = preCollected ?? this.collectEntries(world, matchedEntries, userPrompts, toggledEntries, state);
-    return allEntries
+    const fromEntries = allEntries
       .filter((e) => e.section === "chat-history" && e.depth !== undefined)
       .sort(entrySort)
       .map((e) => ({
@@ -230,6 +364,27 @@ export class PromptBuilder {
         depth: e.depth!,
         apiRole: (e.apiRole ?? "system") as "system" | "user" | "assistant",
       }));
+    const pinned = this.buildPinnedNote(world, state);
+    return pinned ? [...fromEntries, pinned] : fromEntries;
+  }
+
+  /**
+   * The author's pinned note (settings.pinnedNote): one more depth injection,
+   * shaped like a chat-history entry so the message router places it the
+   * same way. Null when the card has none or it is blank.
+   */
+  buildPinnedNote(
+    world: WorldDefinition,
+    state: GameState,
+  ): { content: string; depth: number; apiRole: "system" | "user" | "assistant" } | null {
+    const note = world.settings?.pinnedNote;
+    if (!note || typeof note.content !== "string" || !note.content.trim()) return null;
+    const depth = Number.isFinite(note.depth) ? Math.max(0, Math.floor(note.depth as number)) : 1;
+    return {
+      content: this.interpolate(note.content, world, state),
+      depth,
+      apiRole: note.apiRole ?? "system",
+    };
   }
 
   /**
@@ -255,13 +410,14 @@ export class PromptBuilder {
   }
 
   /**
-   * Build the STATIC format reference block — behavior rules, directive syntax, audio tracks.
-   * These are per-world constants that never change between turns.
-   * Designed to be placed in the system prefix (cacheable).
+   * Build the format reference — authored rules, syntax, audio tracks.
+   * With a snapshot, variable eligibility follows the same gate as game state.
+   * Values are excluded: prefix bytes remain stable while eligibility is unchanged.
+   * State-free callers retain the original per-world reference.
    */
   buildStaticFormatBlock(
     world: WorldDefinition,
-    opts?: { activeGreetingId?: string | null },
+    opts?: { activeGreetingId?: string | null; state?: GameState },
   ): string {
     const hasVariables = world.variables.length > 0;
     const audioTracks = getAiAudioTracks(world.audioTracks ?? []);
@@ -272,17 +428,20 @@ export class PromptBuilder {
     // reliable placement.
     const sceneImages = isSceneImageJudgeOn(world) ? [] : getAiSceneImages(world.sceneImages ?? [], opts?.activeGreetingId);
     const hasSceneImages = sceneImages.length > 0;
+    // Same scoping rule as scene images: fixed for the session, so cacheable.
+    const backgrounds = aiSelectableBackgrounds(world, opts?.activeGreetingId);
+    const hasBackgrounds = backgrounds.length > 0;
     // Several characters with portraits: the AI names the speaker up front so
     // the chat can show the right face before the prose streams in.
     const speakerBlock = buildSpeakerFormatBlock(world);
 
-    if (!hasVariables && !hasAudio && !hasSceneImages && !speakerBlock) return "";
+    if (!hasVariables && !hasAudio && !hasSceneImages && !hasBackgrounds && !speakerBlock) return "";
 
     const parts: string[] = [];
     if (speakerBlock) parts.push(speakerBlock);
 
     // Behavior rules section — variables with detailed AI instructions
-    const behaviorRulesSection = this.buildBehaviorRulesSection(world);
+    const behaviorRulesSection = this.buildBehaviorRulesSection(world, opts?.state);
     if (behaviorRulesSection) {
       parts.push(`<behavior-rules>\n${behaviorRulesSection}\n</behavior-rules>`);
     }
@@ -291,39 +450,36 @@ export class PromptBuilder {
     // something. A card whose variables are all engine-owned (aiAccess read/
     // none) skips the whole block — fewer tokens, and no invitation to emit
     // directives that would just be dropped.
-    const hasWritableVariables = world.variables.some(isAiWritableStatic);
-    if (hasWritableVariables) {
-      const hasJsonVar = world.variables.some(
-        (v) => v.type === "json" && isAiWritableStatic(v)
-      );
+    const writableVariables = world.variables.filter(v => opts?.state ? isAiWritable(v, opts.state) : isAiWritableStatic(v));
+    if (writableVariables.length > 0) {
+      const hasJsonVar = writableVariables.some(v => v.type === "json");
+      const { examples, stringId, jsonLines } = buildDirectiveExamples(writableVariables);
       const lines = [
         "<directive-format>",
         "State changes ONLY happen through directives. Describing a change in prose alone does nothing.",
         "",
-        "Format: [variableId: operation value]",
-        "",
-        'Numbers:   [hp: -10]   [gold: +50]   [score: *2]',
-        'Strings:   [location: set "forest"]   [log: append ", found the key"]',
-        'Booleans:  [hasKey: toggle]   [armed: set true]',
-        "",
-        // `append` was supported by the engine but absent here, so a card whose
-        // string variable is a running list left the model no legal way to add
-        // to it. It reached for `add`, which is a silent no-op on strings, and
-        // the variable simply never moved. Spell both halves out.
-        "To extend a string, use `append` — `add` only works on numbers and is",
-        "ignored on a string. `append` concatenates exactly what you pass, so put",
-        'any separator inside the value: [items: append ", rope"].',
+        // Real ids from this card, never a placeholder word: models copied the
+        // old `[variableId: operation value]` line literally.
+        "Write each change in square brackets: the variable's id exactly as listed in the game state, a colon, then the change. One change per bracket.",
+        ...examples,
       ];
+      if (stringId) {
+        lines.push(
+          "",
+          // `append` was supported by the engine but absent here, so a card whose
+          // string variable is a running list left the model no legal way to add
+          // to it. It reached for `add`, which is a silent no-op on strings, and
+          // the variable simply never moved. Spell both halves out.
+          "To extend a string, use `append` — `add` only works on numbers and is",
+          "ignored on a string. `append` concatenates exactly what you pass, so put",
+          `any separator inside the value: [${stringId}: append ", …"].`,
+        );
+      }
       if (hasJsonVar) {
         lines.push(
           "",
           "JSON variables — use dot-paths to target nested fields:",
-          '  [npcs.aria.affinity: +3]               number at a nested path',
-          '  [npcs.aria.mood: set "happy"]          string at a nested path',
-          '  [npcs.aria: merge {"trust": 80}]       patch several fields at once',
-          '  [inventory: push {"name": "Sword"}]    append to a JSON array',
-          '  [npcs: delete "aria"]                  remove a key from an object',
-          '  [inventory: delete 0]                  remove element at index 0',
+          ...(jsonLines.length ? jsonLines : writableVariables.filter(v => v.type === "json").slice(0, 1).map(v => `  [${v.id}.field: set "…"]   one field at a dot-path`)),
           "",
           "JSON values must use double quotes around keys and strings."
         );
@@ -396,7 +552,7 @@ export class PromptBuilder {
     // actually have a json variable, so non-json cards pay zero extra tokens.
     // Prose only: no literal bracket example (see method doc).
     const hasJsonVar = world.variables.some(
-      (v) => v.type === "json" && isAiReadable(v, state)
+      (v) => v.type === "json" && isAiReadable(v, state, world.worldbooks)
     );
     const jsonClause = hasJsonVar
       ? " For JSON variables, target the specific changed sub-field with a dot-path rather than rewriting the whole object."
@@ -447,7 +603,7 @@ export class PromptBuilder {
       const variable = world.variables.find((v) => v.id === rootId);
       // Same visibility gate as <game-state>: a change the AI can't see the
       // variable for would just be confusing bookkeeping noise.
-      if (!variable || !isAiReadable(variable, state)) continue;
+      if (!variable || !isAiReadable(variable, state, world.worldbooks)) continue;
       const prev = byId.get(rootId);
       byId.set(rootId, {
         oldValue: prev ? prev.oldValue : ch.oldValue,
@@ -496,7 +652,7 @@ export class PromptBuilder {
         .map((d) => this.interpolate(d.content, world, state));
 
     const autoDirectives = activeDirectives
-      .filter((d) => d.position === "auto")
+      .filter((d) => !PLACED_DIRECTIVE_POSITIONS.has(d.position))
       .map((d) => this.interpolate(d.content, world, state));
 
     // Collect system-presets entries (not chat-history, post-history, or examples with keyword triggers)
@@ -568,7 +724,7 @@ export class PromptBuilder {
         // Variable-bound entries are condition-gated by the matcher; a stale
         // alwaysSend=true on them (e.g. clobbered by an old bundle import)
         // must not drop a legitimately triggered entry here.
-        if (e.alwaysSend && !isVariableBoundEntry(e)) return false;
+        if ((e.alwaysSend || isStandbyOn(e, toggledEntries, world.loreUiBindings)) && !isVariableBoundEntry(e)) return false;
         if (e.section === "chat-history" || e.section === "post-history") return false;
         if (e.role === "example" || e.role === "greeting") return false;
         return true;
@@ -623,16 +779,21 @@ export class PromptBuilder {
     if (exampleEntries.length === 0) return [];
 
     const result: ChatMessage[] = [];
-    const charName = this.resolveCharName(world);
-    const userName = world.settings?.playerName || "User";
+    // Who speaks is read off the text as written, BEFORE the macros run.
+    // Expanded, {{user}} is the player's persona or username and {{char}} the
+    // character's name or "Assistant" — names this parser could not know, so
+    // a player with a persona turned every {{user}}: line into the AI's.
+    // A card that writes the names out is matched by its own names.
+    const charName = primaryCharacterEntry(world)?.name ?? world.name;
+    const userName = world.settings?.playerName;
 
     for (const entry of exampleEntries) {
-      const text = this.interpolate(entry.content, world, state);
-      const parsed = this.parseExampleDialogue(text, charName, userName);
-
-      if (parsed.length > 0) {
+      // ｛｛char｝｝ typed with a Chinese keyboard is the same macro.
+      const text = entry.content.replace(/｛｛/g, "{{").replace(/｝｝/g, "}}");
+      // Each <START> block is an example of its own, introduced as one.
+      for (const turns of this.parseExampleDialogue(text, charName, userName)) {
         result.push({ role: "system", content: "[Example Chat]" });
-        result.push(...parsed);
+        for (const m of turns) result.push({ ...m, content: this.interpolate(m.content, world, state) });
       }
     }
 
@@ -640,59 +801,64 @@ export class PromptBuilder {
   }
 
   /**
-   * Parse a mes_example-format string into user/assistant message pairs.
-   * Handles: <START>\n{{user}}: text\n{{char}}: text
-   * Also handles: {{user}}: text\n{{char}}: text (no <START>)
+   * Parse an example into the turns it demonstrates.
+   *
+   * The format is SillyTavern's mes_example — where most of these come from —
+   * and is read the way SillyTavern reads it: `<START>` separates examples,
+   * a line opened by the player (`{{user}}:` or their name) is the player's
+   * turn, and everything else is the AI's: `{{char}}:` or the character's
+   * name, any other cast member's `Name:` (kept with the name, so a
+   * multi-character card shows who speaks), and narration with no speaker.
+   * Full-width colons and bold names (`**Jennifer:**`) count.
+   *
+   * Nothing is dropped. This used to keep only lines after a `{{user}}:` /
+   * `{{char}}:` / exact-name prefix, so an example written as prose, with
+   * other characters' names, or with 「：」 vanished from the prompt without
+   * a word — 489 of them on the live site.
    */
-  private parseExampleDialogue(text: string, charName: string, userName: string): ChatMessage[] {
-    const result: ChatMessage[] = [];
-    // Split on <START> to get individual example blocks
+  private parseExampleDialogue(text: string, charName?: string, userName?: string): ChatMessage[][] {
+    const examples: ChatMessage[][] = [];
     const blocks = text.split(/<START>/i).filter((b) => b.trim());
+    const same = (a: string, b?: string) => !!b?.trim() && a.trim().toLowerCase() === b.trim().toLowerCase();
 
     for (const block of blocks) {
-      const lines = block.split("\n");
+      const result: ChatMessage[] = [];
       let currentRole: "user" | "assistant" | null = null;
       let currentContent: string[] = [];
-
       const flush = () => {
-        if (currentRole && currentContent.length > 0) {
-          result.push({ role: currentRole, content: currentContent.join("\n").trim() });
-        }
+        const content = currentContent.join("\n").trim();
+        if (currentRole && content) result.push({ role: currentRole, content });
         currentContent = [];
       };
+      const start = (role: "user" | "assistant") => {
+        flush();
+        currentRole = role;
+      };
 
-      for (const line of lines) {
+      for (const line of block.split("\n")) {
         const trimmed = line.trim();
         if (!trimmed) continue;
-
-        // Check for {{user}}: or {{char}}: or actual name: prefixes
-        const userMatch = trimmed.match(new RegExp(`^(?:\\{\\{user\\}\\}|${escapeRegex(userName)}):\\s*(.*)`, "i"));
-        const charMatch = trimmed.match(new RegExp(`^(?:\\{\\{char\\}\\}|${escapeRegex(charName)}):\\s*(.*)`, "i"));
-
-        if (userMatch) {
-          flush();
-          currentRole = "user";
-          if (userMatch[1]) currentContent.push(userMatch[1]);
-        } else if (charMatch) {
-          flush();
-          currentRole = "assistant";
-          if (charMatch[1]) currentContent.push(charMatch[1]);
-        } else if (currentRole) {
+        // `Name: text`, `Name：text`, `**Name:** text`, `**Name**: text`.
+        const m = /^(\*{0,2})([^\n:：*]{1,40}?)\1?\s*[:：]\s*(?:\*{2}\s*)?(.*)$/.exec(trimmed);
+        const speaker = m?.[2]?.trim();
+        if (speaker && (same(speaker, "{{user}}") || same(speaker, userName))) {
+          start("user");
+          if (m![3]) currentContent.push(m![3]);
+        } else if (speaker && (same(speaker, "{{char}}") || same(speaker, charName))) {
+          start("assistant");
+          if (m![3]) currentContent.push(m![3]);
+        } else {
+          // Another speaker, or narration: the AI's side of the example. A
+          // run of it stays one turn; a named line keeps its name.
+          if (currentRole !== "assistant") start("assistant");
           currentContent.push(trimmed);
         }
       }
       flush();
+      if (result.length) examples.push(result);
     }
 
-    return result;
-  }
-
-  /** Resolve the character name from world entries */
-  private resolveCharName(world: WorldDefinition): string {
-    const charEntry = world.entries.find(
-      (e) => e.role === "character" && e.enabled
-    );
-    return charEntry?.name || world.name || "Character";
+    return examples;
   }
 
   /**
@@ -700,6 +866,11 @@ export class PromptBuilder {
    * Pinned prefix (system prompts, persona, examples) and pinned suffix
    * (format block, post-history) are always kept. Only the middle portion
    * (chat history + depth entries) is trimmed from oldest first.
+   *
+   * History that fits is kept whole. History that does not loses its oldest
+   * messages in steps (see steppedHistoryCut), not one or two a turn: a start
+   * that moves every turn leaves nothing of the conversation for the provider's
+   * prompt cache to reuse.
    *
    * @param pinnedPrefix Number of messages at the start to always keep
    * @param pinnedSuffix Number of messages at the end to always keep
@@ -728,6 +899,9 @@ export class PromptBuilder {
    *   small world lets it sprawl, because one number governed both. With it,
    *   the world is charged to the overall ceiling and the conversation is charged to
    *   this, so lowering one does not silently change the other.
+   * @param historyStepBasis What sizes the trim step: the player's story
+   *   memory as chosen, before this turn's injected lore is added to
+   *   `maxHistoryTokens`. Defaults to `maxHistoryTokens`, else `maxTokens`.
    */
   async buildMessageHistoryAsync(
     messages: ChatMessage[],
@@ -737,8 +911,9 @@ export class PromptBuilder {
     pinnedSuffix?: number,
     modelId?: string,
     maxHistoryTokens?: number,
+    historyStepBasis?: number,
   ): Promise<ChatMessage[]> {
-    const steps = this.messageHistorySteps(messages, maxTokens, pinnedPrefix, pinnedSuffix, modelId, maxHistoryTokens);
+    const steps = this.messageHistorySteps(messages, maxTokens, pinnedPrefix, pinnedSuffix, modelId, maxHistoryTokens, historyStepBasis);
     let deadline = performance.now() + 8;
     let step = steps.next();
     while (!step.done) {
@@ -758,6 +933,7 @@ export class PromptBuilder {
     pinnedSuffix?: number,
     modelId?: string,
     maxHistoryTokens?: number,
+    historyStepBasis?: number,
   ): Generator<void, ChatMessage[], void> {
     if (!maxTokens && !maxHistoryTokens) return [...messages];
     if (messages.length === 0) return [...messages];
@@ -791,25 +967,30 @@ export class PromptBuilder {
     // budget used to return here too, which dropped the ENTIRE conversation
     // including the message the player had just typed, leaving the model
     // nothing to answer. The loop below always keeps the newest message
-    // (its break is guarded on trimmed.length), so a world that leaves no
+    // (its break is guarded on fill), so a world that leaves no
     // room now costs history, never the current turn.
     if (history.length === 0) {
       return [...prefix, ...suffix];
     }
 
-    // Trim history from oldest, keeping most recent messages
-    const trimmed: ChatMessage[] = [];
+    // Fill from the newest message back: `fill` is the oldest one that fits.
+    let fill = history.length;
     let totalTokens = 0;
     for (let i = history.length - 1; i >= 0; i--) {
       const msg = history[i]!;
       const msgTokens = (estimateTokens(msg.content, modelId) + (msg.imageTokens ?? 0));
       yield;
-      if (totalTokens + msgTokens > historyBudget && trimmed.length > 0) break;
+      if (totalTokens + msgTokens > historyBudget && fill < history.length) break;
       totalTokens += msgTokens;
-      trimmed.unshift(msg);
+      fill = i;
     }
+    if (fill === 0) return [...prefix, ...history, ...suffix];
 
-    return [...prefix, ...trimmed, ...suffix];
+    // Then start at the step boundary at or after it, which only ever keeps
+    // less, so the budget still holds.
+    const basis = historyStepBasis ?? maxHistoryTokens ?? maxTokens ?? historyBudget;
+    const cut = yield* steppedHistoryCut(history, fill, historyTrimStep(basis, historyBudget));
+    return [...prefix, ...history.slice(cut), ...suffix];
   }
 
   /**
@@ -833,7 +1014,7 @@ export class PromptBuilder {
     const alwaysSend = world.entries.filter(
       (e) =>
         isEnabled(e) &&
-        e.alwaysSend &&
+        (e.alwaysSend || isStandbyOn(e, toggledEntries, world.loreUiBindings)) &&
         // Variable-bound entries are gated by their conditions (evaluated in
         // the lorebook matcher) and reach the prompt via matchedEntries only.
         // Without this guard an entry whose alwaysSend was clobbered to true
@@ -911,7 +1092,7 @@ export class PromptBuilder {
 
     // "auto" position directives go after entries
     const autoDirectives = activeDirectives
-      .filter((d) => d.position === "auto")
+      .filter((d) => !PLACED_DIRECTIVE_POSITIONS.has(d.position))
       .map((d) => this.interpolate(d.content, world, state));
 
     // Top directives before all entries
@@ -954,11 +1135,21 @@ export class PromptBuilder {
     state: GameState
   ): string {
     if (world.variables.length === 0) return "";
+    // The author's choice of how much state the story AI is shown each turn
+    // (settings.variablesToAi): everything, only what moved off its default,
+    // or nothing — the interface's variables are then the interface's alone.
+    const mode = world.settings?.variablesToAi ?? "all";
+    if (mode === "none") return "";
+    const unchanged = (v: Variable) => {
+      const value = state.variables[v.id];
+      return value === undefined || renderVariableValueForPrompt(value) === renderVariableValueForPrompt(v.defaultValue);
+    };
 
     return world.variables
       // Full AI-visibility gate: internal, aiAccess "none" and currently
       // inactive variables (enable gate / conditions / greeting) never render.
-      .filter((v) => isAiReadable(v, state))
+      .filter((v) => isAiReadable(v, state, world.worldbooks))
+      .filter((v) => mode !== "changed" || !unchanged(v))
       .map((v) => {
         const value = state.variables[v.id] ?? v.defaultValue;
         // Sanitize before injecting: strips inline base64 images / oversized blobs
@@ -980,13 +1171,12 @@ export class PromptBuilder {
    * `updateHints` is the pre-rename field name; we read it as a fallback so
    * worlds exported before the rename still expose their rules to the LLM.
    */
-  private buildBehaviorRulesSection(world: WorldDefinition): string {
+  private buildBehaviorRulesSection(world: WorldDefinition, state?: GameState): string {
     const lines: string[] = [];
     for (const v of world.variables) {
-      // Engine-only variables never surface their rules to the AI. (Static
-      // block — activation is per-turn, so currently-inactive vars keep their
-      // rules here for cache stability; the dynamic block gates their values.)
-      if (!isAiExposedStatic(v)) continue;
+      // Runtime prompts expose rules only for currently readable variables.
+      // Design-time/state-free callers preserve their broader reference.
+      if (!(state ? isAiReadable(v, state, world.worldbooks) : isAiExposedStatic(v))) continue;
       const rules = v.behaviorRules || v.updateHints;
       if (rules) {
         // Compact header: [id | display-name] or just [id] if they match
@@ -1060,6 +1250,17 @@ export class PromptBuilder {
       });
     }
 
+    // The author's pinned note rides with the depth entries.
+    const pinned = this.buildPinnedNote(world, state);
+    if (pinned) {
+      blocks.push({
+        label: "Pinned note",
+        category: "entry",
+        tokens: estimateTokens(pinned.content),
+        chars: pinned.content.length,
+      });
+    }
+
     // Variable summary
     const varSummary = this.buildVariableSummary(world, state);
     if (varSummary) {
@@ -1075,7 +1276,7 @@ export class PromptBuilder {
     // Format instructions (approximate — actual text is built dynamically in buildFormatBlock)
     const formatText =
       "IMPORTANT — Variable directives are the ONLY way to change game state.\n" +
-      "Directive format: [variableId: operation value]\n" +
+      "Directive format: [id: operation value]\n" +
       'Examples: [health: -10], [gold: +50], [location: set "forest"], [hasKey: toggle]';
 
     blocks.push({
@@ -1123,6 +1324,19 @@ export class PromptBuilder {
       });
     }
 
+    // Background instructions — counted separately so the breakdown says which
+    // of the two picture systems is costing the author tokens.
+    const promptBackgrounds = aiSelectableBackgrounds(world, state.activeGreetingId);
+    if (promptBackgrounds.length > 0) {
+      const bgText = buildBackgroundPromptBlock(promptBackgrounds);
+      blocks.push({
+        label: "Background Instructions",
+        category: "background-instructions",
+        tokens: estimateTokens(bgText),
+        chars: bgText.length,
+      });
+    }
+
     const totalTokens = blocks.reduce((sum, b) => sum + b.tokens, 0);
     const totalChars = blocks.reduce((sum, b) => sum + b.chars, 0);
 
@@ -1132,7 +1346,7 @@ export class PromptBuilder {
 
 export interface PromptCostBlock {
   label: string;
-  category: "entry" | "variable-summary" | "format-instructions" | "audio-instructions" | "scene-image-instructions";
+  category: "entry" | "variable-summary" | "format-instructions" | "audio-instructions" | "scene-image-instructions" | "background-instructions";
   tokens: number;
   chars: number;
 }

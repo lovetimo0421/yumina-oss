@@ -35,6 +35,12 @@ import type { ToolCall } from "../lib/llm/types.js";
 
 // ─── Better Auth tables ─────────────────────────────────────────────
 
+// Legacy registration inventory, separate from authentication and activity.
+export const legacyKrewRegistrations = pgTable("legacy_krew_registrations", {
+  emailHash: text("email_hash").primaryKey(),
+  importedAt: timestamp("imported_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [check("legacy_krew_registrations_email_hash_check", sql`${t.emailHash} ~ '^[a-f0-9]{64}$'`)]);
+
 // Anonymous game visitors stay outside Better Auth. A verified login can link
 // a guest to one account for analytics; this never merges saved game progress.
 export const gameGuestLinks = pgTable("game_guest_links", {
@@ -42,6 +48,50 @@ export const gameGuestLinks = pgTable("game_guest_links", {
   userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
   linkedAt: timestamp("linked_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [index("game_guest_links_user_idx").on(t.userId)]);
+
+// Durable native public time; subjects include signed guest IDs, so no account FK.
+export const nativeGamePlaytime = pgTable("native_game_playtime", {
+  id: text("id").primaryKey(),
+  gameId: text("game_id").notNull(),
+  subject: text("subject").notNull(),
+  activeMs: bigint("active_ms", { mode: "bigint" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("native_game_playtime_game_subject").on(t.gameId, t.subject),
+  check("native_game_playtime_active_ms_check", sql`${t.activeMs} >= 0`)]);
+
+// Immutable per-subject evidence for legacy/native counter reconciliation.
+export const nativeGamePlaytimeHistory = pgTable("native_game_playtime_history", {
+  gameId: text("game_id").notNull(),
+  subject: text("subject").notNull(),
+  legacyMs: bigint("legacy_ms", { mode: "bigint" }).notNull(),
+  nativeMs: bigint("native_ms", { mode: "bigint" }).notNull(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.gameId,t.subject] }),
+  check("native_game_playtime_history_legacy_ms_check", sql`${t.legacyMs} >= 0`),
+  check("native_game_playtime_history_native_ms_check", sql`${t.nativeMs} >= 0`)]);
+
+export const nativeGamePlaytimeCutovers = pgTable("native_game_playtime_cutovers", {
+  id: text("id").primaryKey(),
+  capturedAt: timestamp("captured_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const gameSoloPlaytimeSessions = pgTable("game_solo_playtime_sessions", {
+  id: uuid("id").primaryKey(),
+  gameId: text("game_id").notNull(),
+  subject: text("subject").notNull(),
+  sequence: bigint("sequence", { mode: "bigint" }).notNull(),
+  clientActiveMs: bigint("client_active_ms", { mode: "bigint" }).notNull(),
+  activeMs: bigint("active_ms", { mode: "bigint" }).notNull().default(sql`0`),
+  active: boolean("active").notNull().default(false),
+  stopped: boolean("stopped").notNull().default(false),
+  lastServerMs: bigint("last_server_ms", { mode: "bigint" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [index("game_solo_playtime_live_subject_idx").on(t.subject,t.gameId,t.lastServerMs).where(sql`${t.active}`),
+  check("game_solo_playtime_sessions_game_id_check", sql`${t.gameId} = 'pvz'`),
+  check("game_solo_playtime_sessions_sequence_check", sql`${t.sequence} > 0`),
+  check("game_solo_playtime_sessions_client_active_ms_check", sql`${t.clientActiveMs} >= 0`),
+  check("game_solo_playtime_sessions_active_ms_check", sql`${t.activeMs} >= 0`),
+  check("game_solo_playtime_sessions_check", sql`NOT (${t.stopped} AND ${t.active})`)]);
 
 export const user = pgTable("user", {
   id: text("id").primaryKey(),
@@ -65,6 +115,8 @@ export const user = pgTable("user", {
   role: text("role").notNull().default("user"),
   isBanned: boolean("is_banned").notNull().default(false),
   isSuspended: boolean("is_suspended").notNull().default(false),
+  isMuted: boolean("is_muted").notNull().default(false),
+  mutedUntil: timestamp("muted_until"),
   // Trusted creator: an admin can flip this so this user's card first-publishes
   // and edits auto-approve instead of entering the human review queue. Bundles
   // and content-safety/structural gates are NOT bypassed; ban always wins.
@@ -193,6 +245,87 @@ export const jwks = pgTable("jwks", {
   expiresAt: timestamp("expires_at"),
 });
 
+// Better Auth `@better-auth/oauth-provider`: Yumina as an OAuth 2.1
+// authorization server, so an outside AI (Claude, ChatGPT, Codex, Cursor)
+// connects to the card MCP by signing in instead of pasting a card token.
+// Field names are the plugin's; DDL in scripts/2026-10-06-oauth-provider.sql.
+export const oauthClient = pgTable("oauth_client", {
+  id: text("id").primaryKey(),
+  clientId: text("client_id").notNull().unique(),
+  clientSecret: text("client_secret"),
+  disabled: boolean("disabled").default(false),
+  skipConsent: boolean("skip_consent"),
+  enableEndSession: boolean("enable_end_session"),
+  subjectType: text("subject_type"),
+  scopes: text("scopes").array(),
+  userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
+  name: text("name"),
+  uri: text("uri"),
+  icon: text("icon"),
+  contacts: text("contacts").array(),
+  tos: text("tos"),
+  policy: text("policy"),
+  softwareId: text("software_id"),
+  softwareVersion: text("software_version"),
+  softwareStatement: text("software_statement"),
+  redirectUris: text("redirect_uris").array().notNull(),
+  postLogoutRedirectUris: text("post_logout_redirect_uris").array(),
+  tokenEndpointAuthMethod: text("token_endpoint_auth_method"),
+  grantTypes: text("grant_types").array(),
+  responseTypes: text("response_types").array(),
+  public: boolean("public"),
+  type: text("type"),
+  requirePKCE: boolean("require_pkce"),
+  referenceId: text("reference_id"),
+  metadata: jsonb("metadata"),
+});
+
+export const oauthRefreshToken = pgTable("oauth_refresh_token", {
+  id: text("id").primaryKey(),
+  token: text("token").notNull(),
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  sessionId: text("session_id").references(() => session.id, { onDelete: "set null" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  referenceId: text("reference_id"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at"),
+  revoked: timestamp("revoked"),
+  authTime: timestamp("auth_time"),
+  scopes: text("scopes").array().notNull(),
+}, (t) => [
+  index("oauth_refresh_token_token_idx").on(t.token),
+  index("oauth_refresh_token_user_idx").on(t.userId),
+]);
+
+export const oauthAccessToken = pgTable("oauth_access_token", {
+  id: text("id").primaryKey(),
+  token: text("token").unique(),
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  sessionId: text("session_id").references(() => session.id, { onDelete: "set null" }),
+  userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+  referenceId: text("reference_id"),
+  refreshId: text("refresh_id").references(() => oauthRefreshToken.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at"),
+  scopes: text("scopes").array().notNull(),
+}, (t) => [
+  index("oauth_access_token_user_idx").on(t.userId),
+]);
+
+export const oauthConsent = pgTable("oauth_consent", {
+  id: text("id").primaryKey(),
+  clientId: text("client_id").notNull().references(() => oauthClient.clientId, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+  referenceId: text("reference_id"),
+  scopes: text("scopes").array().notNull(),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
+}, (t) => [
+  index("oauth_consent_user_client_idx").on(t.userId, t.clientId),
+]);
+
 // Privacy-preserving anti-abuse record. The identity is an HMAC of normalized
 // email (never raw PII), retained after account deletion to preserve bans,
 // invite-code redemption history, the three-day repeat-deletion cooling-off
@@ -211,6 +344,20 @@ export const deletedAccountTombstones = pgTable("deleted_account_tombstones", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// One row per completed account deletion, with no identity at all (no user ID,
+// email or hash). It keeps what platform totals need once the user row is gone:
+// the deletion itself (admin "deleted accounts") and the lifetime playtime
+// counter that all-time game time sums. `source = 'tombstone_backfill'` rows
+// were reconstructed from deleted_account_tombstones for deletions before this
+// table existed; they carry no playtime.
+export const accountDeletions = pgTable("account_deletions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  deletedAt: timestamp("deleted_at").notNull().defaultNow(),
+  accountCreatedAt: timestamp("account_created_at"),
+  lifetimePlaytimeSeconds: bigint("lifetime_playtime_seconds", { mode: "number" }).notNull().default(0),
+  source: text("source").notNull().default("deletion"),
+}, (t) => [index("account_deletions_deleted_at_idx").on(t.deletedAt)]);
 
 // Durable outbox for external cleanup that cannot participate in the user
 // deletion transaction (S3, Redis, Stripe). Rows are removed after every
@@ -264,6 +411,10 @@ export const worlds = pgTable("worlds", {
   // hub page (mirrors allowReviews — author opt-out for a per-card UGC type).
   allowSessionSharing: boolean("allow_session_sharing").notNull().default(true),
   allowCommunityCitations: boolean("allow_community_citations").notNull().default(true),
+  // Hard per-card gate for the globally installed Lore Shift extension.
+  // Independent from allowEdit (forking/download) in both directions.
+  allowLiveCanon: boolean("allow_live_canon").notNull().default(false),
+  allowLiveCanonAdditions: boolean("allow_live_canon_additions").notNull().default(false),
   // Creator-controlled cover-thumbnail blur, decoupled from age rating.
   // Nullable on purpose: null = "follow age rating" (legacy/auto — sensitive
   // covers blur, all-ages don't); true/false = explicit creator choice.
@@ -273,6 +424,8 @@ export const worlds = pgTable("worlds", {
   targetAudience: text("target_audience").notNull().default("all"),
   visibility: text("visibility").notNull().default("public"),
   downloadCount: integer("download_count").notNull().default(0),
+  /** Shown to players instead of download_count while DOWNLOAD_DISPLAY_FROZEN is on (null = 0). */
+  displayDownloadCount: integer("display_download_count"),
   messageCount: integer("message_count").notNull().default(0),
   favoriteCount: integer("favorite_count").notNull().default(0),
   reviewCount: integer("review_count").notNull().default(0),
@@ -385,6 +538,13 @@ export const playSessions = pgTable("play_sessions", {
   state: jsonb("state").notNull().$type<Record<string, unknown>>().default({}),
   stateGuardEnabled: boolean("state_guard_enabled").notNull().default(true),
   stateGuardModel: text("state_guard_model"),
+  /**
+   * Run-scope ledger (副本记忆): open-run markers and closed-run records for
+   * runScoped worldbooks — see lib/run-scopes.ts. Its OWN column, not a key
+   * inside `state`: the async run summarizer must be able to land its result
+   * without racing a turn's whole-state save.
+   */
+  runMemories: jsonb("run_memories").$type<Record<string, unknown>>(),
   /** Structured summary of compacted (older) messages */
   summary: text("summary"),
   summaryUpdatedAt: timestamp("summary_updated_at"),
@@ -480,6 +640,28 @@ export const playSessions = pgTable("play_sessions", {
   index("play_sessions_ephemeral_cleanup_idx").on(t.ephemeral, t.updatedAt),
 ]);
 
+/**
+ * Session-only lore overlay. Author source schemas are never written through
+ * this table; deleting a play session removes every row automatically.
+ */
+export const sessionLoreEntries = pgTable("session_lore_entries", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sessionId: text("session_id").notNull().references(() => playSessions.id, { onDelete: "cascade" }),
+  kind: text("kind", { enum: ["created", "override"] }).notNull(),
+  baseEntryId: text("base_entry_id"),
+  name: text("name"),
+  content: text("content").notNull(),
+  enabled: boolean("enabled").notNull().default(true),
+  alwaysSend: boolean("always_send").notNull().default(true),
+  keywords: jsonb("keywords").$type<string[]>().notNull().default([]),
+  matchWholeWords: boolean("match_whole_words").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  unique().on(t.sessionId, t.kind, t.baseEntryId),
+  index("session_lore_entries_session_idx").on(t.sessionId),
+]);
+
 export const userLibrary = pgTable(
   "user_library",
   {
@@ -500,6 +682,20 @@ export const userLibrary = pgTable(
     unique().on(t.userId, t.worldId),
     index("user_library_user_id_idx").on(t.userId),
   ]
+);
+
+/** Values a player keeps across playthroughs of one card (variables marked
+ *  persist: "player" — clears, unlocked endings, collected CGs). One row per
+ *  player and card. DDL: scripts/player-world-state.sql. */
+export const playerWorldState = pgTable(
+  "player_world_state",
+  {
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    worldId: text("world_id").notNull().references(() => worlds.id, { onDelete: "cascade" }),
+    values: jsonb("values").$type<Record<string, unknown>>().notNull().default({}),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.worldId] })],
 );
 
 export const messages = pgTable("messages", {
@@ -526,10 +722,15 @@ export const messages = pgTable("messages", {
          *  toggle when it equals `content`. */
         rawContent?: string;
         stateValidation?: import("@yumina/shared").StateValidationAudit;
+        /** Private per-generation evidence; omitted from bulk transport and public replays. */
+        variableAudit?: import("./variable-audit-types.js").StoredVariableAudit;
         stateChanges?: Record<string, unknown>;
         stateSnapshot?: Record<string, unknown>;
         /** State before this reply, for replacement rather than cumulative regeneration. */
         generationState?: Record<string, unknown>;
+        /** The AI of a group chat that said this (a worldbook id), when it was
+         *  not the turn's first voice. lib/group-reply.ts. */
+        voice?: string;
         createdAt: string;
         model?: string;
         modelFallback?: import("@yumina/shared").ModelFallbackRecord;
@@ -572,6 +773,23 @@ export const messages = pgTable("messages", {
   index("messages_session_created_idx").on(t.sessionId, t.createdAt),
   index("messages_session_compacted_idx").on(t.sessionId, t.compacted),
   index("messages_session_summaryception_compacted_idx").on(t.sessionId, t.summaryceptionCompacted),
+]);
+
+/** Session memory as each fold committed it, so a changed turn or a stopped
+ *  rebuild continues from the version before it (lib/session-memory-versions.ts). */
+export const sessionMemoryVersions = pgTable("session_memory_versions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  sessionId: text("session_id").notNull().references(() => playSessions.id, { onDelete: "cascade" }),
+  /** The last turn the memory covers; deleting it drops the version. */
+  processedMessageId: text("processed_message_id").notNull().references(() => messages.id, { onDelete: "cascade" }),
+  processedAt: timestamp("processed_at").notNull(),
+  memory: jsonb("memory").notNull(),
+  /** Ids and lengths of the covered turns when saved. */
+  sourceFingerprint: text("source_fingerprint").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("session_memory_versions_session_idx").on(t.sessionId, t.processedAt),
+  index("session_memory_versions_message_idx").on(t.processedMessageId),
 ]);
 
 export const assets = pgTable("assets", {
@@ -801,6 +1019,8 @@ export type PromptPackEntry = {
   content: string;
   position: "first" | "after-char" | "chat" | "last";
   depth?: number;
+  /** `last` only: send as a system message instead of the default user role. */
+  role?: "system";
 };
 export type PromptPackSnapshot = {
   title: string;
@@ -936,6 +1156,20 @@ export const userAssets = pgTable("user_assets", {
   index("user_assets_user_id_idx").on(t.userId),
 ]);
 
+// A library file its owner deleted while saved card versions still pointed at
+// it. The library row is gone (no listing, no quota); the bytes stay so those
+// versions still render if restored. The retained-asset sweeper removes the
+// bytes once no version holds them. `row` is the deleted user_assets row.
+export const retainedUserAssetFiles = pgTable("retained_user_asset_files", {
+  assetId: text("asset_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  url: text("url").notNull(),
+  row: jsonb("row").$type<Record<string, unknown>>().notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("retained_user_asset_files_url_idx").on(t.url),
+]);
+
 export const assetReferences = pgTable("asset_references", {
   id: text("id")
     .primaryKey()
@@ -1033,6 +1267,16 @@ export const generationProviderSpend = pgTable("generation_provider_spend", {
   actualUsd: real("actual_usd"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, t => [index("generation_provider_spend_created_idx").on(t.createdAt)]);
+
+export const turnImageTasks = pgTable("turn_image_tasks", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  messageId: text("message_id").notNull(),
+  status: text("status", { enum: ["running", "completed", "cancelled", "failed"] }).notNull().default("running"),
+  charge: jsonb("charge").$type<import("../lib/per-turn-image/billing.js").TurnImageCharge>(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull().default(sql`now() + interval '10 minutes'`),
+}, (t) => [index("turn_image_tasks_pending_idx").on(t.expiresAt).where(sql`${t.status} = 'running'`)]);
 
 export const generationJobs = pgTable("generation_jobs", {
   id: text("id")
@@ -1525,6 +1769,32 @@ export const apiKeys = pgTable("api_keys", {
   index("api_keys_user_id_idx").on(t.userId),
 ]);
 
+// ─── World Access Tokens ────────────────────────────────────────────
+// A key a creator hands to an outside AI (Claude Code, Codex, Cursor) so it
+// can read, edit and playtest ONE card through /api/agent/v1 — the same tools
+// the Studio assistant uses. Only a hash is kept; the token is shown once.
+
+export const worldAccessTokens = pgTable("world_access_tokens", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  worldId: text("world_id")
+    .notNull()
+    .references(() => worlds.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  tokenPrefix: text("token_prefix").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
+  revokedAt: timestamp("revoked_at"),
+}, (t) => [
+  index("world_access_tokens_world_idx").on(t.worldId),
+  index("world_access_tokens_user_idx").on(t.userId),
+]);
+
 // ─── Studio Conversations ───────────────────────────────────────────
 
 export const studioConversations = pgTable("studio_conversations", {
@@ -1583,6 +1853,7 @@ export const agentRuns = pgTable("agent_runs", {
     createdAt: string;
     commitId: string;
     writeToolCalls?: ToolCall[];
+    buildProposal?: import("@yumina/shared").StudioBuildProposal;
     /** Identity of this committed turn, decided from structural facts at commit
      *  time (NOT inferred from text later). Cross-run agent history keeps ONLY
      *  `answer`; `step` (tool preamble or mid-task stall) and `notice`
@@ -1753,14 +2024,24 @@ export const worldVersions = pgTable("world_versions", {
   name: text("name").notNull(),
   note: text("note"),
   schema: jsonb("schema").notNull().$type<Record<string, unknown>>(),
+  metadata: jsonb("metadata").$type<import("../lib/world-version-content.js").VersionMetadata>(),
+  // Untyped on purpose: recovery versions (testing) write "save" / "restore" /
+  // "restore_backup", publish versions (main) write "manual" / "publish" /
+  // "live" / "backup". Both readers narrow at their own boundary.
+  source: text("source").notNull().default("manual"),
+  contentHash: text("content_hash"),
   publishedAt: timestamp("published_at"),
-  source: text("source").notNull().default("manual").$type<"manual" | "publish" | "live" | "backup" | "incoming">(),
   thumbnailUrl: text("thumbnail_url"),
   // Null identifies legacy schema-only snapshots; restore keeps the current cover/rating.
   ageRating: text("age_rating"),
+  // What the content references, for asset deletion (world-version-asset-refs.ts).
+  // Null on rows saved before these columns existed.
+  assetIds: text("asset_ids").array(),
+  assetPaths: text("asset_paths").array(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("world_versions_world_id_idx").on(t.worldId),
+  index("world_versions_world_hash_idx").on(t.worldId, t.contentHash),
   index("world_versions_world_created_idx").on(t.worldId, t.createdAt),
 ]);
 
@@ -2198,9 +2479,13 @@ export const modelPrices = pgTable("model_prices", {
 
 // ─── Usage Tracking ─────────────────────────────────────────────────
 
+// usage_logs, analytics_play_intervals and analytics_activity deliberately have
+// no user FK: account deletion re-keys their rows to an anonymous
+// `deleted:<uuid>` actor instead of cascading, so platform totals (model calls,
+// tokens, playtime, active people) never shrink when someone leaves.
 export const analyticsPlayIntervals = pgTable('analytics_play_intervals', {
   id:text('id').primaryKey(),
-  userId:text('user_id').notNull().references(()=>user.id,{onDelete:'cascade'}),
+  userId:text('user_id').notNull(),
   worldId:text('world_id').notNull(),
   startedAt:timestamp('started_at',{withTimezone:true}).notNull(),
   endedAt:timestamp('ended_at',{withTimezone:true}).notNull(),
@@ -2215,7 +2500,7 @@ export const analyticsPlayIntervals = pgTable('analytics_play_intervals', {
 ]);
 export const analyticsActivity = pgTable('analytics_activity', {
   id:text('id').primaryKey(),
-  userId:text('user_id').notNull().references(()=>user.id,{onDelete:'cascade'}),
+  userId:text('user_id').notNull(),
   worldId:text('world_id').notNull().default(''),
   occurredAt:timestamp('occurred_at',{withTimezone:true}).notNull().defaultNow(),
   surface:text('surface').notNull(),action:text('action').notNull(),
@@ -2232,9 +2517,9 @@ export const usageLogs = pgTable("usage_logs", {
   id: text("id")
     .primaryKey()
     .$defaultFn(() => crypto.randomUUID()),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
+  // No user FK: account deletion re-keys rows to `deleted:<uuid>` (see
+  // analyticsPlayIntervals) so usage totals survive the account.
+  userId: text("user_id").notNull(),
   sessionId: text("session_id").references(() => playSessions.id, { onDelete: "set null" }),
   model: text("model").notNull(),
   promptTokens: integer("prompt_tokens").notNull().default(0),
@@ -2248,10 +2533,19 @@ export const usageLogs = pgTable("usage_logs", {
   // Preserve attribution when a session is deleted; no session/world join needed.
   analyticsWorldId: text("analytics_world_id"),
   tokenMeasurement: text("token_measurement"), // provider | estimated; legacy unknown
+  // Prompt-cache traffic as the provider reported it (null when not reported).
+  cacheReadTokens: integer("cache_read_tokens"),
+  cacheWriteTokens: integer("cache_write_tokens"),
+  // The OAuth client (oauth_client.client_id) of an outside app's call through
+  // the AI gateway (endpoint app / app_empty); null everywhere else.
+  // DDL: scripts/2026-10-21-oauth-apps.sql.
+  clientId: text("client_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("usage_logs_user_id_idx").on(t.userId),
   index("usage_referral_play_idx").on(t.userId,t.createdAt).where(sql`${t.endpoint} IN ('send','regenerate','continue','pvz-dave') AND ${t.completionTokens}>0`),
+  // Played turns per user for the quest board (QUEST_TURN_ENDPOINTS) and referrals: a superset of both IN-lists (scripts/2026-10-21-usage-play-turns-idx.sql).
+  index("usage_play_turns_idx").on(t.userId,t.createdAt).where(sql`${t.endpoint} IN ('send','regenerate','continue','pvz-dave','app') AND ${t.completionTokens}>0`),
   index("usage_logs_created_at_idx").on(t.createdAt),
   index("usage_logs_created_user_idx").on(t.createdAt, t.userId),
   index("usage_logs_created_model_idx").on(t.createdAt, t.model),
@@ -3110,6 +3404,7 @@ export const planEntitlements = pgTable(
     source: text("source").notNull().default("event"),
     sourceId: text("source_id").notNull(),
     idempotencyKey: text("idempotency_key").notNull().unique(),
+    giftCredits: integer("gift_credits"), // purchased allowance snapshot; null for non-gift grants
     durationDays: integer("duration_days").notNull(),
     remainingDurationSeconds: integer("remaining_duration_seconds").notNull(),
     status: text("status").notNull().default("queued"),
@@ -3133,7 +3428,7 @@ export const planEntitlements = pgTable(
     // Relaxed 2026-07-19 (scripts/relax-plan-entitlement-sources.sql): admin +
     // referral time-limited grants live on this overlay too, so wallet.plan
     // stays strictly the PAID tier and grants can never fight billing state.
-    check("plan_entitlements_source_check", sql`${t.source} IN ('event','admin','referral')`),
+    check("plan_entitlements_source_check", sql`${t.source} IN ('event','admin','referral','gift')`),
     check("plan_entitlements_status_check", sql`${t.status} IN ('queued','active','consumed','cancelled')`),
   ]
 );
@@ -3369,6 +3664,48 @@ export const featuredCollections = pgTable("featured_collections", {
   check("featured_collections_slots_check", sql`jsonb_typeof(${t.slots}) = 'array' AND jsonb_array_length(${t.slots}) <= 8`),
 ]);
 
+/**
+ * The update log's web layer (lib/changelog-store.ts). A row with the same id
+ * as a changelog/ file overrides it (content columns set) and/or hides it;
+ * a row with no file is a web-only entry. Content columns are all set or all
+ * null (a hide-only row). Installed by scripts/add-changelog-entries.sql.
+ */
+export const changelogEntries = pgTable("changelog_entries", {
+  id: text("id").primaryKey(),
+  date: text("date"),
+  audience: text("audience"),
+  areas: jsonb("areas").$type<string[]>(),
+  titles: jsonb("titles").$type<Record<string, string>>(),
+  bodies: jsonb("bodies").$type<Record<string, string>>(),
+  highlight: boolean("highlight").notNull().default(false),
+  kind: text("kind"),
+  cover: text("cover"),
+  coverAlts: jsonb("cover_alts").$type<Record<string, string>>(),
+  hidden: boolean("hidden").notNull().default(false),
+  createdBy: text("created_by"),
+  updatedBy: text("updated_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, t => [
+  check("changelog_entries_id_check", sql`${t.id} ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9]+(-[a-z0-9]+)*$'`),
+  check("changelog_entries_audience_check", sql`${t.audience} IS NULL OR ${t.audience} IN ('public','internal')`),
+  check("changelog_entries_kind_check", sql`${t.kind} IS NULL OR ${t.kind} IN ('standard','roundup')`),
+  check("changelog_entries_content_check", sql`(${t.titles} IS NULL) = (${t.bodies} IS NULL) AND (${t.titles} IS NULL) = (${t.date} IS NULL) AND (${t.titles} IS NULL) = (${t.audience} IS NULL) AND (${t.titles} IS NULL) = (${t.areas} IS NULL)`),
+]);
+
+/** Every web change to the update log, with the entry as it stood after the change. */
+export const changelogEntryRevisions = pgTable("changelog_entry_revisions", {
+  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  entryId: text("entry_id").notNull(),
+  action: text("action").notNull(),
+  snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, t => [
+  index("changelog_entry_revisions_entry_idx").on(t.entryId, t.createdAt),
+  check("changelog_entry_revisions_action_check", sql`${t.action} IN ('create','edit','hide','unhide','restore','delete')`),
+]);
+
 /** Published-content representations. Installed explicitly by discovery-personalization.sql. */
 export const worldRecommendationProfiles = pgTable("world_recommendation_profiles", {
   worldId: text("world_id").primaryKey().references(() => worlds.id, { onDelete: "cascade" }),
@@ -3547,6 +3884,13 @@ export const worldReviewSubmissions = pgTable(
     snapshotVisibility: text("snapshot_visibility"),
     snapshotAllowEdit: boolean("snapshot_allow_edit"),
     snapshotAllowReviews: boolean("snapshot_allow_reviews"),
+    // world_versions rows for what was submitted and what was live just before,
+    // so "what changed" can be rebuilt after the decision (the held edit is gone
+    // by then). Plain ids, no FK: automatic version retention may prune them,
+    // and the admin diff then reports the snapshot as no longer kept. A null
+    // base means nothing of this world had been live — a genuinely new card.
+    versionId: text("version_id"),
+    baseVersionId: text("base_version_id"),
   },
   (t) => [
     index("world_review_submissions_decision_idx").on(t.decision, t.submittedAt),
@@ -3580,6 +3924,7 @@ export const worldPendingEdits = pgTable(
     groupKey: text("group_key").notNull(),
     // Full proposed WorldDefinition (the creator's working copy of the schema).
     schema: jsonb("schema").$type<Record<string, unknown>>().notNull(),
+    metadata: jsonb("metadata").$type<import("../lib/world-version-content.js").VersionMetadata>(),
     // Version switches keep the working draft separate even for non-material edits.
     preserveDraft: boolean("preserve_draft").notNull().default(false),
     // Proposed cover + rating. Null means "unchanged from the live value".
@@ -3785,3 +4130,213 @@ export const discoverArtworkOverrides = pgTable("discover_artwork_overrides", {
   artwork: jsonb("artwork").$type<Record<string, unknown>>().notNull(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
+
+// Durable archive imports; their source objects are never exposed through /cdn.
+export const creativeUploadAdmissions = pgTable("creative_upload_admissions", {
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  sourceKind: text("source_kind").notNull(),
+  operationId: text("operation_id").notNull(),
+  bytes: bigint("bytes", { mode: "number" }).notNull(),
+  admittedAt: timestamp("admitted_at").notNull().default(sql`clock_timestamp()`),
+  completedAt: timestamp("completed_at"),
+}, t => [
+  primaryKey({ columns: [t.userId, t.sourceKind, t.operationId] }),
+  index("creative_upload_admissions_window_idx").on(t.userId, t.admittedAt),
+  check("creative_upload_admissions_source_kind_check", sql`${t.sourceKind} IN ('file','archive')`),
+  check("creative_upload_admissions_bytes_check", sql`${t.bytes} >= 0`),
+]);
+
+export const assetImportJobs = pgTable("asset_import_jobs", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  filename: text("filename").notNull(),
+  folderId: text("folder_id"),
+  inputBytes: bigint("input_bytes", { mode: "number" }).notNull(),
+  expandedBytes: bigint("expanded_bytes", { mode: "number" }).notNull().default(0),
+  reservedBytes: bigint("reserved_bytes", { mode: "number" }).notNull().default(0),
+  fileCount: integer("file_count").notNull().default(0),
+  ignoredCount: integer("ignored_count").notNull().default(0),
+  preserveFolders: boolean("preserve_folders").notNull().default(true),
+  conflict: text("conflict").notNull().default("rename"),
+  status: text("status").notNull().default("uploading"),
+  errorCode: text("error_code"),
+  manifestValidatedAt: timestamp("manifest_validated_at", { withTimezone: true }),
+  confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  queuedAt: timestamp("queued_at", { withTimezone: true }),
+  priority: integer("priority").notNull().default(0),
+  leaseToken: text("lease_token"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '24 hours'`),
+  uploadExpiresAt: timestamp("upload_expires_at", { withTimezone: true }).notNull().default(sql`now() + interval '1 hour'`),
+  cleanedAt: timestamp("cleaned_at", { withTimezone: true }),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+}, t => [
+  index("asset_import_owner_idx").on(t.userId, t.createdAt),
+  index("asset_import_worker_idx").on(t.status, t.leaseExpiresAt),
+  index("asset_import_owner_worker_idx").on(t.userId, t.status, t.leaseExpiresAt),
+  index("asset_import_cleanup_idx").on(t.expiresAt).where(sql`${t.cleanedAt} IS NULL`),
+  check("asset_import_jobs_input_bytes_check", sql`${t.inputBytes} > 0`),
+  check("asset_import_jobs_reserved_bytes_check", sql`${t.reservedBytes} >= 0`),
+  check("asset_import_jobs_priority_check", sql`${t.priority} BETWEEN 0 AND 2`),
+  check("asset_import_jobs_conflict_check", sql`${t.conflict} IN ('rename','skip')`),
+  check("asset_import_jobs_status_check", sql`${t.status} IN ('uploading','queued_inspect','inspecting','ready','queued','processing','completed','partial','failed','cancelled','expired')`),
+]);
+
+export const assetImportEntries = pgTable("asset_import_entries", {
+  jobId: text("job_id").notNull().references(() => assetImportJobs.id, { onDelete: "cascade" }),
+  ordinal: integer("ordinal").notNull(),
+  path: text("path").notNull(),
+  sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+  mimeType: text("mime_type").notNull(),
+  assetType: text("asset_type").notNull(),
+  assetId: text("asset_id").notNull(),
+  status: text("status").notNull().default("pending"),
+  errorCode: text("error_code"),
+}, t => [
+  primaryKey({ columns: [t.jobId, t.ordinal] }),
+  unique("asset_import_entries_job_id_path_key").on(t.jobId, t.path),
+  check("asset_import_entries_status_check", sql`${t.status} IN ('pending','succeeded','skipped','failed')`),
+]);
+
+export const assetImportRetries = pgTable("asset_import_retries", {
+  id: text("id").primaryKey(),
+  jobId: text("job_id").notNull().references(() => assetImportJobs.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  acceptedAt: timestamp("accepted_at", { withTimezone: true }).notNull().defaultNow(),
+}, t => [
+  index("asset_import_retry_owner_idx").on(t.userId, t.acceptedAt),
+  index("asset_import_retry_job_idx").on(t.jobId, t.acceptedAt),
+]);
+
+// Native voice ownership and accounting survive deletion.
+/** Credits-paid GPT-Live calls; DDL in scripts/voice-live-calls.sql. */
+export const voiceLiveCalls = pgTable("voice_live_calls", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  sessionId: text("session_id").notNull(),
+  connectionId: text("connection_id"),
+  providerId: text("provider_id"),
+  state: text("state").notNull().default("connecting"),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  lastHeartbeatAt: timestamp("last_heartbeat_at", { withTimezone: true }),
+  paidMinutes: integer("paid_minutes").notNull().default(0),
+  creditsPerMinute: integer("credits_per_minute").notNull(),
+  maxMinutes: integer("max_minutes").notNull().default(15),
+  claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+  closeReason: text("close_reason"),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const voiceCalls = pgTable("voice_calls", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+  walletId: text("wallet_id").references(() => creditWallets.id, { onDelete: "set null" }),
+  sessionId: text("session_id").references(() => playSessions.id, { onDelete: "set null" }),
+  originSessionId: text("origin_session_id"),
+  originWorldId: text("origin_world_id"),
+  connectionId: text("connection_id"),
+  journeyId: text("journey_id"),
+  journeyEpoch: bigint("journey_epoch", { mode: "number" }),
+  cardAttemptId: text("card_attempt_id"),
+  transport: text("transport").notNull(),
+  admissionRole: text("admission_role").notNull().default(sql`'primary'`),
+  parentCallId: text("parent_call_id").references((): AnyPgColumn => voiceCalls.id, { onDelete: "restrict" }),
+  legacyReservationId: text("legacy_reservation_id"),
+  state: text("state").notNull().default(sql`'reserved'`),
+  providerState: text("provider_state").notNull().default(sql`'not-created'`),
+  creationOutcome: text("creation_outcome").notNull().default(sql`'not-attempted'`),
+  accountingState: text("accounting_state").notNull().default(sql`'pending'`),
+  providerId: text("provider_id"),
+  providerConfigRef: text("provider_config_ref"),
+  providerObservedAt: timestamp("provider_observed_at", { withTimezone: true }),
+  observationSourceId: text("observation_source_id"),
+  hardExpiresAt: timestamp("hard_expires_at", { withTimezone: true }),
+  closeConfirmedAt: timestamp("close_confirmed_at", { withTimezone: true }),
+  terminalReason: text("terminal_reason"),
+  ownerInstance: text("owner_instance"),
+  epoch: bigint("epoch", { mode: "number" }).notNull().default(sql`0`),
+  holdMinor: bigint("hold_minor", { mode: "number" }).notNull().default(sql`0`),
+  holdUntil: timestamp("hold_until", { withTimezone: true }),
+  pcmSamples: bigint("pcm_samples", { mode: "number" }).notNull().default(sql`0`),
+  responses: bigint("responses", { mode: "number" }).notNull().default(sql`0`),
+  commits: bigint("commits", { mode: "number" }).notNull().default(sql`0`),
+  lastFinalSeq: bigint("last_final_seq", { mode: "number" }).notNull().default(sql`0`),
+  privacyTombstonedAt: timestamp("privacy_tombstoned_at", { withTimezone: true }),
+  accountDeletedAt: timestamp("account_deleted_at", { withTimezone: true }),
+  deletedAuditIdentity: text("deleted_audit_identity"),
+  receiptAvailability: text("receipt_availability").notNull().default(sql`'live'`),
+  legacyUsageSnapshot: jsonb("legacy_usage_snapshot"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  rateSnapshot: jsonb("rate_snapshot"),
+}, (t) => [
+  check("voice_call_pricing", sql.raw("rate_snapshot IS NULL OR (transport='balance-realtime-ws' AND jsonb_typeof(rate_snapshot)='object' AND octet_length(rate_snapshot::text)<=4096)")),
+  check("voice_call_enums", sql.raw("transport IN ('balance-realtime-ws','legacy-pilot-webrtc') AND admission_role IN ('primary','legacy-cleanup') AND state IN ('reserved','connecting','active','finishing','cleanup-pending','closed') AND provider_state IN ('not-created','open','unconfirmed','close-confirmed','hard-expired') AND creation_outcome IN ('not-attempted','proven-not-created','observed','unknown') AND accounting_state IN ('pending','complete','incomplete','not-applicable') AND receipt_availability IN ('live','redacted')")),
+  check("voice_call_counters", sql.raw("epoch BETWEEN 0 AND 9007199254740991 AND hold_minor BETWEEN 0 AND 9007199254740991 AND pcm_samples BETWEEN 0 AND 9007199254740991 AND responses BETWEEN 0 AND 9007199254740991 AND commits BETWEEN 0 AND 9007199254740991 AND last_final_seq BETWEEN 0 AND 9007199254740991 AND (journey_epoch IS NULL OR journey_epoch BETWEEN 0 AND 9007199254740991)")),
+  check("voice_call_authority", sql.raw("(account_deleted_at IS NULL AND user_id IS NOT NULL AND (transport='legacy-pilot-webrtc' OR wallet_id IS NOT NULL)) OR (account_deleted_at IS NOT NULL AND user_id IS NULL AND wallet_id IS NULL AND hold_minor=0 AND receipt_availability='redacted' AND privacy_tombstoned_at IS NOT NULL)")),
+  check("voice_call_transport", sql.raw("(transport='balance-realtime-ws' AND origin_session_id IS NOT NULL AND origin_world_id IS NOT NULL AND connection_id IS NOT NULL AND journey_id IS NOT NULL AND journey_epoch IS NOT NULL AND card_attempt_id IS NOT NULL AND legacy_reservation_id IS NULL AND admission_role='primary' AND parent_call_id IS NULL AND accounting_state<>'not-applicable') OR (transport='legacy-pilot-webrtc' AND wallet_id IS NULL AND hold_minor=0 AND legacy_reservation_id IS NOT NULL AND accounting_state='not-applicable' AND last_final_seq=0 AND pcm_samples=0 AND responses=0 AND commits=0)")),
+  check("voice_call_child", sql.raw("(admission_role='primary' AND parent_call_id IS NULL) OR (admission_role='legacy-cleanup' AND transport='legacy-pilot-webrtc' AND parent_call_id IS NOT NULL AND provider_id IS NOT NULL AND state IN ('cleanup-pending','closed'))")),
+  check("voice_call_terminal", sql.raw("transport='legacy-pilot-webrtc' OR ((accounting_state<>'complete' OR provider_state='close-confirmed' OR (provider_state='not-created' AND creation_outcome='proven-not-created')) AND (state<>'closed' OR (hold_minor=0 AND ((provider_state='close-confirmed' AND accounting_state IN ('complete','incomplete') AND close_confirmed_at IS NOT NULL) OR (provider_state='hard-expired' AND accounting_state='incomplete' AND provider_observed_at IS NOT NULL AND hard_expires_at IS NOT NULL) OR (provider_state='not-created' AND creation_outcome='proven-not-created' AND accounting_state='complete' AND provider_id IS NULL)))))")),
+  check("voice_call_expiry", sql.raw("(hard_expires_at IS NULL AND provider_observed_at IS NULL) OR (provider_id IS NOT NULL AND provider_observed_at IS NOT NULL AND hard_expires_at=provider_observed_at+interval '65 minutes')")),
+  check("voice_call_privacy", sql.raw("(privacy_tombstoned_at IS NULL AND receipt_availability='live') OR (privacy_tombstoned_at IS NOT NULL AND receipt_availability='redacted')")),
+  check("voice_call_session", sql.raw("transport='legacy-pilot-webrtc' OR session_id IS NOT NULL OR privacy_tombstoned_at IS NOT NULL")),
+  check("voice_call_bounds", sql.raw("length(id)<=240 AND (provider_id IS NULL OR provider_id ~ '^[A-Za-z0-9_-]{1,200}$') AND (connection_id IS NULL OR length(connection_id) BETWEEN 1 AND 200) AND (journey_id IS NULL OR length(journey_id) BETWEEN 1 AND 200) AND (card_attempt_id IS NULL OR length(card_attempt_id) BETWEEN 1 AND 200) AND (hold_minor=0 OR hold_until IS NOT NULL)")),
+  uniqueIndex("voice_admitted_owner").on(t.userId).where(sql.raw("state<>'closed' AND admission_role='primary'")),
+  uniqueIndex("voice_balance_connection").on(t.userId, t.originSessionId, t.connectionId).where(sql.raw("transport='balance-realtime-ws'")),
+  uniqueIndex("voice_balance_attempt").on(t.userId, t.originSessionId, t.journeyId, t.journeyEpoch, t.cardAttemptId).where(sql.raw("transport='balance-realtime-ws'")),
+  uniqueIndex("voice_legacy_primary").on(t.legacyReservationId).where(sql.raw("admission_role='primary' AND legacy_reservation_id IS NOT NULL")),
+  uniqueIndex("voice_legacy_identity").on(t.legacyReservationId, t.providerId).where(sql.raw("legacy_reservation_id IS NOT NULL AND provider_id IS NOT NULL")),
+  uniqueIndex("voice_provider_identity").on(t.providerId).where(sql.raw("provider_id IS NOT NULL")),
+  index("voice_wallet_holds").on(t.walletId, t.holdUntil).where(sql.raw("hold_minor>0")),
+  index("voice_cleanup").on(t.hardExpiresAt, t.id).where(sql.raw("state<>'closed'")),
+  index("voice_session_lookup").on(t.sessionId, t.id),
+]);
+
+export const voiceUsageEvents = pgTable("voice_usage_events", {
+  id: text("id").primaryKey(),
+  callId: text("call_id").notNull().references(() => voiceCalls.id, { onDelete: "restrict" }),
+  kind: text("kind").notNull(),
+  providerEventId: text("provider_event_id").notNull(),
+  model: text("model").notNull(),
+  rateCardVersion: text("rate_card_version").notNull(),
+  markupNumerator: integer("markup_numerator").notNull(),
+  markupDenominator: integer("markup_denominator").notNull(),
+  inputTokens: bigint("input_tokens", { mode: "number" }),
+  outputTokens: bigint("output_tokens", { mode: "number" }),
+  inputTextTokens: bigint("input_text_tokens", { mode: "number" }),
+  inputAudioTokens: bigint("input_audio_tokens", { mode: "number" }),
+  cachedTextTokens: bigint("cached_text_tokens", { mode: "number" }),
+  cachedAudioTokens: bigint("cached_audio_tokens", { mode: "number" }),
+  outputTextTokens: bigint("output_text_tokens", { mode: "number" }),
+  outputAudioTokens: bigint("output_audio_tokens", { mode: "number" }),
+  payloadFingerprint: text("payload_fingerprint").notNull(),
+  providerCostUsd: numeric("provider_cost_usd", { precision: 24, scale: 12 }),
+  creditsMinor: bigint("credits_minor", { mode: "number" }),
+  billingState: text("billing_state").notNull().default(sql`'pending'`),
+  usageLogId: text("usage_log_id").references(() => usageLogs.id, { onDelete: "set null" }),
+  creditTransactionId: text("credit_transaction_id").references(() => creditTransactions.id, { onDelete: "set null" }),
+  usageReference: text("usage_reference").notNull(),
+  debitReference: text("debit_reference").notNull(),
+  acceptedFinal: jsonb("accepted_final"),
+  privateFingerprint: text("private_fingerprint"),
+  finalSeq: bigint("final_seq", { mode: "number" }),
+  receiptRedactedAt: timestamp("receipt_redacted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  accountingDetail: jsonb("accounting_detail"),
+}, (t) => [
+  check("voice_usage_enums", sql.raw("kind IN ('response','transcription') AND billing_state IN ('pending','debited','not-charged','unbilled','invalid')")),
+  check("voice_usage_identity", sql.raw("id='voice:'||call_id||':'||kind||':'||provider_event_id AND length(provider_event_id) BETWEEN 1 AND 220 AND payload_fingerprint ~ '^[a-f0-9]{64}$' AND markup_numerator=6 AND markup_denominator=5")),
+  check("voice_usage_counters", sql.raw("(input_tokens IS NULL OR input_tokens BETWEEN 0 AND 9007199254740991) AND (output_tokens IS NULL OR output_tokens BETWEEN 0 AND 9007199254740991) AND (input_text_tokens IS NULL OR input_text_tokens BETWEEN 0 AND 9007199254740991) AND (input_audio_tokens IS NULL OR input_audio_tokens BETWEEN 0 AND 9007199254740991) AND (cached_text_tokens IS NULL OR cached_text_tokens BETWEEN 0 AND 9007199254740991) AND (cached_audio_tokens IS NULL OR cached_audio_tokens BETWEEN 0 AND 9007199254740991) AND (output_text_tokens IS NULL OR output_text_tokens BETWEEN 0 AND 9007199254740991) AND (output_audio_tokens IS NULL OR output_audio_tokens BETWEEN 0 AND 9007199254740991) AND ((input_tokens IS NOT NULL AND output_tokens IS NOT NULL AND input_text_tokens IS NOT NULL AND input_audio_tokens IS NOT NULL AND cached_text_tokens IS NOT NULL AND cached_audio_tokens IS NOT NULL AND output_text_tokens IS NOT NULL AND output_audio_tokens IS NOT NULL AND cached_text_tokens<=input_text_tokens AND cached_audio_tokens<=input_audio_tokens AND input_tokens=input_text_tokens+input_audio_tokens AND output_tokens=output_text_tokens+output_audio_tokens) OR (billing_state IN ('pending','invalid','unbilled') AND accounting_detail IS NOT NULL AND accounting_detail->'complete'='false'::jsonb)) AND (credits_minor IS NULL OR credits_minor BETWEEN 0 AND 9007199254740991) AND (final_seq IS NULL OR final_seq BETWEEN 1 AND 9007199254740991)")),
+  check("voice_usage_evidence", sql.raw("(accounting_detail IS NULL OR (jsonb_typeof(accounting_detail)='object' AND octet_length(accounting_detail::text)<=8192 AND jsonb_typeof(accounting_detail->'snapshot')='object' AND jsonb_typeof(accounting_detail->'complete')='boolean' AND jsonb_typeof(accounting_detail->'issues')='array' AND jsonb_typeof(accounting_detail->'reported')='object' AND accounting_detail-ARRAY['snapshot','complete','issues','reported']='{}'::jsonb AND accounting_detail ?& ARRAY['snapshot','complete','issues','reported'] AND (accounting_detail->'reported')-ARRAY['totalTokens','cachedTokens']='{}'::jsonb AND (accounting_detail->'reported') ?& ARRAY['totalTokens','cachedTokens']) IS TRUE) AND (billing_state NOT IN ('debited','not-charged') OR accounting_detail IS NULL OR accounting_detail->'complete'='true'::jsonb)")),
+  check("voice_usage_cost", sql.raw("provider_cost_usd IS NULL OR (provider_cost_usd>=0 AND provider_cost_usd<'Infinity'::numeric AND provider_cost_usd<>'NaN'::numeric)")),
+  check("voice_usage_receipt", sql.raw("(final_seq IS NULL AND accepted_final IS NULL AND private_fingerprint IS NULL) OR (final_seq IS NOT NULL AND ((accepted_final IS NOT NULL AND private_fingerprint IS NOT NULL AND receipt_redacted_at IS NULL AND octet_length(accepted_final::text)<=32768) OR (accepted_final IS NULL AND private_fingerprint IS NULL AND receipt_redacted_at IS NOT NULL)))")),
+  check("voice_usage_links", sql.raw("(billing_state<>'debited' OR credits_minor>0) AND (billing_state<>'not-charged' OR credits_minor=0)")),
+  uniqueIndex("voice_usage_identity_key").on(t.callId, t.kind, t.providerEventId),
+  uniqueIndex("voice_usage_sequence").on(t.callId, t.finalSeq).where(sql.raw("final_seq IS NOT NULL")),
+  uniqueIndex("voice_usage_log_link").on(t.usageLogId).where(sql.raw("usage_log_id IS NOT NULL")),
+  uniqueIndex("voice_debit_link").on(t.creditTransactionId).where(sql.raw("credit_transaction_id IS NOT NULL")),
+]);

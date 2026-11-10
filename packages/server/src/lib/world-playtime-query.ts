@@ -1,7 +1,9 @@
 import { sql } from "drizzle-orm";
 
-/** Recorded community time, across language versions. Never read message content.
+/** Recorded time, across language versions. Never read message content.
  * This is foreground session time, not an estimate of a world's story length.
+ * The creator's own sessions count like anyone else's (owner, 2026-10-11: an
+ * alt account could inflate it anyway); Studio sessions (ephemeral) never do.
  */
 export function worldPlaytimeQuery(ids: readonly string[]) {
   return sql`
@@ -11,7 +13,7 @@ export function worldPlaytimeQuery(ids: readonly string[]) {
       requested.language_group_id IS NOT NULL AND member.language_group_id = requested.language_group_id
     )
     LEFT JOIN play_sessions ps ON ps.world_id = member.id
-      AND ps.ephemeral = false AND ps.user_id <> member.creator_id
+      AND ps.ephemeral = false
     WHERE requested.id IN (${ids.length ? sql.join(ids.map(id => sql`${id}`), sql`, `) : sql`NULL`})
     GROUP BY requested.id
   `;

@@ -14,11 +14,15 @@ interface CreditPauseCardProps {
   /** A stuck pause (the card changed under a paid, unapplied step) cannot be
    *  refreshed into anything. Its one exit is a fresh request from here. */
   onRestart: () => void;
+  /** A cheaper model whose next step the balance already covers. Offered only
+   *  on a step that has not generated yet, so switching discards nothing. */
+  cheaper?: { name: string; stepCredits: number } | null;
+  onSwitchModel?: () => void;
 }
 
 /** The approved inline recovery card. Budget estimates never imply a debit;
  * saved generations distinguish unpaid results from already settled work. */
-export function CreditPauseCard({ pause, resuming, refreshing, error, onTopUp, onResume, onRefresh, onRestart }: CreditPauseCardProps) {
+export function CreditPauseCard({ pause, resuming, refreshing, error, onTopUp, onResume, onRefresh, onRestart, cheaper, onSwitchModel }: CreditPauseCardProps) {
   const { t, i18n } = useTranslation("editor");
   const format = (value: number) => new Intl.NumberFormat(i18n.language, {
     maximumFractionDigits: value > 0 && value < 0.01 ? 4 : 2,
@@ -58,6 +62,10 @@ export function CreditPauseCard({ pause, resuming, refreshing, error, onTopUp, o
         : canContinue && interrupted ? t("studio.aiChat.creditPause.interruptedDetail")
           : canContinue ? t("studio.aiChat.creditPause.readyDetail") : t("studio.aiChat.creditPause.detail");
   const busy = resuming || refreshing;
+  // 167 creators paused on Sonnet and none of them continued; 82% of those
+  // pauses held enough for a whole run on a cheaper model.
+  const offerCheaper = !!cheaper && !!onSwitchModel && !blocked && !generated && !canContinue
+    && knowsBalance && available >= cheaper.stepCredits;
   const buttonClass = "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 [@media(pointer:coarse)]:min-h-11";
 
   return (
@@ -91,6 +99,11 @@ export function CreditPauseCard({ pause, resuming, refreshing, error, onTopUp, o
               : t(interrupted ? "studio.aiChat.creditPause.retryNote" : "studio.aiChat.creditPause.estimateNote")}
         </p>
       )}
+      {offerCheaper && (
+        <p className="mt-1 text-muted-foreground">
+          {t("studio.aiChat.creditPause.cheaperModelNote", { model: cheaper!.name, amount: format(cheaper!.stepCredits) })}
+        </p>
+      )}
       {error && error !== detail && <p className="mt-2 break-words text-destructive" role="alert">{error}</p>}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {stale ? (
@@ -104,13 +117,18 @@ export function CreditPauseCard({ pause, resuming, refreshing, error, onTopUp, o
           </button>
         ) : (
           <>
-            <button type="button" onClick={canContinue ? onResume : onTopUp} disabled={busy} className={cn(buttonClass, "border-transparent bg-primary text-primary-foreground hover:brightness-110")}>
+            {offerCheaper && (
+              <button type="button" onClick={onSwitchModel} disabled={busy} className={cn(buttonClass, "border-transparent bg-primary text-primary-foreground hover:brightness-110")}>
+                {t("studio.aiChat.creditPause.cheaperModel", { model: cheaper!.name })}
+              </button>
+            )}
+            <button type="button" onClick={canContinue ? onResume : onTopUp} disabled={busy} className={cn(buttonClass, offerCheaper ? "border-border bg-background text-foreground hover:bg-muted" : "border-transparent bg-primary text-primary-foreground hover:brightness-110")}>
               {resuming && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
               {resuming ? t("studio.aiChat.creditPause.resuming")
                 : !canContinue ? t("studio.aiChat.creditPause.topUp")
                   : retryFailed ? t("studio.aiChat.creditPause.retryResume") : generated && !settled ? t("studio.aiChat.creditPause.settleResume") : t("studio.aiChat.creditPause.resume")}
             </button>
-            {!canContinue && <button type="button" disabled className={cn(buttonClass, "border-border bg-background text-muted-foreground")}>{t("studio.aiChat.creditPause.resume")}</button>}
+            {!canContinue && !offerCheaper && <button type="button" disabled className={cn(buttonClass, "border-border bg-background text-muted-foreground")}>{t("studio.aiChat.creditPause.resume")}</button>}
             {!canContinue && shortfall > 0 && <span className="ml-auto text-primary tabular-nums">{t("studio.aiChat.creditPause.shortfall", { amount: format(shortfall) })}</span>}
           </>
         )}

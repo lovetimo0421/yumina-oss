@@ -2,348 +2,235 @@
 
 # Dynamic AI Personality Switching
 
-> Make a few buttons that swap the AI's personality, speaking style, or language with one click. Use "Tell AI" and "Stop Telling AI" to dynamically change the AI's system prompt — no need to restart the session, switch seamlessly mid-conversation.
+> A few buttons that change how the AI narrates: normal, comedy, horror. The player taps one and the AI's next reply is written in that style. The style text lives in lore entries that only reach the AI while a variable says so, so no code is needed.
 
 ---
 
 ## What you'll build
 
-A personality switcher embedded right in the chat:
-
-- **Three modes** — Normal Narrator, Comedy Mode, Horror Mode
-- **One-click switching** — tap a button to change the AI's speaking style, effective immediately
-- **Visual feedback** — the currently active mode button is highlighted so the player always knows what mode they're in
-- **Seamless transitions** — switching doesn't interrupt the conversation; the AI's very next reply uses the new style
+- **Three modes**: Normal, Comedy, Horror
+- **One tap to switch**: the next reply uses the new style; the conversation carries on
+- **The current mode is visible**: the player can see which mode is on
+- **Switching back is clean**: the old style stops reaching the AI the moment the mode changes
 
 ### How it works
 
-Yumina's behavior system has two powerful actions: "Tell AI" and "Stop Telling AI."
-
-- **Tell AI** (`inject-directive`) — Injects a directive into the AI's system prompt. As long as the directive is present, the AI sees it and follows it on every reply. You can specify where it appears in the prompt, whether it's permanent, and how many turns before it auto-expires.
-- **Stop Telling AI** (`remove-directive`) — Removes a previously injected directive by its ID. Once removed, the AI no longer sees that directive.
-
-Using these two actions together, we can do this:
-
 ```
-Player clicks "Comedy Mode" button
-  → Behavior fires: first remove the old personality directive (if any)
-  → Then inject the new comedy-style directive
-  → The AI's system prompt now includes: "Narrate everything in a humorous, funny tone..."
-  → The AI's next reply shifts to comedy style
+Player taps "Comedy"
+  → The button sets the variable Mode to "comedy"
+  → The lore entry "Comedy style" only goes to the AI while Mode = comedy, so it's in
+  → The lore entry "Horror style" only goes while Mode = horror, so it's out
+  → The AI's next reply is written in the comedy style
 ```
 
-**How is this different from lore entries?** Lore entries (enable entry / disable entry) are great for large blocks of world-building text. Directives injected via "Tell AI" are lighter and more flexible — they're not entries, but small snippets of text inserted directly into the system prompt. Perfect for short style instructions, temporary rules, or one-off hints. You can use both together.
+Each style is an ordinary lore entry with a condition on it. Nothing has to be switched off by hand, because only one condition can be true at a time.
 
 ---
 
 ## Step by step
 
-### Step 1: Create a variable
+### Step 1: Create the variable
 
-We need one variable to track which mode is currently active. The Root Component reads it to decide which button to highlight.
-
-Editor → sidebar → **Variables** tab → click "Add Variable"
-
-| Field | Value | Why |
-|-------|-------|-----|
-| Display Name | Current Mode | For your own reference |
-| ID | `current_mode` | Behaviors and the Root Component read/write using this ID |
-| Type | String | Because the values are text (`"normal"`, `"comedy"`, `"horror"`) |
-| Default Value | `normal` | New sessions start in normal mode |
-| Category | Custom | Dedicated category for the personality system |
-| Behavior Rules | `Do not modify this variable. It is controlled by the player's UI buttons.` | Tells the AI not to change this on its own — only player buttons can |
-
----
-
-### Step 2: Create behaviors
-
-We need 3 behaviors — one per mode. Each behavior's logic is: **remove old directive → inject new directive → update variable → notify player**.
-
-Editor → **Behaviors** tab → add behaviors one by one
-
-#### Behavior 1: Switch to Comedy Mode
-
-**WHEN (trigger):**
-
-| Field | Value | Why |
-|-------|-------|-----|
-| Trigger Type | Action | Fires when code calls `executeAction("mode-comedy")` |
-| Action ID | `mode-comedy` | The button in the Root Component calls this ID |
-
-**DO (actions):**
-
-Add the following actions in order:
-
-| # | Action Type | Settings | Purpose |
-|---|-------------|----------|---------|
-| 1 | Stop Telling AI | Directive ID: `personality-override` | Remove the previous personality directive (if any). If none exists, nothing happens — no error |
-| 2 | Tell AI | Directive ID: `personality-override`, content below, position: After Character | Inject the comedy-style directive |
-| 3 | Modify Variable | `current_mode` set to `comedy` | Update the variable so the Root Component knows the current mode |
-| 4 | Show Notification | Message: `Switched to Comedy Mode`, style: info | Give the player visual feedback |
-
-**"Tell AI" directive content:**
-
-```
-[Narration Style: Comedy Mode]
-From now on, narrate everything in a humorous, comedic tone. You may:
-- Use exaggerated metaphors and absurd analogies
-- Occasionally break the fourth wall and whisper asides to the reader
-- Have NPCs deliver hilariously ill-timed lines
-- Describe serious scenes in a lighthearted voice for comedic contrast
-Keep the story moving — don't just tell jokes. Humor should be woven into the narration, not replace it.
-```
-
-> **Why "Stop Telling AI" before "Tell AI"?** Because both directives use the same ID (`personality-override`). If the player switches from Horror to Comedy, not removing the old directive first would rely on `injectDirective` auto-replacing the same ID — which it does — but explicitly removing then re-injecting is a better habit. The logic is clearer, and it avoids potential edge cases.
-
----
-
-#### Behavior 2: Switch to Horror Mode
-
-**WHEN:**
+In the **Add** row at the bottom of the card, click **＋ Variable**.
 
 | Field | Value |
 |-------|-------|
-| Trigger Type | Action |
-| Action ID | `mode-horror` |
+| Name | Mode |
+| Type | Text |
+| Starts at | `normal` |
 
-**DO:**
+Open **What the AI does with it** and set **AI access** to **AI read-only**. The player's buttons change the mode; the AI should only follow it. With the engine enforcing this, you don't need "don't touch this" in the Behavior Rules.
 
-| # | Action Type | Settings | Purpose |
-|---|-------------|----------|---------|
-| 1 | Stop Telling AI | Directive ID: `personality-override` | Remove the old personality directive |
-| 2 | Tell AI | Directive ID: `personality-override`, content below, position: After Character | Inject the horror-style directive |
-| 3 | Modify Variable | `current_mode` set to `horror` | Update the variable |
-| 4 | Show Notification | Message: `Switched to Horror Mode`, style: danger | Use a danger-style notification — red fits the horror vibe |
+To show the mode in chat, click **Show on the player screen**.
 
-**"Tell AI" directive content:**
+---
+
+### Step 2: Write one lore entry per style
+
+Add two lore entries (the **＋** in the top right of **Character and world**, or **Add** in the toolbar).
+
+#### Entry: Comedy style
 
 ```
-[Narration Style: Horror Mode]
-From now on, narrate everything with a dark, unsettling atmosphere. You should:
-- Use slow, oppressive pacing for scene descriptions, focusing on sensory details (sounds, smells, textures)
-- Hint that something is watching the character from the shadows, but never reveal it directly
-- Make the environment itself feel wrong — doors close on their own, shadows move the wrong way, reflections in mirrors lag by half a beat
-- Give NPCs dialogue with subtle wrongness, as if they know something they shouldn't
-- Occasionally use second person to describe the character's physiological reactions (neck hairs standing up, heartbeat quickening, pupils dilating)
-Build sustained tension, but don't throw a monster into every paragraph. True horror lives in the unknown.
+[Narration style: Comedy]
+Narrate everything in a humorous, comedic tone. You may:
+- Use exaggerated metaphors and absurd comparisons
+- Now and then break the fourth wall with an aside to the reader
+- Give NPCs badly timed lines
+- Describe serious scenes in a light voice for contrast
+Keep the story moving. Humour goes into the narration; it doesn't replace it.
 ```
 
----
+#### Entry: Horror style
 
-#### Behavior 3: Switch back to Normal Mode
+```
+[Narration style: Horror]
+Narrate everything with a dark, unsettling atmosphere. You should:
+- Slow the pacing down in scene descriptions and dwell on sounds, smells and textures
+- Hint that something is watching from the shadows, without ever showing it
+- Make the surroundings feel wrong: doors that close by themselves, shadows that move the wrong way, a reflection half a beat late
+- Give NPCs lines that are slightly off, as if they know something they shouldn't
+- Sometimes describe the character's body in second person: the hair on the neck rising, the heartbeat speeding up
+Keep the tension building, but don't put a monster in every paragraph. Leave the worst of it unknown.
+```
 
-**WHEN:**
+Normal mode needs no entry. When neither style entry is in, the AI writes the way your character and world entries already tell it to.
 
-| Field | Value |
-|-------|-------|
-| Trigger Type | Action |
-| Action ID | `mode-normal` |
+#### Put a condition on each entry
 
-**DO:**
+Drag the **Mode** variable onto the "Comedy style" entry. A line appears between them; click it and set the condition to Mode **is** `comedy`. Do the same for "Horror style" with `horror`.
 
-| # | Action Type | Settings | Purpose |
-|---|-------------|----------|---------|
-| 1 | Stop Telling AI | Directive ID: `personality-override` | Remove the custom personality directive. Once removed, the system prompt no longer has a style override — the AI falls back to its default narration style |
-| 2 | Modify Variable | `current_mode` set to `normal` | Update the variable |
-| 3 | Show Notification | Message: `Restored Normal Mode`, style: info | Feedback |
+The entries move into the conditional lore block: they're sent only while their condition holds. (You can also set this by opening the entry and clicking **When the AI sees this** at the bottom.)
 
-> **Note:** Normal mode doesn't inject any directive. Just removing the previous override is enough — the AI reverts to whatever default style you defined in your character entries and system instructions.
-
----
-
-### Step 3: Understand directive position and persistence
-
-When configuring a "Tell AI" action, you'll see two important settings: **position** and **persistence / turn duration**. Here's what they mean.
-
-#### Directive position
-
-Position controls where the injected directive appears in the system prompt.
-
-| Position | Label | Description | When to use |
-|----------|-------|-------------|-------------|
-| `auto` | Auto | Engine picks the best spot (usually after the character definition) | Good enough for most cases |
-| `top` | Top | At the very beginning of the system prompt, highest priority | Urgent global rules (e.g., "From now on reply only in English") |
-| `before_char` | Before Character | Before the character definition | Global settings that affect how the AI interprets the character |
-| `after_char` | After Character | After the character definition | Style directives, tone adjustments (this recipe uses this one) |
-| `bottom` | Bottom | At the very end of the system prompt | Last-minute reminders, "jailbreak"-style instructions |
-| `depth` | Depth | Inserted by depth (before the Nth most recent message) | Directives that need to appear mid-conversation rather than in the system prompt |
-
-**Why does this recipe use "After Character"?** Because personality-switching directives are style overrides for narration. Placed after the character definition, the AI reads "who I am" (character) first, then "how I should speak" (style directive). The order feels natural and produces the best results.
-
-#### Persistence vs. temporary directives
-
-| Setting | Description | Usage |
-|---------|-------------|-------|
-| Persistent (default) | Directive stays in the system prompt until explicitly removed by "Stop Telling AI" | This recipe uses this — mode stays active until the player switches again |
-| Temporary (set turn duration) | Directive auto-expires after the specified number of turns | Good for one-off effects, e.g., "For the next 3 turns, the character is drunk and slurs their words" |
-
-**Example:** If you set the turn duration to `3` in the "Tell AI" action, the directive automatically disappears at the end of the 3rd turn after injection — no manual removal needed.
+::: tip Where the style text goes
+Entries are placed in the AI's prompt with the rest of your lore. If the AI keeps slipping back to its old voice, open the entry and set **Inject into** to **At the end**: that text comes after the whole conversation, right before the AI replies, which is where the AI pays the most attention.
+:::
 
 ---
 
-### Step 4: Add mode-switching buttons to the Root Component
+### Step 3: Add the buttons
 
-Show three mode buttons below the last message in the chat. The currently active mode button is highlighted.
+Click **Player interface** in the middle of the top bar. On the conversation page, add three **Button** parts (**Add a part** → **Button**), labelled Normal, Comedy and Horror. Under **When pressed, do in order**, give each one:
 
-Editor → **Custom UI** section → open `index.tsx` → paste the following (replace the default `return <Chat />`):
+1. **Change a variable**: Mode, **Set to**, `normal` / `comedy` / `horror`
+2. **Show a notice**: `Switched to Comedy mode` (or the matching mode)
+
+To highlight the active one, duplicate a button, give the copy a different look, and use **When to show** → **When a variable matches** so it only shows while Mode is that value. Put the plain version on top of it with the opposite condition (Mode **is not** that value).
+
+Turn **Edit** off and tap the buttons. This preview doesn't call the AI, but you can watch Mode change.
+
+::: info Doing it with a behavior instead
+If you'd rather keep the switching logic on the canvas, make one behavior per mode: **When it fires**: **The player presses a button**, Button `mode-comedy`; **Effects**: **Change variable** Mode to `comedy`, **Show notification** `Switched to Comedy mode`. Then each button only needs one step: **Set off a behavior**. Interface code can fire the same behavior with `api.executeAction("mode-comedy")`.
+:::
+
+---
+
+### Step 4: Playtest
+
+Click **Play** in the top bar.
+
+1. Chat for a couple of turns in Normal mode
+2. Tap **Comedy**. The notice appears and Mode reads comedy
+3. Send a message. The reply turns humorous, and may break the fourth wall
+4. Tap **Horror** and send another message. The reply turns dark and tense
+5. Tap **Normal** and send one more. The narration goes back to your card's own style
+
+**This turn** on the right of the playtest lists the lore entries the AI got, so you can check that only one style entry is in.
+
+**If something goes wrong:**
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| Tapping a button does nothing | The button has no **Change a variable** step | Select the button and check **When pressed, do in order** |
+| Mode changes but the style doesn't | The entry's condition doesn't match the value | The button sets `comedy`; the condition must check for `comedy` exactly |
+| Both styles reach the AI | One entry is in the always-sent block | Check **When the AI sees this** on both entries |
+| The style fades after a few turns | The style text sits far from the end of the prompt | Set **Inject into** to **At the end** |
+
+---
+
+## Custom code route: mode buttons under the last message
+
+If you write your own interface, draw the buttons yourself and set the same variable. The lore entries from Step 2 don't change.
+
+**Panels → Front End Code** → open `index.tsx` and replace the default `return <Chat />`:
 
 ```tsx
 export default function MyWorld() {
   const api = useYumina();
+  const currentMode = String(api.variables["Mode"] || "normal");
+  const msgs = api.messages || [];
 
-  // ---- Read current mode ----
-  const currentMode = String(api.variables.current_mode || "normal");
-
-  // ---- Three mode configs ----
   const modes = [
-    {
-      id: "normal",
-      label: "Normal",
-      actionId: "mode-normal",
-      color: "#94a3b8",
-      activeColor: "#e2e8f0",
-      activeBg: "rgba(148,163,184,0.2)",
-      border: "#475569",
-      activeBorder: "#94a3b8",
-    },
-    {
-      id: "comedy",
-      label: "Comedy",
-      actionId: "mode-comedy",
-      color: "#fbbf24",
-      activeColor: "#fef3c7",
-      activeBg: "rgba(251,191,36,0.2)",
-      border: "#a16207",
-      activeBorder: "#fbbf24",
-    },
-    {
-      id: "horror",
-      label: "Horror",
-      actionId: "mode-horror",
-      color: "#f87171",
-      activeColor: "#fecaca",
-      activeBg: "rgba(248,113,113,0.2)",
-      border: "#991b1b",
-      activeBorder: "#f87171",
-    },
+    { id: "normal", label: "Normal", color: "#94a3b8", activeColor: "#e2e8f0",
+      activeBg: "rgba(148,163,184,0.2)", border: "#475569", activeBorder: "#94a3b8" },
+    { id: "comedy", label: "Comedy", color: "#fbbf24", activeColor: "#fef3c7",
+      activeBg: "rgba(251,191,36,0.2)", border: "#a16207", activeBorder: "#fbbf24" },
+    { id: "horror", label: "Horror", color: "#f87171", activeColor: "#fecaca",
+      activeBg: "rgba(248,113,113,0.2)", border: "#991b1b", activeBorder: "#f87171" },
   ];
 
-  // ---- Message list, used to find the last one ----
-  const msgs = api.messages || [];
+  const switchTo = (mode) => {
+    api.setVariable("Mode", mode.id);
+    api.showToast("Switched to " + mode.label + " mode", "info");
+  };
 
   return (
     <Chat renderBubble={(msg) => {
       const isLastMsg = msg.messageIndex === msgs.length - 1;
       return (
-    <div>
-      {/* Render message text normally (platform already produced HTML — just use contentHtml) */}
-      <div
-        style={{ color: "#e2e8f0", lineHeight: 1.7 }}
-        dangerouslySetInnerHTML={{ __html: msg.contentHtml }}
-      />
+        <div>
+          <div
+            style={{ color: "#e2e8f0", lineHeight: 1.7 }}
+            dangerouslySetInnerHTML={{ __html: msg.contentHtml }}
+          />
 
-      {/* Mode-switching buttons — only on the last message */}
-      {isLastMsg && (
-        <div style={{
-          display: "flex",
-          gap: "8px",
-          marginTop: "16px",
-          flexWrap: "wrap",
-        }}>
-          {modes.map((mode) => {
-            const isActive = currentMode === mode.id;
-            return (
-              <button
-                key={mode.id}
-                onClick={() => {
-                  if (!isActive) {
-                    api.executeAction(mode.actionId);
-                  }
-                }}
-                style={{
-                  padding: "8px 16px",
-                  background: isActive ? mode.activeBg : "transparent",
-                  border: `2px solid ${isActive ? mode.activeBorder : mode.border}`,
-                  borderRadius: "8px",
-                  color: isActive ? mode.activeColor : mode.color,
-                  fontSize: "13px",
-                  fontWeight: isActive ? "700" : "500",
-                  cursor: isActive ? "default" : "pointer",
-                  opacity: isActive ? 1 : 0.7,
-                  transition: "all 0.2s ease",
-                }}
-              >
-                {isActive ? "● " : ""}{mode.label}
-              </button>
-            );
-          })}
+          {isLastMsg && (
+            <div style={{ display: "flex", gap: "8px", marginTop: "16px", flexWrap: "wrap" }}>
+              {modes.map((mode) => {
+                const isActive = currentMode === mode.id;
+                return (
+                  <button
+                    key={mode.id}
+                    onClick={() => { if (!isActive) switchTo(mode); }}
+                    style={{
+                      padding: "8px 16px",
+                      background: isActive ? mode.activeBg : "transparent",
+                      border: `2px solid ${isActive ? mode.activeBorder : mode.border}`,
+                      borderRadius: "8px",
+                      color: isActive ? mode.activeColor : mode.color,
+                      fontSize: "13px",
+                      fontWeight: isActive ? "700" : "500",
+                      cursor: isActive ? "default" : "pointer",
+                      opacity: isActive ? 1 : 0.7,
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    {isActive ? "● " : ""}{mode.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
-    </div>
       );
     }} />
   );
 }
 ```
 
-**Line-by-line breakdown:**
+**What the code does:**
 
-- `api.variables.current_mode` — reads the current mode variable's value
-- `modes` — an array defining each mode's ID, display label, corresponding behavior action ID, and color configs
-- `isActive` — checks whether the current mode matches this button's mode. If it matches, the button is highlighted; otherwise it's grayed out and semi-transparent
-- `api.executeAction(mode.actionId)` — triggers the behavior we created in Step 2. Note it only fires when `!isActive` — if you're already in this mode, clicking does nothing
-- `"● "` — the active button gets a small dot prefix as a visual indicator
-- `transition: "all 0.2s ease"` — smooth animation when button state changes
+- `api.variables["Mode"]` reads the variable by its name
+- `api.setVariable("Mode", mode.id)` writes it. The conditional entries pick up the new value on the AI's next reply
+- `api.showToast(text, "info")` shows a notice (`"success"`, `"error"` and `"info"` are the three types)
+- The active button gets a dot and a highlight, and tapping it again does nothing
+- To run a behavior instead of setting the variable directly, call `api.executeAction("mode-comedy")`
 
-::: tip Don't want to write code yourself? Use Studio AI
-Editor top bar → click "Enter Studio" → AI Assistant panel → describe what you want in plain language, and the AI will generate the code for you.
+The status next to the file in **Panels → Front End Code** should read a green **OK**.
+
+::: tip Don't want to write code yourself?
+Click **Creation assistant** at the top right of the canvas and describe the buttons you want.
 :::
 
 ---
 
-### Step 5: Save and test
+## More ideas
 
-1. Click **Save** at the top of the editor
-2. Click **Start Game** or go back to the home page and start a new session
-3. Chat normally with the AI for a few turns — you're in Normal mode
-4. Click the **Comedy** button — the button highlights in gold, a notification says "Switched to Comedy Mode"
-5. Send a message — the AI's reply should turn humorous, exaggerated, and might break the fourth wall
-6. Click the **Horror** button — the button turns red-highlighted
-7. Send another message — the AI's reply becomes dark, tense, and filled with unsettling hints
-8. Click the **Normal** button — back to default style
-9. Send one more message — confirm the AI has returned to normal narration
+### More modes
 
-**If something goes wrong:**
+Add another lore entry (say "Poetic style") with the condition Mode is `poetic`, and another button that sets Mode to `poetic`.
 
-| Symptom | Likely Cause | Fix |
-|---------|-------------|-----|
-| Can't see the mode buttons | Root Component code wasn't saved or has a syntax error | Check the compile status at the bottom of the Custom UI panel — it should show green "OK" |
-| Clicking a button does nothing | Behavior action ID doesn't match the code | Confirm the behavior action IDs are `mode-comedy`, `mode-horror`, `mode-normal`, matching the `executeAction()` parameters in the code |
-| Button state doesn't change | Variable isn't being updated by the behavior | Check that each behavior's "Modify Variable" action correctly sets `current_mode` |
-| AI style doesn't change after switching | Directive content is empty or position is wrong | Check that the "Tell AI" action has directive content filled in, and position is set to "After Character" |
-| Style sticks after switching back to Normal | "Stop Telling AI" directive ID doesn't match | Confirm all three behaviors use the same directive ID: `personality-override` |
+### A one-turn burst
 
----
-
-## Advanced usage
-
-### Adding more modes
-
-Want to add a "Poetic Mode"? Just:
-
-1. Add an entry to the `modes` array (ID, label, colors)
-2. Create a new behavior with action ID `mode-poetic`, same action pattern as comedy/horror (remove old directive → inject new directive → update variable → notify)
-3. Done. The button appears automatically in the Root Component
-
-### Temporary "personality bursts" with turn-limited directives
-
-Say you want a "Drunk Button" — click it and the AI talks in a drunken stupor for 3 turns, then automatically reverts:
-
-In the "Tell AI" action, set the turn duration to `3`. The directive auto-expires after 3 turns — no need for the player to click again to cancel.
+For something that should only last one reply, like "the character hiccups through this answer", use a behavior with the effect **Tell the AI**. It slips the AI one line the player can't see, for the next reply only. For something that should last a few turns, use a Number variable as a countdown: a button sets it to `3`, an **Every turn** behavior subtracts 1, and the lore entry's condition is "Countdown is more than 0".
 
 ### Language switching
 
-The same pattern works for switching the AI's reply language. Change the directive content to "From now on reply entirely in English" or "From now on reply in Japanese" and you've got a language switcher.
+The same setup switches reply language: an entry "Reply only in Japanese" with the condition Language is `ja`, and so on for each language.
+
+### Letting the AI change its own mode
+
+Leave **AI access** on **AI can read & write** and say in the Behavior Rules when the mode should change ("switch to horror when the party enters the crypt"). The AI then sets Mode itself, and the same entries follow it.
 
 ---
 
@@ -351,40 +238,18 @@ The same pattern works for switching the AI's reply language. Change the directi
 
 | What you want | How to do it |
 |---------------|-------------|
-| Dynamically modify the AI's system prompt | Use "Tell AI" (`inject-directive`) in a behavior action — fill in directive ID, content, and position |
-| Remove a previously injected directive | Use "Stop Telling AI" (`remove-directive`) — fill in the directive ID to remove |
-| Auto-expire a directive after N turns | Set the turn duration in "Tell AI" |
-| Keep a directive permanently (until manual removal) | Don't set a turn duration in "Tell AI" (default behavior) |
-| Place a style directive after the character definition | Set position to "After Character" (`after_char`) |
-| Put an urgent rule override at the top | Set position to "Top" (`top`) |
-| Put a last-minute reminder at the end | Set position to "Bottom" (`bottom`) |
-| Remove old directive before switching | Use the same directive ID — "Stop Telling AI" first, then "Tell AI" |
-| Highlight the active button | Read the variable inside the Root Component and use conditional styles (`isActive`) to control highlighting |
-
----
-
-## Try it yourself — importable demo world
-
-Download this JSON and import it as a new world to see everything in action:
-
-<a href="/recipe-11-demo.json" download>recipe-11-demo.json</a>
-
-**How to import:**
-1. Go to Yumina → **My Worlds** → **Create New World**
-2. In the editor, click **More Actions** → **Import Package**
-3. Select the downloaded `.json` file
-4. A new world is created with all variables, behaviors, and the Root Component pre-configured
-5. Start a new session and try it out
-
-**What's included:**
-- 1 variable (`current_mode` tracking the active personality mode)
-- 3 behaviors (switch to Comedy / switch to Horror / restore Normal)
-- A Root Component (three mode-switching buttons with highlight indicators)
+| Change how the AI writes, for as long as a mode is on | A lore entry with a condition on a variable (conditional lore) |
+| Switch modes from a button | Player interface button: **Change a variable** |
+| Keep the AI from changing the mode | **AI access**: **AI read-only** |
+| Put style text where the AI listens most | On the entry, **Inject into**: **At the end** |
+| A hint for the next reply only | Behavior effect: **Tell the AI** |
+| Highlight the active mode | Two versions of the button, each with **When to show** → **When a variable matches** |
+| Switch from interface code | `api.setVariable("Mode", "comedy")` or `api.executeAction("mode-comedy")` |
 
 ---
 
 ::: tip This is Recipe #11
-This recipe demonstrates the core usage of "Tell AI" / "Stop Telling AI" — dynamically injecting and removing directives in the system prompt. The same pattern can be used for language switching, difficulty adjustment, narrative perspective toggling (first person / third person), or even "gradual AI personality drift" (auto-injecting directives of varying intensity every few turns).
+The same setup (a variable, plus lore entries that only go to the AI under a condition) also works for difficulty levels, first-person vs third-person narration, or a character whose mood shifts over the story.
 :::
 
 </div>

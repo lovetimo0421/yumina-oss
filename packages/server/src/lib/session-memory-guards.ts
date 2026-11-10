@@ -39,6 +39,7 @@ export function memoryClaimGuard(snapshot: MemoryJobSnapshot, now: Date) {
 export function pendingMemoryRange(sessionId: string, safeTipId: string, cursorId: string | null) {
   return and(
     eq(messages.sessionId, sessionId),
+    eq(messages.status, "complete"),
     sql`${messages.role} IN ('user', 'assistant')`,
     sql`(${messages.createdAt}, ${messages.id}) <= (SELECT created_at, id FROM messages WHERE id = ${safeTipId} AND session_id = ${sessionId})`,
     cursorId ? sql`(${messages.createdAt}, ${messages.id}) > (SELECT created_at, id FROM messages WHERE id = ${cursorId} AND session_id = ${sessionId})` : undefined,
@@ -49,18 +50,43 @@ export function pendingMemoryRange(sessionId: string, safeTipId: string, cursorI
  * that reply was never evidence for this memory job. */
 export function memoryLagGuard(sessionId: string, excludedReplyId: string | undefined) {
   return excludedReplyId
-    ? sql`EXISTS (SELECT 1 FROM messages WHERE id = ${excludedReplyId} AND session_id = ${sessionId})`
+    ? sql`EXISTS (SELECT 1 FROM messages WHERE id = ${excludedReplyId} AND session_id = ${sessionId} AND role = 'assistant' AND status = 'complete')`
     : undefined;
 }
 
 /** Validate inside claim AND persist. Checking only the final ID misses a
- * deleted/edited middle message, especially before the first memory exists. */
-export function memorySourceGuard(sessionId: string, rows: Array<{ id: string; content: string }>) {
+ * deleted/edited middle message, especially before the first memory exists.
+ * Completion filtering belongs to session memory; story and layered summaries
+ * share this evidence guard but retain their own source-selection policy. */
+export function memorySourceGuard(sessionId: string, rows: Array<{ id: string; content?: string; digest?: string; role?: string }>, options: { requireComplete?: boolean } = {}) {
   if (!rows.length) return undefined;
-  const sources = rows.map(row => ({ id: row.id, digest: createHash("md5").update(row.content).digest("hex") }));
+  const sources = rows.map(row => ({ id: row.id, role: row.role ?? null, digest: row.digest ?? createHash("md5").update(row.content ?? "").digest("hex") }));
   return sql`NOT EXISTS (
-    SELECT 1 FROM jsonb_to_recordset(${JSON.stringify(sources)}::jsonb) AS source(id text, digest text)
+    SELECT 1 FROM jsonb_to_recordset(${JSON.stringify(sources)}::jsonb) AS source(id text, digest text, role text)
     LEFT JOIN messages m ON m.id = source.id AND m.session_id = ${sessionId}
-    WHERE m.id IS NULL OR md5(m.content) <> source.digest
+    WHERE m.id IS NULL OR ${options.requireComplete ? sql`m.status IS DISTINCT FROM 'complete'` : sql`FALSE`} OR md5(m.content) <> source.digest OR (source.role IS NOT NULL AND m.role <> source.role)
   )`;
+}
+
+
+/** Only completed replies define the lag-one evidence boundary. */
+export function memoryReplyFilter(sessionId: string) {
+  return and(eq(messages.sessionId, sessionId), eq(messages.role, "assistant"), eq(messages.status, "complete"));
+}
+
+/** Counts the eligible interval, including rows that finished during generation. */
+export function memorySourceCountGuard(sessionId: string, tipId: string | null, count: number, cursorId: string | null = null) {
+  return sql`(SELECT count(*) FROM messages WHERE session_id = ${sessionId}
+    AND status = 'complete' AND role IN ('user','assistant')
+    AND ${cursorId ? sql`(created_at,id) > (SELECT created_at,id FROM messages WHERE id = ${cursorId} AND session_id = ${sessionId})` : sql`TRUE`}
+    AND (created_at,id) <= (SELECT created_at,id FROM messages WHERE id = ${tipId} AND session_id = ${sessionId})) = ${count}`;
+}
+
+/** Old generated memories may contain failed turns. Explicit manual text has
+ * no generated provenance, and a certified filtered rebuild needs no rescan. */
+export function memoryRepairFilter(sessionId: string, cursorId: string | null, sourceHash: string | null) {
+  if (!cursorId || !sourceHash || (sourceHash.includes(":eligible-v1") && !sourceHash.startsWith("repair:"))) return undefined;
+  return and(eq(messages.sessionId, sessionId), ne(messages.status, "complete"),
+    sql`${messages.role} IN ('user','assistant')`,
+    sql`(${messages.createdAt}, ${messages.id}) <= (SELECT created_at,id FROM messages WHERE id = ${cursorId} AND session_id = ${sessionId})`);
 }

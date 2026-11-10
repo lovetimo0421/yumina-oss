@@ -7,7 +7,34 @@ import type { EventPattern } from "@yumina/engine";
 export interface WhenPresetLike {
   id: string;
   eventType: string;
-  fields?: Array<{ name: string; operator?: string; placeholder?: string }>;
+  fields?: Array<{ name: string; operator?: string; placeholder?: string; type?: string; options?: Array<{ value: string; label: string }> }>;
+}
+
+/**
+ * The values of a saved `when` pattern as the creator reads them.
+ *
+ * A "variable changed" trigger stores the variable's id, which is a UUID —
+ * the behaviours list used to print it verbatim. A variable reads as its
+ * name, a picked option as its label, anything else as typed.
+ */
+export function describeWhenValues(
+  preset: WhenPresetLike,
+  match: EventPattern["match"],
+  variables: ReadonlyArray<{ id: string; name: string }>,
+): string[] {
+  return Object.entries(match ?? {}).flatMap(([key, m]) => {
+    const raw = m?.value;
+    if (raw === undefined || raw === null || raw === "") return [];
+    const field = preset.fields?.find((f) => f.name === key);
+    if (field?.type === "variable" || key === "variableId") {
+      const v = variables.find((x) => x.id === String(raw));
+      return [v?.name?.trim() || String(raw)];
+    }
+    if (field?.type === "select") {
+      return [field.options?.find((o) => o.value === String(raw))?.label ?? String(raw)];
+    }
+    return [String(raw)];
+  });
 }
 
 /**

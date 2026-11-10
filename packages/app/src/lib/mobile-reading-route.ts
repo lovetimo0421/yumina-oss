@@ -11,6 +11,7 @@ export function getMobileReadingPageId(pathname: string, search: { worldId?: unk
     return search.worldId ? "library-detail" : "library-main";
   }
   if (/^\/app\/profile\/?$/.test(pathname)) return "profile-main";
+  if (/^\/app\/profile\/ai\/?$/.test(pathname)) return "profile-ai";
   if (/^\/app\/settings\/?$/.test(pathname)) return "settings-main";
   if (/^\/app\/admin(?:\/|$)/.test(pathname) && !/^\/app\/admin\/world-inspect(?:\/|$)/.test(pathname)) return "admin-main";
   if (/^\/app\/worlds\/create\/?$/.test(pathname) && createPickerActive) return "create-picker";

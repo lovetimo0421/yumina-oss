@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import type { WorldDefinition } from "@yumina/engine";
 import { SESSION_MEMORY_EXTENSION_KEY } from "@yumina/shared";
 import {
   PromptBlockController,
@@ -8,6 +10,7 @@ import {
   collectPromptBlocks,
   registerExtensionHooks,
   resolveTurnHooks,
+  transformWorldDefinition,
   type BlockPosition,
   type TurnPromptMessageLike,
 } from "./extension-hooks.js";
@@ -89,6 +92,7 @@ test("prompt blocks are entitlement-gated; invalidate is not", async () => {
       { id: "b", priority: 20, content: ctx.capabilities.has("session-memory") ? "block-b" : null },
       { id: "a", priority: 10, content: "block-a" },
     ],
+    transformWorldDefinition: (ctx) => ({ ...ctx.worldDef, name: `${ctx.worldDef.name} (session)` }),
     invalidate: (ctx) => ({ sessionFields: { sessionMemory: null }, runAfter: async () => { ran.push(ctx.reason); } }),
   });
   const ran: string[] = [];
@@ -106,6 +110,28 @@ test("prompt blocks are entitlement-gated; invalidate is not", async () => {
     assert.deepEqual(dispatch.activeExtensions.get(KEY), new Set(["session-memory"]));
     const blocks = await collectPromptBlocks(dispatch, { ...baseCtx, freshStart: false });
     assert.deepEqual(blocks.map((b) => b.id), ["a", "b"]);
+    const baseWorld = {
+      id: "w1",
+      name: "World",
+      description: "",
+      author: "",
+      version: "21.0.0",
+      settings: {},
+      variables: [],
+      rules: [],
+      reactions: [],
+      components: [],
+      customUI: [],
+      audioTracks: [],
+      entries: [],
+    } satisfies WorldDefinition;
+    const transformed = await transformWorldDefinition(
+      dispatch,
+      { ...baseCtx, freshStart: false },
+      baseWorld,
+    );
+    assert.equal(transformed.name, "World (session)");
+    assert.equal(baseWorld.name, "World");
 
     // Invalidation collects from every REGISTERED extension — install state
     // is deliberately irrelevant (data lifecycle outlives uninstall).
@@ -117,6 +143,12 @@ test("prompt blocks are entitlement-gated; invalidate is not", async () => {
   } finally {
     __setInstalledLookupForTests(null);
   }
+});
+
+test("send, regenerate, and continue all use the shared world transform seam", () => {
+  const source = readFileSync(new URL("../routes/messages.ts", import.meta.url), "utf8");
+  const calls = source.match(/worldDef = await resolveTurnWorldDefinition\(/g) ?? [];
+  assert.equal(calls.length, 3);
 });
 
 test("registering an unknown extension key is refused", async () => {

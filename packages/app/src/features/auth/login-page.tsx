@@ -4,8 +4,9 @@ import { useTranslation } from "react-i18next";
 import { signIn, signOut, useSession } from "@/lib/auth-client";
 import { markLoginComplete } from "@/lib/auth-guard";
 import { getAuthErrorKey } from "@/lib/auth-errors";
-import { isGameReturnTo, readSafeAuthReturnTo } from "@/lib/auth-return";
+import { isCardReturnTo, isGameReturnTo, markAuthReturn, readSafeAuthReturnTo } from "@/lib/auth-return";
 import { isCreatorHost } from "@/lib/creator-hub-url";
+import { oauthAuthorizeResumePath, oauthAuthorizeResumeUrl } from "@/lib/oauth-authorize";
 import { getLandingRoute } from "@/edition/routes";
 import { Separator } from "@/components/ui/separator";
 import { Turnstile, type TurnstileHandle } from "@/components/turnstile";
@@ -34,6 +35,12 @@ export function LoginPage() {
       ? undefined
       : readSafeAuthReturnTo(window.location.search)
   );
+  // An outside app's "Sign in with Yumina" (OAuth): the authorize request to
+  // resume after a sign-up, a social sign-in or an email verification.
+  const [oauthResume] = useState(() =>
+    typeof window === "undefined" ? null : oauthAuthorizeResumePath(window.location.search),
+  );
+  const registerReturnTo = returnTo ?? oauthResume ?? undefined;
 
   // Show verification screen when unverified user tries to log in
   const [showVerification, setShowVerification] = useState(false);
@@ -49,10 +56,22 @@ export function LoginPage() {
   // beforeLoad guard, which blocked every /login navigation on a session fetch.
   useLayoutEffect(() => {
     if (session) {
+      // An outside AI's sign-in (OAuth) sent an already signed-in creator
+      // here: pick the authorization back up instead of going to the hub.
+      const resume = oauthAuthorizeResumeUrl(window.location.search);
+      if (resume) {
+        window.location.replace(resume);
+        return;
+      }
       // A game path lives OUTSIDE the SPA (the PvZ page): leave by full navigation, straight
       // back into the room the invite named. Everything else stays a router hop.
       if (returnTo && isGameReturnTo(returnTo)) {
         window.location.replace(returnTo);
+        return;
+      }
+      if (returnTo && isCardReturnTo(returnTo)) {
+        markAuthReturn();
+        void router.navigate({ href: returnTo, replace: true });
         return;
       }
       void router.navigate({
@@ -84,8 +103,27 @@ export function LoginPage() {
         setError(t(getAuthErrorKey(result.error) as any));
       } else {
         markLoginComplete();
+        // Signing in for an outside AI (OAuth): the server continues the
+        // authorization and answers with where to go next (consent or the AI).
+        const next = result.data as { redirect?: boolean; url?: string } | null;
+        if (next?.redirect && next.url) {
+          window.location.href = next.url;
+          return;
+        }
+        // Do not wait for useSession to refresh: its async update can arrive
+        // after a router navigation has already unmounted this page.
+        if (returnTo && isGameReturnTo(returnTo)) {
+          window.location.replace(returnTo);
+          return;
+        }
         if (returnTo === "/delete-account") {
           router.navigate({ to: "/delete-account" });
+          return;
+        }
+        // Back to the card the guest was about to play.
+        if (returnTo && isCardReturnTo(returnTo)) {
+          markAuthReturn();
+          router.navigate({ href: returnTo, replace: true });
           return;
         }
         // Land users back on the subdomain they signed in from. Without
@@ -133,9 +171,12 @@ export function LoginPage() {
     // the post-OAuth redirect lands the user back on the subdomain they
     // started from. The destination must be in trustedOrigins on the
     // server (it is — see auth.ts).
-    const callbackURL = returnTo === "/delete-account"
+    if (returnTo && isCardReturnTo(returnTo)) markAuthReturn();
+    const callbackURL = oauthResume
+      ? `${window.location.origin}${oauthResume}`
+      : returnTo === "/delete-account"
       ? `${window.location.origin}/delete-account`
-      : returnTo && isGameReturnTo(returnTo)
+      : returnTo && (isGameReturnTo(returnTo) || isCardReturnTo(returnTo))
       ? `${window.location.origin}${returnTo}`
       : typeof window !== "undefined" && isCreatorHost(window.location.hostname)
         ? window.location.origin
@@ -274,7 +315,7 @@ export function LoginPage() {
         {/* Footer */}
         <p className="mt-3 text-center text-[11px] text-[#B9B6AE]/60 sm:mt-4 sm:text-xs">
           {t("login.noAccount")}{" "}
-          <Link to="/register" search={returnTo ? { returnTo } : undefined} className="font-semibold text-gold transition-colors hover:text-[#F0C24A]">
+          <Link to="/register" search={registerReturnTo ? { returnTo: registerReturnTo } : undefined} className="font-semibold text-gold transition-colors hover:text-[#F0C24A]">
             {t("login.createOne")}
           </Link>
         </p>

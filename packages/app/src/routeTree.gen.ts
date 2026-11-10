@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as VerifiedRouteImport } from './routes/verified'
+import { Route as UpdatesRouteImport } from './routes/updates'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as LoginRouteImport } from './routes/login'
@@ -18,12 +19,15 @@ import { Route as DeleteAccountRouteImport } from './routes/delete-account'
 import { Route as AppRouteImport } from './routes/app'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
+import { Route as OauthConsentRouteImport } from './routes/oauth.consent'
 import { Route as AuthPopupDoneRouteImport } from './routes/auth.popup-done'
 import { Route as AppWorldsRouteImport } from './routes/app/worlds'
+import { Route as AppUpdatesRouteImport } from './routes/app/updates'
 import { Route as AppSettingsRouteImport } from './routes/app/settings'
 import { Route as AppProfileRouteImport } from './routes/app/profile'
 import { Route as AppPortalsRouteImport } from './routes/app/portals'
 import { Route as AppLibraryRouteImport } from './routes/app/library'
+import { Route as AppLearnRouteImport } from './routes/app/learn'
 import { Route as AppExtensionsRouteImport } from './routes/app/extensions'
 import { Route as AppConfigsRouteImport } from './routes/app/configs'
 import { Route as AppWorldsIndexRouteImport } from './routes/app/worlds.index'
@@ -37,6 +41,11 @@ import { Route as AppWorldsWorldIdEditRouteImport } from './routes/app/worlds.$w
 const VerifiedRoute = VerifiedRouteImport.update({
   id: '/verified',
   path: '/verified',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const UpdatesRoute = UpdatesRouteImport.update({
+  id: '/updates',
+  path: '/updates',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
@@ -79,6 +88,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const OauthConsentRoute = OauthConsentRouteImport.update({
+  id: '/oauth/consent',
+  path: '/oauth/consent',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthPopupDoneRoute = AuthPopupDoneRouteImport.update({
   id: '/auth/popup-done',
   path: '/auth/popup-done',
@@ -87,6 +101,11 @@ const AuthPopupDoneRoute = AuthPopupDoneRouteImport.update({
 const AppWorldsRoute = AppWorldsRouteImport.update({
   id: '/worlds',
   path: '/worlds',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppUpdatesRoute = AppUpdatesRouteImport.update({
+  id: '/updates',
+  path: '/updates',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
@@ -107,6 +126,11 @@ const AppPortalsRoute = AppPortalsRouteImport.update({
 const AppLibraryRoute = AppLibraryRouteImport.update({
   id: '/library',
   path: '/library',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppLearnRoute = AppLearnRouteImport.update({
+  id: '/learn',
+  path: '/learn',
   getParentRoute: () => AppRoute,
 } as any)
 const AppExtensionsRoute = AppExtensionsRouteImport.update({
@@ -163,15 +187,19 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/updates': typeof UpdatesRoute
   '/verified': typeof VerifiedRoute
   '/app/configs': typeof AppConfigsRoute
   '/app/extensions': typeof AppExtensionsRoute
+  '/app/learn': typeof AppLearnRoute
   '/app/library': typeof AppLibraryRoute
   '/app/portals': typeof AppPortalsRoute
   '/app/profile': typeof AppProfileRouteWithChildren
   '/app/settings': typeof AppSettingsRoute
+  '/app/updates': typeof AppUpdatesRoute
   '/app/worlds': typeof AppWorldsRouteWithChildren
   '/auth/popup-done': typeof AuthPopupDoneRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/app/': typeof AppIndexRoute
   '/app/chat/$sessionId': typeof AppChatSessionIdRoute
   '/app/preview/$worldId': typeof AppPreviewWorldIdRoute
@@ -188,13 +216,17 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/updates': typeof UpdatesRoute
   '/verified': typeof VerifiedRoute
   '/app/configs': typeof AppConfigsRoute
   '/app/extensions': typeof AppExtensionsRoute
+  '/app/learn': typeof AppLearnRoute
   '/app/library': typeof AppLibraryRoute
   '/app/portals': typeof AppPortalsRoute
   '/app/settings': typeof AppSettingsRoute
+  '/app/updates': typeof AppUpdatesRoute
   '/auth/popup-done': typeof AuthPopupDoneRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/app': typeof AppIndexRoute
   '/app/chat/$sessionId': typeof AppChatSessionIdRoute
   '/app/preview/$worldId': typeof AppPreviewWorldIdRoute
@@ -213,15 +245,19 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/updates': typeof UpdatesRoute
   '/verified': typeof VerifiedRoute
   '/app/configs': typeof AppConfigsRoute
   '/app/extensions': typeof AppExtensionsRoute
+  '/app/learn': typeof AppLearnRoute
   '/app/library': typeof AppLibraryRoute
   '/app/portals': typeof AppPortalsRoute
   '/app/profile': typeof AppProfileRouteWithChildren
   '/app/settings': typeof AppSettingsRoute
+  '/app/updates': typeof AppUpdatesRoute
   '/app/worlds': typeof AppWorldsRouteWithChildren
   '/auth/popup-done': typeof AuthPopupDoneRoute
+  '/oauth/consent': typeof OauthConsentRoute
   '/app/': typeof AppIndexRoute
   '/app/chat/$sessionId': typeof AppChatSessionIdRoute
   '/app/preview/$worldId': typeof AppPreviewWorldIdRoute
@@ -241,15 +277,19 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/reset-password'
+    | '/updates'
     | '/verified'
     | '/app/configs'
     | '/app/extensions'
+    | '/app/learn'
     | '/app/library'
     | '/app/portals'
     | '/app/profile'
     | '/app/settings'
+    | '/app/updates'
     | '/app/worlds'
     | '/auth/popup-done'
+    | '/oauth/consent'
     | '/app/'
     | '/app/chat/$sessionId'
     | '/app/preview/$worldId'
@@ -266,13 +306,17 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/reset-password'
+    | '/updates'
     | '/verified'
     | '/app/configs'
     | '/app/extensions'
+    | '/app/learn'
     | '/app/library'
     | '/app/portals'
     | '/app/settings'
+    | '/app/updates'
     | '/auth/popup-done'
+    | '/oauth/consent'
     | '/app'
     | '/app/chat/$sessionId'
     | '/app/preview/$worldId'
@@ -290,15 +334,19 @@ export interface FileRouteTypes {
     | '/login'
     | '/register'
     | '/reset-password'
+    | '/updates'
     | '/verified'
     | '/app/configs'
     | '/app/extensions'
+    | '/app/learn'
     | '/app/library'
     | '/app/portals'
     | '/app/profile'
     | '/app/settings'
+    | '/app/updates'
     | '/app/worlds'
     | '/auth/popup-done'
+    | '/oauth/consent'
     | '/app/'
     | '/app/chat/$sessionId'
     | '/app/preview/$worldId'
@@ -317,8 +365,10 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  UpdatesRoute: typeof UpdatesRoute
   VerifiedRoute: typeof VerifiedRoute
   AuthPopupDoneRoute: typeof AuthPopupDoneRoute
+  OauthConsentRoute: typeof OauthConsentRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -328,6 +378,13 @@ declare module '@tanstack/react-router' {
       path: '/verified'
       fullPath: '/verified'
       preLoaderRoute: typeof VerifiedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/updates': {
+      id: '/updates'
+      path: '/updates'
+      fullPath: '/updates'
+      preLoaderRoute: typeof UpdatesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reset-password': {
@@ -386,6 +443,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/oauth/consent': {
+      id: '/oauth/consent'
+      path: '/oauth/consent'
+      fullPath: '/oauth/consent'
+      preLoaderRoute: typeof OauthConsentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth/popup-done': {
       id: '/auth/popup-done'
       path: '/auth/popup-done'
@@ -398,6 +462,13 @@ declare module '@tanstack/react-router' {
       path: '/worlds'
       fullPath: '/app/worlds'
       preLoaderRoute: typeof AppWorldsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/updates': {
+      id: '/app/updates'
+      path: '/updates'
+      fullPath: '/app/updates'
+      preLoaderRoute: typeof AppUpdatesRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/settings': {
@@ -426,6 +497,13 @@ declare module '@tanstack/react-router' {
       path: '/library'
       fullPath: '/app/library'
       preLoaderRoute: typeof AppLibraryRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/learn': {
+      id: '/app/learn'
+      path: '/learn'
+      fullPath: '/app/learn'
+      preLoaderRoute: typeof AppLearnRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/extensions': {
@@ -525,10 +603,12 @@ const AppWorldsRouteWithChildren = AppWorldsRoute._addFileChildren(
 interface AppRouteChildren {
   AppConfigsRoute: typeof AppConfigsRoute
   AppExtensionsRoute: typeof AppExtensionsRoute
+  AppLearnRoute: typeof AppLearnRoute
   AppLibraryRoute: typeof AppLibraryRoute
   AppPortalsRoute: typeof AppPortalsRoute
   AppProfileRoute: typeof AppProfileRouteWithChildren
   AppSettingsRoute: typeof AppSettingsRoute
+  AppUpdatesRoute: typeof AppUpdatesRoute
   AppWorldsRoute: typeof AppWorldsRouteWithChildren
   AppIndexRoute: typeof AppIndexRoute
   AppChatSessionIdRoute: typeof AppChatSessionIdRoute
@@ -539,10 +619,12 @@ interface AppRouteChildren {
 const AppRouteChildren: AppRouteChildren = {
   AppConfigsRoute: AppConfigsRoute,
   AppExtensionsRoute: AppExtensionsRoute,
+  AppLearnRoute: AppLearnRoute,
   AppLibraryRoute: AppLibraryRoute,
   AppPortalsRoute: AppPortalsRoute,
   AppProfileRoute: AppProfileRouteWithChildren,
   AppSettingsRoute: AppSettingsRoute,
+  AppUpdatesRoute: AppUpdatesRoute,
   AppWorldsRoute: AppWorldsRouteWithChildren,
   AppIndexRoute: AppIndexRoute,
   AppChatSessionIdRoute: AppChatSessionIdRoute,
@@ -560,8 +642,10 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  UpdatesRoute: UpdatesRoute,
   VerifiedRoute: VerifiedRoute,
   AuthPopupDoneRoute: AuthPopupDoneRoute,
+  OauthConsentRoute: OauthConsentRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

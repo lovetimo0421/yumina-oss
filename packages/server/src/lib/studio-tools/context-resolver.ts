@@ -4,9 +4,12 @@ import type {
   Rule,
   CustomUIComponent,
 } from "@yumina/engine";
+import { extractAiCallsFromFiles, frontendFileFacts, resolveStation } from "@yumina/engine";
 import type { Reaction } from "@yumina/engine";
 import { isContinuityEnabled, isContinuityOwned, isSceneImageJudgeOn } from "@yumina/engine";
 import { loadAssetCatalog, formatAssetCatalog } from "./asset-catalog.js";
+import { uiDocOwnedFiles } from "./ui-doc-tools.js";
+import { stickyNotes } from "./sticky-notes.js";
 
 // ── Types ──
 
@@ -23,6 +26,9 @@ export interface ResolvedContext {
   truncationDetail?: string;
   /** Lorebook bloat check — drives the slim-skill auto-load in the system prompt */
   lorebookHealth: LorebookHealth;
+  /** What the creator pointed the assistant at on the canvas, when anything.
+   *  Only these were preloaded in full; everything else is inventory only. */
+  focus?: { labels: string[] };
 }
 
 // ── Lorebook Health (bloat detection → slim-skill auto-load) ──
@@ -134,37 +140,35 @@ const STOP_WORDS = new Set([
 /** CJK Unified Ideographs + common CJK ranges */
 const CJK_RE = /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/;
 
+/** A pasted document can be megabytes: `results.push(...words)` overflowed the
+ *  stack on it (5 runs) and `includes` per bigram went quadratic. The request's
+ *  opening says what it is about; matching more of it only adds noise. */
+const KEYWORD_SOURCE_CHARS = 8000;
+const MAX_KEYWORDS = 300;
+
 export function extractKeywords(request: string): string[] {
-  const lower = request.toLowerCase();
-  const results: string[] = [];
+  const lower = request.slice(0, KEYWORD_SOURCE_CHARS).toLowerCase();
+  const results = new Set<string>();
+  const add = (kw: string) => { if (results.size < MAX_KEYWORDS) results.add(kw); };
 
   // Extract Latin/digit words (existing logic)
-  const latinWords = lower
-    .replace(/[^\w\s-]/g, (ch) => (CJK_RE.test(ch) ? ch : " "))
-    .split(/\s+/)
-    .filter((w) => w.length > 1 && !CJK_RE.test(w[0]!) && !STOP_WORDS.has(w));
-  results.push(...latinWords);
+  for (const w of lower.replace(/[^\w\s-]/g, (ch) => (CJK_RE.test(ch) ? ch : " ")).split(/\s+/)) {
+    if (w.length > 1 && !CJK_RE.test(w[0]!) && !STOP_WORDS.has(w)) add(w);
+  }
 
   // Extract CJK: individual characters + bigrams for better matching
   // e.g. "修改猫猫的性格" → ["修改", "猫猫", "性格", "猫", "格"]
   const cjkChars = lower.replace(/[^\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff\u3040-\u309f\u30a0-\u30ff\uac00-\ud7af]/g, " ").split(/\s+/).filter(Boolean);
   for (const run of cjkChars) {
     // Full run as keyword (good for multi-char names like "猫猫")
-    if (run.length >= 2) results.push(run);
+    if (run.length >= 2) add(run);
     // Bigrams for substring matching
-    for (let i = 0; i < run.length - 1; i++) {
-      const bigram = run.slice(i, i + 2);
-      if (!results.includes(bigram)) results.push(bigram);
-    }
+    for (let i = 0; i < run.length - 1; i++) add(run.slice(i, i + 2));
     // Single chars only for short runs (avoid noise from long strings)
-    if (run.length <= 2) {
-      for (const ch of run) {
-        if (!results.includes(ch)) results.push(ch);
-      }
-    }
+    if (run.length <= 2) for (const ch of run) add(ch);
   }
 
-  return results;
+  return [...results];
 }
 
 // ── Entity Matching ──
@@ -242,7 +246,9 @@ function scoreRule(rule: Rule, keywords: string[]): number {
 
 // ── Layer 1: Rich Inventory ──
 
-function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string {
+// Exported for tests: the snapshot's shape IS the agent's world model, so the
+// blackboard lines (module notes, canvas notes) are asserted, not assumed.
+export function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string {
   const parts: string[] = [];
 
   // World metadata
@@ -269,8 +275,9 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
         : "";
       const tags = toStringArray(e.tags);
       const tagStr = tags.length ? ` tags=[${tags.join(", ")}]` : "";
-      const condStr = e.conditions.length > 0
-        ? ` conditions=[${e.conditions.map((c) => `${c.variableId} ${c.operator} ${c.value}`).join("; ")}]`
+      const conditions = e.conditions ?? [];
+      const condStr = conditions.length > 0
+        ? ` conditions=[${conditions.map((c) => `${c.variableId} ${c.operator} ${c.value}`).join("; ")}]`
         : "";
       const ivKeys = e.initialVariables ? Object.keys(e.initialVariables) : [];
       const ivStr = ivKeys.length
@@ -289,8 +296,43 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
   // entries with no book belong to the always-on Core. Two-layer gating: book
   // activation runs BEFORE each member entry's own alwaysSend/keyword/condition.
   const worldbooks = world.worldbooks ?? [];
+  // 自定义 slots: a custom AI or behaviour the creator declared on the canvas
+  // for code to implement. The scan says what implements it so far; the
+  // recipe says how, since the one reading this is the one who will write it.
+  const uiFiles = world.rootComponent?.files ?? {};
+  const aiCalls = extractAiCallsFromFiles(uiFiles);
+  const implementsAi = (bookId: string) => aiCalls
+    .filter((c) => c.worldbookIds.includes(bookId) || c.worldbookIdPrefixes.some((p) => bookId.startsWith(p)))
+    .map((c) => `${c.file}:${c.line} (api.ai.${c.kind})`);
+  const firesBehavior = (reactionId: string): string[] => {
+    const out: string[] = [];
+    const re = /\bexecuteAction\s*\(\s*["'`]([^"'`]+)["'`]/g;
+    for (const [file, src] of Object.entries(uiFiles)) {
+      if (typeof src !== "string" || !src.includes("executeAction")) continue;
+      let m: RegExpExecArray | null;
+      for (re.lastIndex = 0; (m = re.exec(src)) !== null;) if (m[1] === reactionId) out.push(`${file}:${src.slice(0, m.index).split("\n").length}`);
+    }
+    return out;
+  };
+  // A card that is a character in a game its mod runs: the mod finds these
+  // variables by id, so renaming or deleting one silently cuts the game off.
+  const game = (world as { game?: { path?: unknown; name?: unknown; inputs?: unknown; outputs?: unknown } | null }).game;
+  const ids = (list: unknown) => (Array.isArray(list) ? list.filter((x): x is string => typeof x === "string") : []);
+  if (game && typeof game === "object" && typeof game.path !== "string" && (Array.isArray(game.inputs) || Array.isArray(game.outputs))) {
+    const name = typeof game.name === "string" && game.name.trim() ? game.name.trim() : "its game";
+    parts.push(`
+GAME INTERFACE — this card is a character inside ${name}, run by that game's mod (schema.game). Before every turn the game writes: ${ids(game.inputs).join(", ") || "(none yet)"}. After the reply it reads back what the AI wrote into: ${ids(game.outputs).join(", ") || "(none yet)"}. Never rename or delete these variable ids; their values on the card are only playtest samples. Change which variables are on which side only when the creator asks (write schema.game.inputs / outputs).`);
+  } else if ((world as { spiretalk?: unknown }).spiretalk) {
+    parts.push(`
+GAME INTERFACE — this is a SpireTalk card (Slay the Spire 2 mod, schema.spiretalk): the mod injects the run's state into its variables every turn and reads affection_delta, choices and action back. Never rename or delete existing variable ids.`);
+  }
+  const customAis = worldbooks.filter((b) => b.station?.kind === "custom");
+  const customBehaviors = (world.reactions ?? []).filter((r) => r.custom);
+  if (customAis.length > 0 || customBehaviors.length > 0) {
+    parts.push(`\nCUSTOM SLOTS (自定义) — the creator declared these on the canvas for CODE to implement; its 📌 note (or a sticky note on it) says what it should do, and a custom AI's contract line says what it is called, handed and must answer — code to that shape. Implement a custom AI by calling api.ai.complete({ messages, context: "session", includeLorebook: "matched", worldbookIds: ["<module id>"] }) from the rootComponent (its entries become that call's lore), or — when the declared shape fits — turn it into a worker station (write_worldbook station { kind: "worker", trigger: { on: "ui" }, output... }) and call api.callAi("<name>"). Implement a custom behaviour by giving it \`code\` (write_behavior; ctx.get/set/add/push/toast/say/callAi) or by firing it from the interface with api.executeAction("<behavior id>"). Read the note first; keep the slot (do not change its kind) unless the creator says otherwise.`);
+  }
   if (worldbooks.length > 0) {
-    parts.push(`\nWORLDBOOKS (${worldbooks.length}) — entries with no book = always-on Core:`);
+    parts.push(`\nMODULES / WORLDBOOKS (${worldbooks.length}) — members with no book = always-on Core; an inactive module gates its entries AND variables AND behaviors:`);
     for (const wb of [...worldbooks].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))) {
       const act = wb.activation;
       let actStr: string;
@@ -301,9 +343,83 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
       } else {
         actStr = act.mode; // always | manual
       }
-      const memberCount = world.entries.filter((e) => e.worldbookId === wb.id).length;
+      const entryCount = world.entries.filter((e) => e.worldbookId === wb.id).length;
+      const varCount = world.variables.filter((v) => v.worldbookId === wb.id).length;
+      const behCount = (world.reactions ?? []).filter((r) => r.worldbookId === wb.id).length;
+      const members = [`${entryCount} entr${entryCount === 1 ? "y" : "ies"}`];
+      if (varCount > 0) members.push(`${varCount} var${varCount === 1 ? "" : "s"}`);
+      if (behCount > 0) members.push(`${behCount} behavior${behCount === 1 ? "" : "s"}`);
       const off = wb.enabled === false ? " DISABLED" : "";
-      parts.push(`  ${wb.id}: "${wb.name}" — activation=${actStr}; ${memberCount} entr${memberCount === 1 ? "y" : "ies"}${off}`);
+      const st = resolveStation(wb);
+      const impl = wb.station?.kind === "custom" ? implementsAi(wb.id) : [];
+      const run = wb.station?.kind === "custom"
+        ? ` [CUSTOM AI (自定义): a slot for code to implement — ${impl.length ? `implemented by ${impl.join(", ")}` : "NOT IMPLEMENTED YET; see CUSTOM SLOTS above"}]`
+        : !st
+        ? ""
+        : st.kind === "worker"
+          ? " [WORKER station: background AI, never speaks to the player; its output is context for others]"
+          : ` [NARRATOR station: its own AI answers the player while active${st.onClose === "archive" ? "; on deactivation its span folds into a summary (副本)" : ""}${st.memoryPool ? `; memory pool "${st.memoryPool}" — remembers only the runs of modules in that pool` : ""}]`;
+      parts.push(`  ${wb.id}: "${wb.name}" — activation=${actStr}; ${members.join(", ")}${off}${run}`);
+      // A custom AI is a declared interface: what it is called, what it is
+      // handed and what it answers. The one implementing it codes to that.
+      if (wb.station?.kind === "custom") {
+        const fields = (wb.station.output ?? []).map((f) => `${f.name}: ${f.type === "choice" && f.options?.length ? f.options.map((o) => JSON.stringify(o)).join(" | ") : f.type}${f.hint ? ` (${f.hint})` : ""}`);
+        parts.push(`    contract: api.callAi(${JSON.stringify(wb.station.name?.trim() || wb.name)}, input)${wb.station.takes?.trim() ? ` — input: ${wb.station.takes.trim().replace(/\n/g, " / ")}` : ""} → ${fields.length ? `{ ${fields.join(", ")} }` : "text"}`);
+      }
+      // The sticky note is the creator's own statement of what this module IS
+      // and what they intend for it — read it before touching the module, and
+      // keep it current via write_worldbook { note } when intent changes.
+      if (wb.note) {
+        const noteText = wb.note.length > 300 ? wb.note.slice(0, 300) + "… (full via read_entities)" : wb.note;
+        parts.push(`    📌 note: ${noteText.replace(/\n/g, " / ")}`);
+      }
+      if (wb.description) {
+        const desc = wb.description.length > 160 ? wb.description.slice(0, 160) + "..." : wb.description;
+        parts.push(`    description: ${desc.replace(/\n/g, " ")}`);
+      }
+      if (wb.frontendFile) parts.push(`    frontend scene: ${wb.frontendFile}`);
+      if (st) {
+        if (st.model) parts.push(`    model: ${st.model}`);
+        // Read by background AIs only; a narrator uses the player's own.
+        if (st.kind !== "narrator" && (wb.station?.temperature != null || wb.station?.maxTokens != null)) {
+          parts.push(`    sampling: ${[wb.station?.temperature != null ? `temp=${wb.station.temperature}` : "", wb.station?.maxTokens != null ? `maxTokens=${wb.station.maxTokens}` : ""].filter(Boolean).join(", ")}`);
+        }
+        if (st.inputs.length > 0) {
+          const wires = st.inputs
+            .map((i) => `${i.kind}<-${i.from}(${i.as ?? "history"}${"limit" in i && i.limit ? `, ${i.limit}` : ""})`)
+            .join(", ");
+          parts.push(`    context in: ${wires}`);
+        }
+        if (st.kind === "worker") {
+          const trig = st.trigger
+            ? st.trigger.on === "module-closed"
+              ? `when ${st.trigger.from} closes`
+              : st.trigger.on === "turns"
+                ? `every ${st.trigger.every} turns`
+                : st.trigger.on === "after"
+                  ? `right after ${st.trigger.from}'s AI answers the player`
+                : st.trigger.on === "quiet"
+                  ? `after ${st.trigger.seconds}s with nothing happening — speaks into the story itself`
+                  : "on conditions"
+            : "NEVER (no trigger set — this worker will not run)";
+          parts.push(`    runs: ${trig}`);
+          parts.push(`    task: ${st.task ? st.task.slice(0, 200) : "NONE SET — this worker will not run"}`);
+        }
+        if (st.archivePrompt) parts.push(`    archive instruction: ${st.archivePrompt.slice(0, 160)}`);
+      }
+    }
+  }
+
+  // Sticky notes — the creator's notes on the canvas, loose or stuck to one
+  // part of the card. They are about the card's DESIGN (never play content):
+  // what a part is for, what hand-written code expects, what to do next. Read
+  // them as the creator's own instructions about the part they are on.
+  const canvasNotes = stickyNotes(world);
+  if (canvasNotes.length > 0) {
+    parts.push(`\nCANVAS NOTES (${canvasNotes.length}) — the creator's sticky notes on the canvas; one stuck to a part is about that part (treat it as the creator's instruction or explanation for it):`);
+    for (const n of canvasNotes) {
+      const text = n.text.length > 600 ? n.text.slice(0, 600) + "..." : n.text;
+      parts.push(`  - ${n.on ? `[on ${n.on}] ` : ""}${text.replace(/\n/g, " / ")}`);
     }
   }
 
@@ -342,7 +458,8 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
         ? ` precise${v.type === "number" ? `(−${v.deltaDown ?? 0}/+${v.deltaUp ?? 0} per turn)` : ""}`
         : "";
       const options = v.type === "string" && v.options?.length ? ` options=[${v.options.join(", ")}]` : "";
-      parts.push(`  ${v.id}: "${v.name}" (${v.type}${scope}, default: ${JSON.stringify(v.defaultValue)})${range}${precise}${options}${desc}${rules}`);
+      const book = v.worldbookId ? ` book=${v.worldbookId}` : "";
+      parts.push(`  ${v.id}: "${v.name}" (${v.type}${scope}, default: ${JSON.stringify(v.defaultValue)})${book}${range}${precise}${options}${desc}${rules}`);
     }
   }
 
@@ -352,7 +469,16 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
     parts.push(`\nBEHAVIORS (${reactions.length}):`);
     for (const r of reactions) {
       const flags = !r.enabled ? " DISABLED" : "";
-      parts.push(`  ${r.id}: "${r.name}" [${r.when.eventType}] priority=${r.priority}${flags}`);
+      const book = r.worldbookId ? ` book=${r.worldbookId}` : "";
+      let custom = "";
+      if (r.custom) {
+        const by = [
+          ...(r.code?.trim() ? [`its own code (${r.code.split("\n").length} lines)`] : []),
+          ...firesBehavior(r.id).map((at) => `interface code at ${at} (api.executeAction)`),
+        ];
+        custom = ` [CUSTOM (自定义): a slot for code to implement — ${by.length ? `implemented by ${by.join(", ")}` : "NOT IMPLEMENTED YET; see CUSTOM SLOTS above"}]`;
+      }
+      parts.push(`  ${r.id}: "${r.name}" [${r.when.eventType}] priority=${r.priority}${book}${flags}${custom}`);
     }
   }
 
@@ -370,6 +496,7 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
     // Worlds with rootComponent: show it as the rendered app component
     const rc = world.rootComponent;
     const fileNames = Object.keys(rc.files);
+    const owned = uiDocOwnedFiles(world);
     parts.push(`\nROOT COMPONENT:`);
     parts.push(`  ${rc.id}: "${rc.name}" entry=${rc.entryFile}`);
     // List each file with its size — agent uses filenames as IDs for read_entities and
@@ -377,15 +504,54 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
     for (const fn of fileNames) {
       const code = rc.files[fn] ?? "";
       const kb = Math.max(1, Math.round(code.length / 1024));
-      const entryMark = fn === rc.entryFile ? " (entry)" : "";
+      const entryMark = (fn === rc.entryFile ? " (entry)" : "") + (owned.has(fn) ? " (compiled from the interface document — never edit; use edit_ui_doc)" : "");
       const bigMark = code.length > UI_PRELOAD_MAX_FILE_CHARS
         ? " — large; read on demand with grep_world / read_entities(offset_lines)"
         : "";
-      parts.push(`    file: "${fn}" [${kb}KB]${entryMark}${bigMark}`);
+      // What the file DOES, so the agent can find the logic without reading
+      // 600KB of TSX: variables it reads/writes, AI calls, platform APIs.
+      const facts = frontendFileFacts(fn, code);
+      const doing = [
+        facts.reads.length ? `reads=[${facts.reads.join(",")}]` : "",
+        facts.writes.length ? `writes=[${facts.writes.join(",")}]` : "",
+        facts.aiCalls.length ? `ai-calls=${facts.aiCalls.length}(${facts.aiCalls.map((c) => c.kind + (c.worldbookIds.length ? ":" + c.worldbookIds.join("|") : c.worldbookIdPrefixes.length ? ":" + c.worldbookIdPrefixes.join("|") + "*" : "")).join(",")})` : "",
+        facts.uses.filter((u) => u !== "ai").length ? `uses=[${facts.uses.filter((u) => u !== "ai").join(",")}]` : "",
+      ].filter(Boolean).join(" ");
+      parts.push(`    file: "${fn}" [${kb}KB]${entryMark}${bigMark}${doing ? " · " + doing : ""}`);
     }
+  }
+  // The no-code interface document. One line per page keeps the inventory
+  // cheap; read_ui_doc gives the parts.
+  if (world.uiDoc) {
+    const doc = world.uiDoc;
+    const pages = doc.pages.map((p) => `${p.id} "${p.name}" (${p.elements.length} parts)`).join(", ");
+    parts.push(`\n界面文档 uiDoc (visual editor — change it with edit_ui_doc after load_skill "ui-doc"; read_ui_doc for parts): entry=${doc.entryPageId}; pages: ${pages}${doc.base ? `; base layer ${doc.base.file}` : ""}${doc.surface ? "; over platform chat" : ""}`);
   }
   // Every migrated world has rootComponent — the customUI[]-only branch that
   // used to live here was removed in the v1→v2 unification.
+
+  // Style knobs of a decomposed base frontend. Listing id + kind + CURRENT
+  // value is what makes set_ui_knobs usable in one shot — the agent restyles
+  // without reading a line of the base code (and must not edit that code for
+  // anything a knob already covers).
+  const knobGroups = world.uiDoc?.base?.groups ?? [];
+  if (knobGroups.length > 0) {
+    const total = knobGroups.reduce((n, g) => n + g.knobs.length, 0);
+    parts.push(`\n界面旋钮 (decomposed base styles — edit via set_ui_knobs, ${total} knobs):`);
+    for (const g of knobGroups) {
+      parts.push(`  [${g.label}]`);
+      for (const k of g.knobs) {
+        const unit = k.unit ? ` ${k.unit}` : "";
+        parts.push(`    ${k.id} (${k.kind}) = ${JSON.stringify(k.value)}${unit} — ${k.label}`);
+      }
+    }
+  } else if (world.uiDoc?.base || (world.rootComponent && world.rootComponent.generatedFrom !== "uiDoc")) {
+    // A hand-written frontend with no knobs yet. Naming the path here is what
+    // lets "把前端拆成积木" work in one turn instead of a tool-name guessing game.
+    parts.push(
+      `\n界面旋钮: none yet — this card's hand-written frontend has NOT been decomposed. To make it visually editable (拆积木): rewrite its visual constants to K["…"] via edit_custom_ui and install groups with write_ui_knob_groups, all in ONE reply (see the front-ui skill).`,
+    );
+  }
 
   // Audio tracks
   if (world.audioTracks.length > 0) {
@@ -407,6 +573,15 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
     }
   }
 
+  // Scene images — what the gameplay AI can show mid-story
+  if ((world.sceneImages ?? []).length > 0) {
+    parts.push(`\nSCENE IMAGES (${world.sceneImages!.length}) — the AI shows one with [image: id] when the story matches its scene:`);
+    for (const img of world.sceneImages!) {
+      parts.push(`  ${img.id}: "${img.name}" — ${img.scene || "(no scene text yet)"}${img.url ? "" : " [no picture yet]"}${img.allowAiControl === false ? " [manual only]" : ""}`);
+    }
+  }
+
+
   // Assets (user uploads)
   if (assets.length > 0) {
     parts.push(`\nASSETS (${assets.length}):`);
@@ -419,8 +594,16 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
   const s = world.settings;
   if (s) {
     const settingParts: string[] = [];
-    if (s.maxTokens) settingParts.push(`maxTokens=${s.maxTokens}`);
-    if (s.temperature != null) settingParts.push(`temp=${s.temperature}`);
+    // The story AI follows the player's sampling unless samplingPolicy is
+    // "author"; the card's temp is stored either way, so say which applies.
+    if (s.samplingPolicy === "author") {
+      const sampled = (["temperature", "topP", "topK", "minP", "frequencyPenalty", "presencePenalty"] as const)
+        .filter((k) => s[k] != null).map((k) => `${k === "temperature" ? "temp" : k}=${s[k]}`);
+      settingParts.push(`sampling=author${sampled.length ? ` (${sampled.join(", ")})` : ""}`);
+    } else {
+      settingParts.push(`sampling=player (card temp/topP/… inactive)`);
+    }
+    if (s.recommendedModel) settingParts.push(`recommendedModel=${s.recommendedModel}`);
     if (s.playerName) settingParts.push(`playerName="${s.playerName}"`);
     if (s.narratorVoice) settingParts.push(`narratorVoice=${s.narratorVoice}`);
     if (s.voiceInputMode) settingParts.push(`voiceInputMode=${s.voiceInputMode}`);
@@ -449,6 +632,28 @@ function buildInventory(world: WorldDefinition, assets: AssetSummary[]): string 
 // can't bloat every agent iteration to ~200K tokens. Tunable.
 const UI_PRELOAD_MAX_FILE_CHARS = 32 * 1024;
 
+/** The card's interface files worth carrying in a prompt: not too large, and
+ *  not ones compiled from the interface document (output, not source). */
+function preloadableUIFiles(world: WorldDefinition): CustomUIComponent[] {
+  const rc = world.rootComponent;
+  if (!rc) return [];
+  const owned = uiDocOwnedFiles(world);
+  return Object.entries(rc.files)
+    .filter(([filename, code]) => code.length <= UI_PRELOAD_MAX_FILE_CHARS && !owned.has(filename))
+    .map(([filename, code], i) => ({
+      id: filename,
+      name: `${rc.name} / ${filename}`,
+      // Required by the legacy type; meaningless in v2.
+      surface: "app" as const,
+      language: "tsx" as const,
+      tsxCode: code,
+      description: filename === rc.entryFile ? "entry file" : "sub-file",
+      order: i,
+      visible: true,
+      updatedAt: rc.updatedAt,
+    }));
+}
+
 // ── Layer 2: Pre-loaded Full Content ──
 
 function buildPreloadedContent(
@@ -474,8 +679,9 @@ function buildPreloadedContent(
       if (e.alwaysSend) parts.push(`  alwaysSend: true`);
       const entryKw = toStringArray(e.keywords);
       if (entryKw.length > 0) parts.push(`  keywords: [${entryKw.join(", ")}]`);
-      if (e.conditions.length > 0) {
-        parts.push(`  conditions (${e.conditionLogic}): ${e.conditions.map((c) => `${c.variableId} ${c.operator} ${c.value}`).join("; ")}`);
+      const conditions = e.conditions ?? [];
+      if (conditions.length > 0) {
+        parts.push(`  conditions (${e.conditionLogic}): ${conditions.map((c) => `${c.variableId} ${c.operator} ${c.value}`).join("; ")}`);
       }
       const entryTags = toStringArray(e.tags);
       if (entryTags.length) parts.push(`  tags: [${entryTags.join(", ")}]`);
@@ -556,6 +762,63 @@ interface AssetSummary {
   type: string;
 }
 
+// ── Creator focus ──
+
+/** The canvas ids the creator pointed at, resolved to what they contain.
+ *  `entry:` / `greeting:` → that entry; `reaction:` / `rule:` → that rule;
+ *  whole blocks → everything of their kind. Variables are already in full in
+ *  the inventory, so pointing at one only names it. */
+export function resolveFocusSelection(world: WorldDefinition, ids: readonly string[]) {
+  const entries: WorldEntry[] = [];
+  const behaviors: Reaction[] = [];
+  const rules: Rule[] = [];
+  let wantUI = false;
+  const labels: string[] = [];
+  const addEntry = (e: WorldEntry | undefined) => { if (e && !entries.includes(e)) entries.push(e); };
+  const reactions = world.reactions ?? [];
+  for (const id of ids) {
+    const sep = id.indexOf(":");
+    const prefix = sep < 0 ? id : id.slice(0, sep);
+    const raw = sep < 0 ? "" : id.slice(sep + 1);
+    if (prefix === "entry" || prefix === "greeting") {
+      const e = world.entries.find((x) => x.id === raw);
+      addEntry(e);
+      if (e) labels.push(`${e.role === "greeting" ? "opening" : "entry"} "${e.name || e.id}" (${e.id})`);
+    } else if (prefix === "var" || prefix === "variable") {
+      const v = world.variables.find((x) => x.id === raw);
+      if (v) labels.push(`variable "${v.name || v.id}" (${v.id})`);
+    } else if (prefix === "reaction") {
+      const b = reactions.find((x) => x.id === raw);
+      if (b) { behaviors.push(b); labels.push(`behavior "${b.name || b.id}" (${b.id})`); }
+    } else if (prefix === "rule") {
+      const r = world.rules.find((x) => x.id === raw);
+      if (r) { rules.push(r); labels.push(`rule "${r.name || r.id}" (${r.id})`); }
+    } else if (prefix === "block") {
+      if (/opening/.test(raw)) {
+        world.entries.filter((e) => e.role === "greeting").forEach(addEntry);
+        labels.push("the openings block (every opening)");
+      } else if (/setting|lore/.test(raw)) {
+        world.entries.filter((e) => e.role !== "greeting" && e.section !== "system-presets").forEach(addEntry);
+        labels.push("the settings block (every lore entry)");
+      } else if (/^state/.test(raw)) {
+        labels.push("the variables block (every variable, listed in the inventory)");
+      } else if (/^behavior/.test(raw)) {
+        behaviors.push(...reactions);
+        rules.push(...world.rules);
+        labels.push("the behaviors block (every behavior)");
+      } else if (/^frontend/.test(raw)) {
+        wantUI = true;
+        labels.push("the player interface (its code)");
+      } else {
+        labels.push(`block ${raw}`);
+      }
+    } else if (prefix === "world") {
+      labels.push("the card itself (cover, description, settings)");
+    }
+  }
+  return { entries, behaviors, rules, wantUI, labels };
+}
+
 // ── Main Resolver ──
 
 /**
@@ -582,6 +845,9 @@ export async function resolveContext(
     selectedEntityId?: string;
     /** Active editor panel — triggers panel-aware preloading */
     activePanel?: string;
+    /** Canvas ids the creator pointed at. When set, only these are preloaded
+     *  in full: no keyword guessing, no always-on presets, no unrelated code. */
+    focusIds?: readonly string[];
   },
 ): Promise<ResolvedContext> {
   const contextWindow = options.contextWindow ?? 120_000;
@@ -600,6 +866,35 @@ export async function resolveContext(
   // Build Layer 1: rich inventory (always loaded)
   const inventory = buildInventory(world, []) + assetInventory;
   let tokenEstimate = estimateTokens(inventory);
+
+  if (options.focusIds && options.focusIds.length > 0) {
+    const focus = resolveFocusSelection(world, options.focusIds);
+    if (focus.labels.length > 0) {
+      const ui = focus.wantUI ? preloadableUIFiles(world) : [];
+      let preloaded = buildPreloadedContent(world, focus.entries, focus.behaviors, focus.rules, ui);
+      let truncated = false;
+      let truncationDetail: string | undefined;
+      // Whatever does not fit is still one read_entities away.
+      if (tokenEstimate + estimateTokens(preloaded) > contextBudget) {
+        truncated = true;
+        truncationDetail = "The selection is larger than fits; part of it was not preloaded";
+        const kept = [...focus.entries];
+        while (kept.length > 0 && tokenEstimate + estimateTokens(preloaded) > contextBudget) {
+          kept.pop();
+          preloaded = buildPreloadedContent(world, kept, focus.behaviors, focus.rules, []);
+        }
+      }
+      return {
+        inventory,
+        preloadedEntities: preloaded,
+        tokenEstimate: tokenEstimate + estimateTokens(preloaded),
+        truncated,
+        truncationDetail,
+        lorebookHealth: computeLorebookHealth(world),
+        focus: { labels: focus.labels },
+      };
+    }
+  }
 
   // Extract keywords from user request
   const keywords = extractKeywords(request);
@@ -682,25 +977,7 @@ export async function resolveContext(
   // the inventory lists them with size + a read hint, and the agent pulls the exact slice it
   // needs on demand via grep_world / read_entities(offset_lines). Keeps each step small
   // instead of re-sending ~200K tokens every iteration.
-  let matchedUI: CustomUIComponent[] = [];
-  if (isUIRequest && world.rootComponent) {
-    const rc = world.rootComponent;
-    // The `surface` field is required by the legacy type but has no meaning in v2 —
-    // stamp "app" purely so this compiles against the legacy type shape.
-    matchedUI = Object.entries(rc.files)
-      .filter(([, code]) => code.length <= UI_PRELOAD_MAX_FILE_CHARS)
-      .map(([filename, code], i) => ({
-        id: filename,
-        name: `${rc.name} / ${filename}`,
-        surface: "app" as const,
-        language: "tsx" as const,
-        tsxCode: code,
-        description: filename === rc.entryFile ? "entry file" : "sub-file",
-        order: i,
-        visible: true,
-        updatedAt: rc.updatedAt,
-      }));
-  }
+  const matchedUI: CustomUIComponent[] = isUIRequest ? preloadableUIFiles(world) : [];
 
   // Build Layer 2: pre-loaded content
   let preloadedContent = buildPreloadedContent(

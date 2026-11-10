@@ -4,11 +4,12 @@ import { act, createElement, Fragment, type ComponentType, type ReactNode } from
 import { clientDom, loadClientModule } from "@/lib/feed-beacon.test-helpers";
 import * as cropping from "@/lib/cover-crop";
 import type { CoverCropSettings } from "@/lib/cover-crop";
+import { isMotionCoverRef } from "@/lib/asset-url";
 
 const legacy: CoverCropSettings = { x: 0, y: -16, zoom: 0.75, fit: "cover" };
 type Saved = { activeMode: string; coverCrop?: CoverCropSettings; landscapeCoverCrop?: CoverCropSettings };
 
-async function mount(initialMode: "cover" | "gallery") {
+async function mount(initialMode: "cover" | "gallery", src = "/portrait.jpg") {
   const env = clientDom();
   env.dom.window.scrollTo = () => {};
   const passthrough = ({ children }: { children?: ReactNode }) => createElement(Fragment, null, children);
@@ -19,14 +20,14 @@ async function mount(initialMode: "cover" | "gallery") {
     "react-image-crop/dist/ReactCrop.css": {},
     "@/lib/cover-crop": cropping,
     "@/lib/discover-world-artwork": { DISCOVER_COVER_ASPECTS: { cover: 2 / 3, gallery: 16 / 9 } },
-    "@/lib/asset-url": { resolveImageUrl: (src: string) => src },
+    "@/lib/asset-url": { resolveImageUrl: (src: string) => src, isMotionCoverRef },
     "@/components/world-cover-previews": { WorldCoverPreviews: () => null },
   });
   const { createRoot } = await import("react-dom/client");
   const root = createRoot(env.dom.window.document.getElementById("root")!);
   const saves: Saved[] = [];
   await act(async () => root.render(createElement(CoverCropDialog, {
-    src: "/portrait.jpg", landscapeSrc: "/portrait.jpg", initialMode,
+    src, landscapeSrc: "/portrait.jpg", initialMode,
     fallbackLandscapeCrop: legacy, onCancel() {}, onSave: (value: Saved) => saves.push(value),
   })));
   const image = env.dom.window.document.querySelector("img")!;
@@ -34,6 +35,7 @@ async function mount(initialMode: "cover" | "gallery") {
   await act(async () => image.dispatchEvent(new env.dom.window.Event("load")));
   return {
     saves,
+    video: () => env.dom.window.document.querySelector("video"),
     zoom: () => env.dom.window.document.querySelector<HTMLInputElement>("input[type=range]")!.value,
     click: async (key: string) => {
       const button = [...env.dom.window.document.querySelectorAll("button")].find(node => node.textContent === key)!;
@@ -43,6 +45,23 @@ async function mount(initialMode: "cover" | "gallery") {
     cleanup: async () => { await act(async () => root.unmount()); env.restore(); },
   };
 }
+
+test("managed motion starts paused, plays on request, and stops on pause or source change", async () => {
+  const src = `/cdn/key/${Buffer.from("worlds/one/thumbnail/cover.motion.anim.image").toString("base64url")}`;
+  const app = await mount("cover", src);
+  try {
+    assert.equal(app.video(), null);
+    await app.click("motion.play");
+    assert.equal(new URL(app.video()!.src).pathname, `${src}/cover-preview.mp4`);
+    assert.equal(app.video()!.muted, true);
+    assert.equal(app.video()!.loop, true);
+    await app.click("motion.pause");
+    assert.equal(app.video(), null);
+    await app.click("motion.play");
+    await app.click("extra.crop.desktop");
+    assert.equal(app.video(), null, "switching to a still source removes the clip");
+  } finally { await app.cleanup(); }
+});
 
 test("legacy wide framing opens unchanged and becomes confirmed when the wide crop is saved", async () => {
   const app = await mount("gallery");

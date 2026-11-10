@@ -41,3 +41,12 @@ test("scroll controls respect reduced motion without changing their destination"
   scrollPageTo(scroller, 250);
   assert.deepEqual(calls, [{ top: 250, left: 0, behavior: "auto" }]);
 });
+
+test("a results jump reserves space for the hidden mobile header when it returns", (t) => {
+  const { win, scroller, target } = fixture(t);
+  win.document.documentElement.setAttribute("data-mobile-page-scroll", "hub-main");
+  const header = win.document.querySelector<HTMLElement>("header")!;
+  header.getBoundingClientRect = () => ({ bottom: -1 }) as DOMRect;
+  Object.defineProperty(header, "offsetHeight", { value: 126 });
+  assert.equal(getPageTargetTop(scroller, target), 1054);
+});

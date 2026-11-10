@@ -1,0 +1,1659 @@
+import { composeVoiceInstructions, voiceStartContextError, formatVoiceSceneReaction, isVoiceSceneReaction, isVoiceToolAllowlist, type VoiceAPI, type VoiceEvent, type VoicePose, type VoiceToolName } from "../../../sandbox/voice-types";
+import type { AvatarAudio, AvatarAudioOptions, AvatarConnection } from "./avatar-voice-audio";
+import { VoiceActivityWindow, VoiceQuietWindow, INPUT_SETTLEMENT_TIMEOUT_MS, INPUT_REFERENCE_WAIT_MS, OUTPUT_ECHO_TAIL_MS, meaningfulVoiceText, overlapsVoiceReference } from "./voice-interruption";
+import { policeSceneAuthority, workSceneAuthority, voiceSceneAuthority } from "./voice-scene-notice";
+import { LiveVoiceSession } from "./live-voice-session";
+import { LiveVoiceContext } from './live-voice-context';
+import type { VoiceInputEvidence } from './voice-input-monitor';
+import { TranscriptFallback } from './voice-transcript-fallback';
+import { copyVoiceContext, isVoiceContext, voiceContextText, type VoiceContext } from '../../../sandbox/voice-context';
+import { isVoiceAttempt, isVoiceCapability, sameVoiceAttempt, type VoiceAttempt, type VoiceCapability, type VoiceFinishResult } from '../../../sandbox/voice-types';
+import { BalanceVoiceClient, validBalanceRecipe } from './voice-balance-client';
+import type { BalanceAudio } from './voice-pcm-playback';
+
+export interface VoiceConfig { turnControl?: "client-v1" | 'server-v1'; liveModel?: "gpt-live-1"; available: boolean; funding: "byok" | "testing" | "first-morning" | "private-pilot" | "credits-live" | 'balance' | null; maxDurationSeconds: number; creditsPerMinute?: number; avatarAvailable?: boolean; avatarRequested?: boolean; transport?: 'server-ws-v1'; finishAcknowledged?: boolean; reservationCredits?: number }
+
+export interface VoiceAudio {
+  /** Bounded output unlock acknowledgement; optional for injected legacy adapters. */
+  ready?(timeoutMs?: number): Promise<void>;
+  /** Live transport without an avatar: output gating from the session (live.output, live.hold, live.interrupt). */
+  handleClientEvent?(event: Record<string, unknown>): void;
+  attachInput(stream: MediaStream): void | Promise<void>;
+  /** Live-only transport clock, owned and stopped by this adapter; never the captured track. */
+  prepareLiveInput?(options?: { holdFloor?: boolean }): Promise<MediaStream>;
+  inputEvidence?(): Promise<VoiceInputEvidence>;
+  /** Live with holdFloor: the last seconds of raw microphone audio (the transcript fallback). */
+  inputTail?(seconds: number): Promise<{ samples: Float32Array; sampleRate: number } | null>;
+  attach(stream: MediaStream): void | Promise<void>;
+  setMuted(muted: boolean): void;
+  setSpatial(pose: VoicePose): void;
+  close(): void;
+}
+
+export type VoicePreparationScope = Omit<VoiceAttempt, 'cardAttemptId'>;
+function validPreparationScope(value: unknown): value is VoicePreparationScope {
+  return record(value) && isVoiceAttempt({ ...value, cardAttemptId: 'prepared' });
+}
+function samePreparationScope(a: VoicePreparationScope, b: VoicePreparationScope): boolean {
+  return a.sessionId === b.sessionId && a.worldId === b.worldId && a.journeyId === b.journeyId && a.journeyEpoch === b.journeyEpoch;
+}
+
+export interface VoiceDependencies {
+  /** Monotonic milliseconds; injectable for deterministic activity/deadline tests. */
+  now?(): number;
+  sessionId: string;
+  canUse(): boolean;
+  canRecover?(): boolean;
+  currentAttempt?(): VoiceAttempt | null;
+  /** Acknowledged host namespace, including before the first saved attempt. */
+  currentPreparationScope?(): VoicePreparationScope | null;
+  /** Active preparation binding; retained inactive receipt IDs still use currentAttempt. */
+  currentPreparationAttempt?(): VoiceAttempt | null;
+  createBalanceAudio?(output: (n: number) => void, input: (n: number) => void): BalanceAudio;
+  createSocket?(url: string): WebSocket;
+  /** Host-owned activation, never a world-supplied boolean. */
+  hasUserActivation?(): boolean;
+  intentTimeoutMs?: number;
+  /** prepareAudio must run in the host's affirmative click to unlock Web Audio. */
+  requestConsent(signal: AbortSignal, prepareAudio: () => void, config: VoiceConfig): Promise<boolean>;
+  getUserMedia(): Promise<MediaStream>;
+  createPeer(): RTCPeerConnection;
+  createAudio(onLevel: (value: number) => void, onInputLevel: (value: number) => void): VoiceAudio;
+  createAvatarAudio?(onLevel: (value: number) => void, onInputLevel: (value: number) => void, options: AvatarAudioOptions): AvatarAudio;
+  fetch: typeof fetch;
+  apiBase?: string;
+  connectTimeoutMs?: number;
+  maxDurationMs?: number;
+  avatarHeartbeatMs?: number;
+}
+
+type InputTurn = {
+  id: string; sequence: number; epoch: number; speaking: boolean; stopped: boolean;
+  committed: boolean; asr: "pending" | "completed" | "failed"; meaningful: boolean;
+  confirmed: boolean; sustained: boolean; eligible: boolean; expired: boolean;
+  included: boolean; reply: boolean; interrupted: boolean;
+  targetRequest: string | null; targetResponse: string | null;
+  activity: VoiceActivityWindow; stoppedAt?: number; timer?: ReturnType<typeof setTimeout>;
+  decision: "pending" | "accepted" | "discarding" | "discarded";
+  references: Set<string>; intentional: boolean; protected: boolean; quiet: VoiceQuietWindow;
+  finalText?: string; referenceTimer?: ReturnType<typeof setTimeout>;
+  retirementTimer?: ReturnType<typeof setTimeout>; deleteSent?: boolean;
+};
+
+type Run = {
+  attempt?: VoiceAttempt;
+  preparationScope?: VoicePreparationScope;
+  balanceFunding?: boolean;
+  balance?: BalanceVoiceClient;
+  balanceAudio?: BalanceAudio;
+  live?: LiveVoiceSession;
+  /** The live session's one entry start has run (it is skipped while output is muted). */
+  liveStarted?: boolean;
+  preflightContext?: LiveVoiceContext;
+  closing?: boolean;
+  intent?: string;
+  interruptionMode: "automatic" | "manual";
+  /** The character's sentence holds the floor: the microphone reaches the model after it ends. */
+  holdFloor?: boolean;
+  /** The second ear for words the live model never transcribes (holdFloor only). */
+  fallback?: TranscriptFallback;
+  /** Last raw microphone speech energy (before any floor hold). */
+  userVoiceAt?: number;
+  opening: 'character' | 'silent';
+  abort: AbortController;
+  promise: Promise<{ status: "connected" }>;
+  timer?: ReturnType<typeof setTimeout>;
+  expiresAt?: number;
+  expiryTimer?: ReturnType<typeof setTimeout>;
+  warningTimer?: ReturnType<typeof setTimeout>;
+  heartbeat?: ReturnType<typeof setTimeout>;
+  reconnectTimer?: ReturnType<typeof setTimeout>;
+  stream?: MediaStream;
+  peer?: RTCPeerConnection;
+  channel?: RTCDataChannel;
+  audio?: VoiceAudio | AvatarAudio;
+  avatar: boolean;
+  avatarStarting: boolean;
+  avatarPending: boolean;
+  ready: boolean;
+  voice?: "marin" | "cedar";
+  toolAllowlist?: VoiceToolName[];
+  worldReasoning?: boolean;
+  /** The card asked for the live model without an avatar (direct audio). */
+  liveRequested: boolean;
+  maxDurationMs?: number;
+  sponsored: boolean;
+  creditsLive?: boolean;
+  creditsBeat?: ReturnType<typeof setInterval>;
+  privatePilot?: boolean;
+  connectionId: string;
+  connecting: boolean;
+  playback: boolean;
+  instructions: string;
+  pendingInstructions: string | null;
+  context: VoiceContext;
+  captions: Map<string, { text: string; final: boolean }>;
+  eventIds: Set<string>;
+  tools: Map<string, boolean>;
+  interrupting: boolean;
+  responseActive: boolean;
+  responseRequested: boolean;
+  responseRequestId: string | null;
+  responseSequence: number;
+  responseOverlap: { id: string; retired: boolean } | null;
+  responseRetryPending: boolean;
+  responseRetryUsed: boolean;
+  responseId: string | null;
+  cancelledResponses: Set<string>;
+  cancelledRequest: boolean;
+  interruptedResponse: boolean;
+  interruptedInput: string | null;
+  pendingResponse: boolean;
+  pendingSceneResponse: boolean;
+  inputs: Map<string, InputTurn>;
+  speakingInput: string | null;
+  inputSequence: number;
+  audibilityEpoch: number;
+  outputReference: string | null;
+  outputTailUntil: number;
+  references: Map<string, Map<string, { text: string; final: boolean }>>;
+  inputClear: { intent: boolean; timer: ReturnType<typeof setTimeout> } | null;
+  takeFloor: boolean;
+  sceneIds: Set<string>;
+  sceneTimes: number[];
+  sceneItem: { id: string; acknowledged: boolean } | null;
+  sceneItems: Map<string, { id: string; acknowledged: boolean; active: boolean; followUp: boolean; bulletin: boolean; policeCurrent?: () => boolean; workCurrent?: () => boolean; current?: () => boolean }>;
+  cancellationIds: Set<string>;
+  cancellationSequence: number;
+};
+
+class VoiceFailure extends Error {}
+const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+const boundedString = (value: unknown, max: number): value is string => typeof value === "string" && value.length <= max;
+const identifier = (value: unknown): value is string => boundedString(value, 160) && /^[\w:-]+$/.test(value);
+const focus = (value: unknown) => value === "desk" || value === "door" || value === "bed";
+const stopTracks = (stream: MediaStream) => stream.getTracks().forEach(track => track.stop());
+
+function safeFailure(error: unknown): VoiceFailure {
+  if (error instanceof VoiceFailure) return error;
+  if (record(error) && error.name === "NotAllowedError") return new VoiceFailure("Microphone access is blocked. Allow it in this site's browser permissions. If it is already allowed, check your computer's microphone privacy settings, then try again.");
+  if (record(error) && error.name === "NotFoundError") return new VoiceFailure("No microphone was found. You can continue without voice.");
+  if (record(error) && error.name === "NotReadableError") return new VoiceFailure("The microphone could not open. Check your selected input device and whether another app is using it, then try again.");
+  return new VoiceFailure("Voice could not connect. You can continue without voice or try again.");
+}
+
+function serverFailure(code: unknown, funding?: unknown): VoiceFailure {
+  if (code === "UNAUTHORIZED") return new VoiceFailure("Sign in to use live voice.");
+  if (code === "VOICE_FORBIDDEN") return new VoiceFailure("Live voice is unavailable for this account.");
+  if (code === "VOICE_CONNECTION_PENDING") return new VoiceFailure(funding === "private-pilot"
+    ? "The previous private voice call is still closing. Continue in text and try again later."
+    : "A live voice call is already active. Stop it before starting another.");
+  if (funding === "private-pilot" && code === "VOICE_DAILY_LIMIT") return new VoiceFailure("This private voice test has used its two daily attempts. Try tomorrow or continue in text.");
+  if (funding === "private-pilot" && (code === "OPENAI_KEY_REQUIRED" || code === "OPENAI_KEY_REJECTED")) return new VoiceFailure("The private voice test is temporarily unavailable. Continue in text or try again later.");
+  if (code === "VOICE_DAILY_LIMIT") return new VoiceFailure("Sponsored testing voice has reached its daily limit. Try tomorrow or add your own OpenAI key in Settings.");
+  if (code === "VOICE_CREDITS_REQUIRED") return new VoiceFailure("You need more Mushies for live voice (about 60 a minute). Continue in text or add Mushies.");
+  if (code === "OPENAI_KEY_REQUIRED") return new VoiceFailure("Add your own OpenAI API key in Settings to use live voice.");
+  if (code === "VOICE_RATE_LIMITED" || code === "VOICE_PROVIDER_RATE_LIMITED") return new VoiceFailure("Please wait a minute before starting voice again.");
+  if (code === "OPENAI_KEY_REJECTED") return new VoiceFailure("OpenAI could not use your API key. Check your key and account in Settings.");
+  if (funding === "private-pilot") return new VoiceFailure("The private voice test could not connect. Continue in text or try again later.");
+  return new VoiceFailure("Voice could not connect. Check your OpenAI key and try again, or continue without voice.");
+}
+
+/** A single capture epoch. Every async continuation is fenced by its run identity. */
+export class VoiceController {
+  private balanceClient: BalanceVoiceClient | null = null;
+  private disposed = false;
+  private lifecycle = 0;
+  private run: Run | null = null;
+  private prepared: Run | null = null;
+  private muted = { input: false, output: false };
+  private pose: VoicePose = { x: 0, z: 0, yaw: 0, sourceX: 0, sourceZ: -1 };
+
+  constructor(private readonly emit: (event: VoiceEvent) => void, private readonly deps: VoiceDependencies) {}
+
+  async getConfig(): Promise<VoiceCapability> {
+    const lifecycle = this.lifecycle;
+    const unavailable: VoiceCapability = { available: false, funding: null, transport: null, maxDurationSeconds: 0, finishAcknowledged: false };
+    if (this.disposed || !this.deps.canUse() || !this.deps.sessionId) return unavailable;
+    try {
+      const response = await this.deps.fetch(`${this.deps.apiBase ?? ''}/api/voice/${encodeURIComponent(this.deps.sessionId)}/config`, { credentials: 'include', cache: 'no-store', signal: AbortSignal.timeout(10000) });
+      const value: unknown = await response.json();
+      if (this.disposed || lifecycle !== this.lifecycle || !this.deps.canUse() || !response.ok || !record(value)) return unavailable;
+      if (value.funding === 'balance') return isVoiceCapability(value) ? value : unavailable;
+      if (value.funding === 'credits-live') {
+        const seconds = value.maxDurationSeconds;
+        if (typeof value.available !== 'boolean' || typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 60 || seconds > 7200) return unavailable;
+        return { available: value.available, funding: 'credits-live', transport: 'webrtc-v1', maxDurationSeconds: seconds, finishAcknowledged: false, ...(typeof value.code === 'string' ? { code: value.code } : {}) };
+      }
+      if (!['byok','testing','first-morning','private-pilot',null].includes(value.funding as never) || typeof value.available !== 'boolean' || value.maxDurationSeconds !== 300) return unavailable;
+      return { available: value.available, funding: value.funding as 'byok' | 'testing' | 'first-morning' | 'private-pilot' | null, transport: 'webrtc-v1', maxDurationSeconds: 300, finishAcknowledged: false };
+    } catch { return unavailable; }
+  }
+  private newBalanceClient(connectionId: string = crypto.randomUUID()) {
+    const lifecycle = this.lifecycle;
+    const client = new BalanceVoiceClient({ sessionId: this.deps.sessionId, connectionId, fetch: this.deps.fetch, apiBase: this.deps.apiBase,
+      createSocket: url => this.deps.createSocket?.(url) ?? new WebSocket(url), now: this.deps.now,
+      current: () => !this.disposed && lifecycle === this.lifecycle && (this.deps.canRecover?.() ?? this.deps.canUse()),
+      currentAttempt: () => { const value = this.deps.currentAttempt?.(); return isVoiceAttempt(value) ? value : null; },
+      emit: event => {
+        if (this.disposed || lifecycle !== this.lifecycle || !(this.deps.canRecover?.() ?? this.deps.canUse())) return;
+        if (event.type === 'status' && (event.status === 'error' || event.status === 'stopped') && this.run?.balance === client) this.cleanup(this.run, new VoiceFailure('Voice stopped.'));
+        this.emit(event);
+      },
+    });
+    return client;
+  }
+  async recover(): Promise<void> {
+    if (this.balanceClient || !this.deps.currentAttempt?.()) return;
+    const config = await this.getConfig();
+    if (config.funding !== 'balance' || this.disposed || !this.deps.currentAttempt?.()) return;
+    this.balanceClient = this.newBalanceClient();
+    try { await this.balanceClient.recover(); } catch { /* No-call and unavailable are never finish evidence. Explicit finish may retry. */ }
+  }
+  async finish(): Promise<VoiceFinishResult> {
+    if (this.run && !this.run.balance && !this.run.balanceFunding) return { status: 'unsupported', reason: 'transport-lacks-durable-finish', providerState: 'unconfirmed', accounting: 'unknown' };
+    // Native consent/permission already owns a run, before its relay client
+    // exists. Cancel locally first; only atomic recovery can prove no call.
+    if (this.run?.balance || this.run?.balanceFunding) this.stop();
+    if (!this.balanceClient) {
+      const config = await this.getConfig();
+      if (config.funding !== 'balance' || !this.deps.currentAttempt?.()) return { status: 'unsupported', reason: config.funding === 'balance' ? 'no-scoped-relay-call' : 'transport-lacks-durable-finish', providerState: 'unconfirmed', accounting: 'unknown' };
+      this.balanceClient = this.newBalanceClient();
+    }
+    let result: VoiceFinishResult;
+    try { result = await this.balanceClient.finish(); }
+    catch {
+      if (!this.disposed && (this.deps.canRecover?.() ?? this.deps.canUse())) this.emit({ type: 'status', status: 'error', phase: 'cleanup', code: 'VOICE_BALANCE_RECOVERY' });
+      throw new VoiceFailure('Voice cleanup is unavailable. Retry cleanup or continue in text.');
+    }
+    if (!this.disposed && (this.deps.canRecover?.() ?? this.deps.canUse())) this.emit({ type: 'status', status: 'stopped', phase: 'cleanup', code: `VOICE_BALANCE_${result.status.toUpperCase()}` });
+    return result;
+  }
+  /** Host effect replay may reactivate an inert controller; no call is revived. */
+  activate(): void { this.disposed = false; }
+  resetAttempt(): void {
+    const attempt = this.deps.currentAttempt?.();
+    const currentRun = !!this.run?.attempt && !!attempt && sameVoiceAttempt(this.run.attempt, attempt);
+    const currentPrepared = !!this.prepared && this.preparedCurrent(this.prepared);
+    if (!currentRun && !currentPrepared) this.stop();
+    const retained = this.balanceClient?.boundAttempt;
+    if (this.balanceClient && retained && (!attempt || !sameVoiceAttempt(retained, attempt))) { this.balanceClient.dispose(); this.balanceClient = null; }
+    if (!currentRun) this.lifecycle++;
+  }
+  dispose(): void { this.stop(); this.disposed = true; this.lifecycle++; this.balanceClient?.dispose(); this.balanceClient = null; }
+
+  start(options: unknown): Promise<{ status: "connected" }> {
+    if (this.disposed || !this.deps.canUse() || !this.deps.sessionId) return this.rejectStart("Voice is unavailable in this view.");
+    if (!record(options) || !boundedString(options.instructions, 12_000) || !options.instructions.trim()) return this.rejectStart("Voice instructions must contain 1–12,000 characters.");
+    const contextError = voiceStartContextError(options.instructions, options.context);
+    if (contextError) return this.rejectStart(contextError);
+    if (options.voice !== undefined && options.voice !== "marin" && options.voice !== "cedar") return this.rejectStart("Choose the marin or cedar voice.");
+    if (options.avatar !== undefined && typeof options.avatar !== "boolean") return this.rejectStart("Invalid avatar video option.");
+    if (options.tools !== undefined && !isVoiceToolAllowlist(options.tools)) return this.rejectStart("Invalid voice tool allowlist.");
+    if (options.interruptionMode !== undefined && options.interruptionMode !== "automatic" && options.interruptionMode !== "manual") return this.rejectStart("Invalid voice interruption mode.");
+    if (options.reasoning !== undefined && options.reasoning !== 'world') return this.rejectStart('Invalid voice reasoning mode.');
+    if (options.opening !== undefined && options.opening !== 'character' && options.opening !== 'silent') return this.rejectStart('Invalid voice opening policy.');
+    if (options.transport !== undefined && options.transport !== "live" && options.transport !== "realtime") return this.rejectStart("Invalid voice transport.");
+    if (options.holdFloor !== undefined && typeof options.holdFloor !== "boolean") return this.rejectStart("Invalid voice floor option.");
+    if (this.run) return this.run.promise;
+    if (options.intent !== undefined && (typeof options.intent !== "string" || !this.prepared || this.prepared.intent !== options.intent || this.prepared.avatar !== (options.avatar === true))) {
+      return this.rejectStart("The microphone action expired. Click Start voice again.");
+    }
+    if (options.intent !== undefined && !this.preparedCurrent(this.prepared!)) {
+      this.stop();
+      return this.rejectStart("The microphone action expired. Click Start voice again.");
+    }
+    const run = options.intent !== undefined ? this.prepared! : this.newRun({ instructions: options.instructions, avatar: options.avatar, voice: options.voice, tools: options.tools });
+    if (this.prepared && this.prepared !== run) this.cleanup(this.prepared, new VoiceFailure("Voice stopped."));
+    this.prepared = null;
+    clearTimeout(run.timer);
+    run.instructions = options.instructions; run.context = copyVoiceContext((options.context ?? "") as VoiceContext); run.voice = options.voice;
+    const attempt = this.deps.currentAttempt?.(); run.attempt = isVoiceAttempt(attempt) ? { ...attempt } : undefined;
+    run.toolAllowlist = options.tools === undefined ? undefined : [...options.tools];
+    if (run.avatar && run.toolAllowlist?.length === 0) run.preflightContext = new LiveVoiceContext(run.context);
+    run.interruptionMode = options.interruptionMode ?? "automatic";
+    run.worldReasoning = options.reasoning === 'world';
+    run.opening = options.opening ?? 'character';
+    run.liveRequested = options.transport === "live";
+    run.holdFloor = options.holdFloor === true;
+    this.run = run;
+    this.emit({ type: "status", status: "connecting", message: "Preparing call" });
+    // Consent is bounded separately from the network negotiation.
+    run.timer = setTimeout(() => this.fail(run, new VoiceFailure("Voice consent timed out. Start voice again when ready.")), 120_000);
+    run.promise = this.connect(run).catch(error => {
+      const safe = safeFailure(error);
+      if (this.run === run) this.fail(run, safe);
+      throw safe;
+    });
+    return run.promise;
+  }
+
+  /** Reserve a single start through asynchronous context/save work. No capture or network. */
+  async prepare(options: unknown): Promise<{ intent: string }> {
+    if (this.disposed || !this.deps.canUse() || !this.deps.sessionId || !this.deps.hasUserActivation?.()) throw new VoiceFailure("Click a voice control to start the microphone.");
+    if (!record(options) || (options.avatar !== undefined && typeof options.avatar !== "boolean")) throw new VoiceFailure("Invalid avatar video option.");
+    if (this.run) throw new VoiceFailure("A voice call is already active.");
+    if (this.prepared) this.cleanup(this.prepared, new VoiceFailure("Voice action replaced."));
+    const run = this.newRun({ instructions: "", avatar: options.avatar === true });
+    const attempt = this.preparationAttempt(), scope = this.deps.currentPreparationScope?.();
+    if (isVoiceAttempt(attempt)) run.attempt = { ...attempt };
+    if (validPreparationScope(scope) && scope.sessionId === this.deps.sessionId) run.preparationScope = { ...scope };
+    run.intent = crypto.randomUUID(); this.prepared = run;
+    try { this.prepareAudio(run); }
+    catch (error) { this.cleanup(run, safeFailure(error)); throw safeFailure(error); }
+    run.timer = setTimeout(() => this.fail(run, new VoiceFailure("The microphone action expired. Click Start voice again.")), this.deps.intentTimeoutMs ?? 60_000);
+    return { intent: run.intent };
+  }
+
+  private preparedCurrent(run: Run): boolean {
+    if (!this.current(run) || !this.deps.canUse()) return false;
+    const attempt = this.preparationAttempt(), scope = this.deps.currentPreparationScope?.();
+    if (this.deps.currentPreparationScope && (validPreparationScope(scope)
+      ? !run.preparationScope || !samePreparationScope(run.preparationScope, scope)
+      : !!run.preparationScope)) return false;
+    if (run.attempt) return isVoiceAttempt(attempt) && attempt.sessionId === this.deps.sessionId && sameVoiceAttempt(run.attempt, attempt);
+    if (!attempt) return true;
+    // The original click precedes beginHatVoice's acknowledged first save.
+    // Bind once within that captured namespace; later attempt changes cancel.
+    if (!isVoiceAttempt(attempt) || !run.preparationScope || !samePreparationScope(run.preparationScope, attempt)) return false;
+    run.attempt = { ...attempt };
+    return true;
+  }
+
+  private preparationAttempt(): VoiceAttempt | null | undefined {
+    return this.deps.currentPreparationAttempt ? this.deps.currentPreparationAttempt() : this.deps.currentAttempt?.();
+  }
+
+  private newRun(options: { instructions: string; avatar?: boolean; voice?: "marin" | "cedar"; tools?: VoiceToolName[] }): Run {
+    return {
+      interruptionMode: "automatic",
+      opening: 'character',
+      abort: new AbortController(), promise: null!, ready: false, voice: options.voice, connectionId: crypto.randomUUID(), sponsored: false, connecting: false, playback: false,
+      instructions: options.instructions, pendingInstructions: null, context: "", captions: new Map(), eventIds: new Set(), tools: new Map(), interrupting: false, responseActive: false, responseRequested: false, pendingResponse: false,
+      pendingSceneResponse: false, inputs: new Map(), speakingInput: null, inputSequence: 0, audibilityEpoch: 0, sceneIds: new Set(), sceneTimes: [], sceneItem: null, sceneItems: new Map(),
+      cancellationIds: new Set(), cancellationSequence: 0,
+      outputReference: null, outputTailUntil: -Infinity, references: new Map(), inputClear: null, takeFloor: false,
+      responseId: null, cancelledResponses: new Set(), cancelledRequest: false, interruptedResponse: false, interruptedInput: null,
+      responseRequestId: null, responseSequence: 0,
+      responseOverlap: null, responseRetryPending: false, responseRetryUsed: false,
+      avatar: options.avatar === true, avatarStarting: false, avatarPending: false, liveRequested: false,
+      toolAllowlist: options.tools === undefined ? undefined : [...options.tools],
+    };
+  }
+
+  private rejectStart(message: string): Promise<never> {
+    this.emit({ type: "status", status: "error", message });
+    return Promise.reject(new VoiceFailure(message));
+  }
+
+  private current(run: Run): boolean { return (this.run === run || this.prepared === run) && !run.abort.signal.aborted; }
+  private check(run: Run): void {
+    if (this.current(run) && run.expiresAt !== undefined && this.now() >= run.expiresAt) {
+      this.expire(run);
+      throw run.abort.signal.reason;
+    }
+    if (!this.current(run)) throw new VoiceFailure("Voice stopped.");
+    if (!this.deps.canUse()) throw new VoiceFailure("Voice is unavailable in this view.");
+    if (run.balanceFunding && run.attempt) { const attempt = this.deps.currentAttempt?.(); if (!attempt || !sameVoiceAttempt(run.attempt, attempt)) throw new VoiceFailure('Voice saved attempt changed.'); }
+  }
+
+  private startLifetime(run: Run): void {
+    this.check(run);
+    if (run.expiresAt !== undefined) return;
+    // Each provider's deadline begins after this request. Use the earliest paid
+    // request as a conservative monotonic anchor, including all later setup.
+    // Consent/setup watchdogs remain independent, and readiness never renews it.
+    const duration = this.deps.maxDurationMs ?? run.maxDurationMs ?? 300_000;
+    run.expiresAt = this.now() + duration;
+    run.expiryTimer = setTimeout(() => this.expire(run), duration);
+    if (duration > 30_000) run.warningTimer = setTimeout(() => {
+      if (!this.current(run)) return;
+      const remaining = run.expiresAt! - this.now();
+      if (remaining <= 0) { this.expire(run); return; }
+      this.emit({ type: "call-notice", notice: {
+        kind: "ending-soon", remainingMs: remaining,
+        message: `This voice call ends in about ${Math.ceil(remaining / 1000)} seconds. Start voice again after it ends to continue.`,
+      } });
+    }, duration - 30_000);
+  }
+
+  private expire(run: Run): void {
+    if (!this.current(run)) return;
+    const remaining = run.expiresAt! - this.now();
+    if (remaining > 0) { run.expiryTimer = setTimeout(() => this.expire(run), remaining); return; }
+    const message = "This voice call reached its time limit. Start voice again to continue.";
+    this.cleanup(run, new VoiceFailure(message));
+    this.emit({ type: "level", value: 0 });
+    this.emit({ type: "status", status: "stopped", message });
+  }
+
+  /** Reject immediately on cancellation even for non-abortable browser permission prompts. */
+  private wait<T>(run: Run, promise: Promise<T>): Promise<T> {
+    return new Promise((resolve, reject) => {
+      const signal = run.abort.signal;
+      const abort = () => reject(signal.reason ?? new VoiceFailure("Voice stopped."));
+      if (signal.aborted) { abort(); return; }
+      signal.addEventListener("abort", abort, { once: true });
+      promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+    });
+  }
+
+  private prepareAudio(run: Run): void {
+    this.check(run);
+    const outputLevel = (value: number) => {
+      if (!this.current(run) || !run.ready) return;
+      const level = this.muted.output ? 0 : Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+      this.emit({ type: "level", value: level });
+      if (run.live && !run.avatar) this.observeDirectOutput(run, level);
+    };
+    const inputLevel = (value: number) => {
+      if (!this.current(run) || !run.ready) return;
+      this.emit({ type: "input-level", value: this.muted.input ? 0 : Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0)) });
+      if (run.live) { if (!this.muted.input && value >= .025) run.userVoiceAt = this.now(); run.fallback?.level(this.muted.input ? 0 : value); run.live.inputLevel(this.muted.input ? 0 : value); return; }
+      const input = run.speakingInput ? run.inputs.get(run.speakingInput) : undefined;
+      if (input && !this.deps.canUse()) input.eligible = false;
+      if (input?.protected && input.decision === "pending") {
+        if (!this.deps.canUse() || this.muted.input || this.muted.output || input.epoch !== run.audibilityEpoch) return;
+        if (input.quiet.sample(this.now(), value)) {
+          const clear = !input.committed;
+          this.discardInput(run, input, false);
+          if (clear) this.clearInputBuffer(run, false);
+        }
+        return;
+      }
+      if (input && this.inputEligible(run, input)) {
+        this.markOverlap(run, input);
+        // Energy can schedule idle native input; pending output needs final words.
+        if (input.activity.sample(this.now(), value) && !input.references.size
+          && !this.hasActiveGeneration(run) && !run.playback && !run.avatarPending) this.confirmInput(run, input, true);
+        if (!input.confirmed && input.quiet.sample(this.now(), value)) {
+          const clear = !input.committed;
+          this.discardInput(run, input);
+          if (clear) this.clearInputBuffer(run, false);
+        }
+      }
+    };
+    run.audio ??= run.avatar ? this.deps.createAvatarAudio!(outputLevel, inputLevel, {
+      signal: run.abort.signal,
+      beforePlayback: () => this.current(run) && (run.live?.beforePlayback() ?? true),
+      onPending: () => {
+        if (!this.current(run) || run.interruptedResponse || this.muted.output) return;
+        if (run.live) { run.live.avatarPending(); return; }
+        run.avatarPending = true;
+        if (run.interruptionMode === "manual") for (const input of run.inputs.values()) this.markOverlap(run, input);
+        this.emitActivity(run);
+      },
+      onSourceActivity: active => { if (this.current(run)) run.live?.sourceActivity(active); },
+      onQueue: count => { if (this.current(run)) run.live?.avatarQueue(count); },
+      onPlayback: state => { if (this.current(run)) { if (run.live) run.live.playback(state); else this.playback(run, state); } },
+      onVideoFrame: ({ id, frame }) => {
+        if (!this.current(run) || !this.deps.canUse()) { frame.close(); return; }
+        this.emit({ type: "video-frame", id, frame });
+      },
+      onVideoStatus: (status, message) => { if (this.current(run)) this.emit({ type: "video-status", status, message }); },
+      onError: message => this.fail(run, new VoiceFailure(message)),
+    }) : this.deps.createAudio(outputLevel, inputLevel);
+    run.audio.setMuted(this.muted.output);
+    run.audio.setSpatial(this.pose);
+  }
+
+  private async connect(run: Run): Promise<{ status: "connected" }> {
+    const preflight = await this.wait(run, this.deps.fetch(`${this.deps.apiBase ?? ""}/api/voice/${encodeURIComponent(this.deps.sessionId)}/config`, {
+      credentials: "include", signal: run.abort.signal,
+    }));
+    const config: unknown = await this.wait(run, preflight.json()); this.check(run);
+    if (!preflight.ok) throw serverFailure(record(config) ? config.code : undefined);
+    if (record(config) && config.funding === 'balance') {
+      run.balanceFunding = true;
+      if (!isVoiceCapability(config) || !config.available || config.funding !== 'balance') throw new VoiceFailure(config.code === 'INSUFFICIENT_CREDITS' ? 'Your Yumina balance is too low for live voice. Continue in text or add credits.' : 'Live voice is temporarily unavailable. Continue in text or try again later.');
+      return this.connectBalance(run, config);
+    }
+    if (record(config) && config.funding === 'credits-live' && config.available !== true) throw serverFailure("VOICE_CREDITS_REQUIRED");
+    if (!record(config) || config.available !== true) throw serverFailure("OPENAI_KEY_REQUIRED");
+    const maxDurationSeconds = config.maxDurationSeconds;
+    if ((config.funding !== "byok" && config.funding !== "testing" && config.funding !== "first-morning" && config.funding !== "private-pilot" && config.funding !== "credits-live") || typeof maxDurationSeconds !== "number" || !Number.isFinite(maxDurationSeconds) || maxDurationSeconds < 60 || maxDurationSeconds > 7200) throw new VoiceFailure("Voice configuration is unavailable. Please try again.");
+    run.maxDurationMs = Math.round(maxDurationSeconds * 1000);
+    if (config.turnControl !== "client-v1") throw new VoiceFailure("Voice turn control is incompatible. Refresh the page and try again.");
+    if (run.avatar && (config.avatarAvailable !== true || !this.deps.createAvatarAudio)) throw new VoiceFailure("Live telescreen video is unavailable. Please try again when the avatar service is ready.");
+    // The free first morning is paid by Yumina's key, like testing.
+    run.sponsored = config.funding === "testing" || config.funding === "first-morning" || config.funding === "private-pilot";
+    // Paid from the wallet per started minute: the server must hear that the tab is alive.
+    run.creditsLive = config.funding === "credits-live";
+    run.privatePilot = config.funding === "private-pilot";
+    // The host explicitly enables this migration. Other worlds and tool-using
+    // voice sessions retain their negotiated Realtime protocol.
+    // A card may opt into the live model without an avatar: the plain speaker
+    // graph plays the provider track directly and gates it through handleClientEvent.
+    if (config.liveModel === "gpt-live-1" && run.toolAllowlist?.length === 0 && (run.avatar || run.liveRequested)) {
+      run.instructions = run.pendingInstructions ?? run.instructions; run.pendingInstructions = null;
+      run.live = new LiveVoiceSession({
+        send: event => this.send(run, event),
+        emit: event => {
+          if (event.type === "transcript" && event.role === "user") {
+            // QA only: simulate the live model losing the player's words, to exercise the fallback.
+            if ((globalThis as { __voiceDropUserTranscripts?: boolean }).__voiceDropUserTranscripts === true) return;
+            run.fallback?.heard();
+          }
+          if (this.current(run)) this.emit(event);
+        },
+        input: enabled => run.stream?.getAudioTracks().forEach(track => { track.enabled = enabled; }),
+        inputEvidence: () => run.audio?.inputEvidence?.() ?? Promise.resolve('unknown'),
+        holdAudio: held => run.audio?.handleClientEvent?.({ type: 'live.hold', held }),
+        allowAudio: allowed => run.audio?.handleClientEvent?.({ type: 'live.output', allowed }),
+        interruptAudio: () => run.audio?.handleClientEvent?.({ type: "live.interrupt" }),
+        fail: message => this.fail(run, new VoiceFailure(message)),
+      }, run.instructions, run.context, run.interruptionMode, run.preflightContext, run.worldReasoning, run.opening);
+      // Diagnosis only: which gate holds the live session (read in browser tests).
+      try { (globalThis as { __voiceGates?: () => unknown }).__voiceGates = () => run.live?.debugGates(); } catch { /* No global. */ }
+    }
+    run.preflightContext = undefined;
+    if (!run.intent) this.emit({ type: "status", status: "connecting", message: "Confirm microphone" });
+    const consent = run.intent ? true : await this.wait(run, this.deps.requestConsent(run.abort.signal, () => this.prepareAudio(run), { ...config, avatarRequested: run.avatar } as unknown as VoiceConfig));
+    this.check(run);
+    if (!consent) { this.stop(); throw new VoiceFailure("Live voice was declined. You can continue without a microphone."); }
+    this.prepareAudio(run);
+    try { if (run.audio?.ready) await this.wait(run, run.audio.ready()); }
+    catch (error) {
+      this.check(run);
+      throw new VoiceFailure("The voice speaker could not start. Click Start voice again to unlock audio.");
+    }
+    this.check(run);
+    if (run.live) {
+      run.audio?.handleClientEvent?.({ type: "live.enable" });
+      // Remote PCM can arrive before session.started; synchronize permission
+      // while audio exists and before any provider transport is negotiated.
+      run.live.prepareOutput();
+    }
+    clearTimeout(run.timer);
+    run.timer = setTimeout(() => this.fail(run, new VoiceFailure("Voice connection timed out. You can continue without voice.")), this.deps.connectTimeoutMs ?? (run.avatar ? 65_000 : 35_000));
+    this.emit({ type: "status", status: "connecting", message: "Allow microphone" });
+    const pendingMedia = this.deps.getUserMedia();
+    // A permission prompt can resolve after stop. It must never leave a live track.
+    void pendingMedia.then(stream => { if (!this.current(run)) stopTracks(stream); }, () => {});
+    run.stream = await this.wait(run, pendingMedia);
+    this.check(run);
+    const microphoneTracks = run.stream.getAudioTracks();
+    // Keep physical capture closed until Live has initialized its input control.
+    // The independent transport below keeps sending silence during this interval.
+    if (run.live) for (const track of microphoneTracks) track.enabled = false;
+    const microphoneEnded = () => this.fail(run, new VoiceFailure("Your microphone disconnected or its permission was revoked. Start voice again or continue without a microphone."));
+    for (const track of microphoneTracks) track.onended = microphoneEnded;
+    // Capture can end before the promise settles; registering a handler alone
+    // would miss that event. Transient track mute is not permanent termination.
+    if (microphoneTracks.some(track => track.readyState === "ended")) {
+      throw new VoiceFailure("Your microphone disconnected or its permission was revoked. Start voice again or continue without a microphone.");
+    }
+    for (const track of microphoneTracks) {
+      // Probe the actual captured track, not generic supported-constraint flags.
+      // Rejection leaves the original getUserMedia echoCancellation:true intact.
+      try {
+        const modes: unknown = track.getCapabilities?.().echoCancellation;
+        if (Array.isArray(modes) && modes.includes("all")) {
+          await this.wait(run, track.applyConstraints({ echoCancellation: { exact: "all" } } as unknown as MediaTrackConstraints));
+        }
+      } catch { this.check(run); }
+      this.check(run);
+      let selected: unknown;
+      try { selected = track.getSettings?.().echoCancellation; } catch { /* Diagnostics must not prevent capture. */ }
+      this.emit({ type: "capture-settings", echoCancellation: typeof selected === "boolean" || selected === "all" || selected === "remote-only" ? selected : "unknown" });
+    }
+    await this.wait(run, Promise.resolve(run.audio?.attachInput(run.stream)));
+    this.check(run);
+    let outgoingStream = run.stream;
+    if (run.live) {
+      try {
+        if (!run.audio?.prepareLiveInput) throw new Error('Missing Live input clock');
+        outgoingStream = await this.wait(run, run.audio.prepareLiveInput({ holdFloor: run.holdFloor && !run.avatar }));
+        this.check(run);
+        if (run.holdFloor && !run.avatar && run.audio.inputTail) {
+          const audio = run.audio;
+          let n = 0;
+          run.fallback = new TranscriptFallback({
+            tail: seconds => audio.inputTail!(seconds),
+            transcribe: async clip => {
+              const form = new FormData(); form.append("file", clip, "clip.wav");
+              const res = await this.deps.fetch(`${this.deps.apiBase ?? ""}/api/voice-input`, { method: "POST", credentials: "include", body: form });
+              if (!res.ok) return null;
+              const body = await res.json().catch(() => ({})) as { text?: unknown };
+              return typeof body.text === "string" ? body.text : null;
+            },
+            emit: text => { if (this.current(run)) this.emit({ type: "transcript", role: "user", id: `live:fallback:${++n}`, text, final: true }); },
+          });
+        }
+        const tracks = outgoingStream.getAudioTracks();
+        if (tracks.length !== 1 || tracks.some(track => !track.enabled || track.readyState !== 'live' || microphoneTracks.includes(track))) {
+          throw new Error('Unavailable Live input clock');
+        }
+      } catch {
+        this.check(run);
+        throw new VoiceFailure('The live microphone audio could not start. Click Start voice again to unlock audio.');
+      }
+    }
+    if (run.avatar) {
+      this.emit({ type: "status", status: "connecting", message: "Connecting video" });
+      await this.connectAvatar(run);
+    }
+    this.check(run);
+    this.emit({ type: "status", status: "connecting", message: "Connecting voice" });
+    const peer = this.deps.createPeer();
+    run.peer = peer;
+    for (const track of outgoingStream.getAudioTracks()) {
+      if (!run.live) track.enabled = !this.muted.input;
+      peer.addTrack(track, outgoingStream);
+    }
+    peer.ontrack = event => {
+      if (!this.current(run)) return;
+      const stream = event.streams[0] ?? new MediaStream([event.track]);
+      try {
+        void Promise.resolve(run.audio?.attach(stream)).catch(() => {
+          if (this.current(run)) this.fail(run, new VoiceFailure("The voice speaker could not play. Start voice again to enable sound."));
+        });
+      } catch {
+        this.fail(run, new VoiceFailure("The voice speaker could not play. Start voice again to enable sound."));
+      }
+    };
+    peer.onconnectionstatechange = () => {
+      if (!this.current(run)) return;
+      if (peer.connectionState === 'disconnected') {
+        // ICE may recover on the existing connection after a brief network gap.
+        if (!run.reconnectTimer) run.reconnectTimer = setTimeout(() => {
+          run.reconnectTimer = undefined;
+          if (this.current(run) && peer.connectionState === 'disconnected') this.fail(run, new VoiceFailure('Voice could not reconnect. Start voice again.'));
+        }, 8000);
+      } else {
+        clearTimeout(run.reconnectTimer); run.reconnectTimer = undefined;
+        if (["failed", "closed"].includes(peer.connectionState)) this.fail(run, new VoiceFailure("Voice disconnected. Start voice again or continue without a microphone."));
+      }
+    };
+    const channel = peer.createDataChannel("oai-events", { ordered: true });
+    run.channel = channel;
+    const opened = new Promise<void>(resolve => { channel.onopen = () => resolve(); });
+    channel.onclose = channel.onerror = () => { if (this.current(run)) this.fail(run, new VoiceFailure("Voice disconnected. Start voice again or continue without a microphone.")); };
+    channel.onmessage = event => { if (this.current(run)) this.receive(run, event.data); };
+    const offer = await this.wait(run, peer.createOffer()); this.check(run);
+    await this.wait(run, peer.setLocalDescription(offer)); this.check(run);
+    run.connecting = true;
+    const startupContext = copyVoiceContext(run.context);
+    run.live?.setStartupContext(startupContext);
+    const startupInstructions = run.instructions;
+    run.live?.setStartupInstructions(startupInstructions);
+    this.check(run);
+    this.startLifetime(run);
+    const response = await this.wait(run, this.deps.fetch(`${this.deps.apiBase ?? ""}/api/voice/${encodeURIComponent(this.deps.sessionId)}/connect`, {
+      method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-Voice-Connection-Id": run.connectionId },
+      body: JSON.stringify({ turnControl: run.live ? "live-v1" : "client-v1", sdp: offer.sdp, instructions: composeVoiceInstructions(startupInstructions, startupContext), voice: run.voice, tools: run.toolAllowlist }), signal: run.abort.signal,
+    }));
+    this.check(run);
+    const result: unknown = await this.wait(run, response.json()); this.check(run);
+    if (!response.ok) throw serverFailure(record(result) ? result.code : undefined, config.funding);
+    if (!record(result) || !boundedString(result.sdp, 65_536) || !result.sdp.startsWith("v=0")) throw new VoiceFailure("Voice returned an invalid connection. Please try again.");
+    if (result.turnControl !== (run.live ? "live-v1" : "client-v1")) throw new VoiceFailure("Voice turn control is incompatible. Refresh the page and try again.");
+    await this.wait(run, peer.setRemoteDescription({ type: "answer", sdp: result.sdp })); this.check(run);
+    if (channel.readyState !== "open") await this.wait(run, opened);
+    if (run.live) await this.wait(run, run.live.ready);
+    this.check(run); clearTimeout(run.timer); run.ready = true;
+    if (!run.live && !this.flushInstructions(run) && run.context) this.sendContext(run);
+    if (this.muted.input || this.muted.output) this.applyMute(run);
+    this.check(run);
+    this.emit({ type: "status", status: "connected" });
+    this.emit({ type: "activity", status: "listening" });
+    if (run.creditsLive) this.startCreditsHeartbeat(run);
+    if (run.live) { run.live.setMuted(this.muted); if (!this.muted.output) { run.liveStarted = true; run.live.start(); } }
+    else if (!this.muted.output) this.requestResponse(run);
+    this.check(run);
+    return { status: "connected" };
+  }
+
+  stop(): void {
+    if (!this.run && !this.prepared) return;
+    const balance = this.run?.balanceFunding;
+    if (this.prepared) this.cleanup(this.prepared, new VoiceFailure("Voice stopped."));
+    if (this.run) this.cleanup(this.run, new VoiceFailure("Voice stopped."));
+    this.emit({ type: "level", value: 0 }); this.emit({ type: "status", status: "stopped", ...(balance ? { phase: 'cleanup' as const, code: 'VOICE_BALANCE_STOPPED' } : {}) });
+  }
+
+  private async connectBalance(run: Run, config: Extract<VoiceCapability, { funding: 'balance' }>): Promise<{ status: 'connected' }> {
+    if (run.avatar || run.toolAllowlist?.length || !this.deps.createBalanceAudio || !isVoiceAttempt(this.deps.currentAttempt?.())) throw new VoiceFailure('Live Hat voice is unavailable in this saved attempt.');
+    const recipe = { instructions: run.instructions, context: voiceContextText(run.context), voice: run.voice ?? 'marin' as const };
+    if (!validBalanceRecipe(recipe)) throw new VoiceFailure('Voice context exceeds the character or UTF-8 budget.');
+    // A prepared intent unlocked audio in the original click. Balance spending
+    // still requires its own affirmative trusted funding disclosure.
+    run.audio?.close(); run.audio = undefined;
+    this.emit({ type: 'status', status: 'connecting', phase: 'consent', code: 'VOICE_BALANCE_CONSENT', message: 'Confirm microphone and balance funding' });
+    const unlock = () => {
+      this.check(run);
+      run.balanceAudio ??= this.deps.createBalanceAudio!(value => { if (this.current(run)) this.emit({ type: 'level', value }); }, value => { if (this.current(run)) this.emit({ type: 'input-level', value }); });
+      run.balanceAudio.setMuted(this.muted.output); run.balanceAudio.setSpatial(this.pose);
+    };
+    const accepted = await this.wait(run, this.deps.requestConsent(run.abort.signal, unlock, config)); this.check(run);
+    if (!accepted) throw new VoiceFailure('Live voice was declined. You can continue in text.');
+    unlock(); await this.wait(run, run.balanceAudio!.ready()); this.check(run);
+    this.emit({ type: 'status', status: 'connecting', phase: 'permission', code: 'VOICE_BALANCE_PERMISSION', message: 'Allow microphone' });
+    const pending = this.deps.getUserMedia();
+    void pending.then(stream => { if (!this.current(run)) stopTracks(stream); }, () => {});
+    run.stream = await this.wait(run, pending); this.check(run);
+    for (const track of run.stream.getAudioTracks()) {
+      track.onended = () => this.fail(run, new VoiceFailure('Your microphone disconnected or permission was revoked. Continue in text or try again.'));
+      if (track.readyState === 'ended') throw new VoiceFailure('Your microphone disconnected.');
+    }
+    // OS permission belongs to the human deadline. Network time begins here.
+    clearTimeout(run.timer);
+    run.timer = setTimeout(() => this.fail(run, new VoiceFailure('Voice connection timed out. Continue in text or try again.')), this.deps.connectTimeoutMs ?? 35000);
+    this.emit({ type: 'status', status: 'connecting', phase: 'negotiation', code: 'VOICE_BALANCE_NEGOTIATION', message: 'Connecting voice' });
+    this.balanceClient?.dispose();
+    const client = this.newBalanceClient(run.connectionId); this.balanceClient = run.balance = client;
+    const balanceAudio = run.balanceAudio!; run.balanceAudio = undefined;
+    client.setMuted(this.muted); client.setSpatial(this.pose);
+    await this.wait(run, client.start(recipe, run.stream, balanceAudio)); this.check(run);
+    const latestContext = voiceContextText(run.context);
+    if (latestContext !== recipe.context) client.updateContext(latestContext);
+    clearTimeout(run.timer); run.ready = true;
+    run.timer = setTimeout(() => this.stop(), this.deps.maxDurationMs ?? config.maxDurationSeconds * 1000);
+    client.setSpatial(this.pose);
+    this.emit({ type: 'status', status: 'connected', phase: 'live', ...(!client.isInputAdmitted ? { code: 'VOICE_INPUT_PAUSED', message: 'Microphone paused while voice access is checked. Speech during this pause is not accepted. Please wait, then repeat.' } : {}) }); this.emit({ type: 'activity', status: client.isInputAdmitted ? 'listening' : 'thinking' });
+    return { status: 'connected' };
+  }
+
+  private fail(run: Run, error: VoiceFailure): void {
+    if (!this.current(run)) return;
+    // Provider teardown may reach the event loop before an overdue timer.
+    if (run.expiresAt !== undefined && this.now() >= run.expiresAt) { this.expire(run); return; }
+    this.cleanup(run, error);
+    this.emit({ type: "level", value: 0 }); this.emit({ type: "status", status: "error", message: error.message, ...(run.balanceFunding ? { phase: 'cleanup' as const, code: 'VOICE_BALANCE_ERROR' } : {}) });
+  }
+
+  /** A credits-paid call beats every 30 s; the server hangs up a silent one and stops billing.
+   * A beat the server no longer recognises means it already ended the call (out of Mushies, or the cap). */
+  private startCreditsHeartbeat(run: Run): void {
+    clearInterval(run.creditsBeat);
+    run.creditsBeat = setInterval(() => {
+      if (run.closing || this.run !== run) { clearInterval(run.creditsBeat); return; }
+      void this.deps.fetch(`${this.deps.apiBase ?? ""}/api/voice/${encodeURIComponent(this.deps.sessionId)}/live/heartbeat`, {
+        method: "POST", credentials: "include", headers: { "X-Voice-Connection-Id": run.connectionId },
+      }).then(response => {
+        if (response.status === 404 && !run.closing && this.run === run) this.fail(run, new VoiceFailure("Live voice ended: your Mushies ran out or the call reached its time limit."));
+      }, () => { /* A missed beat is retried; the server allows two. */ });
+    }, 30_000);
+  }
+  private cleanup(run: Run, reason: Error): void {
+    if (run.closing) return;
+    run.closing = true;
+    clearInterval(run.creditsBeat); run.creditsBeat = undefined;
+    run.fallback?.close();
+    run.live?.close();
+    if (this.run === run) this.emit({ type: "call-notice", notice: null });
+    if (this.run === run) this.emit({ type: "activity", status: "listening" });
+    if (this.run === run) this.run = null;
+    if (this.prepared === run) this.prepared = null;
+    clearTimeout(run.expiryTimer); clearTimeout(run.warningTimer);
+    clearTimeout(run.timer); clearTimeout(run.heartbeat); clearTimeout(run.reconnectTimer); run.abort.abort(reason);
+    if (run.balance) { run.balance.stop(); run.stream = undefined; }
+    run.balanceAudio?.close(); run.balanceAudio = undefined;
+    for (const input of run.inputs.values()) { clearTimeout(input.timer); clearTimeout(input.referenceTimer); clearTimeout(input.retirementTimer); }
+    if (run.inputClear) clearTimeout(run.inputClear.timer);
+    run.inputs.clear(); run.speakingInput = null;
+    if (run.avatarStarting) {
+      void this.deps.fetch(`${this.deps.apiBase ?? ""}/api/voice/${encodeURIComponent(this.deps.sessionId)}/avatar/stop`, {
+        method: "POST", credentials: "include", keepalive: true, headers: { "X-Voice-Connection-Id": run.connectionId },
+      }).catch(() => {});
+      this.emit({ type: "video-status", status: "stopped" });
+    }
+    if (run.privatePilot && !run.live && run.connecting) {
+      this.emit({ type: "input-level", value: 0 });
+      this.closePrivatePilotTransport(run);
+    }
+    else {
+      if ((run.sponsored || run.live || run.creditsLive) && run.connecting) void this.deps.fetch(`${this.deps.apiBase ?? ""}/api/voice/${encodeURIComponent(this.deps.sessionId)}/stop`, {
+        method: "POST", credentials: "include", keepalive: true, headers: { "X-Voice-Connection-Id": run.connectionId },
+      }).catch(() => {});
+      this.emit({ type: "input-level", value: 0 });
+      if (run.channel) {
+        run.channel.onmessage = run.channel.onopen = run.channel.onclose = run.channel.onerror = null;
+        run.channel.close();
+      }
+      if (run.peer) { run.peer.ontrack = run.peer.onconnectionstatechange = null; run.peer.close(); }
+      if (run.stream) {
+        for (const track of run.stream.getAudioTracks()) track.onended = null;
+        stopTracks(run.stream);
+      }
+      run.audio?.close();
+    }
+    run.captions.clear(); run.tools.clear(); run.eventIds.clear(); run.cancellationIds.clear(); run.sceneIds.clear(); run.sceneItems.clear(); run.sceneTimes.length = 0;
+  }
+
+  private closePrivatePilotTransport(run: Run): void {
+    const { channel, peer } = run;
+    if (channel) channel.onmessage = channel.onopen = channel.onclose = channel.onerror = null;
+    if (peer) peer.ontrack = peer.onconnectionstatechange = null;
+    if (run.stream) {
+      for (const track of run.stream.getAudioTracks()) { track.onended = null; track.enabled = false; }
+      stopTracks(run.stream);
+    }
+    run.audio?.close();
+    // Keep only the inert transport while the server attempts hangup. This
+    // reduces the peer-close race; it does not prove provider cleanup succeeded.
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true; clearTimeout(deadline); channel?.close(); peer?.close();
+    };
+    // Three 4s provider attempts plus the 1.5s accounting drain and 0.5s margin.
+    const deadline = setTimeout(close, 14_000);
+    try {
+      void this.deps.fetch(`${this.deps.apiBase ?? ""}/api/voice/${encodeURIComponent(this.deps.sessionId)}/stop`, {
+        method: "POST", credentials: "include", keepalive: true, headers: { "X-Voice-Connection-Id": run.connectionId },
+      }).then(close, close);
+    } catch { close(); }
+  }
+
+  private send(run: Run, event: object): void {
+    if (!this.current(run) || run.channel?.readyState !== "open") return;
+    try {
+      run.channel.send(JSON.stringify(event));
+      // Local avatar clearing can synchronously release a queued response. The
+      // provider must receive this clear before that new response.create.
+      if (run.avatar) (run.audio as AvatarAudio | undefined)?.handleClientEvent(event as Record<string, unknown>);
+    }
+    catch { this.fail(run, new VoiceFailure("Voice disconnected. Start voice again or continue without a microphone.")); }
+  }
+
+  private requestResponse(run: Run, scene = false, retry = false): void {
+    this.prunePoliceScenes(run);
+    if (!this.current(run) || !run.ready || !this.deps.canUse() || this.muted.output) return;
+    if (this.hasActiveGeneration(run) || this.inputBlocked(run) || run.avatarPending || run.playback) {
+      if (scene) run.pendingSceneResponse = true;
+      else run.pendingResponse = true;
+      this.emitActivity(run);
+      return;
+    }
+    this.flushInstructions(run);
+    if (!retry) { run.pendingResponse = false; run.pendingSceneResponse = false; }
+    run.responseActive = true; run.responseRequested = true;
+    if (run.interruptionMode === "manual") run.takeFloor = false;
+    run.responseId = null; run.interruptedResponse = false;
+    run.responseRequestId = `voice-response-${++run.responseSequence}`;
+    run.responseOverlap = null; run.responseRetryPending = false; run.responseRetryUsed = retry;
+    if (!retry) {
+      for (const item of run.sceneItems.values()) item.active = true;
+      for (const input of run.inputs.values()) if (input.committed) { input.included = true; input.reply = false; }
+    }
+    if (run.interruptionMode === "manual") for (const input of run.inputs.values()) this.markOverlap(run, input);
+    this.send(run, { type: "response.create", event_id: run.responseRequestId, response: { metadata: { yumina_request_id: run.responseRequestId } } });
+    this.emitActivity(run);
+  }
+
+  private flushResponse(run: Run): void {
+    this.prunePoliceScenes(run);
+    if (this.retryInterruptedResponse(run)) return;
+    this.flushInstructions(run);
+    const pendingInput = [...run.inputs.values()].some(input => input.reply && this.inputEligible(run, input) && input.committed && !input.included);
+    // Do not turn a scene-only queue into generic response work while audio
+    // drains: host authority may withdraw that scene before playback stops.
+    if ((run.pendingResponse || run.pendingSceneResponse || pendingInput)
+      && !this.hasActiveGeneration(run) && !run.playback && !run.avatarPending && !this.inputBlocked(run)) this.requestResponse(run);
+  }
+
+  private emitActivity(run: Run, idle: "listening" | "thinking" = "listening"): void {
+    if (!this.current(run) || !run.ready) return;
+    // Provider retirement and output ownership differ after cancellation. Keep
+    // the former as a scheduling fence without advertising a cancelled utterance.
+    const output = !this.muted.output && !run.interruptedResponse;
+    this.emit({ type: "activity", status: output && run.playback ? "speaking"
+      : output && (run.responseActive || run.responseRequested || run.avatarPending) ? "thinking" : idle });
+  }
+
+  private hasActiveGeneration(run: Run): boolean {
+    // Abandoning a rejected request does not retire the provider generation
+    // that rejected it. Keep that independent ownership gate until its done.
+    return run.responseActive || run.responseOverlap?.retired === false;
+  }
+
+  private discardRejectedRequest(run: Run): void {
+    run.responseActive = false; run.responseRequested = false; run.responseRequestId = null;
+    run.responseRetryPending = false; run.cancelledRequest = false;
+    this.emitActivity(run);
+  }
+
+  private retryInterruptedResponse(run: Run): boolean {
+    if (!run.responseRetryPending || !run.responseOverlap?.retired || !this.current(run) || !this.deps.canUse() || this.muted.output
+      || this.inputBlocked(run) || run.avatarPending || run.playback) return false;
+    this.discardRejectedRequest(run);
+    this.requestResponse(run, false, true);
+    return true;
+  }
+
+  private now(): number { return this.deps.now?.() ?? performance.now(); }
+
+  private directOutput = new WeakMap<Run, { speaking: boolean; quietSince: number; floor?: boolean }>();
+  /** Without an avatar there is no playback event stream; derive the official's
+   * speaking state from the speaker level so quiet boundaries and activity work. */
+  private observeDirectOutput(run: Run, level: number): void {
+    const live = run.live; if (!live) return;
+    const now = this.now();
+    const state = this.directOutput.get(run) ?? { speaking: false, quietSince: now };
+    this.directOutput.set(run, state);
+    if (level >= 0.03) {
+      state.quietSince = now;
+      if (!state.speaking) {
+        state.speaking = true;
+        // The floor belongs to whoever started first: if the user is mid-sentence the model
+        // must keep hearing them, or it takes their pause for the end of the turn.
+        if (run.holdFloor && now - (run.userVoiceAt ?? -1e9) > 600) { state.floor = true; run.audio?.handleClientEvent?.({ type: 'live.floor', held: true }); }
+        live.sourceActivity(true); live.playback("started");
+      }
+    } else if (state.speaking && now - state.quietSince >= 350) {
+      state.speaking = false;
+      if (state.floor) { state.floor = false; run.audio?.handleClientEvent?.({ type: 'live.floor', held: false }); }
+      live.playback("stopped"); live.sourceActivity(false);
+    }
+  }
+
+  private inputEligible(run: Run, input: InputTurn): boolean {
+    return this.current(run) && this.deps.canUse() && input.eligible && input.decision !== "discarding" && input.decision !== "discarded" && input.epoch === run.audibilityEpoch && !this.muted.input && !this.muted.output;
+  }
+
+  private inputBlocked(run: Run): boolean {
+    return run.interrupting || !!run.inputClear || [...run.inputs.values()].some(input => input.decision === "discarding"
+      || input.decision !== "discarded" && (input.speaking || !!input.referenceTimer || !input.expired && (!input.stopped || !input.committed || input.asr === "pending")));
+  }
+
+  private inputTurn(run: Run, id: string, intentional = false): InputTurn | undefined {
+    const existing = run.inputs.get(id);
+    if (existing) return existing;
+    if (run.inputs.size >= 512) { this.fail(run, new VoiceFailure("This voice conversation has reached its limit. Start voice again to continue.")); return; }
+    const input: InputTurn = { id, sequence: ++run.inputSequence, epoch: run.audibilityEpoch,
+      speaking: false, stopped: false, committed: false, asr: "pending", meaningful: false,
+      confirmed: false, sustained: false, eligible: !this.muted.input && !this.muted.output,
+      expired: false, included: false, reply: false, interrupted: false,
+      targetRequest: run.responseRequestId, targetResponse: run.responseId,
+      decision: "pending", references: new Set(), intentional, protected: false, quiet: new VoiceQuietWindow(),
+      activity: new VoiceActivityWindow(this.now()) };
+    run.inputs.set(id, input); this.markOverlap(run, input);
+    if (run.inputClear) this.discardInput(run, input, false);
+    return input;
+  }
+
+  private markOverlap(run: Run, input: InputTurn): void {
+    // Manual admission follows output ownership, even before its first word or
+    // reference arrives. Native tombstones keep late ASR excluded after playback.
+    if (run.interruptionMode === "manual" && input.decision === "pending" && !input.intentional && !input.included
+      && (input.protected || !input.stopped && (this.hasActiveGeneration(run) || run.responseRequested || run.avatarPending || run.playback))) {
+      input.protected = true; input.eligible = false;
+      // Onset is not settlement. Keep ongoing native capture until stop, commit,
+      // final ASR or the existing quiet recovery boundary before timing deletion.
+      if (input.stopped || input.committed || input.finalText !== undefined) this.discardInput(run, input, false);
+      return;
+    }
+    // Once playback ends, listening is advertised and a genuine reply may begin
+    // immediately. Keep the tail's reference check below to reject echoed words,
+    // without classifying every post-playback utterance as an interruption.
+    if (input.decision !== "pending" || input.stopped || input.intentional || !run.outputReference) return;
+    if (run.playback || this.now() <= run.outputTailUntil) input.references.add(run.outputReference);
+  }
+
+  private classifyInput(run: Run, input: InputTurn): void {
+    if (input.decision !== "pending" || input.finalText === undefined) return;
+    if (input.protected) { this.discardInput(run, input, false); return; }
+    const references = [...input.references].map(id => run.references.get(id));
+    // A final reference is needed: a partial prefix cannot establish nonmatch.
+    if (references.some(parts => !parts?.size || [...parts.values()].some(part => !part.final))) {
+      input.referenceTimer ??= setTimeout(() => {
+        input.referenceTimer = undefined;
+        if (this.current(run) && input.decision === "pending") this.discardInput(run, input);
+      }, INPUT_REFERENCE_WAIT_MS);
+      return;
+    }
+    if (references.some(parts => overlapsVoiceReference(input.finalText!, [...parts!.values()].map(part => part.text).join(" ")))) {
+      this.discardInput(run, input); return;
+    }
+    clearTimeout(input.referenceTimer); input.referenceTimer = undefined;
+    this.acceptInputTranscription(run, input);
+  }
+
+  private discardInput(run: Run, input: InputTurn, hint = true): void {
+    if (input.decision === "discarding" || input.decision === "discarded") return;
+    input.decision = "discarding"; input.eligible = false; input.reply = false;
+    input.speaking = false; input.stopped = true;
+    if (run.speakingInput === input.id) run.speakingInput = null;
+    clearTimeout(input.timer); clearTimeout(input.referenceTimer);
+    input.timer = input.referenceTimer = undefined;
+    this.emit({ type: "input", status: "discarded", id: `user:${input.id}:0` });
+    if (hint) this.emit({ type: "input-hint", message: "Overlapping words weren't saved. Please repeat, or use Interrupt and speak." });
+    input.retirementTimer = setTimeout(() => {
+      if (this.current(run) && input.decision === "discarding") this.fail(run, new VoiceFailure("Overlapping microphone input could not be removed. Start voice again to continue safely."));
+    }, INPUT_SETTLEMENT_TIMEOUT_MS);
+    this.deleteInput(run, input);
+  }
+
+  private deleteInput(run: Run, input: InputTurn): void {
+    if (!input.committed || input.deleteSent) return;
+    input.decision = "discarding"; input.deleteSent = true;
+    // Install the barrier before sending; only the exact native receipt retires it.
+    input.retirementTimer ??= setTimeout(() => {
+      if (this.current(run) && input.decision === "discarding") this.fail(run, new VoiceFailure("Overlapping microphone input could not be removed. Start voice again to continue safely."));
+    }, INPUT_SETTLEMENT_TIMEOUT_MS);
+    this.send(run, { type: "conversation.item.delete", item_id: input.id });
+  }
+
+  private retireInput(input: InputTurn): void {
+    input.decision = "discarded";
+    clearTimeout(input.retirementTimer); input.retirementTimer = undefined;
+  }
+
+  private clearInputBuffer(run: Run, intent: boolean): void {
+    if (run.inputClear) { run.inputClear.intent ||= intent; return; }
+    run.takeFloor = false;
+    run.inputClear = { intent, timer: setTimeout(() => {
+      if (this.current(run)) this.fail(run, new VoiceFailure("Microphone buffering could not be cleared. Start voice again to continue."));
+    }, INPUT_SETTLEMENT_TIMEOUT_MS) };
+    // Only a deliberate take-floor / quiet recovery boundary gates capture.
+    // Ordinary output never disables the microphone.
+    run.stream?.getAudioTracks().forEach(track => { track.enabled = false; });
+    this.send(run, { type: "input_audio_buffer.clear" });
+  }
+
+  interrupt(): void {
+    if (this.run?.balance) { this.run.balance.interrupt(); return; }
+    const run = this.run;
+    if (!run?.ready || !this.current(run) || !this.deps.canUse() || this.muted.output) return;
+    if (run.live) { run.live.interrupt(); return; }
+    run.interrupting = true;
+    for (const input of run.inputs.values()) {
+      if (input.decision === "pending") this.discardInput(run, input, false);
+      else if (input.decision === "accepted" && input.speaking) this.stopInput(run, input);
+    }
+    this.clearInputBuffer(run, !this.muted.input);
+    this.interruptOutput(run);
+    run.interrupting = false;
+  }
+
+  private stopInput(run: Run, input: InputTurn): void {
+    input.speaking = false; input.stopped = true;
+    if (run.speakingInput === input.id) run.speakingInput = null;
+    input.stoppedAt ??= this.now();
+    if (!input.timer && !input.expired && (input.asr === "pending" || !input.committed)) {
+      const expire = () => {
+        input.timer = undefined;
+        if (!this.current(run) || run.inputs.get(input.id) !== input || input.speaking || input.expired) return;
+        const remaining = input.stoppedAt! + INPUT_SETTLEMENT_TIMEOUT_MS - this.now();
+        if (remaining > 0) { input.timer = setTimeout(expire, remaining); return; }
+        if (input.references.size && input.decision === "pending") { this.discardInput(run, input); return; }
+        input.expired = true;
+        // Scheduling settlement never fabricates a final transcription receipt.
+        if (input.sustained && input.committed && this.inputEligible(run, input) && !input.included) input.reply = true;
+        this.flushResponse(run);
+      };
+      const remaining = input.stoppedAt + INPUT_SETTLEMENT_TIMEOUT_MS - this.now();
+      if (remaining <= 0) expire(); else input.timer = setTimeout(expire, remaining);
+    }
+  }
+
+  private confirmInput(run: Run, input: InputTurn, sustained = false): void {
+    if (!this.inputEligible(run, input)) return;
+    input.confirmed = true; input.sustained ||= sustained;
+    if (!input.included) input.reply = true;
+    // Late A must never interrupt B or a response newer than A's onset.
+    if (input.interrupted || input.expired || input.sequence !== run.inputSequence) return;
+    input.interrupted = true;
+    const sameResponse = input.targetRequest !== null && input.targetRequest === run.responseRequestId
+      && (!input.targetResponse || input.targetResponse === run.responseId);
+    run.interrupting = true;
+    if (sameResponse) this.interruptOutput(run);
+    for (const [id, item] of run.sceneItems) if (item.followUp) {
+      this.send(run, { type: "conversation.item.delete", item_id: item.id }); run.sceneItems.delete(id);
+      if (run.sceneItem === item) run.sceneItem = null;
+    }
+    run.pendingSceneResponse = [...run.sceneItems.values()].some(item => !item.active);
+    run.interrupting = false;
+  }
+
+  private finishInputTranscription(run: Run, itemId: string, text?: string): void {
+    const input = run.inputs.get(itemId);
+    if (!input || input.asr !== "pending") return;
+    if (input.protected) { this.discardInput(run, input, false); return; }
+    input.asr = text === undefined ? "failed" : "completed";
+    input.meaningful = text !== undefined && meaningfulVoiceText(text);
+    input.finalText = text;
+    if (input.references.size && !input.intentional) {
+      if (!input.meaningful) this.discardInput(run, input);
+      else this.classifyInput(run, input);
+      return;
+    }
+    this.acceptInputTranscription(run, input);
+  }
+
+  private acceptInputTranscription(run: Run, input: InputTurn): void {
+    const text = input.finalText, itemId = input.id;
+    input.decision = "accepted";
+    if (text !== undefined) this.emit({ type: "transcript", role: "user", id: `user:${itemId}:0`, text, final: true });
+    if (text !== undefined && !input.meaningful) this.emit({ type: "input", status: "discarded", id: `user:${itemId}:0` });
+    if (input.committed) { clearTimeout(input.timer); input.timer = undefined; }
+    if (input.meaningful && this.inputEligible(run, input)) {
+      if (!input.expired) this.confirmInput(run, input);
+      else if (input.committed && !input.included && input.sequence === run.inputSequence) input.reply = true;
+    }
+    this.flushResponse(run);
+  }
+
+  private interruptOutput(run: Run): void {
+    if (!(run.responseActive || run.playback || run.avatarPending) || run.interruptedResponse) return;
+    // Install tombstones before send(): avatar callbacks can clear synchronously.
+    run.interruptedResponse = true; run.cancelledRequest ||= run.responseRequested;
+    if (run.responseId) this.rememberCancelledResponse(run, run.responseId);
+    if (run.responseRetryPending) this.discardRejectedRequest(run);
+    const alreadyInterrupting = run.interrupting;
+    run.interrupting = true;
+    if (run.playback) run.outputTailUntil = this.now() + OUTPUT_ECHO_TAIL_MS;
+    if (run.responseActive) this.cancelResponse(run, run.responseId ?? undefined);
+    this.send(run, { type: "output_audio_buffer.clear" });
+    run.playback = false; run.avatarPending = false; run.interrupting = alreadyInterrupting;
+    this.emit({ type: "activity", status: "listening" }); this.emit({ type: "level", value: 0 });
+  }
+
+  private cancelResponse(run: Run, responseId?: string): void {
+    if (!run.responseActive && !responseId) return;
+    const eventId = `voice-cancel-${++run.cancellationSequence}`;
+    if (run.cancellationIds.size >= 128) run.cancellationIds.delete(run.cancellationIds.values().next().value!);
+    run.cancellationIds.add(eventId);
+    this.send(run, { type: "response.cancel", event_id: eventId, ...(responseId ? { response_id: responseId } : {}) });
+  }
+
+  setMuted(options: unknown): void {
+    if (!record(options) || typeof options.input !== "boolean" || typeof options.output !== "boolean") throw new VoiceFailure("Invalid voice mute options.");
+    if (options.input === this.muted.input && options.output === this.muted.output) return;
+    if (this.run && (options.input && !this.muted.input || options.output && !this.muted.output)) {
+      this.run.audibilityEpoch++;
+      this.run.takeFloor = false;
+      if (this.run.inputClear) this.run.inputClear.intent = false;
+      for (const input of this.run.inputs.values()) { input.eligible = false; input.reply = false; }
+    }
+    this.muted = { input: options.input, output: options.output };
+    if (this.run) this.applyMute(this.run);
+  }
+
+  private applyMute(run: Run): void {
+    if (run.balance) { run.balance.setMuted(this.muted); return; }
+    if (run.live) {
+      if (this.muted.output) run.audio?.setMuted(true);
+      run.live.setMuted(this.muted);
+      if (!this.muted.output) run.audio?.setMuted(false);
+      // A call that connected muted (a world that hung up while muted) still needs its entry start.
+      if (!this.muted.output && run.ready && !run.liveStarted) { run.liveStarted = true; run.live.start(); }
+      return;
+    }
+    this.prunePoliceScenes(run);
+    run.stream?.getAudioTracks().forEach(track => { track.enabled = !this.muted.input && !run.inputClear; });
+    run.audio?.setMuted(this.muted.output);
+    this.send(run, { type: "session.update", session: { type: "realtime", audio: { input: { turn_detection: {
+      type: "semantic_vad", eagerness: "medium", create_response: false, interrupt_response: false,
+    } } } } });
+    // Buffered genuine words still drain. Muting never clears native input.
+    if (this.muted.output) {
+      if (run.responseRetryPending) this.discardRejectedRequest(run);
+      run.pendingResponse = false; run.pendingSceneResponse = false;
+      if (run.inputs.size) run.interruptedInput = [...run.inputs.values()].at(-1)!.id;
+      this.interruptOutput(run);
+    }
+  }
+
+  updateContext(context: unknown): void {
+    if (!isVoiceContext(context)) throw new VoiceFailure("Voice context must be text or a valid public snapshot of at most 4,000 characters.");
+    if (this.run?.balanceFunding) {
+      const text = voiceContextText(context);
+      if (!validBalanceRecipe({ instructions: this.run.instructions, context: text, voice: this.run.voice ?? 'marin' })) throw new VoiceFailure('Voice context exceeds the character or UTF-8 budget.');
+      this.run.balance?.updateContext(text); this.run.context = copyVoiceContext(context); return;
+    }
+    if (this.run?.live) { this.run.context = copyVoiceContext(context); this.run.live.updateContext(context); return; }
+    if (this.run?.preflightContext) {
+      try { this.run.preflightContext.offer(context); }
+      catch { this.fail(this.run, new VoiceFailure('Too many room updates arrived while connecting voice. Reconnect to continue from your saved room.')); return; }
+    }
+    if (this.run) this.prunePoliceScenes(this.run);
+    if (!this.run || voiceContextText(this.run.context) === voiceContextText(context)) return;
+    this.run.context = copyVoiceContext(context);
+    if (this.run.ready) this.sendContext(this.run);
+  }
+
+  updateInstructions(instructions: unknown): void {
+    if (!boundedString(instructions, 12_000) || !instructions.trim()) throw new VoiceFailure("Voice instructions must contain 1–12,000 characters.");
+    const run = this.run;
+    if (!run) return;
+    if (run.balanceFunding) { this.emit({ type: 'input-hint', message: 'Character instructions stay fixed during this live call. Witnessed context can update between turns.' }); return; }
+    if (run.live) { run.instructions = instructions; run.live.updateInstructions(instructions); return; }
+    run.pendingInstructions = instructions === run.instructions ? null : instructions;
+    this.flushInstructions(run);
+  }
+
+  private flushInstructions(run: Run): boolean {
+    if (!run.ready || run.pendingInstructions === null || this.hasActiveGeneration(run) || this.inputBlocked(run) || run.playback || run.avatarPending) return false;
+    run.instructions = run.pendingInstructions; run.pendingInstructions = null;
+    this.sendContext(run);
+    return true;
+  }
+
+  private sendContext(run: Run): void {
+    this.send(run, { type: "session.update", session: { type: "realtime", instructions: composeVoiceInstructions(run.instructions, run.context) } });
+  }
+
+  reactToScene(notice: unknown): void {
+    if (!isVoiceSceneReaction(notice)) throw new VoiceFailure("Invalid voice scene notice.");
+    const run = this.run;
+    if (!run?.ready || !this.current(run) || !this.deps.canUse() || this.muted.output || run.sceneIds.has(notice.id)) return;
+    // Retain every accepted id for this connection, with no eviction/replay.
+    // Flooding drops new notices while ordinary conversation remains usable.
+    if (run.sceneIds.size >= 128) return;
+    const now = Date.now();
+    run.sceneTimes = run.sceneTimes.filter(time => now - time < 10_000);
+    if (run.sceneTimes.length >= 8) return;
+    const policeCurrent = policeSceneAuthority(notice);
+    const workCurrent = workSceneAuthority(notice);
+    const current = voiceSceneAuthority(notice);
+    if (current && !current()) {
+      if (notice.kind === 'reply') this.emit({ type: 'input-hint', message: 'The reply was saved but was not spoken because the conversation or room changed.' });
+      return;
+    }
+    this.prunePoliceScenes(run, !!policeCurrent);
+    run.sceneIds.add(notice.id); run.sceneTimes.push(now);
+    if (run.live) { run.live.scene(notice); return; }
+    const item = { id: `voice-scene-${run.sceneIds.size}`, acknowledged: false, active: false, followUp: notice.kind === "follow-up", bulletin: notice.kind === "bulletin" || notice.kind === 'reply', policeCurrent, workCurrent, current };
+    run.sceneItem = item;
+    run.sceneItems.set(notice.id, item);
+    this.send(run, { type: "conversation.item.create", item: { id: run.sceneItem.id, type: "message", role: "user", content: [{
+      type: "input_text", text: formatVoiceSceneReaction(notice),
+    }] } });
+    this.requestResponse(run, true);
+  }
+
+  /** Delete obsolete host-validated instructions; police milestones supersede
+   * only other police milestones, never a still-current work receipt. A physical clock
+   * never cancels an active reply or clears its audio. Latest context is already
+   * sent before the surviving milestone requests the next quiet turn. */
+  private prunePoliceScenes(run: Run, superseded = false): void {
+    let removed = false;
+    for (const [noticeId, item] of run.sceneItems) {
+      const obsolete = item.current && !item.current() || item.policeCurrent && (superseded || !item.policeCurrent()) || item.workCurrent && !item.workCurrent();
+      if (item.active || !obsolete) continue;
+      this.send(run, { type: "conversation.item.delete", item_id: item.id });
+      run.sceneItems.delete(noticeId);
+      removed = true;
+      if (run.sceneItem === item) run.sceneItem = null;
+    }
+    if (removed) run.pendingSceneResponse = [...run.sceneItems.values()].some(item => !item.active);
+  }
+
+  cancelSceneReaction(id?: unknown): void {
+    if (id !== undefined && !identifier(id)) throw new VoiceFailure("Invalid voice scene id.");
+    const run = this.run;
+    if (!run) return;
+    if (run.live) { run.live.cancelScene(id); return; }
+    let active = false;
+    for (const [noticeId, item] of run.sceneItems) {
+      if (id === undefined ? !item.followUp : noticeId !== id) continue;
+      active ||= item.active;
+      this.send(run, { type: "conversation.item.delete", item_id: item.id });
+      run.sceneItems.delete(noticeId);
+      if (run.sceneItem === item) run.sceneItem = null;
+    }
+    run.pendingSceneResponse = [...run.sceneItems.values()].some(item => !item.active);
+    if (active) {
+      this.interruptOutput(run);
+      this.emit({ type: "activity", status: "listening" }); this.emit({ type: "level", value: 0 });
+      this.flushInstructions(run); this.retireScenes(run); this.flushResponse(run);
+    }
+  }
+
+  private retireScenes(run: Run): void {
+    if (run.interrupting || this.hasActiveGeneration(run) || run.playback || run.avatarPending) return;
+    for (const [noticeId, item] of run.sceneItems) {
+      if (!item.active) continue;
+      // Completed questions and broadcasts must not remain standing commands.
+      // Delete only the injected prompt; generated dialogue remains history.
+      if (item.followUp || item.bulletin) this.send(run, { type: "conversation.item.delete", item_id: item.id });
+      run.sceneItems.delete(noticeId);
+      if (run.sceneItem === item) run.sceneItem = null;
+    }
+  }
+
+  resolveDelegation(id: unknown, result: unknown): void {
+    if(this.run && this.current(this.run)) this.run.live?.resolveDelegation(id,result);
+  }
+  resolveTool(callId: unknown, result: unknown): void {
+    const run = this.run;
+    if (!run || !identifier(callId) || run.tools.get(callId) !== false) return;
+    if (!record(result) || typeof result.accepted !== "boolean" || (result.focus !== undefined && !focus(result.focus)) || (result.reason !== undefined && !boundedString(result.reason, 240))) throw new VoiceFailure("Invalid inspection response.");
+    run.tools.set(callId, true);
+    this.send(run, { type: "conversation.item.create", item: { type: "function_call_output", call_id: callId,
+      output: JSON.stringify({ accepted: result.accepted, ...(result.focus !== undefined ? { focus: result.focus } : {}), ...(result.reason !== undefined ? { reason: result.reason } : {}) }),
+    } });
+    if (!this.muted.output) this.requestResponse(run);
+  }
+
+  setSpatial(pose: unknown): void {
+    if (!record(pose) || !["x", "z", "yaw", "sourceX", "sourceZ"].every(key => typeof pose[key] === "number" && Number.isFinite(pose[key]) && Math.abs(pose[key]) <= 10_000)) throw new VoiceFailure("Invalid voice spatial pose.");
+    this.pose = { x: pose.x as number, z: pose.z as number, yaw: pose.yaw as number, sourceX: pose.sourceX as number, sourceZ: pose.sourceZ as number };
+    this.run?.audio?.setSpatial(this.pose);
+    this.run?.balance?.setSpatial(this.pose);
+  }
+
+  private rememberCancelledResponse(run: Run, id: string): void {
+    if (run.cancelledResponses.size >= 512 && !run.cancelledResponses.has(id)) {
+      this.fail(run, new VoiceFailure("This voice conversation has reached its limit. Start voice again to continue.")); return;
+    }
+    run.cancelledResponses.add(id);
+  }
+
+  private receive(run: Run, data: unknown): void {
+    if (typeof data !== "string" || data.length > 65_536) return;
+    let event: unknown; try { event = JSON.parse(data); } catch { return; }
+    if (!record(event) || typeof event.type !== "string") return;
+    if (run.live) { run.live.receive(event); return; }
+    if (identifier(event.event_id)) {
+      if (run.eventIds.has(event.event_id)) return;
+      // Stop rather than evict duplicate protection in an unbounded session.
+      if (run.eventIds.size >= 20_000) { this.fail(run, new VoiceFailure("This voice conversation has reached its limit. Start voice again to continue.")); return; }
+      run.eventIds.add(event.event_id);
+    }
+    const responseId = identifier(event.response_id) ? event.response_id
+      : record(event.response) && identifier(event.response.id) ? event.response.id : null;
+    if (event.type === "input_audio_buffer.cleared" && run.inputClear) {
+      clearTimeout(run.inputClear.timer);
+      run.takeFloor = run.inputClear.intent && !this.muted.input && !this.muted.output; run.inputClear = null;
+      for (const input of run.inputs.values()) if (input.decision === "discarding" && !input.committed) this.retireInput(input);
+      run.stream?.getAudioTracks().forEach(track => { track.enabled = !this.muted.input; });
+      this.flushResponse(run); return;
+    }
+    if (event.type === "conversation.item.deleted" && identifier(event.item_id)) {
+      const input = run.inputs.get(event.item_id);
+      if (input?.deleteSent && input.decision === "discarding") { this.retireInput(input); this.flushResponse(run); }
+      return;
+    }
+    // Terminal inputs are tombstones, including for late native commits after a clear.
+    const nativeInput = identifier(event.item_id) ? run.inputs.get(event.item_id) : undefined;
+    if (nativeInput && (nativeInput.decision === "discarding" || nativeInput.decision === "discarded")
+      && (event.type.startsWith("input_audio_buffer.") || event.type.startsWith("conversation.item.input_audio_transcription."))) {
+      if (event.type === "input_audio_buffer.committed") { nativeInput.committed = true; this.deleteInput(run, nativeInput); }
+      return;
+    }
+    if (event.type === "response.created") {
+      if (responseId && run.cancelledResponses.has(responseId) && responseId !== run.responseId) return;
+      const metadata = record(event.response) && record(event.response.metadata) ? event.response.metadata : null;
+      const requestId = metadata && identifier(metadata.yumina_request_id) ? metadata.yumina_request_id : null;
+      if (responseId && responseId === run.responseId && !run.responseRequested) return;
+      const requested = requestId !== null && requestId === run.responseRequestId && run.responseRequested;
+      // Managed turns accept only the matching request receipt. Foreign or
+      // pre-cut replies cannot consume this request or its input/scene cutoff.
+      if (!requested || !run.responseActive) {
+        if (responseId) {
+          if (!requestId && run.responseRequested) run.responseOverlap = { id: responseId, retired: false };
+          this.rememberCancelledResponse(run, responseId); this.cancelResponse(run, responseId);
+        }
+        return;
+      }
+      run.responseId = responseId;
+      run.interruptedResponse = run.cancelledRequest || this.muted.output;
+      run.cancelledRequest = false;
+      if (run.interruptedResponse && responseId) this.rememberCancelledResponse(run, responseId);
+    }
+    const responseEvent = event.type.startsWith("response.") || event.type.startsWith("output_audio_buffer.");
+    const staleResponse = responseEvent && (responseId ? run.cancelledResponses.has(responseId) : run.interruptedResponse);
+    if (staleResponse && event.type !== "response.created") {
+      if (event.type === "response.done" && responseId === run.responseOverlap?.id) {
+        run.responseOverlap.retired = true;
+        this.flushResponse(run);
+        return;
+      }
+      if (event.type === "response.done" && (!responseId || responseId === run.responseId)) {
+        run.responseActive = false; run.responseRequested = false; run.cancelledRequest = false;
+        this.retireScenes(run); this.flushResponse(run);
+        this.emitActivity(run);
+      }
+      return;
+    }
+    if (responseEvent && event.type !== "response.created" && responseId && responseId !== run.responseId) return;
+    if (event.type === "input_audio_buffer.speech_started" && identifier(event.item_id)) {
+      const newCapture = !run.inputs.has(event.item_id);
+      const input = this.inputTurn(run, event.item_id, run.takeFloor && newCapture);
+      if (!input) return;
+      if (input.decision === "discarding" || input.decision === "discarded") return;
+      if (run.takeFloor && newCapture) {
+        input.intentional = true; input.references.clear(); run.takeFloor = false;
+      }
+      if (run.responseRetryPending && this.inputEligible(run, input)) {
+        this.discardRejectedRequest(run); run.pendingSceneResponse = true;
+      }
+      run.interruptedInput = this.muted.input || this.muted.output ? input.id : null;
+      if (!input.speaking) input.activity = new VoiceActivityWindow(this.now());
+      input.speaking = true; input.stopped = false; run.speakingInput = input.id;
+      this.markOverlap(run, input);
+    }
+    if (run.avatar && !staleResponse && (run.audio as AvatarAudio | undefined)?.handleProviderEvent(event)) return;
+    if (event.type === "error") {
+      // An already-finished response is safe to cancel. The provider may return
+      // an error for that request while keeping the transcription session valid.
+      if (record(event.error) && identifier(event.error.event_id) && run.cancellationIds.delete(event.error.event_id)) return;
+      // Retry only this exact request's single-conversation collision, once,
+      // after the identified interrupted response has actually retired.
+      if (record(event.error) && event.error.code === "conversation_already_has_active_response"
+        && event.error.event_id === run.responseRequestId && run.responseRequested && run.interruptedInput !== null && !run.responseRetryUsed) {
+        if (this.muted.output || run.cancelledRequest) this.discardRejectedRequest(run);
+        else { run.responseRetryPending = true; this.retryInterruptedResponse(run); }
+        return;
+      }
+      this.fail(run, new VoiceFailure("The voice provider reported a problem. Start voice again or continue without voice.")); return;
+    }
+    if (event.type === "conversation.item.added" || event.type === "conversation.item.created") {
+      if (record(event.item)) for (const item of run.sceneItems.values()) if (item.id === event.item.id) item.acknowledged = true;
+      const input = record(event.item) && identifier(event.item.id) ? run.inputs.get(event.item.id) : undefined;
+      if (input && (input.decision === "discarding" || input.decision === "discarded")) { input.committed = true; this.deleteInput(run, input); }
+      return;
+    }
+    if (event.type === "response.created") {
+      run.responseRequested = false; run.responseActive = true;
+      if (this.muted.output || run.interruptedResponse) this.cancelResponse(run, responseId ?? undefined);
+      this.emitActivity(run);
+      return;
+    }
+    if (event.type === "output_audio_buffer.started" || event.type === "output_audio_buffer.stopped" || event.type === "output_audio_buffer.cleared") {
+      this.playback(run, event.type === "output_audio_buffer.started" ? "started" : event.type === "output_audio_buffer.stopped" ? "stopped" : "cleared");
+      return;
+    }
+    if (event.type === "response.done") {
+      if (record(event.response) && (event.response.status === "failed" || event.response.status === "cancelled")) {
+        if (event.response.status === "failed") {
+          this.fail(run, new VoiceFailure("The voice response failed. Start voice again or continue without voice.")); return;
+        }
+        this.interruptOutput(run);
+      }
+      run.responseActive = false; run.responseRequested = false;
+      this.retireScenes(run);
+      this.flushResponse(run);
+      this.emitActivity(run);
+      return;
+    }
+    if (event.type === "response.function_call_arguments.done") { this.receiveTool(run, event); return; }
+    if (event.type === "input_audio_buffer.speech_started" || event.type === "input_audio_buffer.speech_stopped" || event.type === "input_audio_buffer.committed") {
+      if (identifier(event.item_id)) {
+        const input = this.inputTurn(run, event.item_id);
+        if (!input) return;
+        if (input.decision === "discarding" || input.decision === "discarded") {
+          if (event.type.endsWith("committed")) { input.committed = true; this.deleteInput(run, input); }
+          return;
+        }
+        if (event.type.endsWith("committed")) {
+          input.committed = true;
+          if (run.interruptionMode === "manual") this.markOverlap(run, input);
+          if (input.asr !== "pending") { clearTimeout(input.timer); input.timer = undefined; }
+          if (input.expired && (input.sustained || input.meaningful && input.sequence === run.inputSequence) && !input.included && this.inputEligible(run, input)) input.reply = true;
+        } else {
+          const speaking = event.type.endsWith("speech_started");
+          if (!speaking) this.stopInput(run, input);
+          if (run.interruptionMode === "manual") this.markOverlap(run, input);
+          if (input.protected) return;
+          this.emitActivity(run, speaking ? "listening" : "thinking");
+          if (input.asr === "pending") this.emit({ type: "input", status: speaking ? "speaking" : "transcribing", id: `user:${event.item_id}:0` });
+        }
+        this.flushResponse(run);
+      }
+      return;
+    }
+    if (event.type === "conversation.item.input_audio_transcription.failed") {
+      if (identifier(event.item_id) && event.content_index === 0) {
+        const input = run.inputs.get(event.item_id);
+        if (input && input.asr !== "pending" || run.captions.get(`user:${event.item_id}:0`)?.final) return;
+        this.emit({ type: "input", status: "discarded", id: `user:${event.item_id}:0` });
+        this.finishInputTranscription(run, event.item_id);
+      }
+      return;
+    }
+    const user = event.type === "conversation.item.input_audio_transcription.delta" || event.type === "conversation.item.input_audio_transcription.completed";
+    const assistant = event.type === "response.output_audio_transcript.delta" || event.type === "response.output_audio_transcript.done";
+    if (!user && !assistant) return;
+    if (!identifier(event.item_id) || !Number.isInteger(event.content_index) || (event.content_index as number) < 0 || (event.content_index as number) > 20) return;
+    const final = event.type.endsWith(".completed") || event.type.endsWith(".done");
+    const text = final ? event.transcript : event.delta;
+    if (!boundedString(text, 8_000)) return;
+    const role = user ? "user" : "assistant", id = `${role}:${event.item_id}:${event.content_index}`;
+    // Hold all input deltas: playback can begin after onset, before final ASR.
+    // The existing transcript event is durable to some consumers.
+    if (user) {
+      const input = this.inputTurn(run, event.item_id);
+      if (!input || input.decision === "discarding" || input.decision === "discarded") return;
+      this.markOverlap(run, input);
+    }
+    const previous = run.captions.get(id);
+    if (previous?.final) return;
+    if (!previous && run.captions.size >= 512) { this.fail(run, new VoiceFailure("This voice conversation has reached its limit. Start voice again to continue.")); return; }
+    const combined = final ? text : (previous?.text ?? "") + text;
+    if (combined.length > 8_000) return;
+    run.captions.set(id, { text: combined, final });
+    if (assistant) {
+      this.emit({ type: "transcript", role, id, text: combined, final });
+      if (run.responseRequestId) {
+        let reference = run.references.get(run.responseRequestId);
+        if (!reference) { reference = new Map(); run.references.set(run.responseRequestId, reference); }
+        reference.set(id, { text: combined, final });
+        for (const input of run.inputs.values()) if (input.references.has(run.responseRequestId)) this.classifyInput(run, input);
+      }
+    }
+    if (user && final && event.content_index === 0) this.finishInputTranscription(run, event.item_id, combined);
+  }
+
+  private receiveTool(run: Run, event: Record<string, unknown>): void {
+    if (run.toolAllowlist?.length === 0) return;
+    if (!identifier(event.call_id) || run.tools.has(event.call_id) || run.tools.size >= 64) return;
+    run.tools.set(event.call_id, true);
+    if (event.name !== "request_inspection_focus" || !boundedString(event.arguments, 1_024)) return;
+    let args: unknown; try { args = JSON.parse(event.arguments); } catch { return; }
+    if (!record(args) || !focus(args.focus) || !boundedString(args.reason, 240) || Object.keys(args).some(key => key !== "focus" && key !== "reason")) return;
+    run.tools.set(event.call_id, false);
+    if (this.muted.output) { this.resolveTool(event.call_id, { accepted: false, reason: "The encounter is paused." }); return; }
+    this.emit({ type: "tool", callId: event.call_id, name: "request_inspection_focus", arguments: { focus: args.focus as "desk" | "door" | "bed", reason: args.reason } });
+  }
+
+  private playback(run: Run, state: "started" | "stopped" | "cleared"): void {
+    if (state === "started" && (run.interruptedResponse || this.muted.output)) return;
+    const wasPlaying = run.playback;
+    run.avatarPending = false;
+    run.playback = state === "started" && !this.muted.output;
+    if (run.playback) {
+      run.outputReference = run.responseRequestId;
+      for (const input of run.inputs.values()) if (input.speaking || run.interruptionMode === "manual") this.markOverlap(run, input);
+    } else if (wasPlaying) run.outputTailUntil = this.now() + OUTPUT_ECHO_TAIL_MS;
+    this.emitActivity(run);
+    this.retireScenes(run); this.flushResponse(run);
+  }
+
+  private async connectAvatar(run: Run): Promise<void> {
+    run.avatarStarting = true;
+    this.emit({ type: "video-status", status: "connecting" });
+    this.startLifetime(run);
+    const response = await this.wait(run, this.deps.fetch(`${this.deps.apiBase ?? ""}/api/voice/${encodeURIComponent(this.deps.sessionId)}/avatar/start`, {
+      method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "X-Voice-Connection-Id": run.connectionId },
+      body: "{}", signal: run.abort.signal,
+    }));
+    const connection: unknown = await this.wait(run, response.json()); this.check(run);
+    if (!response.ok && record(connection) && connection.code === "AVATAR_DAILY_LIMIT") {
+      throw new VoiceFailure("The testing live-video daily allowance is exhausted. You can keep playing by typing and try voice again after the allowance resets.");
+    }
+    if (!response.ok || !record(connection) || !identifier(connection.sessionId)
+      || !boundedString(connection.livekitClientToken, 8192) || !connection.livekitClientToken
+      || !boundedString(connection.livekitUrl, 4096) || !connection.livekitUrl.startsWith("wss://")
+      || !boundedString(connection.wsUrl, 8192) || !connection.wsUrl.startsWith("wss://")
+      || connection.maxDurationSeconds !== 300) {
+      throw new VoiceFailure("The live telescreen video could not connect. Please wait a moment and try again.");
+    }
+    this.scheduleAvatarHeartbeat(run);
+    await this.wait(run, (run.audio as AvatarAudio).connectAvatar(connection as unknown as AvatarConnection));
+    this.check(run);
+  }
+
+  private scheduleAvatarHeartbeat(run: Run, failures = 0): void {
+    run.heartbeat = setTimeout(async () => {
+      if (!this.current(run)) return;
+      try {
+        const response = await this.deps.fetch(`${this.deps.apiBase ?? ""}/api/voice/${encodeURIComponent(this.deps.sessionId)}/avatar/heartbeat`, {
+          method: "POST", credentials: "include", headers: { "X-Voice-Connection-Id": run.connectionId },
+          signal: AbortSignal.any([run.abort.signal, AbortSignal.timeout(10_000)]),
+        });
+        if ([401, 403, 404, 409].includes(response.status)) {
+          if (this.current(run)) this.fail(run, new VoiceFailure('The live telescreen connection ended. Start voice again to reconnect.'));
+          return;
+        }
+        if (!response.ok) throw new Error('Heartbeat temporarily unavailable');
+        const result: unknown = await response.json();
+        if (!record(result) || result.active !== true) {
+          if (this.current(run)) this.fail(run, new VoiceFailure('The live telescreen connection ended. Start voice again to reconnect.'));
+          return;
+        }
+        if (this.current(run)) this.scheduleAvatarHeartbeat(run);
+      } catch {
+        if (this.current(run)) {
+          if (failures < 2) this.scheduleAvatarHeartbeat(run, failures + 1);
+          else this.fail(run, new VoiceFailure("The live telescreen connection ended after repeated network failures. Start voice again to reconnect."));
+        }
+      }
+    }, failures ? Math.min(this.deps.avatarHeartbeatMs ?? 2000, 2000) : this.deps.avatarHeartbeatMs ?? 20_000);
+  }
+
+  ackVideoFrame(id: unknown): void {
+    if (typeof id !== "number" || !Number.isSafeInteger(id) || id < 0) throw new VoiceFailure("Invalid video frame acknowledgement.");
+    if (this.run?.avatar) (this.run.audio as AvatarAudio | undefined)?.ackVideoFrame(id);
+  }
+}
+
+/** Only these typed methods are callable from a card; never accept raw provider events. */
+export function dispatchVoiceCall(controller: VoiceController, method: string, args: unknown[]): ReturnType<VoiceAPI["start"]> | ReturnType<VoiceAPI["prepare"]> | ReturnType<VoiceAPI['getConfig']> | ReturnType<VoiceAPI['finish']> | void {
+  if (!Array.isArray(args) || args.length > 2) throw new VoiceFailure("Invalid voice arguments.");
+  switch (method) {
+    case 'realtimeVoice.getConfig':
+      if (args.length !== 0) throw new VoiceFailure('Invalid voice arguments.');
+      return controller.getConfig();
+    case 'realtimeVoice.finish':
+      if (args.length !== 0) throw new VoiceFailure('Invalid voice arguments.');
+      return controller.finish();
+    case "realtimeVoice.prepare": return controller.prepare(args[0]);
+    case "realtimeVoice.start": return controller.start(args[0]);
+    case "realtimeVoice.stop": return controller.stop();
+    case "realtimeVoice.interrupt":
+      if (args.length !== 0) throw new VoiceFailure("Invalid voice arguments.");
+      return controller.interrupt();
+    case "realtimeVoice.setMuted": return controller.setMuted(args[0]);
+    case "realtimeVoice.updateContext": return controller.updateContext(args[0]);
+    case "realtimeVoice.updateInstructions":
+      if (args.length !== 1) throw new VoiceFailure("Invalid voice arguments.");
+      return controller.updateInstructions(args[0]);
+    case "realtimeVoice.cancelSceneReaction":
+      if (args.length > 1) throw new VoiceFailure("Invalid voice arguments.");
+      return controller.cancelSceneReaction(args[0]);
+    case "realtimeVoice.reactToScene":
+      if (args.length !== 1) throw new VoiceFailure("Invalid voice arguments.");
+      return controller.reactToScene(args[0]);
+    case "realtimeVoice.resolveTool": return controller.resolveTool(args[0], args[1]);
+    case "realtimeVoice.resolveDelegation": return controller.resolveDelegation(args[0],args[1]);
+    case "realtimeVoice.setSpatial": return controller.setSpatial(args[0]);
+    case "realtimeVoice.ackVideoFrame":
+      if (args.length !== 1) throw new VoiceFailure("Invalid video frame acknowledgement.");
+      return controller.ackVideoFrame(args[0]);
+    default: throw new VoiceFailure("Unknown voice method.");
+  }
+}

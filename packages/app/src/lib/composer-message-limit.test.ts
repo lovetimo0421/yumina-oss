@@ -7,8 +7,8 @@ import {
 } from "./composer-message-limit";
 
 describe("composer message limit", () => {
-  it("uses the fifteen-thousand-character composer limit", () => {
-    assert.equal(MAX_USER_MESSAGE_CHARS, 15_000);
+  it("uses the fifty-thousand-character composer limit", () => {
+    assert.equal(MAX_USER_MESSAGE_CHARS, 50_000);
   });
 
   it("keeps a message exactly at the server limit", () => {

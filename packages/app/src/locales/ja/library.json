@@ -202,7 +202,9 @@
     "noDescription": "説明なし",
     "get": "入手",
     "deleteBundle": "バンドルを削除",
-    "deleteConfirm": "<strong>{{name}}</strong> を削除してもよろしいですか? この操作は取り消せません。"
+    "deleteConfirm": "<strong>{{name}}</strong> を完全に削除しますか？",
+    "importBundle": "バンドルをインポート",
+    "deleteConsequence": "バンドルと編集可能な内容は完全に削除されます。"
   },
   "favorites": {
     "backToLibrary": "ライブラリに戻る",
@@ -320,7 +322,8 @@
       "viewInAssets": "アセットで表示",
       "shareInCommunity": "コミュニティで共有"
     },
-    "reviews": "レビュー"
+    "reviews": "レビュー",
+    "overviewSubtitle": "主要な情報、メモ、説明をひとつにまとめて表示。"
   },
   "bulk": {
     "select": "選択",
@@ -355,7 +358,11 @@
     "deleteAction": "削除",
     "deletePermanently": "完全に削除",
     "deleteIrreversible": "この操作は取り消せません。",
-    "authorDoesNotAllowEditing": "作者は編集を許可していません"
+    "authorDoesNotAllowEditing": "作者は編集を許可していません",
+    "deleteProjectConsequenceFiles": "編集可能なプロジェクトとローカルデータは完全に削除されます。",
+    "deletePublishedConsequence": "この公開ワールドを保存したプレイヤーはアクセスできなくなります。",
+    "removeGameConsequenceHistory": "このゲームの保存済みセッションとプレイ履歴は削除されます。",
+    "removeGameConsequenceHub": "公開済みゲームは引き続き「発見」から利用できます。"
   },
   "card": {
     "play": "プレイ",
@@ -398,6 +405,10 @@
     "deleteBundleFailed": "バンドルを削除できません",
     "downloadBundleFailed": "バンドルをダウンロードできません",
     "deleteAssetFailed": "アセットを削除できません",
+    "deleteAssetVersioned": "このアセットは保存されたカードの履歴で使用されているため、その履歴が保持されている間は削除できません。",
+
+    "deleteAssetInUse": "この画像は「{{name}}」のカバーとして使われています。先にカバーを変更してください。",
+    "deleteAssetUsedByCard": "「{{name}}」がまだこのファイルを使っています。先にそのカードから外してください。",
     "renameAssetFailed": "アセット名を変更できません",
     "moveAssetFailed": "アセットを移動できません",
     "createFolderFailed": "フォルダを作成できません",
@@ -412,7 +423,7 @@
   },
   "create": {
     "title": "新規作成",
-    "mobileTitle": "新しい物語を作成",
+    "mobileTitle": "新しい創作を始めよう",
     "mobileInstructionTitle": "創作方法を選択",
     "import": "インポート",
     "back": "戻る",
@@ -424,7 +435,8 @@
       "signInBody": "ログインすると、画像と音楽の生成、作品の保存、生成履歴の確認ができます。",
       "signInAction": "画像や音楽を生成",
       "signIn": "ログインして始める"
-    }
+    },
+    "mobileSubtitle": "世界を作り、キャラクターを描き、アイデアを一枚の絵に。"
   },
   "time": {
     "justNow": "たった今",
@@ -436,9 +448,9 @@
   },
   "templates": {
     "blank": "空のプロジェクト",
-    "blankDesc": "空のワールド — プリセットなし。",
+    "blankDesc": "空のワールド。既定のナレーションだけが入っています。",
     "importWorld": "ワールドをインポート",
-    "importWorldDesc": "JSON ファイルからワールドをインポートします。",
+    "importWorldDesc": "Yumina カードをアップロード。",
     "characterChat": "キャラクターチャット",
     "characterChatDesc": "ペルソナをデザインして、没入感のある 1 対 1 の対話を楽しめます。",
     "worldSimulation": "ワールドシミュレーション",
@@ -500,10 +512,10 @@
     "referenceEmpty": "ライブラリに画像がありません。先にアップロードまたは生成してください",
     "folderLabel": "保存先フォルダ",
     "noFolder": "すべての素材（フォルダなし）",
-    "price": "{{count}} Mushie",
+    "price": "{{count}} マッシー",
     "eta": "約{{count}}分",
-    "balance": "残高：{{count}} Mushie",
-    "submit": "生成（{{count}} Mushie）",
+    "balance": "残高：{{count}} マッシー",
+    "submit": "生成（{{count}} マッシー）",
     "submitPlain": "生成",
     "recentTitle": "最近の生成",
     "status": {
@@ -516,15 +528,15 @@
     "refunded": "返金済み",
     "uploadingReference": "参照画像をアップロード中…",
     "partialDelivery": "{{requested}} 枚中 {{delivered}} 枚を生成しました",
-    "refundCompleteAmount": "{{amount}} Mushie を返金しました",
-    "refundPendingAmount": "{{amount}} Mushie の返金処理中",
+    "refundCompleteAmount": "{{amount}} マッシーを返金しました",
+    "refundPendingAmount": "{{amount}} マッシーの返金処理中",
     "refundPending": "返金処理中",
     "cancel": "キャンセル",
     "doneToast": "生成が完了し、ライブラリに保存されました",
     "failedToast": "生成に失敗しました",
-    "cancelledToast": "キャンセルしました。Mushieは返金されました",
+    "cancelledToast": "キャンセルしました。マッシーは返金されました",
     "cancelFailed": "生成をキャンセルできませんでした",
-    "errorNoCredits": "Mushieが不足しています",
+    "errorNoCredits": "マッシーが不足しています",
     "errorBlocked": "このプロンプトは許可されていません",
     "errorTooMany": "現在の生成が完了するまでお待ちください",
     "errorDisabled": "生成機能は現在利用できません",
@@ -555,7 +567,7 @@
       "negativePlaceholder": "避けたい要素",
       "checkpoint": "ベースモデル",
       "checkpointDefault": "プラットフォーム標準（Animagine XL）",
-      "checkpointSurcharge": "カスタムベースモデルは1枚につき60 Mushie追加（モデル全体の読み込みにGPU時間がかかります）。",
+      "checkpointSurcharge": "カスタムベースモデルは1枚につき60 マッシー追加（モデル全体の読み込みにGPU時間がかかります）。",
       "loras": "LoRA",
       "addLora": "LoRAを追加…",
       "duration": "長さ",
@@ -676,35 +688,42 @@
       "surcharge": "+{{count}}",
       "anime": {
         "name": "アニメ",
-        "desc": "クリアなアニメイラスト（Animagine XL）。デフォルト。",
-        "detail": "Danbooruタグ駆動；キャラ立ち絵と綺麗な線画が得意。"
+        "variant": "クラシック"
       },
       "nsfw-anime": {
-        "name": "NSFWアニメ",
-        "desc": "Illustrious系の無修正アニメ——成人向けキャラアートに最適",
-        "detail": "成人向けDanbooruタグを完全理解；キャラLoRAとの併用が効果的。"
+        "name": "無制限アニメ",
+        "variant": "クラシック"
       },
       "realistic": {
-        "name": "リアル",
-        "desc": "フォトリアルな人物と風景（Juggernaut XL）",
-        "detail": "タグではなく自然な文章で；光やレンズの語（柔らかい光、85mm）が効きます。"
+        "name": "リアル"
       },
       "semireal": {
-        "name": "2.5D",
-        "desc": "アニメと実写の中間——厚塗り/ゲームCG質感",
-        "detail": "タグでも文章でもOK；雰囲気のあるキャラシーンが得意。"
+        "name": "2.5D"
       },
       "guofeng": {
-        "name": "国風",
-        "desc": "中華美学——漢服、水墨の情緒、古典的な情景",
-        "detail": "衣装や舞台を文章で（漢服、水墨、東屋）描写すると味が出ます。"
+        "name": "水墨画"
       },
       "western": {
-        "name": "洋風",
-        "desc": "欧米ファンタジー/コミック調（ZavyChroma XL）",
-        "detail": "文章プロンプト向き；ドラマチックな光と厚塗りファンタジーが得意。"
+        "name": "洋風"
       },
-      "surchargeChip": "+{{count}} Mushie"
+      "surchargeChip": "+{{count}} マッシー",
+      "version": "バージョン",
+      "anime-new": {
+        "name": "アニメ · 新作",
+        "variant": "新作"
+      },
+      "anime-story": {
+        "name": "アニメ · ストーリー",
+        "variant": "ストーリー"
+      },
+      "anime-anima": {
+        "name": "アニメ · Anima",
+        "variant": "Anima"
+      },
+      "nsfw-anima": {
+        "name": "無制限アニメ · Anima",
+        "variant": "Anima"
+      }
     },
     "videoStyleFromReference": "動画は参照画像の画風をそのまま引き継ぎます。",
     "makeReference": "まず一枚生成する",
@@ -751,7 +770,29 @@
       "PROVIDER_REJECTED": "モデル側がこのリクエストを拒否しました。課金はされていません。別のモデルでお試しください。",
       "CONTENT_FILTERED": "モデル提供元がこの内容を拒否しました（Yumina 側の制限ではありません）。課金は発生していません。別のモデルを選ぶか、説明を変えてお試しください。",
       "ENHANCE_REFUSED": "AI がこの説明を最適化できませんでした。入力内容は変更されていません。言い換えて再試行するか、そのまま生成してください。",
-      "ENHANCE_FAILED": "プロンプト最適化は現在利用できません。入力内容は変更されていません。しばらくしてから再試行してください。"
+      "ENHANCE_FAILED": "プロンプト最適化は現在利用できません。入力内容は変更されていません。しばらくしてから再試行してください。",
+      "VIDEO_BAD_ASPECT": "このモデルはこの画面比率に非対応です。",
+      "VIDEO_BAD_RESOLUTION": "このモデルはこの解像度に非対応です。",
+      "VIDEO_BAD_DURATION": "このモデルはこの長さに非対応です。",
+      "VIDEO_NO_FIRST_FRAME": "このモデルは最初のフレームを指定できません。",
+      "VIDEO_NO_LAST_FRAME": "このモデルは最後のフレームを指定できません。",
+      "VIDEO_ONE_FRAME_ONLY": "このモデルは最初か最後のフレームのどちらか 1 枚だけです。",
+      "VIDEO_TOO_MANY_REFERENCES": "キャラ参考画像がこのモデルの上限を超えています。",
+      "VIDEO_FRAMES_OR_REFERENCES": "このモデルはフレームかキャラ参考画像のどちらか一方だけです。",
+      "VIDEO_LAST_NEEDS_FIRST": "このモデルは最後のフレームの前に最初のフレームが必要です。",
+      "VIDEO_NEEDS_FRAME": "このモデルには参考画像が必要です。",
+      "VIDEO_NO_SOUND": "このモデルは音声を生成できません。",
+      "VIDEO_NO_TUNING": "このモデルはこれらのパラメータを公開していません。",
+      "VIDEO_FAST_FIXED": "4 ステップ高速がオンの間はステップ数と CFG を変えられません。",
+      "VIDEO_NO_LORAS": "このモデルには LoRA を使えません。",
+      "MODEL_FAMILY": "この LoRA はモデルに合いません。動画は Wan LoRA、画像は SDXL LoRA です。",
+      "VIDEO_STYLE_PROMPT": "この説明から画風つきの最初のフレームを作れませんでした。英語で書き直すか、画風を「指定しない」にしてください。料金はかかっていません。",
+      "VIDEO_BAD_STYLE": "この画風はこの動画では使えません。別の画風を選んでください。",
+      "VIDEO_NO_STYLE": "この画風はこの動画では使えません。別の画風を選んでください。",
+      "VIDEO_STYLE_WITH_FRAME": "この画風はこの動画では使えません。別の画風を選んでください。",
+      "QUALITY_BATCH": "4Kは1回に1枚だけです。枚数を1にしてもう一度お試しください。",
+      "MODEL_UNAVAILABLE": "このモデルは現在使えません。別のモデルを選んでください。",
+      "REFERENCE_UNSUPPORTED": "このモデルは参考画像を使えません。画像を外すか、別のモデルを選んでください。"
     },
     "queue": {
       "waiting": "順番待ち中…",
@@ -784,12 +825,40 @@
       "fewer": "1枚減らす",
       "more": "1枚増やす",
       "tier": {
+        "seedreamFlash": "最安",
         "seedreamLite": "速い",
         "seedreamPro": "バランス",
-        "nanoBanana2": "編集に強い",
+        "nanoBanana21": "最新 · 編集に強い",
+        "nanoBanana2": "512 対応",
         "nanoBananaPro": "高品質",
-        "gptImage2": "最高 · 遅い"
-      }
+        "gptImage25Flare": "精緻 · 速い",
+        "gptImage25Sunburst": "最高 · 遅い",
+        "gptImage2": "前世代 · 遅い",
+        "flux2Pro": "コスパ",
+        "flux2Max": "高精細",
+        "flux3": "最新 · 描き込み",
+        "qwenImage3": "安い · 遅い",
+        "qwenImage3Pro": "高精細 · 遅い",
+        "grokImagine": "最安 · 速い",
+        "grokImagineQuality": "速い",
+        "grokImagine2": "高精細 · とても遅い",
+        "klingO1": "すっきりアニメ",
+        "lumaUni1": "4MP · 遅い",
+        "lumaUni1Max": "4MP 高精細 · 遅い",
+        "ideogram45": "文字に強い",
+        "wan25": "絵画調 · プレビュー",
+        "recraft41": "デザイン · フラット",
+        "krea2Turbo": "最安",
+        "krea2Medium": "スタイル重視",
+        "krea2Large": "スタイル重視 · 遅い",
+        "maiImage26": "すっきり · 速い",
+        "hunyuan35": "安い · 2K"
+      },
+      "version": "バージョン",
+      "noReference": "{{model}} は参考画像を使えません。画像を外すか、別のモデルを選んでください。",
+      "fromPerImage": "{{count}} / 枚から",
+      "moreModels": "他のモデル（{{count}}）",
+      "fewerModels": "閉じる"
     },
     "loading": "読み込み中…",
     "loadTemplatesError": "画像生成の設定を読み込めませんでした。下書きは保持されています。",
@@ -850,7 +919,10 @@
       "tabAudio": "音声",
       "audioTitle": "AI BGM 生成",
       "audioLead": "音楽は素材ライブラリに保存されます。",
-      "sectionOutput": "出力サイズ"
+      "sectionOutput": "出力サイズ",
+      "tabVideo": "動画",
+      "videoTitle": "AI 動画生成",
+      "videoLead": "動画は素材ライブラリに保存され、立ち絵・オープニング・プレイヤー画面に使えます。"
     },
     "music": {
       "workshopTitle": "BGM を生成",
@@ -902,6 +974,161 @@
       "generating": "生成中",
       "generatingSteps": "生成中 約 {{step}}/{{steps}} ステップ",
       "saving": "保存中"
+    },
+    "video": {
+      "modeLabel": "動画モード",
+      "mode": {
+        "partner": {
+          "name": "言葉で動画生成",
+          "desc": "Seedance・Kling・Veo などのトップモデル"
+        },
+        "custom": {
+          "name": "カスタム生成",
+          "desc": "自社GPU · LoRA・全パラメータ"
+        }
+      },
+      "describe": "シーンの説明",
+      "enhance": "AI で整える",
+      "enhanceHint": "生成前に AI が説明を動画モデル向けに書き直します",
+      "promptPlaceholder": "画面に何があるか、どう動くか、カメラがどう動くか。例：月夜の海辺、岩の上に立つ黒髪ロングの少女、風に髪がなびき、ゆっくりカメラの方へ振り向く。カメラは固定。動きが小さいほど人物が崩れにくい。",
+      "reference": "参考画像",
+      "referenceOptional": "なし＝文章だけで生成",
+      "slot": {
+        "first": "最初のフレーム",
+        "last": "最後のフレーム",
+        "ref": "キャラ参考"
+      },
+      "slotHint": {
+        "first": "この画像から動画が始まる",
+        "last": "この画像で動画が終わる"
+      },
+      "slotRefHint": "見た目を保ち、場面は新しくできる・最大 {{count}} 枚、1 枚 +{{price}}",
+      "slotRefHintFree": "見た目を保ち、場面は新しくできる・最大 {{count}} 枚",
+      "notSupported": "{{model}} は非対応",
+      "oneFrameOnly": "{{model}} は最初か最後のどちらか 1 枚だけ使えます。両方使うなら別のモデルへ。",
+      "aspectFromFrame": "フレームを使うと、動画はそのフレームの比率になります。",
+      "framesOrReferences": "{{model}} はこの組み合わせを使えません。キャラ参考画像と一緒に使えるのは最初のフレームだけです。どれかを外してください。",
+      "lastNeedsFirst": "{{model}} は最後のフレームと一緒に最初のフレームが必要です。",
+      "needsFrame": "{{model}} は画像を動かすモデルです。上で最初のフレームを追加してください。",
+      "remove": "外す",
+      "closePicker": "閉じる",
+      "modelSpec": "モデルとサイズ",
+      "model": "モデル",
+      "tag": {
+        "text": "文章",
+        "image": "画像",
+        "sound": "音声",
+        "selfHosted": "無制限",
+        "firstLast": "最初と最後のフレーム",
+        "refs": "参考画像 最大 {{count}} 枚",
+        "firstLastShort": "首尾フレーム",
+        "refsShort": "参考画像",
+        "fast": "速い",
+        "needsImage": "画像が必要"
+      },
+      "priceFrom": "{{count}} / {{seconds}} 秒から",
+      "priceFor": "{{count}} / {{seconds}}秒",
+      "aspect": "画面比率",
+      "resolution": "解像度",
+      "duration": "長さ",
+      "seconds": "{{count}} 秒",
+      "etaSeconds": "約 {{count}} 秒",
+      "etaMinutes": "約 {{count}} 分",
+      "sound": "環境音とセリフも一緒に生成",
+      "soundAlways": "このモデルは常に音声付きで生成します。",
+      "more": "詳細設定",
+      "fast": "4 ステップ高速",
+      "fastHint": "数倍速く大幅に安い。オフでステップ数と CFG を調整",
+      "fastOn": "4 ステップ高速",
+      "stepsValue": "{{count}} ステップ",
+      "seedValue": "シード {{seed}}",
+      "seedRandom": "ランダム",
+      "loraCount": "LoRA {{count}} 個",
+      "watermarkOn": "透かしあり",
+      "watermarkOff": "透かしなし",
+      "negative": "ネガティブプロンプト",
+      "negativePlaceholder": "出したくないもの。例：崩れた手、余分な指、ちらつき、文字、透かし",
+      "steps": "ステップ数",
+      "stepsHint": "高いほど細かく、遅く高くなる",
+      "cfgHint": "高いほど説明に忠実、高すぎると硬くなる",
+      "seed": "シード",
+      "watermark": "動画の隅に「AI 生成」の透かしを入れる",
+      "noTuning": "{{model}} はシード・ステップ数・ネガティブプロンプトを公開していません。細かく調整するなら Wan 2.2 へ。",
+      "loras": "LoRA",
+      "loraPrice": "1 個 +2",
+      "addLora": "Wan LoRA を追加",
+      "civitaiPlaceholder": "Civitai の Wan LoRA のリンクを貼る",
+      "civitaiImport": "取り込む",
+      "loraHint": "使えるのは Wan 2.2 / Wan Video の LoRA だけです。画像用の SDXL LoRA は動画に使えません。",
+      "howText": "文章だけで生成",
+      "howFrames": "画像から生成",
+      "howReference": "キャラ参考から生成",
+      "unavailable": "このサーバーはまだ動画を生成できません。",
+      "modelGone": "このモデルは今使えません。別のモデルを試してください。",
+      "emptyTitle": "まだ動画がありません",
+      "emptyBody": "最初の動画がここに表示されます。",
+      "place": "配置…",
+      "placePortrait": "キャラの動く立ち絵",
+      "placeGreeting": "オープニングの先頭",
+      "placed": "追加しました：{{where}}",
+      "unnamed": "名前のないキャラ",
+      "clip": {
+        "idle": "待機",
+        "speaking": "会話"
+      },
+      "placeFailed": {
+        "noGreeting": "このカードにはまだオープニングがありません。",
+        "linkFailed": "動画をカードに紐づけられませんでした。もう一度お試しください。",
+        "noUi": "このカードにはまだビジュアルのプレイヤー画面がありません。先に「プレイヤー画面」でテンプレートを選んでください。"
+      },
+      "style": "画風",
+      "styleCost": "テキストのみの動画で選択可 · 最初のフレーム +{{count}} マッシー",
+      "styleNone": "指定しない",
+      "styleFromFrame": "最初か最後のフレームを入れているので、動画はその画像の画風になります。",
+      "howStyle": "{{style}}画風",
+      "placeUi": "プレイヤー画面（新しい動画枠）",
+      "styleHint": "まずこの画風で最初のフレームを描き、それを動かすので、動画全体がこの画風になります。",
+      "styleNoneHint": "{{model}} がテキストから直接生成します。写実寄りになります。"
+    },
+    "folderLoadFallback": "このカードのフォルダを読み込めませんでした。いまは「すべての素材」に生成します。",
+    "quality": {
+      "label": "画質",
+      "included": "追加料金なし",
+      "standard": {
+        "name": "標準"
+      },
+      "hd": {
+        "name": "高画質"
+      },
+      "4k": {
+        "name": "4K"
+      },
+      "redo": "4K版 · {{count}} マッシー",
+      "redoNote": "右の生成済みの画像は「4K版」で同じ構図のまま4Kにできます。"
+    },
+    "badge": {
+      "limitless": "無制限",
+      "textOnly": "文章のみ"
+    },
+    "trait": {
+      "style": {
+        "realistic": "リアル中心",
+        "anime": "アニメ",
+        "2.5d": "2.5D",
+        "3d": "アニメが3D寄り",
+        "versatile": "アニメに強い"
+      },
+      "strength": {
+        "anime": "アニメが得意",
+        "photoreal": "人物がリアル",
+        "text": "文字が正確",
+        "design": "ポスター・デザイン",
+        "detail": "描き込み",
+        "fast": "速い",
+        "motion": "激しい動き",
+        "camera": "カメラワーク",
+        "dialogue": "口パク付き台詞"
+      }
     }
   },
   "media": {

@@ -6,6 +6,8 @@ import { validateCustomEndpointUrl } from "../ssrf.js";
 import { applyPromptPostProcessing } from "./post-process.js";
 import { parseUnsupportedParam, stripParamFromBody, looksLikeReasoningModel } from "./param-fallback.js";
 import { localGenerationTimeoutMs, readLocalStream } from "./local-timeout.js";
+import { toWireContent } from "./wire-content.js";
+import { applyDeepSeekReasoning, deepSeekDeadline, isOfficialDeepSeekEndpoint } from "./deepseek.js";
 
 // Account caps must never enter the global model catalog: two users can have
 // different Featherless plans for the same model. Keys are opaque hashes.
@@ -72,6 +74,9 @@ export class CustomProvider implements LLMProvider {
    * output, so they can never duplicate streamed text.
    */
   async *generateStream(params: GenerateParams): AsyncIterable<StreamChunk> {
+    if (params.responseFormat?.type === "json_schema") {
+      throw new Error("This provider does not support JSON Schema side completions.");
+    }
     // Allocate once before retrying; chat callers supply a persistent identity.
     params = { ...params, conversationId: params.conversationId || randomUUID() };
     const MAX_RETRIES = params.singleAttempt ? 0 : 2;
@@ -85,31 +90,56 @@ export class CustomProvider implements LLMProvider {
       let errorChunk: StreamChunk | null = null;
       let doneChunk: StreamChunk | null = null;
 
-      for await (const chunk of this.streamOnce(params)) {
-        if (chunk.type === "error") {
-          const nonRetryable = !/^Custom endpoint error \((500|502|503)\):/.test(chunk.content);
-          if (!visibleYielded && attempt < MAX_RETRIES && !nonRetryable) {
-            errorChunk = chunk;
+      const deadline = deepSeekDeadline(isOfficialDeepSeekEndpoint(this.baseUrl), params.stream !== false, params.signal);
+      try {
+        for await (const chunk of this.streamOnce({ ...params, signal: deadline.signal })) {
+          if (chunk.type === "error") {
+            if (params.signal?.aborted) return;
+            if (deadline.signal.aborted) {
+              yield { type: "error", content: String(deadline.signal.reason?.message ?? "DeepSeek response timeout") };
+              return;
+            }
+            const nonRetryable = !/^Custom endpoint error \((500|502|503)\):/.test(chunk.content);
+            if (!visibleYielded && attempt < MAX_RETRIES && !nonRetryable) {
+              errorChunk = chunk;
+              break;
+            }
+            yield chunk;
+            return;
+          }
+          // Buffer the terminal chunk so an EMPTY completion can retry BEFORE the
+          // consumer finalizes and surfaces a blank reply.
+          if (chunk.type === "done") {
+            doneChunk = chunk;
             break;
           }
+          if (
+            chunk.type === "text" ||
+            chunk.type === "tool_call_start" ||
+            chunk.type === "tool_call_delta" ||
+            chunk.type === "tool_call_end"
+          ) {
+            visibleYielded = true;
+          }
+          if ((chunk.type === "text" || chunk.type === "reasoning") && chunk.content.trim()
+            || chunk.type === "tool_call_start" || chunk.type === "tool_call_delta" || chunk.type === "tool_call_end") {
+            deadline.progress();
+          }
           yield chunk;
-          return;
         }
-        // Buffer the terminal chunk so an EMPTY completion can retry BEFORE the
-        // consumer finalizes and surfaces a blank reply.
-        if (chunk.type === "done") {
-          doneChunk = chunk;
-          break;
+      } catch (error) {
+        if (!params.signal?.aborted) {
+          yield { type: "error", content: deadline.signal.aborted
+            ? String(deadline.signal.reason?.message ?? "DeepSeek response timeout")
+            : `Custom endpoint request failed: ${(error as Error).message}` };
         }
-        if (
-          chunk.type === "text" ||
-          chunk.type === "tool_call_start" ||
-          chunk.type === "tool_call_delta" ||
-          chunk.type === "tool_call_end"
-        ) {
-          visibleYielded = true;
-        }
-        yield chunk;
+        return;
+      } finally { deadline.dispose(); }
+      // streamOnce treats any abort as a caller cancellation. Only the actual
+      // caller may end silently; a provider deadline must finish the UI in error.
+      if (deadline.signal.aborted && !params.signal?.aborted) {
+        yield { type: "error", content: String(deadline.signal.reason?.message ?? "DeepSeek response timeout") };
+        return;
       }
 
       if (errorChunk) {
@@ -152,7 +182,8 @@ export class CustomProvider implements LLMProvider {
     }
 
     const model = params.model.replace(/^custom\//, "");
-    const messages = applyPromptPostProcessing(params.messages, this.metadata.promptPostProcessing).map(serializeMessage);
+    const echoReasoning = wantsReasoningEcho(params.model, this.baseUrl);
+    const messages = applyPromptPostProcessing(params.messages, this.metadata.promptPostProcessing).map((m) => serializeMessage(m, echoReasoning));
 
     const connAbort = new AbortController();
     const timeoutMs = localGenerationTimeoutMs();
@@ -193,6 +224,16 @@ export class CustomProvider implements LLMProvider {
     let lastFinishReason: string | null = null;
     const toolCallBuffers = new Map<number, { id: string; name: string; args: string }>();
     let completionFinished = false;
+    // vLLM-style servers with continuous usage stats (Celeris among them) put a
+    // running `usage` on EVERY chunk, starting with the empty role chunk. Keep
+    // the latest one and report it when the stream actually ends.
+    let latestUsage: { prompt_tokens: number; completion_tokens: number; total_tokens: number; completion_tokens_details?: { reasoning_tokens?: number } } | undefined;
+    const usageOf = (u: NonNullable<typeof latestUsage>) => ({
+      promptTokens: u.prompt_tokens,
+      completionTokens: u.completion_tokens,
+      totalTokens: u.total_tokens,
+      reasoningTokens: u.completion_tokens_details?.reasoning_tokens,
+    });
 
     try {
       while (true) {
@@ -220,6 +261,7 @@ export class CustomProvider implements LLMProvider {
               type: "done",
               content: "",
               stopReason: lastFinishReason === "length" ? "max_tokens" : lastFinishReason ?? undefined,
+              ...(latestUsage && { usage: usageOf(latestUsage) }),
             };
             return;
           }
@@ -240,6 +282,8 @@ export class CustomProvider implements LLMProvider {
             const choice = parsed.choices?.[0];
             const delta = choice?.delta;
             if (choice?.finish_reason) completionFinished = true;
+
+            if (choice?.finish_reason) lastFinishReason = choice.finish_reason;
 
             if (choice?.finish_reason) lastFinishReason = choice.finish_reason;
 
@@ -296,18 +340,19 @@ export class CustomProvider implements LLMProvider {
               yield* flushToolCalls(toolCallBuffers);
             }
 
-            if (parsed.usage) {
+            if (parsed.usage) latestUsage = parsed.usage;
+            // Usage is the closing report on a chunk that carries nothing else:
+            // no choices, a finish reason, or an empty delta. On a chunk that
+            // carries a delta (Celeris's role chunk, every content chunk) it is a
+            // running total, and ending there cut every reply off before its
+            // first word. Such a stream still ends at [DONE] or when it closes.
+            if (parsed.usage && (!choice || choice.finish_reason || Object.keys(delta ?? {}).length === 0)) {
               yield* flushToolCalls(toolCallBuffers);
               yield {
                 type: "done",
                 content: "",
                 stopReason: lastFinishReason === "length" ? "max_tokens" : lastFinishReason ?? undefined,
-                usage: {
-                  promptTokens: parsed.usage.prompt_tokens,
-                  completionTokens: parsed.usage.completion_tokens,
-                  totalTokens: parsed.usage.total_tokens,
-                  reasoningTokens: parsed.usage.completion_tokens_details?.reasoning_tokens,
-                },
+                usage: usageOf(parsed.usage),
               };
               return;
             }
@@ -322,7 +367,7 @@ export class CustomProvider implements LLMProvider {
       reader.releaseLock();
     }
 
-    if (!completionFinished) {
+    if (!completionFinished && !latestUsage) {
       yield { type: "error", content: "The endpoint closed the stream before the reply completed. It may still be processing; the request was not automatically resent." };
       return;
     }
@@ -331,13 +376,15 @@ export class CustomProvider implements LLMProvider {
       type: "done",
       content: "",
       stopReason: lastFinishReason === "length" ? "max_tokens" : lastFinishReason ?? undefined,
+      ...(latestUsage && { usage: usageOf(latestUsage) }),
     };
   }
 
   /** Non-streaming path. Bypass for proxies that moderate streams differently. */
   private async *generateNonStream(params: GenerateParams): AsyncIterable<StreamChunk> {
     const model = params.model.replace(/^custom\//, "");
-    const messages = applyPromptPostProcessing(params.messages, this.metadata.promptPostProcessing).map(serializeMessage);
+    const echoReasoning = wantsReasoningEcho(params.model, this.baseUrl);
+    const messages = applyPromptPostProcessing(params.messages, this.metadata.promptPostProcessing).map((m) => serializeMessage(m, echoReasoning));
 
     const connAbort = new AbortController();
     const timeoutMs = localGenerationTimeoutMs();
@@ -493,14 +540,13 @@ export class CustomProvider implements LLMProvider {
     try {
       const probeModel = model.replace(/^custom\//, "");
       const response = await this.postChatWithRetry(
-        this.shapeBody({
-          model: probeModel,
-          messages: [{ role: "user", content: prompt }],
-          stream: false,
-        }),
+        isOfficialDeepSeekEndpoint(this.baseUrl)
+          ? this.buildChatBody({ model: probeModel, messages: [{ role: "user", content: prompt }],
+            params: { model: probeModel, messages: [], maxTokens: 128, disableReasoning: true }, stream: false })
+          : this.shapeBody({ model: probeModel, messages: [{ role: "user", content: prompt }], stream: false }),
         AbortSignal.timeout(60_000),
       );
-      const text = await response.text().catch(() => "");
+      const text = await response.text();
       if (!response.ok) {
         return { ok: false, status: response.status, reason: text.slice(0, 500) || `HTTP ${response.status}` };
       }
@@ -581,15 +627,9 @@ export class CustomProvider implements LLMProvider {
 
     const shaped = this.shapeBody(body);
 
-    // DeepSeek V4 enables thinking by default. Background callers can request
-    // disableReasoning; translate that into DeepSeek's native field
-    // only for the official DeepSeek endpoint so generic OpenAI-compatible
-    // proxies never receive a vendor-specific parameter. Apply this after
-    // metadata shaping so an account-level includeBody cannot accidentally
-    // re-enable reasoning for a summary request.
-    if (params.disableReasoning && isOfficialDeepSeekEndpoint(this.baseUrl)) {
-      shaped.thinking = { type: "disabled" };
-    }
+    // Explicit per-call controls win over saved profile defaults. Leaving effort
+    // unset preserves the profile/provider default; "low" must not become high.
+    if (isOfficialDeepSeekEndpoint(this.baseUrl)) applyDeepSeekReasoning(shaped, params);
 
     return shaped;
   }
@@ -674,26 +714,29 @@ export class CustomProvider implements LLMProvider {
 
 // ── Helpers ──
 
-function isOfficialDeepSeekEndpoint(baseUrl: string): boolean {
-  try {
-    return new URL(baseUrl).hostname.toLowerCase() === "api.deepseek.com";
-  } catch {
-    return false;
-  }
+/** DeepSeek's thinking mode rejects a tool-call step whose assistant message
+ *  carries no reasoning_content ("must be passed back to the API"), even when
+ *  that step thought nothing: 32 BYOK runs failed that way. Other
+ *  OpenAI-compatible servers may reject the unknown field, so only DeepSeek
+ *  gets the empty one. */
+function wantsReasoningEcho(model: string, baseUrl: string): boolean {
+  return isOfficialDeepSeekEndpoint(baseUrl) || /deepseek/i.test(model);
 }
 
-function serializeMessage(m: ChatMessage): Record<string, unknown> {
+function serializeMessage(m: ChatMessage, echoReasoning = false): Record<string, unknown> {
   if (m.role === "tool") {
     return { role: "tool", tool_call_id: m.tool_call_id, content: m.content };
   }
   if (m.role === "assistant" && "tool_calls" in m && m.tool_calls && m.tool_calls.length > 0) {
-    const message: Record<string, unknown> = { role: "assistant", content: m.content ?? "", tool_calls: m.tool_calls };
+    const message: Record<string, unknown> = { role: "assistant", content: toWireContent(m.content ?? ""), tool_calls: m.tool_calls };
     if (typeof m.reasoning_content === "string" && m.reasoning_content.length > 0) {
       message.reasoning_content = m.reasoning_content;
+    } else if (echoReasoning) {
+      message.reasoning_content = "";
     }
     return message;
   }
-  return { role: m.role, content: m.content };
+  return { role: m.role, content: toWireContent(m.content) };
 }
 
 function* flushToolCalls(

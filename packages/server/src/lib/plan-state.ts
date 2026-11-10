@@ -99,7 +99,7 @@ function outranks(a: PlanId, b: PlanId): boolean {
 }
 
 function entitlementSource(source: string): PlanSource {
-  if (source === "admin") return "comp";
+  if (source === "admin" || source === "gift") return "comp";
   if (source === "referral") return "referral";
   return "event";
 }

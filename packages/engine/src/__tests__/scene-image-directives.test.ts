@@ -106,6 +106,13 @@ describe("ResponseParser leaves [image:…] intact", () => {
     expect(result.audioEffects).toEqual([{ trackId: "bgm1", action: "play" }]);
   });
 
+  it("keeps a [video:…] embed intact instead of reading it as a `video` variable", () => {
+    const raw = `[video:@asset:c4100969-1efb-4fb0-9850-595dcc625da7|once] [hp: +1]`;
+    const result = parser.parse(raw);
+    expect(result.cleanText).toContain("[video:@asset:c4100969-1efb-4fb0-9850-595dcc625da7|once]");
+    expect(result.effects).toEqual([{ variableId: "hp", operation: "add", value: 1 }]);
+  });
+
   it("still treats a real `image` variable directive as a directive", () => {
     const result = parser.parse(`x [image: set "portrait.png"]`);
     expect(result.cleanText).toBe("x");

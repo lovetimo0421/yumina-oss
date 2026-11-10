@@ -68,8 +68,13 @@
       "description": "Permanently delete your account and associated data.",
       "button": "Delete account",
       "dialogTitle": "Delete your account permanently?",
-      "dialogDescription": "Your account remains active until you confirm the request from your email. After deletion, you may register again immediately, but the recreated account cannot be deleted until 3 days after this deletion.",
+      "dialogDescription": "We’ll email you a confirmation link. Your account stays active until you confirm.",
       "warningTitle": "This cannot be undone",
+      "summaryWarnings": {
+        "data": "Your account, content, chats, and uploads will be permanently deleted.",
+        "billing": "Subscriptions end immediately. Unused time and Mushies are not refunded.",
+        "deletionCooldown": "Re-register anytime. Deleting again requires 3 days since this deletion."
+      },
       "warnings": {
         "identity": "Your profile and every linked sign-in method will be removed.",
         "deletionCooldown": "The same email can register again immediately, including through Google or Discord, but the recreated account cannot be deleted again for 3 days after this deletion.",
@@ -80,10 +85,10 @@
         "antiAbuse": "Pseudonymous security logs and limited analytics may be retained for required periods to prevent abuse and operate the service.",
         "cache": "Stored uploads are deleted, but existing browser or delivery-network caches may remain visible until their previous cache lifetime expires."
       },
-      "pendingEarnings": "Accounts with creator earnings still on hold cannot be deleted until those earnings are settled. Contact support if this applies to you.",
+      "pendingEarnings": "Unsettled creator earnings block deletion. Contact support for help.",
       "confirmLabel": "Type {{target}} to confirm",
       "confirmPlaceholder": "Enter {{target}}",
-      "acknowledge": "I understand that this permanently deletes my account and data. I may register again immediately, but the recreated account cannot be deleted again for 3 days after this deletion.",
+      "acknowledge": "I understand that my account and data will be permanently deleted.",
       "sendEmail": "Send confirmation email",
       "sending": "Sending...",
       "cancel": "Keep my account",
@@ -100,16 +105,41 @@
       "errors": {
         "confirmationMismatch": "The confirmation text does not match your account.",
         "pendingEarnings": "Creator earnings are still awaiting settlement. Contact support before deleting your account.",
-        "billing": "We could not safely cancel your billing. Try again later or contact support.",
+        "billing": "The payment service could not cancel a subscription, so deletion has stopped. Retry later; if this continues, contact support to check the subscription.",
         "creatorAccount": "Your creator payout account could not be closed. Contact support before deleting your account.",
         "notReady": "Account deletion is being prepared. Try again in a few minutes.",
         "cooldown": "This email was used by an account deleted less than 3 days ago. You may keep using this account, but it cannot be deleted again yet.",
+        "cooldownUntil": "This email belonged to an account deleted less than 3 days ago, so this account can't be deleted until {{time}}. This isn't a lock — you can keep using the account as normal.",
         "lastAdmin": "The final administrator account cannot be deleted. Promote another trusted administrator first.",
         "referral": "Accounts with referral history need support-assisted deletion so rewards cannot be claimed twice.",
         "protectedHistory": "This account has an active safety restriction. Contact support for assisted deletion.",
         "email": "We could not send the confirmation email. Try again later.",
         "invalidLink": "This deletion link is invalid or has expired. Request a new one from Account settings.",
-        "generic": "Could not start account deletion. Try again later."
+        "generic": "Could not start account deletion. Try again later.",
+        "privileged": "Privileged accounts must transfer administrative responsibilities before deletion. Contact support.",
+        "billingUnavailable": "Your account has linked payment records, but payment cleanup is not configured on this service. Contact support to restore it before completing deletion. This does not mean you have an active paid subscription or completed payout setup.",
+        "subscriptionLookup": "The payment service could not verify subscription status. Deletion has stopped. Retry later or contact support.",
+        "paymentPending": "A payment is still awaiting settlement. Retry after it completes or fails; contact support if it stays pending.",
+        "signIn": "Your session has expired. Sign in again and retry.",
+        "origin": "This page failed the secure origin check. Reopen account deletion from this site’s settings.",
+        "request": "The confirmation request is invalid. Refresh the page and retry."
+      },
+      "preflight": {
+        "title": "Issues to resolve before deleting your account",
+        "loading": "Checking deletion requirements…",
+        "failed": "Could not check deletion requirements. Retry before continuing.",
+        "retry": "Check again",
+        "emailAllowed": "These issues block final deletion, but you can still receive the confirmation email. Sending it does not delete your account or cancel subscriptions.",
+        "emailBlocked": "Resolve the issues above before requesting the confirmation email. Your account remains available.",
+        "scope": "These are the issues detected so far. Final confirmation checks again, including subscriptions and payments with the payment service.",
+        "records": "Linked records found: {{records}}. Records alone do not mean an active subscription or completed payout setup.",
+        "recordKinds": {
+          "customer": "payment customer",
+          "subscription": "subscription",
+          "connect": "creator payouts",
+          "payment": "payment",
+          "checkout": "checkout"
+        }
       }
     },
     "connectedAccounts": {
@@ -126,6 +156,25 @@
       "disconnected": "Disconnected",
       "connectError": "Failed to connect",
       "disconnectError": "Failed to disconnect"
+    },
+    "connectedApps": {
+      "title": "Connected apps",
+      "description": "Game mods, apps and AIs you signed in to with your Yumina account. Disconnect one and it loses access right away.",
+      "loading": "Loading…",
+      "loadError": "Couldn't load. Refresh and try again.",
+      "empty": "No apps connected yet.",
+      "verified": "Official",
+      "connectedOn": "Connected {{date}}",
+      "disconnect": "Disconnect",
+      "disconnecting": "Disconnecting…",
+      "disconnectError": "Couldn't disconnect. Try again.",
+      "scope": {
+        "aiChat": "Chat on your mushies",
+        "walletRead": "Balance",
+        "quests": "Quests",
+        "cards": "Your cards",
+        "profile": "Name"
+      }
     },
     "validation": {
       "usernameMinLength": "Username must be at least 3 characters",
@@ -149,7 +198,7 @@
     },
     "sensitive": {
       "label": "Limitless",
-      "description": "Include Limitless content"
+      "description": "Adult content allowed. If a model still holds back, get an Unrestricted prompt from the Prompt Plaza."
     },
     "minorRestriction": "Limitless mode isn't available for this account.",
     "audiencePreference": {
@@ -169,8 +218,8 @@
       }
     },
     "blurSensitive": {
-      "title": "Blur Limitless Media",
-      "description": "Blur thumbnails for Limitless content on Discover."
+      "title": "Blur sensitive covers",
+      "description": "Hide sensitive covers behind a foggy blur until you choose to view each one. Turn this off to show all covers. Your content mode stays the same."
     }
   },
   "privacy": {
@@ -247,12 +296,13 @@
     }
   },
   "display": {
-    "experimental": {
-      "title": "Experimental",
-      "turnImages": {
-        "title": "Story illustrations",
-        "description": "Experimental: draws a picture for replies. Your first 5 are free, then 12 mushies each."
-      }
+    "turnImages": {
+      "title": "Story illustrations",
+      "description": "Adds a “Draw this scene” button to replies.",
+      "auto": "Illustrate every reply",
+      "free": "{{count}} free left, then {{price}} mushies each",
+      "price": "{{price}} mushies per picture",
+      "unlimited": "Included in your plan"
     },
     "title": "Display",
     "language": {
@@ -355,6 +405,10 @@
     "sendKey": {
       "title": "Press Enter to send",
       "description": "When on, Enter sends your message and Shift+Enter starts a new line. When off, Ctrl/⌘+Enter sends and Enter starts a new line."
+    },
+    "sceneVideo": {
+      "title": "Scene video (experimental)",
+      "description": "Shows Scene video in the play menu, and in cards with a film stage. Two ways to watch: a live stream that follows the story (about 5,800 mushies a minute), or a short film with voices for every reply, ready a few minutes after it (about 100–1,400 mushies a reply)."
     }
   },
   "wallpaper": {

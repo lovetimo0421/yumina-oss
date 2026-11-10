@@ -29,6 +29,8 @@ A few tricks:
 3. **Library Detail panel** — read the description, check ratings, see the creator's other work before committing.
 4. **Follow** creators whose stuff lands — their new worlds show up in your Following tab.
 
+**Filters** opens automatically when you start a Discover search, so sorting, tags, and other-language options are visible. You can collapse it while editing that search; clearing the search and entering a new query opens it again.
+
 ---
 
 ## When the AI gets weird
@@ -197,8 +199,10 @@ Both must pass before Limitless worlds appear in search and Discover. If the acc
 Most often:
 
 - The world is **Limitless** and your content mode is **Limited** (default). Change it in Settings → Content & Safety.
-- The world is in a **language** your Hub filter is hiding. Open the Filters panel and clear language.
+- Discover searches your selected **language** by default. Choose **Show other languages** beside the **Works** heading or below the empty-results message to expand the search. This shares the **Other languages** setting in Filters.
 - The creator unpublished or renamed it. Check their profile — if unpublished it's gone from search, but if you'd already played it, your library copy still works.
+
+Expanded search keeps works in your language ahead of other languages, including when you load more results. For a translated work, it shows an available version in your language when one meets your filters; otherwise, an eligible version in another language can appear. Searching the original title can still find its translated version. Choose the language-only action to narrow the search again.
 
 ### Q: How do I report a problematic world?
 

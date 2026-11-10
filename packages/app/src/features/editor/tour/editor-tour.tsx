@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { useEditorStore, type EditorSection } from "@/stores/editor";
 
-import { markEditorTourDone } from "./tour-state";
+import { markEditorTourDone, type EditorTourVariant } from "./tour-state";
 
 /* ─── Step model ─── */
 
@@ -18,7 +18,11 @@ type TourAdvance =
   | { kind: "element"; selector: string }
   /** Advance when a store-derived count grows past its value at step entry
    *  (e.g. "add a variable" — works no matter how many already exist) */
-  | { kind: "delta"; get: (s: EditorStoreState) => number };
+  | { kind: "delta"; get: (s: EditorStoreState) => number }
+  /** Advance when a store-derived string differs from its value at step entry
+   *  AND is non-empty (e.g. "give your character a name" — the template
+   *  default counts as unchanged, so the user has to actually type). */
+  | { kind: "changed"; get: (s: EditorStoreState) => string };
 
 interface TourStep {
   /** i18n key suffix: editor:tour.steps.<id>.title / .body */
@@ -30,16 +34,33 @@ interface TourStep {
   advance: TourAdvance;
   /** Skip the step entirely when this returns true at mount time */
   skipIf?: (s: EditorStoreState) => boolean;
+  /** Runs once as the step is shown, before its target is looked for — for a
+   *  step whose target only exists once there is something to point at (a
+   *  blank card has no character, so 「给角色起名」 makes one first). */
+  prepare?: () => void;
   /** When the target vanishes/never appears: default skips forward; "back"
    *  returns to the previous step (e.g. a menu item whose menu got closed) */
   onMissing?: "back";
   placement?: "top" | "bottom" | "left" | "right";
   mushie?: "stand" | "sit";
   spotlightPadding?: number;
+  /** Layout gating for step lists shared between desktop and mobile (the
+   *  simple editor is one scroll page on both, only the header differs). */
+  desktopOnly?: boolean;
+  mobileOnly?: boolean;
+  /** When the target is taller than the viewport, scroll so its TOP is visible
+   *  instead of centering — the fields the card talks about (name, keywords)
+   *  live at the top of tall detail panels and "center" pushes them offscreen. */
+  scrollTo?: "start";
 }
 
 const hasGreeting = (s: EditorStoreState) =>
   s.worldDraft.entries.some((e) => e.role === "greeting");
+
+const firstGreetingContent = (s: EditorStoreState) =>
+  s.worldDraft.entries.find((e) => e.role === "greeting")?.content ?? "";
+
+const hasGreetingText = (s: EditorStoreState) => firstGreetingContent(s).trim().length > 0;
 
 // 副 (non-primary same-language variants) hide the Overview section entirely —
 // tour steps that live there must skip instead of dead-blocking on a target
@@ -79,15 +100,26 @@ const STEPS: TourStep[] = [
     advance: { kind: "next" },
   },
   {
+    // Hands-on: the template ships the greeting EMPTY (its guidance is a
+    // placeholder now), so the first thing a newcomer writes is the opening.
+    id: "greetingWrite",
+    target: '[data-tour="fm-content"]',
+    placement: "top",
+    skipIf: hasGreetingText,
+    advance: { kind: "when", when: hasGreetingText },
+  },
+  {
     id: "goLorebook",
     target: '[data-tour-section="entries"]',
     placement: "right",
     advance: { kind: "when", when: (s) => s.activeSection === "entries" },
   },
   {
-    // Books are mentioned, not exercised — newcomers only need the Main book.
+    // Modules are mentioned, not exercised — newcomers only need the shared
+    // lorebook. The step points at the nav item, which is there whether or
+    // not the card has any.
     id: "kbBooks",
-    target: '[data-tour="kb-books"]',
+    target: '[data-tour-section="modules"]',
     section: "entries",
     placement: "right",
     advance: { kind: "next" },
@@ -102,6 +134,7 @@ const STEPS: TourStep[] = [
     id: "entryContent",
     target: '[data-tour="entries-detail"]',
     placement: "left",
+    scrollTo: "start",
     advance: { kind: "next" },
   },
   {
@@ -121,6 +154,7 @@ const STEPS: TourStep[] = [
     id: "varsFields",
     target: '[data-tour="vars-form"]',
     placement: "left",
+    scrollTo: "start",
     advance: { kind: "next" },
   },
   {
@@ -140,6 +174,7 @@ const STEPS: TourStep[] = [
     id: "behaviorsDetail",
     target: '[data-tour="behaviors-detail"]',
     placement: "left",
+    scrollTo: "start",
     advance: { kind: "next" },
   },
   {
@@ -204,34 +239,120 @@ const STEPS_MOBILE: TourStep[] = [
     advance: { kind: "when", when: hasGreeting },
   },
   { id: "greetingContent", target: '[data-tour="fm-content"]', advance: { kind: "next" } },
-  { id: "kbBooksM", target: '[data-tour="kb-books"]', section: "entries", advance: { kind: "next" } },
+  {
+    id: "greetingWrite",
+    target: '[data-tour="fm-content"]',
+    skipIf: hasGreetingText,
+    advance: { kind: "when", when: hasGreetingText },
+  },
+  { id: "kbBooksM", target: '[data-tour-section-m="modules"]', section: "entries", advance: { kind: "next" } },
   {
     id: "entriesAdd",
     target: '[data-tour="entries-add"]',
     advance: { kind: "delta", get: nonGreetingEntryCount },
   },
-  { id: "entryContent", target: '[data-tour="entries-detail"]', advance: { kind: "next" } },
+  { id: "entryContent", target: '[data-tour="entries-detail"]', scrollTo: "start", advance: { kind: "next" } },
   {
     id: "varsAdd",
     target: '[data-tour="vars-add"]',
     section: "variables",
     advance: { kind: "delta", get: (s) => s.worldDraft.variables.length },
   },
-  { id: "varsFields", target: '[data-tour="vars-form"]', advance: { kind: "next" } },
+  { id: "varsFields", target: '[data-tour="vars-form"]', scrollTo: "start", advance: { kind: "next" } },
   {
     id: "behaviorsAdd",
     target: '[data-tour="behaviors-add"]',
     section: "rules",
     advance: { kind: "delta", get: (s) => (s.worldDraft.reactions ?? []).length },
   },
-  { id: "behaviorsDetail", target: '[data-tour="behaviors-detail"]', advance: { kind: "next" } },
+  { id: "behaviorsDetail", target: '[data-tour="behaviors-detail"]', scrollTo: "start", advance: { kind: "next" } },
   { id: "menuAdvanced", target: '[data-tour="m-section-menu"]', advance: { kind: "next" } },
   { id: "overviewTitle", target: '[data-tour="overview-title-card"]', section: "overview", skipIf: isNonPrimaryVariant, advance: { kind: "next" } },
   { id: "overviewDescription", target: '[data-tour="overview-description"]', skipIf: isNonPrimaryVariant, advance: { kind: "next" } },
   { id: "publishM", target: '[data-tour="publish-control"]', advance: { kind: "next" } },
   { id: "saveM", target: '[data-tour="m-save"]', advance: { kind: "next" } },
-  { id: "studio", target: '[data-tour="m-studio"]', advance: { kind: "next" } },
   { id: "finish", target: null, mushie: "sit", advance: { kind: "next" } },
+];
+
+// Simple (quick-create) editor: one scroll page of numbered cards, identical on
+// desktop and mobile except the header — so a single list, with the header
+// steps gated per layout. The anchors live in quick-create-editor.tsx.
+const TAG_WORLDVIEW = "chat:worldview";
+const TAG_DIALOGUE_STYLE = "chat:dialogue-style";
+const lacksTaggedEntry = (tag: string) => (s: EditorStoreState) =>
+  !s.worldDraft.entries.some((e) => e.tags?.includes(tag));
+const firstCharacterName = (s: EditorStoreState) =>
+  s.worldDraft.entries.find((e) => e.role === "character")?.name ?? "";
+
+/** A blank card has no character, so the name step would spotlight nothing
+ *  and leave only 「跳过」. Give it one — the same empty character the
+ *  section's 「添加角色」 button makes — and the section opens it. */
+const ensureCharacterForTour = () => {
+  const store = useEditorStore.getState();
+  if (store.worldDraft.entries.some((e) => !e.presetId && e.role === "character")) return;
+  store.addEntry("character", "system-presets");
+  const entries = useEditorStore.getState().worldDraft.entries;
+  const created = entries[entries.length - 1];
+  if (created) {
+    store.updateEntry(created.id, { name: "", role: "character", alwaysSend: true, enabled: true, tags: ["Character"] });
+  }
+};
+
+const STEPS_SIMPLE: TourStep[] = [
+  { id: "sWelcome", target: null, mushie: "sit", advance: { kind: "next" } },
+  { id: "sCards", target: '[data-tour="qc-cover"]', placement: "bottom", advance: { kind: "next" } },
+  {
+    // Hands-on: the template names the character "Character" — typing a real
+    // name is the first thing every card needs.
+    id: "sCharName",
+    target: '[data-tour="qc-char-name"]',
+    placement: "bottom",
+    prepare: ensureCharacterForTour,
+    advance: { kind: "changed", get: firstCharacterName },
+  },
+  { id: "sPersona", target: '[data-tour="qc-persona"]', placement: "top", advance: { kind: "next" } },
+  {
+    id: "sWorldview",
+    target: '[data-tour="qc-worldview"]',
+    placement: "top",
+    skipIf: lacksTaggedEntry(TAG_WORLDVIEW),
+    advance: { kind: "next" },
+  },
+  {
+    id: "sStyle",
+    target: '[data-tour="qc-style"]',
+    placement: "top",
+    skipIf: lacksTaggedEntry(TAG_DIALOGUE_STYLE),
+    advance: { kind: "next" },
+  },
+  { id: "sSettings", target: '[data-tour="qc-settings"]', placement: "top", advance: { kind: "next" } },
+  {
+    // Hands-on: write the opening line. The template ships the greeting empty
+    // (guidance is a placeholder), so this is a real first sentence.
+    id: "sGreeting",
+    target: '[data-tour="qc-greeting-text"]',
+    placement: "top",
+    skipIf: hasGreetingText,
+    advance: { kind: "when", when: hasGreetingText },
+  },
+  { id: "sAbout", target: '[data-tour="qc-about"]', placement: "top", advance: { kind: "next" } },
+  { id: "sSave", target: '[data-tour="qc-save"]', placement: "bottom", advance: { kind: "next" } },
+  { id: "sPlay", target: '[data-tour="qc-play"]', placement: "top", desktopOnly: true, advance: { kind: "next" } },
+  { id: "sPublish", target: '[data-tour="publish-control"]', placement: "bottom", advance: { kind: "next" } },
+  {
+    id: "sAdvanced",
+    target: '[data-tour="qc-mode-toggle"]',
+    placement: "bottom",
+    desktopOnly: true,
+    advance: { kind: "next" },
+  },
+  {
+    id: "sAdvancedM",
+    target: '[data-tour="qc-advanced-promo"]',
+    mobileOnly: true,
+    advance: { kind: "next" },
+  },
+  { id: "sFinish", target: null, mushie: "sit", advance: { kind: "next" } },
 ];
 
 /* ─── Geometry helpers ─── */
@@ -316,13 +437,30 @@ const ADVANCE_SETTLE_MS = 350;
 /** Slightly longer beat when a step's condition is already true at mount. */
 const ALREADY_SATISFIED_MS = 400;
 
-export function EditorTour({ onClose, mobile = false }: { onClose: () => void; mobile?: boolean }) {
+export function EditorTour({
+  onClose,
+  mobile = false,
+  variant = "advanced",
+}: {
+  onClose: () => void;
+  mobile?: boolean;
+  variant?: EditorTourVariant;
+}) {
   const { t } = useTranslation("editor");
   // Stable identity is load-bearing: `steps` feeds goNext's deps which feed the
   // advance effect's deps — a fresh array per render would remount that effect
   // on every render, clearing pending advance timers and re-capturing delta
   // baselines (swallowing the very increment the step is waiting for).
-  const steps = useMemo(() => (mobile ? STEPS_MOBILE : STEPS), [mobile]);
+  const steps = useMemo(() => {
+    if (variant === "simple") {
+      return STEPS_SIMPLE.filter((s) => (mobile ? !s.desktopOnly : !s.mobileOnly));
+    }
+    return mobile ? STEPS_MOBILE : STEPS;
+  }, [mobile, variant]);
+  // i18n bodies mention the {{user}} / {{char}} macros. i18next would treat
+  // those as interpolation slots, so the copy writes {{userMacro}} and we hand
+  // the literal braces in as values.
+  const tourVars = useMemo(() => ({ userMacro: "{{user}}", charMacro: "{{char}}" }), []);
   const [stepIdx, setStepIdx] = useState(0);
   const [rect, setRect] = useState<Box | null>(null);
   const [targetMissing, setTargetMissing] = useState(false);
@@ -340,6 +478,9 @@ export function EditorTour({ onClose, mobile = false }: { onClose: () => void; m
   // the same instant (e.g. createGreeting), which would double-skip.
   const displayedIdxRef = useRef(0);
   if (step) displayedIdxRef.current = step._idx;
+  // Every step index that has actually been rendered this run — feeds the
+  // progress counter (see render).
+  const displayedRef = useRef<Set<number>>(new Set());
 
   // Hold onClose in a ref so finish/goNext keep a STABLE identity even when
   // the parent passes an inline closure. This matters: the advance effect
@@ -351,9 +492,9 @@ export function EditorTour({ onClose, mobile = false }: { onClose: () => void; m
   onCloseRef.current = onClose;
 
   const finish = useCallback(() => {
-    markEditorTourDone();
+    markEditorTourDone(variant);
     onCloseRef.current();
-  }, []);
+  }, [variant]);
 
   const goNext = useCallback(() => {
     const next = displayedIdxRef.current + 1;
@@ -363,6 +504,11 @@ export function EditorTour({ onClose, mobile = false }: { onClose: () => void; m
       setStepIdx(next);
     }
   }, [finish, steps]);
+
+  // A step that needs something to point at makes it first.
+  useEffect(() => {
+    step?.prepare?.();
+  }, [step?._idx, step?.prepare]);
 
   // Auto-switch section for guided steps
   useEffect(() => {
@@ -402,10 +548,17 @@ export function EditorTour({ onClose, mobile = false }: { onClose: () => void; m
         const r = el.getBoundingClientRect();
         // Target below/above the fold (e.g. the Overview description card) —
         // bring it into view once so the spotlight lands on something visible.
+        // Panels taller than the viewport (entry detail, variable form) can't
+        // be centered: "center" scrolls their top half — the name field the
+        // card talks about — above the fold. Align their top instead.
         if (!scrolledIntoView) {
           scrolledIntoView = true;
-          if (r.top < 0 || r.bottom > window.innerHeight) {
-            el.scrollIntoView({ block: "center", behavior: "smooth" });
+          const tall = r.height > window.innerHeight * 0.7;
+          if (r.top < 0 || r.bottom > window.innerHeight || (tall && step.scrollTo === "start")) {
+            el.scrollIntoView({
+              block: step.scrollTo === "start" || tall ? "start" : "center",
+              behavior: "smooth",
+            });
           }
         }
         setRect((prev) => {
@@ -520,6 +673,21 @@ export function EditorTour({ onClose, mobile = false }: { onClose: () => void; m
       };
     }
 
+    if (adv.kind === "changed") {
+      const baseline = adv.get(useEditorStore.getState());
+      const unsub = useEditorStore.subscribe((state) => {
+        const now = adv.get(state);
+        if (now !== baseline && now.trim().length > 0) {
+          unsub();
+          schedule(ADVANCE_SETTLE_MS);
+        }
+      });
+      return () => {
+        unsub();
+        window.clearTimeout(timer);
+      };
+    }
+
     if (adv.kind === "element") {
       if (document.querySelector(adv.selector)) {
         // Already satisfied (e.g. menu already open on a replay) — move on.
@@ -555,14 +723,34 @@ export function EditorTour({ onClose, mobile = false }: { onClose: () => void; m
   if (!step) return null;
 
   const interactive = step.advance.kind !== "next";
+  /** Take the user to the thing the card is pointing at.
+   *
+   *  The hint used to be inert, which made it the one gold shape in the tour
+   *  that did nothing when clicked. Clicking it is the right instinct — so it
+   *  scrolls the target into view and puts the caret in it, and the step's own
+   *  advance condition still decides when to move on. */
+  const revealTarget = () => {
+    if (!step.target) return;
+    const el = document.querySelector<HTMLElement>(step.target);
+    if (!el) return;
+    el.scrollIntoView({ block: "center", behavior: "smooth" });
+    const field = el.matches("input, textarea, select, [contenteditable]")
+      ? el
+      : el.querySelector<HTMLElement>("input, textarea, select, [contenteditable]");
+    (field ?? el).focus?.({ preventScroll: true });
+  };
   const pad = step.spotlightPadding ?? 8;
+  // Clamp the hole to the viewport: a panel that extends above the fold would
+  // otherwise "spotlight" whatever sits over its offscreen part (the header
+  // bar), and the card would be placed relative to invisible geometry.
   const hole: Box | null = rect
-    ? {
-        top: rect.top - pad,
-        left: rect.left - pad,
-        width: rect.width + pad * 2,
-        height: rect.height + pad * 2,
-      }
+    ? (() => {
+        const top = Math.max(EDGE, rect.top - pad);
+        const left = Math.max(EDGE, rect.left - pad);
+        const bottom = Math.min(window.innerHeight - EDGE, rect.top + rect.height + pad);
+        const right = Math.min(window.innerWidth - EDGE, rect.left + rect.width + pad);
+        return { top, left, width: Math.max(0, right - left), height: Math.max(0, bottom - top) };
+      })()
     : null;
   const centered = !step.target;
   // While a targeted step is still locating its element, the dim layer shows —
@@ -578,7 +766,16 @@ export function EditorTour({ onClose, mobile = false }: { onClose: () => void; m
           left: window.innerWidth / 2 - Math.min(CARD_WIDTH, window.innerWidth - EDGE * 2) / 2,
         })
       : null;
-  const stepNumber = step._idx + 1;
+  // Progress counts only steps this run actually shows: a step whose skipIf is
+  // true never appears, so counting it made the counter jump (3/22 → 5/22).
+  // Past steps are counted from what was really displayed (a hands-on step
+  // that just got completed would otherwise flip its own skipIf and vanish
+  // from the count); future steps from their skipIf against current state.
+  displayedRef.current.add(step._idx);
+  const storeState = useEditorStore.getState();
+  const stepNumber = [...displayedRef.current].filter((i) => i <= step._idx).length;
+  const shownTotal =
+    stepNumber + steps.filter((s, idx) => idx > step._idx && !s.skipIf?.(storeState)).length;
   const mushieSrc = step.mushie === "sit" ? "/mushie-sit.png" : "/mushie-stand.png";
 
   return createPortal(
@@ -680,15 +877,20 @@ export function EditorTour({ onClose, mobile = false }: { onClose: () => void; m
               {t(`tour.steps.${step.id}.title` as any)}
             </h2>
             <p className="mb-5 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
-              {t(`tour.steps.${step.id}.body` as any)}
+              {t(`tour.steps.${step.id}.body` as any, tourVars as any)}
             </p>
-            <div className="flex w-full items-center justify-between">
-              <button
-                onClick={finish}
-                className="text-xs text-muted-foreground/70 transition-colors hover:text-muted-foreground"
-              >
-                {t("tour.skip")}
-              </button>
+            {/* "Skip the tour" belongs to the card that opens it, not the one
+                that closes it: on the final card the tour is already over, and
+                offering to skip it reads as a second, worse way to finish. */}
+            <div className={cn("flex w-full items-center", stepNumber === 1 ? "justify-between" : "justify-end")}>
+              {stepNumber === 1 && (
+                <button
+                  onClick={finish}
+                  className="whitespace-nowrap text-xs text-muted-foreground/70 transition-colors hover:text-muted-foreground"
+                >
+                  {t("tour.skip")}
+                </button>
+              )}
               <button
                 onClick={goNext}
                 className="rounded-lg bg-gold px-5 py-2 text-sm font-bold text-black transition-all hover:brightness-110"
@@ -719,16 +921,16 @@ export function EditorTour({ onClose, mobile = false }: { onClose: () => void; m
                     {t(`tour.steps.${step.id}.title` as any)}
                   </h3>
                   <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground/50">
-                    {stepNumber} / {steps.length}
+                    {stepNumber} / {shownTotal}
                   </span>
                 </div>
                 <p className="mb-3 whitespace-pre-line text-xs leading-relaxed text-muted-foreground">
-                  {t(`tour.steps.${step.id}.body` as any)}
+                  {t(`tour.steps.${step.id}.body` as any, tourVars as any)}
                 </p>
                 <div className="flex items-center justify-between gap-2">
                   <button
                     onClick={finish}
-                    className="text-[11px] text-muted-foreground/70 transition-colors hover:text-muted-foreground"
+                    className="whitespace-nowrap text-[11px] text-muted-foreground/70 transition-colors hover:text-muted-foreground"
                   >
                     {t("tour.skip")}
                   </button>
@@ -739,17 +941,20 @@ export function EditorTour({ onClose, mobile = false }: { onClose: () => void; m
                           to move forward. */}
                       <button
                         onClick={goNext}
-                        className="shrink-0 text-[11px] text-muted-foreground/70 transition-colors hover:text-muted-foreground"
+                        className="shrink-0 whitespace-nowrap text-[11px] text-muted-foreground/70 transition-colors hover:text-muted-foreground"
                       >
                         {t("tour.skipStep")}
                       </button>
-                      <span
+                      <button
+                        type="button"
+                        onClick={revealTarget}
                         className={cn(
-                          "inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gold/40 bg-gold/10 px-3 py-1.5 text-[11px] font-semibold text-gold"
+                          "inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-gold/40 bg-gold/10 px-3 py-1.5 text-[11px] font-semibold text-gold",
+                          "cursor-pointer transition-colors hover:bg-gold/20"
                         )}
                       >
                         👆 {t("tour.clickHint")}
-                      </span>
+                      </button>
                     </span>
                   ) : (
                     <button

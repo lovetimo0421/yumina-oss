@@ -4,7 +4,7 @@ import type { PlayModel } from "@yumina/shared";
 import { orderOfficialModels } from "./official-model-order";
 
 function model(id: string, overrides: Partial<PlayModel> = {}): PlayModel {
-  return { id, name: id, scope: "play", tier: "budget", minPlan: "free", avgCostMushies: 1, descKey: id, ...overrides };
+  return { id, name: id, scope: "play", tier: "budget", minPlan: "free", avgCostMushies: 1, ...overrides };
 }
 
 const catalog = [
@@ -14,7 +14,6 @@ const catalog = [
 ];
 const defaults = {
   tier: "all", query: "", sort: "recommended", pinned: [], favoritesOnly: false, recent: [],
-  description: (entry: PlayModel) => entry.id === "vendor/gamma" ? "细腻的人物描写" : "Fast dialogue",
 } satisfies Parameters<typeof orderOfficialModels>[1];
 function ids(options: Partial<Parameters<typeof orderOfficialModels>[1]> = {}, models = catalog) {
   return orderOfficialModels(models, { ...defaults, ...options }).map(entry => entry.id);
@@ -35,11 +34,11 @@ test("recent sorting honors usage order and keeps never-used models discoverable
   assert.deepEqual(ids({ sort: "recent" }), ["vendor/alpha", "vendor/gamma", "vendor/beta"]);
 });
 
-test("search finds names, provider IDs and localized descriptions, ignoring case and surrounding spaces", () => {
+test("search finds names and provider IDs, ignoring case and surrounding spaces", () => {
   assert.deepEqual(ids({ query: "  MODEL 10  " }), ["vendor/beta"]);
   assert.deepEqual(ids({ query: "VENDOR/ALPHA" }), ["vendor/alpha"]);
-  assert.deepEqual(ids({ query: "人物" }), ["vendor/gamma"]);
-  assert.deepEqual(ids({ query: "dialogue" }), ["vendor/beta", "vendor/alpha"]);
+  assert.deepEqual(ids({ query: "gamma" }), ["vendor/gamma"]);
+  assert.deepEqual(ids({ query: "Model" }), ["vendor/beta", "vendor/gamma", "vendor/alpha"]);
   assert.deepEqual(ids({ query: "   " }), ids());
   assert.deepEqual(ids({ query: "no such model" }), []);
 });
@@ -47,10 +46,20 @@ test("search finds names, provider IDs and localized descriptions, ignoring case
 test("favorites intersect tier and search filters and tolerate pins missing from the catalog", () => {
   const pinned = ["vendor/gamma", "vendor/beta", "removed/model"];
   assert.deepEqual(ids({ pinned, favoritesOnly: true }), ["vendor/beta", "vendor/gamma"]);
-  assert.deepEqual(ids({ pinned, favoritesOnly: true, tier: "budget", query: "dialogue" }), ["vendor/beta"]);
-  assert.deepEqual(ids({ pinned, favoritesOnly: true, tier: "premium", query: "dialogue" }), []);
+  assert.deepEqual(ids({ pinned, favoritesOnly: true, tier: "budget", query: "Model 10" }), ["vendor/beta"]);
+  assert.deepEqual(ids({ pinned, favoritesOnly: true, tier: "premium", query: "Model 10" }), []);
   assert.deepEqual(ids({ favoritesOnly: true }), []);
   assert.deepEqual(ids({ pinned, favoritesOnly: false }), ids());
+});
+
+test("localized review search intersects favorites and tiers without replacing name search", () => {
+  const description = (entry: PlayModel) => entry.id === "vendor/gamma" ? "描写细腻 · detailed scenes" : "回复简短";
+  assert.deepEqual(ids({ query: "描写", description }), ["vendor/gamma"]);
+  assert.deepEqual(ids({ query: "  DETAILED  ", description }), ["vendor/gamma"]);
+  assert.deepEqual(ids({ query: "描写", description, tier: "budget" }), []);
+  assert.deepEqual(ids({ query: "描写", description, favoritesOnly: true, pinned: ["vendor/gamma"] }), ["vendor/gamma"]);
+  assert.deepEqual(ids({ query: "描写", description, favoritesOnly: true }), []);
+  assert.deepEqual(ids({ query: "MODEL 10", description }), ["vendor/beta"]);
 });
 
 test("models without optional ranking and date metadata remain visible after ranked and dated entries", () => {

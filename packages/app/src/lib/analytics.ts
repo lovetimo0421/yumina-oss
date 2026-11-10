@@ -27,6 +27,28 @@ import { arrivalProperties } from "./arrival-attribution";
 import { queueFeedEvent, type FeedBeaconEvent } from "./feed-beacon";
 import { linkObservedGameGuest } from "./game-identity";
 
+export type CreatorLearningEvent = {
+  release: string;
+  flow_id: string;
+  /** A lesson id from the learning catalog, or the welcome / finish screens. */
+  step: string;
+  action: "view" | "start" | "resume" | "restart" | "complete" | "skip" | "pause" | "dismiss" | "error";
+  reason?: "save" | "start" | "model" | "provider" | "credits" | "promptCost" | "modelAccess" | "busy" | "tooLong" | "access" | "connection" | "request";
+  outcome?: "all_verified" | "walkthrough";
+};
+
+export function captureCreatorLearningEvent(props: CreatorLearningEvent): void {
+  try {
+    if (typeof window === "undefined") return;
+    // Explicit allowlist: never forward card names, text, prompts or raw errors.
+    posthog.capture("creator_learning", {
+      release: props.release, flow_id: props.flow_id, step: props.step, action: props.action,
+      ...(props.reason && { reason: props.reason }), ...(props.outcome && { outcome: props.outcome }),
+      environment: ENVIRONMENT, app_release: APP_RELEASE,
+    });
+  } catch { /* Analytics cannot interrupt creation. */ }
+}
+
 /**
  * Narrow environment label. Read from Vite's MODE first (set by Vite CLI).
  * `?.` because `tsx --test` has no import.meta.env, and this module is now
@@ -49,6 +71,10 @@ const APP_RELEASE = import.meta.env?.VITE_APP_RELEASE ?? "unknown";
  */
 export type HubEventMap = {
   persona_selection: import("./refresh-chat-persona").PersonaSelectionEvent;
+  quest_entry: { cached: boolean };
+  /** Render readiness is a double-frame proxy, not proof of pixels presented by Safari. */
+  quest_board_render: { phase: "mount" | "ready_proxy"; duration_ms: number; cached: boolean };
+  quest_request: { operation: "board" | "claim"; request_id: number; duration_ms: number; outcome: "success" | "error" | "timeout" | "cancelled" };
   /** Client elapsed time through fetch, body decoding and accepting a Discover page; excludes paint. */
   hub_feed_load: {
     mode: "initial" | "append" | "refresh";
@@ -185,6 +211,90 @@ export type HubEventMap = {
     trigger: "navigate" | "resume" | "manual";
   };
 
+  /** The blueprint (Studio) opened for a card: the funnel's first step. */
+  studio_blueprint_opened: {
+    world_id: string;
+    /** How many modules the card has when it opens — a 0 is a new author. */
+    modules: number;
+  };
+  /** A save from inside Studio landed. */
+  studio_blueprint_saved: {
+    world_id: string;
+    trigger: "manual" | "autosave" | "unsaved_chip" | "merged_retry";
+  };
+  /** A playtest session started from Studio (docked or full-screen). */
+  studio_playtest_started: {
+    world_id: string;
+    /** "start" = a fresh session, "checkpoint" = from a saved test start. */
+    from: "start" | "checkpoint";
+  };
+  /** Something was added to the board through the add menu or a block's "+". */
+  studio_object_added: {
+    world_id: string;
+    kind: "module" | "worker" | "opening" | "setting" | "variable" | "behavior" | "interface";
+    /** "menu" = the toolbar's add menu, "block" = a block's own "+". */
+    via: "menu" | "block";
+  };
+  /** A slot was taken out of the board's "Add" tray (or the packs page opened from it). */
+  studio_tray_pick: {
+    world_id: string;
+    item: "state" | "behavior" | "audio" | "image" | "background" | "packs";
+  };
+  /** A switch in the board's View menu was used. `on` is the state it was switched to. */
+  studio_view_toggle: {
+    world_id: string;
+    item: "wires" | "lock" | "tidy" | "legend" | "estimate" | "rail" | "ai-table" | "ai-calls";
+    on: boolean;
+  };
+  /**
+   * The creator zoomed in far enough for rows to show their text — the first
+   * time per board visit. Tells us whether zoom-to-read is being found.
+   */
+  studio_board_read: {
+    world_id: string;
+    zoom: number;
+  };
+  /**
+   * The 画布 switch flipped. Before this the only record was an autocapture
+   * click whose aria-checked had to be read backwards. `via` is the pill
+   * itself or the beta intro's 「打开画布试试」; `surface` is "studio" on a
+   * phone, where the switch opens the phone shell and not a board.
+   */
+  studio_surface_switch: {
+    to: "visual" | "classic";
+    via: "pill" | "intro";
+    surface: "canvas" | "studio";
+  };
+  /** The creator's own reaction to an assistant run (Studio AI panel). Paired
+   *  server-side with studio_agent_run_end (same run_id), which records what the
+   *  run did and left: together they replace guessing satisfaction from words. */
+  studio_assistant_action: {
+    world_id: string;
+    /** The run acted on: the newest run for undo/regenerate/feedback, the live run for stop. */
+    run_id: string | null;
+    action: "undo" | "regenerate" | "stop" | "resume_credits" | "continue" | "job_start" | "model_switch";
+    model: string;
+    /** model_switch: where the switch came from, and to what. */
+    source?: "picker" | "pause_card" | "image_notice";
+    to_model?: string;
+    /** job_start: the estimate the creator accepted. */
+    credits?: number | null;
+  };
+  /** 👍 / 👎 under a finished assistant run. */
+  studio_assistant_feedback: {
+    world_id: string;
+    run_id: string;
+    rating: "up" | "down";
+    model: string;
+  };
+  /** An official theme or layout was applied in the player-view tab. */
+  studio_look_applied: {
+    world_id: string;
+    kind: "theme" | "layout";
+    /** The official preset id, or "none" when switching back to the platform default. */
+    id: string;
+  };
+
   /** Bounded, geometry-only diagnostics for mobile resume/interaction recovery. */
   ui_recovery: {
     reason: "viewport_resume" | "outer_scroll" | "orphaned_overlay_lock";
@@ -260,13 +370,45 @@ export function captureHubEvent<K extends keyof HubEventMap>(
 export function identifyAnalyticsUser(
   userId: string,
   traits?: Record<string, string | number | boolean | null | undefined>,
+  match?: { email?: string | null },
 ): void {
   try {
     if (typeof window === "undefined") return;
     if (isAnalyticsEnabled()) posthog.identify(userId, traits);
     linkObservedGameGuest(userId);
+    // Ad pixels get hashed identifiers only; the email never reaches PostHog.
+    void identifyTikTokUser(userId, match?.email ?? null);
   } catch {
     // ignore
+  }
+}
+
+// TikTok advanced matching: hashed email + external_id raise the share of
+// conversions TikTok can attribute (its "Email and phone are missing"
+// diagnostic). Hashed here with SubtleCrypto so plaintext never leaves the
+// page; the pixel would hash it anyway, but this keeps it explicit.
+let lastTikTokIdentity = "";
+
+async function sha256Hex(value: string): Promise<string> {
+  const data = new TextEncoder().encode(value.trim().toLowerCase());
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+export async function identifyTikTokUser(userId: string, email: string | null): Promise<void> {
+  try {
+    if (typeof window === "undefined" || !userId) return;
+    const w = window as unknown as { ttq?: TikTokPixel };
+    if (!w.ttq || typeof w.ttq.identify !== "function") return;
+    if (typeof crypto === "undefined" || !crypto.subtle) return;
+    const key = `${userId}|${email ?? ""}`;
+    if (key === lastTikTokIdentity) return;
+    lastTikTokIdentity = key;
+    const identity: Record<string, string> = { external_id: await sha256Hex(userId) };
+    if (email && email.includes("@")) identity.email = await sha256Hex(email);
+    w.ttq.identify(identity);
+  } catch {
+    // Never let analytics break the app.
   }
 }
 
@@ -304,6 +446,7 @@ export function trackSignupConversion(userId?: string | null): void {
     const w = window as unknown as {
       rdt?: (...args: unknown[]) => void;
       fbq?: (...args: unknown[]) => void;
+      ttq?: TikTokPixel;
     };
     // conversionId must match the server-side CAPI SignUp's conversion_id
     // (the user id) — Reddit dedupes the pixel/CAPI pair on it.
@@ -311,6 +454,11 @@ export function trackSignupConversion(userId?: string | null): void {
       w.rdt("track", "SignUp", userId ? { conversionId: userId } : undefined);
     }
     if (typeof w.fbq === "function") w.fbq("track", "CompleteRegistration");
+    // TikTok: the campaign conversion. event_id = user id so a future
+    // Events API (server-side) copy dedupes against this one.
+    if (w.ttq && typeof w.ttq.track === "function") {
+      w.ttq.track("CompleteRegistration", {}, userId ? { event_id: userId } : undefined);
+    }
   } catch {
     // Never let analytics break the app.
   }
@@ -377,8 +525,95 @@ export function trackGuestPlayIntentPixel(): void {
     } catch {
       // storage unavailable (private mode) — still fire, just unguarded
     }
-    const w = window as unknown as { rdt?: (...args: unknown[]) => void };
+    const w = window as unknown as { rdt?: (...args: unknown[]) => void; ttq?: TikTokPixel };
     if (typeof w.rdt === "function") w.rdt("track", "Lead");
+    if (w.ttq && typeof w.ttq.track === "function") w.ttq.track("ClickButton");
+  } catch {
+    // Never let analytics break the app.
+  }
+}
+
+// ── TikTok pixel (injected in index.html, prod hostnames only) ──────────
+// Standard events only, so the ad account can optimize on them:
+//   CompleteRegistration (signup, above), ClickButton (guest play intent,
+//   above), CompletePayment (checkout success), and page() per SPA route.
+type TikTokPixel = {
+  track?: (event: string, properties?: Record<string, unknown>, options?: { event_id?: string }) => void;
+  page?: () => void;
+  identify?: (identity: Record<string, string>) => void;
+};
+
+// ViewContent: a world's detail opened (direct link or a card tap). TikTok's
+// "missing funnel events" diagnostic wants this ahead of registration.
+export function trackViewContent(content: { id: string; name?: string | null }): void {
+  try {
+    if (typeof window === "undefined" || !content.id) return;
+    const w = window as unknown as { ttq?: TikTokPixel };
+    if (w.ttq && typeof w.ttq.track === "function") {
+      w.ttq.track("ViewContent", {
+        content_id: content.id,
+        content_type: "product",
+        ...(content.name ? { content_name: content.name.slice(0, 100) } : {}),
+      });
+    }
+  } catch {
+    // Never let analytics break the app.
+  }
+}
+
+// InitiateCheckout: the buyer is being sent to Stripe (or the WeChat flow).
+export function trackInitiateCheckout(priceId?: string | null): void {
+  try {
+    if (typeof window === "undefined") return;
+    const w = window as unknown as { ttq?: TikTokPixel };
+    if (w.ttq && typeof w.ttq.track === "function") {
+      w.ttq.track("InitiateCheckout", { content_type: "product", ...(priceId ? { content_id: priceId } : {}) });
+    }
+  } catch {
+    // Never let analytics break the app.
+  }
+}
+
+// index.html already fired page() for the first document, so start from the
+// landing path and only report real route changes.
+let lastTikTokPagePath = typeof window !== "undefined" ? window.location.pathname : "";
+
+export function trackTikTokPageView(pathname?: string): void {
+  try {
+    if (typeof window === "undefined") return;
+    const path = pathname ?? window.location.pathname;
+    if (path === lastTikTokPagePath) return;
+    lastTikTokPagePath = path;
+    const w = window as unknown as { ttq?: TikTokPixel };
+    if (w.ttq && typeof w.ttq.page === "function") w.ttq.page();
+  } catch {
+    // Never let analytics break the app.
+  }
+}
+
+// CompletePayment: fired once per Stripe checkout session when the plans
+// page comes back with ?success=true&session_id=cs_…. The session id is the
+// dedupe key (device-local) and the event_id, so a server-side copy can
+// dedupe against it later. Value is optional: the plans page does not know
+// the charged amount, and TikTok accepts the event without it.
+const PURCHASE_FIRED_PREFIX = "y_purchase_pixel_";
+
+export function trackPurchaseConversion(sessionId: string, value?: number | null, currency?: string | null): void {
+  try {
+    if (typeof window === "undefined" || !sessionId) return;
+    try {
+      const key = PURCHASE_FIRED_PREFIX + sessionId;
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, String(Date.now()));
+    } catch {
+      // storage unavailable (private mode) — still fire, just unguarded
+    }
+    const w = window as unknown as { ttq?: TikTokPixel };
+    if (w.ttq && typeof w.ttq.track === "function") {
+      const props: Record<string, unknown> = { content_type: "product", currency: (currency ?? "USD").toUpperCase() };
+      if (typeof value === "number" && Number.isFinite(value) && value > 0) props.value = value;
+      w.ttq.track("CompletePayment", props, { event_id: sessionId });
+    }
   } catch {
     // Never let analytics break the app.
   }

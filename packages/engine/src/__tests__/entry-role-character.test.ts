@@ -37,7 +37,7 @@ describe("switching an entry to role character", () => {
       createMockWorld({ entries: [createMockEntry({ name: "Balder", role, content: "Hi {{char}}", alwaysSend: true })] });
     const pb = new PromptBuilder();
     const txt = (w: ReturnType<typeof solo>) => pb.buildSystemMessages(w, state).map((m) => m.content).join("\n");
-    expect(txt(solo("custom"))).toContain("Hi Assistant");
+    expect(txt(solo("custom"))).toContain("Hi Test World");
     expect(txt(solo("character"))).toContain("Hi Balder");
   });
 

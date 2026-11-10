@@ -13,10 +13,18 @@ if (process.env.YUMINA_LOCAL_TEST !== "1" || process.env.DATABASE_URL !== "" || 
 // older suites register their own root-level before() and query immediately.
 const { db, ensureMessagesSwipeCount, ensureWorldsSchemaDerived } = await import("../db/index.js");
 if (!(db.$client instanceof PGlite)) throw new Error("Expected an isolated PGlite database");
-const empty = generateDrizzleJson({});
-const current = generateDrizzleJson(schema, empty.id);
-const statements = await generateMigration(empty, current);
-for (const statement of statements) await db.$client.exec(statement);
+// The isolated launcher already provisions the full schema for the suites on
+// its fullSchemaTests list (scripts/test-local-environment.mjs). Creating it a
+// second time fails on the first CREATE TABLE, so build only what is missing.
+const provisioned = await db.$client.query<{ exists: boolean }>(
+  "SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = 'public' AND tablename = 'account') AS exists",
+);
+if (!provisioned.rows[0]?.exists) {
+  const empty = generateDrizzleJson({});
+  const current = generateDrizzleJson(schema, empty.id);
+  const statements = await generateMigration(empty, current);
+  for (const statement of statements) await db.$client.exec(statement);
+}
 await ensureMessagesSwipeCount();
 await ensureWorldsSchemaDerived();
 // Production refuses any wallet balance change without a matching ledger row

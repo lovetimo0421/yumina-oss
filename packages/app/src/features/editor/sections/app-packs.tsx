@@ -1,6 +1,6 @@
 import { Component, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Plus } from "lucide-react";
+import { Check, Plus, Trash2 } from "lucide-react";
 import {
   appPack,
   appPackSample,
@@ -10,9 +10,10 @@ import {
   appPackVariableId,
   type AppPackId,
 } from "@yumina/engine";
+import { TwoTapDeleteButton } from "@/components/ui/two-tap-delete-button";
 import { cn } from "@/lib/utils";
 import { feedback } from "@/lib/feedback";
-import { bundleAndCompile } from "@/features/studio/lib/tsx-bundler";
+import { bundleAndCompile } from "@/lib/tsx/tsx-bundler";
 import { useEditorStore } from "@/stores/editor";
 
 /**
@@ -82,16 +83,26 @@ function AppPackPreview({ id, language }: { id: AppPackId; language: string }) {
 export function AppPacksSection({ language, onInstalled }: { language: string; onInstalled?: () => void }) {
   const { t } = useTranslation("editor");
   const importBundle = useEditorStore((s) => s.importBundle);
+  const removeInstalledBundle = useEditorStore((s) => s.removeInstalledBundle);
   const installedBundles = useEditorStore((s) => s.worldDraft.installedBundles);
   const apps = useMemo(() => appPackSummaries(language), [language]);
   const sets = useMemo(() => appPackSets(language), [language]);
 
   // An app already on the card shows as added: installing it twice would only
   // add a second copy of the same dock button.
-  const installed = useMemo(() => {
-    const vars = new Set((installedBundles ?? []).flatMap((b) => b.variableIds));
-    return new Set(apps.filter((a) => vars.has(appPackVariableId(a.id))).map((a) => a.id));
+  // app id → the install that brought it, so the page that adds an app can
+  // also take it away. A creator who added a starter set could not find how
+  // to undo it (deleting the app's variable left the dock button behind) and
+  // rebuilt the whole card on a fresh one to get rid of it.
+  const installIdByApp = useMemo(() => {
+    const map = new Map<AppPackId, string>();
+    for (const a of apps) {
+      const record = (installedBundles ?? []).find((b) => b.variableIds.includes(appPackVariableId(a.id)));
+      if (record) map.set(a.id, record.installId);
+    }
+    return map;
   }, [installedBundles, apps]);
+  const installed = useMemo(() => new Set(installIdByApp.keys()), [installIdByApp]);
 
   const add = (ids: AppPackId[]) => {
     const fresh = ids.filter((id) => !installed.has(id));
@@ -101,6 +112,21 @@ export function AppPacksSection({ language, onInstalled }: { language: string; o
     feedback.notice(t("appPacks.installed", { defaultValue: "Added {{name}}", name: names }));
     onInstalled?.();
   };
+
+  const remove = (ids: AppPackId[]) => {
+    const gone = ids.filter((id) => installIdByApp.has(id));
+    if (gone.length === 0) return;
+    const store = useEditorStore.getState();
+    store.beginBatch();
+    try {
+      for (const id of gone) removeInstalledBundle(installIdByApp.get(id)!);
+    } finally {
+      store.commitBatch();
+    }
+    const names = gone.map((id) => apps.find((a) => a.id === id)?.name ?? id).join(" · ");
+    feedback.notice(t("appPacks.removed", { defaultValue: "Removed {{name}}", name: names }));
+  };
+  const removeClass = "flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive";
 
   return (
     <div className="flex flex-col gap-3">
@@ -122,26 +148,36 @@ export function AppPacksSection({ language, onInstalled }: { language: string; o
           {sets.map((set) => {
             const done = set.packs.every((id) => installed.has(id));
             return (
-              <button
-                key={set.id}
-                type="button"
-                disabled={done}
-                onClick={() => add(set.packs)}
-                className={cn(
-                  "flex flex-col items-start gap-1.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
-                  done ? "border-emerald-500/30 bg-emerald-500/10" : "border-border hover:border-primary/60 hover:bg-primary/5",
+              <div key={set.id} className="flex flex-col gap-1">
+                <button
+                  type="button"
+                  disabled={done}
+                  onClick={() => add(set.packs)}
+                  className={cn(
+                    "flex flex-col items-start gap-1.5 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                    done ? "border-emerald-500/30 bg-emerald-500/10" : "border-border hover:border-primary/60 hover:bg-primary/5",
+                  )}
+                >
+                  <span className="text-[12.5px] font-semibold">{set.name}</span>
+                  <span className="text-[16px] leading-none tracking-[2px]">
+                    {set.packs.map((id) => apps.find((a) => a.id === id)?.icon).join("")}
+                  </span>
+                  <span className={cn("text-[11px]", done ? "text-emerald-400" : "text-primary")}>
+                    {done
+                      ? t("appPacks.setAdded", { defaultValue: "All added" })
+                      : t("appPacks.addSet", { defaultValue: "Add all four" })}
+                  </span>
+                </button>
+                {done && (
+                  <TwoTapDeleteButton
+                    onConfirm={() => remove(set.packs)}
+                    className={removeClass}
+                    armedChildren={<><Trash2 className="h-3.5 w-3.5" /> {t("twoTapConfirm")}</>}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> {t("appPacks.removeSet", { defaultValue: "Remove all four" })}
+                  </TwoTapDeleteButton>
                 )}
-              >
-                <span className="text-[12.5px] font-semibold">{set.name}</span>
-                <span className="text-[16px] leading-none tracking-[2px]">
-                  {set.packs.map((id) => apps.find((a) => a.id === id)?.icon).join("")}
-                </span>
-                <span className={cn("text-[11px]", done ? "text-emerald-400" : "text-primary")}>
-                  {done
-                    ? t("appPacks.setAdded", { defaultValue: "All added" })
-                    : t("appPacks.addSet", { defaultValue: "Add all four" })}
-                </span>
-              </button>
+              </div>
             );
           })}
         </div>
@@ -173,6 +209,15 @@ export function AppPacksSection({ language, onInstalled }: { language: string; o
                     ? t("appPacks.added", { defaultValue: "Added — in the dock" })
                     : t("appPacks.add", { defaultValue: "Add app" })}
                 </button>
+                {added && (
+                  <TwoTapDeleteButton
+                    onConfirm={() => remove([a.id])}
+                    className={cn(removeClass, "mt-1.5")}
+                    armedChildren={<><Trash2 className="h-3.5 w-3.5" /> {t("twoTapConfirm")}</>}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" /> {t("appPacks.remove", { defaultValue: "Remove" })}
+                  </TwoTapDeleteButton>
+                )}
               </div>
             </div>
           );

@@ -9,10 +9,8 @@
  * moved on since, the save is stale and must be rejected so the editor reloads
  * and merges rather than overwriting.
  *
- * Scoped to NON-published worlds on purpose: a published world's editor save
- * flows through the held-edit working copy, which has its own baseUpdatedAt
- * conflict handling (pending-edit.ts) and is actively being reworked alongside
- * the working-copy feature — we deliberately do not double-guard it here.
+ * Published held edits also advance worlds.updatedAt. They need the same check
+ * so an older tab cannot silently overwrite a restored working copy.
  */
 export function isStaleDraftSave(opts: {
   /** The server updatedAt (ISO string) the editor last synced with. */
@@ -22,14 +20,17 @@ export function isStaleDraftSave(opts: {
   /** The live row's current updatedAt. */
   liveUpdatedAt: Date | null | undefined;
 }): boolean {
-  const { clientBaseUpdatedAt, liveStatus, liveUpdatedAt } = opts;
+  const { clientBaseUpdatedAt, liveUpdatedAt } = opts;
   // No token → guard off. Back-compat for older clients, imports, and brand-new
   // worlds (POST path) that have nothing to compare against.
   if (!clientBaseUpdatedAt) return false;
-  // Published worlds resolve concurrency via the held-edit working-copy path.
-  if (liveStatus === "published") return false;
   // No live row / timestamp → nothing to compare; let the route's own 404 /
   // not-found handling take over.
   if (!liveUpdatedAt) return false;
   return liveUpdatedAt.toISOString() !== clientBaseUpdatedAt;
+}
+
+/** Keep consecutive writes distinguishable even if they share a millisecond. */
+export function nextWorldSaveTime(previous: Date | null | undefined): Date {
+  return new Date(Math.max(Date.now(), (previous?.getTime() ?? 0) + 1));
 }

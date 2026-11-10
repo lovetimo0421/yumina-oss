@@ -12,7 +12,7 @@ export interface ModelFallbackPolicy {
 
 export const DEFAULT_MODEL_FALLBACK_POLICY: ModelFallbackPolicy = {
   mode: "ask",
-  officialModel: "google/gemini-2.5-flash-lite",
+  officialModel: "google/gemini-3.1-flash-lite",
   privateModel: "",
   privateKeyId: null,
 };

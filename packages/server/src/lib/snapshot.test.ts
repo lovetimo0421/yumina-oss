@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { thinSnapshotForStorage, EPHEMERAL_METADATA_KEYS } from "./snapshot.js";
+import { thinSnapshotForStorage, EPHEMERAL_METADATA_KEYS, rewindState, activeStateChanges } from "./snapshot.js";
 
 describe("thinSnapshotForStorage", () => {
   it("strips ephemeral macro fields but keeps real state metadata", () => {
@@ -67,5 +67,81 @@ describe("thinSnapshotForStorage", () => {
     assert.deepStrictEqual(thinSnapshotForStorage({ variables: {} }), { variables: {} });
     const weird = { variables: {}, metadata: null };
     assert.strictEqual(thinSnapshotForStorage(weird as unknown as Record<string, unknown>), weird);
+  });
+});
+
+describe("rewindState", () => {
+  const checkpoint = {
+    turnCount: 20,
+    variables: { day: 3, gold: 50, bag: { items: ["rope"] } },
+    ruleState: { fired: ["r1"] },
+    metadata: { personaName: "Aria" },
+  };
+
+  it("returns the snapshot unchanged when the target carries one", () => {
+    const state = rewindState([{ role: "assistant", stateSnapshot: checkpoint }]);
+    assert.deepStrictEqual(state, checkpoint);
+    assert.notStrictEqual(state, checkpoint);
+  });
+
+  it("rolls a checkpoint forward through the replies after it, in order", () => {
+    const state = rewindState([
+      { role: "assistant", stateSnapshot: checkpoint },
+      { role: "user", stateChanges: [{ variableId: "gold", oldValue: 50, newValue: 999 }] },
+      { role: "assistant", stateChanges: [
+        { variableId: "gold", oldValue: 50, newValue: 40 },
+        { variableId: "gold", oldValue: 40, newValue: 35 },
+      ] },
+      { role: "user" },
+      { role: "assistant", stateChanges: [
+        { variableId: "day", oldValue: 3, newValue: 4 },
+        { variableId: "bag", oldValue: { items: ["rope"] }, newValue: { items: ["rope", "key"] } },
+      ] },
+      { role: "user" },
+    ])!;
+    // Only assistant ledgers count; the last write to a variable wins.
+    assert.deepStrictEqual(state.variables, { day: 4, gold: 35, bag: { items: ["rope", "key"] } });
+    assert.strictEqual(state.turnCount, 22);
+    assert.deepStrictEqual(state.ruleState, checkpoint.ruleState);
+    assert.deepStrictEqual(state.metadata, checkpoint.metadata);
+    // The stored checkpoint is not mutated.
+    assert.strictEqual(checkpoint.variables.gold, 50);
+  });
+
+  it("starts from the newest snapshot at or before the target", () => {
+    const state = rewindState([
+      { role: "assistant", stateSnapshot: { variables: { gold: 1 } } },
+      { role: "assistant", stateChanges: [{ variableId: "gold", oldValue: 1, newValue: 2 }] },
+      { role: "assistant", stateSnapshot: { variables: { gold: 10 } } },
+      { role: "assistant", stateChanges: [{ variableId: "gold", oldValue: 10, newValue: 11 }] },
+    ])!;
+    assert.deepStrictEqual(state.variables, { gold: 11 });
+  });
+
+  it("ignores malformed ledger entries", () => {
+    const state = rewindState([
+      { role: "assistant", stateSnapshot: { variables: { gold: 1 } } },
+      { role: "assistant", stateChanges: [null, { variableId: 7, newValue: 3 }, { variableId: "gold" }] },
+      { role: "assistant", stateChanges: { not: "an array" } },
+    ])!;
+    assert.deepStrictEqual(state.variables, { gold: 1 });
+  });
+
+  it("returns null when no snapshot survives at or before the target", () => {
+    assert.strictEqual(rewindState([]), null);
+    assert.strictEqual(rewindState([
+      { role: "assistant", stateSnapshot: null, stateChanges: [{ variableId: "gold", newValue: 2 }] },
+      { role: "user" },
+    ]), null);
+  });
+});
+
+describe("activeStateChanges", () => {
+  it("reads the active swipe's ledger, falling back to the row's", () => {
+    const swipes = [{ stateChanges: ["a"] }, { stateChanges: ["b"] }, {}];
+    assert.deepStrictEqual(activeStateChanges({ swipes, activeSwipeIndex: 1, stateChanges: ["row"] }), ["b"]);
+    assert.deepStrictEqual(activeStateChanges({ swipes, activeSwipeIndex: null, stateChanges: ["row"] }), ["a"]);
+    assert.deepStrictEqual(activeStateChanges({ swipes, activeSwipeIndex: 2, stateChanges: ["row"] }), ["row"]);
+    assert.deepStrictEqual(activeStateChanges({ swipes: null, stateChanges: ["row"] }), ["row"]);
   });
 });

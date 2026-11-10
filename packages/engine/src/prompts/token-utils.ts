@@ -42,6 +42,13 @@ export function preloadTokenizer(): Promise<void> {
   return loadPromise;
 }
 
+/** True once exact counts are available. Before that (and forever, if the
+ *  rank data failed to load) estimateTokens returns a heuristic, so callers
+ *  that cache counts must not keep a pre-load answer. */
+export function isTokenizerReady(): boolean {
+  return encoder !== null;
+}
+
 function tryGetEncoder(): Tiktoken | null {
   if (encoder) return encoder;
   if (!initFailed) void preloadTokenizer();
@@ -147,6 +154,13 @@ function estimateCjkAware(text: string): number {
   }
   const ascii = text.length - cjk;
   return Math.ceil(cjk + ascii / 4);
+}
+
+/** The character heuristic on its own: one cheap pass, no tokenizer, the same
+ *  answer for every model. For measures that must stay put across models and
+ *  cost little over a whole history (the history trimmer's step grid). */
+export function estimateTokensByChars(text: string): number {
+  return text ? estimateCjkAware(text) : 0;
 }
 
 /**

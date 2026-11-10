@@ -12,7 +12,7 @@ export type ResolvedPersona = typeof userPersonas.$inferSelect;
 export async function resolvePersonaForWorld(
   userId: string,
   _worldId: string | null | undefined,
-  database: DrizzleDB = db,
+  database: Pick<DrizzleDB, "select"> = db,
 ): Promise<ResolvedPersona | null> {
   const [active] = await database
     .select()
@@ -25,11 +25,11 @@ export async function resolvePersonaForWorld(
 /** A locked session keeps its selected persona while an unlocked session follows
  * the account selection. Resolve a locked persona by ID so profile edits still
  * apply; the public snapshot is the fallback if that persona was later deleted. */
-export async function resolvePersonaForSession(session: Pick<typeof playSessions.$inferSelect, "id" | "userId" | "state" | "sessionPersona" | "personaLocked">) {
-  if (!session.personaLocked) return resolvePersonaForWorld(session.userId, null);
+export async function resolvePersonaForSession(session: Pick<typeof playSessions.$inferSelect, "id" | "userId" | "state" | "sessionPersona" | "personaLocked">, database: Pick<DrizzleDB, "select"> = db) {
+  if (!session.personaLocked) return resolvePersonaForWorld(session.userId, null, database);
   const snapshot = session.sessionPersona?.persona ?? null;
   if (!snapshot?.id) return snapshot;
-  const [current] = await db
+  const [current] = await database
     .select()
     .from(userPersonas)
     .where(and(eq(userPersonas.id, snapshot.id), eq(userPersonas.userId, session.userId)))

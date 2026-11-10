@@ -37,6 +37,22 @@ Before fixing a missing widget, read the entry file and trace its imports and re
 
 This avoids rebuilding the entire chat UI from scratch. Use `<Chat />` alone when you just need widgets around the standard chat. Add `renderBubble` when you also need custom message styling.
 
+### Theming the built-in input box
+
+The input box is ONE surface: `.play-composer-card` holds the textarea AND the toolbar under it (`+`, model pill, Memory, send). Theme it as one piece or leave it alone.
+
+- Style `.play-composer-card` (background, border, radius, glow). Never give `textarea` / `.play-composer-textarea` / `.play-composer-grow` its own border, background or shadow — the box splits into a themed top half and an unthemed toolbar. The platform flattens a boxed textarea at runtime anyway.
+- If you change the card's background, set the text colours for it in the same rule, so typed text, placeholder and toolbar labels stay readable (4.5:1). Redefine the tokens on the card instead of colouring single elements: a light card needs `--color-foreground`, `--color-muted-foreground`, `--color-accent`, `--color-border`, `--color-popover` and `--color-popover-foreground` set to dark-ink values.
+- Over a scene image, keep the card at least 60% opaque or add `backdrop-filter: blur(...)`; a transparent card puts text straight on the art.
+
+```css
+.my-chat .play-composer-card {
+  background: rgba(255, 250, 240, .94); border: 1px solid #c9a25e; box-shadow: 0 0 14px #c9a25e55;
+  --color-foreground: #2b2620; --color-muted-foreground: #6b6257; --color-accent: #efe6d4;
+  --color-border: #d8ccb4; --color-popover: #fffaf0; --color-popover-foreground: #2b2620;
+}
+```
+
 ## Full Takeover (no `<Chat>`)
 
 To take over the viewport entirely — no platform chat at all — simply don't render `<Chat>` in the entry file. Handle all chat display yourself:
@@ -57,6 +73,31 @@ To take over the viewport entirely — no platform chat at all — simply don't 
 | Greeting display | The greeting is `api.messages[0]` (first assistant message) — render it. Multiple greetings are built-in: create multiple `role: "greeting"` entries and use `api.switchGreeting(index)` to navigate |
 | Streaming text | Check `api.isStreaming`, render `api.streamingContent` |
 | Session header | Optionally add your own title/controls |
+
+## 拆积木 — decompose a hand-written frontend into style knobs
+
+A card with a hand-written frontend (a preserved `uiDoc.base`, or any card whose rootComponent isn't `generatedFrom: "uiDoc"`) can have its **visual constants lifted out as knobs**: the creator then clicks the region on the builder canvas and edits 标题颜色 with a swatch — no code. When the creator asks to 拆积木 / "make the frontend visually editable" / "把前端拆成旋钮", this is the workflow.
+
+**Everything lands in ONE reply — the batch is atomic.** A half-done decomposition (code reads `K["…"]` but no groups installed) is rejected wholesale, so never split it across turns:
+
+1. **Read** the base file(s) with `read_entities` / `grep_world`. Identify the card's *visible regions* (banner, status bar, choices, narration…) and, in each, the **high-value constants**: theme colors, display strings, key font sizes/spacings. 3-8 groups with a handful of knobs each beats an exhaustive dump — lift what a creator would actually want to touch.
+2. **Rewrite** each constant with `edit_custom_ui` (exact-once search-replace, small chunks):
+   - Add `import K from "./_knobs";` at the top of every file you touch (the platform generates `_knobs.tsx` from the groups — you never write that file).
+   - Expression position: `color: "#8fe0ae"` → `color: K["night.title-color"]`
+   - JSX attribute: `color="#8fe0ae"` → `color={K["night.title-color"]}`
+   - JSX text: `>夜晚<` → `>{K["night.title-text"]}<`
+   - Inside a template literal: `` `2.85em` `` → `` `${K["night.title-size"]}em` `` (the **unit stays in the code**; the knob is the bare number)
+   - Tag each region's outermost JSX element with `data-knob-group="<group-id>"` — that's what the canvas hit-tests when the creator clicks.
+3. **Install** the groups with `write_ui_knob_groups`, as the LAST call of the same reply. Every knob's `value` is EXACTLY the literal you removed — **at default values the card must render pixel-identical to before**. That invariant is the whole deal: decomposition changes nothing the player sees.
+
+Knob design rules:
+- `id` is namespaced under its region with a dot: `night.title-color`. `label` is in the card's language.
+- `number` knobs: set `unit` ("em"/"px"/"rem"/"vw") plus sensible `min`/`max`/`step` — the inspector then offers a slider, and the canvas corner-handle can scale the region by drag. A unitless ratio (`line-height`) gets NO unit, so drag-scaling leaves it alone.
+- Gradients and long CSS values are `text` knobs (they still show a live swatch).
+- The validator rejects the batch if: a declared knob is never read as `K["id"]`; code reads a `K["…"]` that isn't declared; a file uses `K[…]` without importing `./_knobs`; a group id never appears as `data-knob-group`.
+- A card with no `uiDoc` yet is wrapped automatically (its frontend becomes the preserved base, byte-identical) — you do NOT need the creator to open the builder first.
+
+**After decomposition**: color/text/size changes covered by a knob go through `set_ui_knobs` — never `edit_custom_ui` — and the creator can also drag/click them on the canvas. Only structural changes (layout, new regions, logic) still edit code.
 
 ## Platform Conventions (do NOT reimplement)
 
@@ -104,7 +145,9 @@ Do **not** gate player input on `useState` (resets on remount) or on `api.storag
 
 ### Companion sub-chats: `api.ai.complete` uses the player's model
 
-`api.ai.complete({ messages, includeLorebook, temperature, maxTokens })` runs a side LLM call (e.g. an in-world messenger/DM). It uses the **player's currently selected chat model** and defaults to `temperature: 1.0` — which causes OOC/off-topic replies on weaker models. For in-character side chats, pass an explicit `temperature` (~0.6–0.7) and a `maxTokens`, give a strong identity anchor in the system prompt ("You ARE <character>; stay in character; never refuse"), and feed enough recent main-story context so replies stay coherent.
+`api.ai.complete({ messages, includeLorebook, temperature, maxTokens })` runs a side LLM call (e.g. an in-world messenger/DM). With `context: "session"`, `worldbookIds: ["<module id>"]` limits its lore to those situations plus Core — this is how a call becomes a declared custom AI's implementation, and the canvas lists it under that AI. It uses the **player's currently selected chat model** and, by default, the player's own generation settings — that is the right default for almost every call. Pass `temperature` / `maxTokens` only when the call's job needs a fixed value, never just to "tune" the card: a rules judge, a scorer or anything that must answer JSON reliably → `temperature: 0.2`; a short in-character side chat that drifts OOC on weaker models → ~0.6–0.7 with a modest `maxTokens`. Values are clamped to safe ranges (temperature 0–1.5). Only pass `model` when the creator asks for one, and only an exact id from Yumina's model catalog — a player whose plan cannot run it falls back instead of failing. For coherent side chats the bigger levers are a strong identity anchor in the system prompt ("You ARE <character>; stay in character; never refuse") and enough recent main-story context.
+
+Use `context: "session"` when the side conversation should inherit the current/locked persona (excluding private notes), applicable enabled player prompts, generation preferences and native saved-state lore. In this mode matched lore is the default and scans all supplied user messages, including the original observation before a repair. Explicit maxTokens/temperature (clamped to safe ranges) take priority over player preferences and world settings; output stays capped at 8192 tokens. The parent supplies preferences; do not pass card-authored `overrides`. Caller system instructions and optional `responseFormat: {type:"json_object"}` follow narrative preferences. Validate machine-readable results. This does not load saved chat/summaries, apply effects or persist messages, and omitting context keeps existing raw behavior.
 
 For image posting/messenger features, pass the uploaded bytes to the model too: `api.sendMessage(text, attachments)` for story turns, or `api.ai.complete({ messages: [{ role: "user", content: text, attachments }] })` for side calls. Attachments use `{ type: "image", mimeType, name, data }` (bare base64). Showing an `<img>` or storing a URL in a variable alone does not let the model see it. Keep image drafts on failure, and let the player choose a model marked Vision. See the TSX SDK reference for limits and content-part support.
 
@@ -169,7 +212,7 @@ Keep the entry small and out of the way — a corner of a title/pause screen, ne
 
 ### Audio: prefer `api.playAudio()` over `<audio>` / `<video muted={false}>`
 
-`api.playAudio(trackId, opts)` runs in the **parent window**, not your sandboxed iframe. It survives component re-mounts, won't leak on navigation, handles fade/chain/ducking, and is unaffected by browser autoplay policy nuances. Use it for BGM and SFX.
+`api.playAudio(trackId, opts)` runs in the **parent window**, not your sandboxed iframe. It survives component re-mounts and handles fade/chain/ducking. Browser autoplay rules still apply: blocked playback retries on a later user gesture. Leaving the world stops its audio, and audio commands from its hidden interface are ignored. Use it for BGM and SFX.
 
 ```js
 React.useEffect(function() {

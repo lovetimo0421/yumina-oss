@@ -57,6 +57,35 @@ export async function getInstalledExtensions(userId: string): Promise<Set<string
   return new Set(keys);
 }
 
+const uninstalledCacheKey = (userId: string) => `ext-uninstalled:${userId}`;
+
+/**
+ * Extension keys the user explicitly uninstalled (a row with
+ * status='uninstalled'), as distinct from never installed (no row). Features
+ * that are on by default read this as the player's opt-out. Same cache and
+ * primary-read policy as getInstalledExtensions.
+ */
+export async function getUninstalledExtensions(userId: string): Promise<Set<string>> {
+  if (redis) {
+    try {
+      const cached = await redis.get(uninstalledCacheKey(userId));
+      if (cached) return new Set(JSON.parse(cached) as string[]);
+    } catch {
+      /* fall through to DB */
+    }
+  }
+  const rd = await readOwn(userId);
+  const rows = await rd
+    .select({ key: userExtensions.extensionKey })
+    .from(userExtensions)
+    .where(and(eq(userExtensions.userId, userId), eq(userExtensions.status, "uninstalled")));
+  const keys = rows.map((r) => r.key);
+  if (redis) {
+    redis.set(uninstalledCacheKey(userId), JSON.stringify(keys), "EX", CACHE_TTL_SECONDS).catch(() => {});
+  }
+  return new Set(keys);
+}
+
 /** Whether a specific extension is installed (entitlement ON) for the user. */
 export async function isExtensionInstalled(userId: string, key: string): Promise<boolean> {
   const installed = await getInstalledExtensions(userId);
@@ -73,7 +102,7 @@ export async function isCapabilityEnabled(userId: string, capabilityId: string):
 /** Drop the cached install set after an install/uninstall/reinstall. */
 export function invalidateExtensionsCache(userId: string): void {
   if (redis) {
-    redis.del(cacheKey(userId)).catch((err) => {
+    redis.del(cacheKey(userId), uninstalledCacheKey(userId)).catch((err) => {
       // Entitlement gate: a failed invalidation means this user keeps their
       // OLD install set for up to CACHE_TTL_SECONDS. The TTL self-heals, but
       // the failure must be visible — silent failures on permission

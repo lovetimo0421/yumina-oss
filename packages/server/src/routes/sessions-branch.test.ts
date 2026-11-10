@@ -5,6 +5,7 @@ import { db } from "../db/index.js";
 import { playSessions, messages, worlds, user, userPersonas, userWorldPersonas, worldMemories, summaryceptionSnippets } from "../db/schema.js";
 import { eq, asc } from "drizzle-orm";
 import { branchSession } from "./sessions.js";
+after(async () => { const client = (db as unknown as { $client: { closed?: boolean; close(): Promise<void> } }).$client; if (!client.closed) await client.close(); });
 
 // Tests call `branchSession()` directly as a plain async function, bypassing
 // Hono and the auth middleware. Task 3 factors the branch handler this way so
@@ -160,7 +161,8 @@ describe("branchSession", () => {
     assert.strictEqual(newSession!.parentSessionId, testSessionId);
     assert.strictEqual(newSession!.branchedFromMessageId, messageIds[2]);
     assert.strictEqual((newSession!.state as any).variables.hp, 9);
-    assert.strictEqual(newSession!.summary, "parent summary");
+    assert.strictEqual(result.body.data!.variablesRestored, true);
+    assert.strictEqual(newSession!.summary, null, "legacy summary without coverage proof must not enter the branch");
     assert.strictEqual(newSession!.name, "main · 分支 1");
 
     const clonedMessages = await db.select().from(messages).where(eq(messages.sessionId, newSessionId)).orderBy(asc(messages.createdAt));
@@ -171,6 +173,37 @@ describe("branchSession", () => {
     for (const m of clonedMessages) {
       assert.ok(!parentIds.has(m.id), `cloned message "${m.content}" reused parent id ${m.id}`);
     }
+  });
+
+  it("rolls a pruned branch point forward from the nearest checkpoint", async () => {
+    // Only the greeting kept its snapshot (a checkpoint); the replies after it
+    // were pruned, so the branch replays their active-swipe changes.
+    await db.update(messages).set({ stateSnapshot: null }).where(eq(messages.sessionId, testSessionId));
+    await db.update(messages).set({ stateSnapshot: { variables: { hp: 10 }, turnCount: 0 } }).where(eq(messages.id, messageIds[0]!));
+    const ledger = (hp: number) => [{ variableId: "hp", oldValue: 0, newValue: hp }] as unknown as Record<string, unknown>;
+    await db.update(messages).set({ stateChanges: ledger(7) }).where(eq(messages.id, messageIds[2]!));
+    await db.update(messages).set({
+      stateChanges: ledger(6), activeSwipeIndex: 1,
+      swipes: [{ content: "reply 2", createdAt: "now", stateChanges: ledger(6) }, { content: "reply 2b", createdAt: "now", stateChanges: ledger(5) }],
+    }).where(eq(messages.id, messageIds[4]!));
+
+    const result = await branchSession({ userId: testUserId, sessionId: testSessionId, messageId: messageIds[4]! });
+    assert.strictEqual(result.status, 201);
+    assert.strictEqual(result.body.data!.variablesRestored, true);
+    const [branch] = await db.select().from(playSessions).where(eq(playSessions.id, result.body.data!.sessionId));
+    assert.strictEqual((branch!.state as any).variables.hp, 5);
+    assert.strictEqual((branch!.state as any).turnCount, 2);
+  });
+
+  it("keeps the parent's live variables and says so when no snapshot is left", async () => {
+    await db.update(messages).set({ stateSnapshot: null }).where(eq(messages.sessionId, testSessionId));
+    await db.update(playSessions).set({ state: { variables: { hp: 42 } } }).where(eq(playSessions.id, testSessionId));
+
+    const result = await branchSession({ userId: testUserId, sessionId: testSessionId, messageId: messageIds[2]! });
+    assert.strictEqual(result.status, 201);
+    assert.strictEqual(result.body.data!.variablesRestored, false);
+    const [branch] = await db.select().from(playSessions).where(eq(playSessions.id, result.body.data!.sessionId));
+    assert.strictEqual((branch!.state as any).variables.hp, 42);
   });
 
   it("does not mutate the parent session", async () => {
@@ -353,6 +386,27 @@ describe("branchSession", () => {
     assert.strictEqual(branchSnippets[0]!.sourceEndMessageId, clonedReply1.id);
     assert.notStrictEqual(branchSnippets[0]!.sourceStartMessageId, messageIds[0], "must not dangle on a parent id");
   });
+
+  it("remaps retained manual summary coverage and preserves stale memory quarantine", async () => {
+    const staleAt = new Date("2026-10-01T00:00:00Z");
+    await db.update(playSessions).set({ summary: "facts before the branch", summaryCoversUntilMessageId: messageIds[2]!,
+      summaryTokenCount: 12, summaryUpdatedAt: staleAt, sessionMemory: memory(["old edited fact"]),
+      sessionMemoryProcessedMessageId: messageIds[2]!, sessionMemoryStaleAt: staleAt,
+    }).where(eq(playSessions.id, testSessionId));
+    const result = await branchSession({ userId: testUserId, sessionId: testSessionId, messageId: messageIds[2]! });
+    assert.equal(result.status, 201);
+    const [child] = await db.select().from(playSessions).where(eq(playSessions.id, result.body.data!.sessionId));
+    const copied = await db.select().from(messages).where(eq(messages.sessionId, child!.id));
+    const pivot = copied.find(message => message.content === "reply 1")!;
+    assert.equal(child!.summary, "facts before the branch");
+    assert.equal(child!.summaryCoversUntilMessageId, pivot.id);
+    assert.notEqual(child!.summaryCoversUntilMessageId, messageIds[2]);
+    assert.equal(child!.summaryTokenCount, 12);
+    assert.equal(child!.summaryUpdatedAt?.toISOString(), staleAt.toISOString());
+    assert.equal(child!.sessionMemoryProcessedMessageId, pivot.id);
+    assert.equal(child!.sessionMemoryStaleAt?.toISOString(), staleAt.toISOString());
+    assert.ok(copied.every(message => !message.compacted), "manual coverage can cover uncompacted rows");
+  });
 });
 
-after(async () => { await (db as unknown as { $client: { close(): Promise<void> } }).$client.close(); });
+after(async () => { const client = (db as unknown as { $client: { closed?: boolean; close(): Promise<void> } }).$client; if (!client.closed) await client.close(); });

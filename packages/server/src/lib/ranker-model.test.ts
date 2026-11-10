@@ -114,3 +114,35 @@ test("ranker evaluator: tweedie model returns exp(raw) = expected minutes, kind=
   assert.ok(Math.abs(model.predict({ f0: 0.9 }) - Math.exp(1.5)) < 1e-9);
   assert.ok(Math.abs(model.predict({ f0: 0.4 }) - Math.exp(-0.5)) < 1e-9);
 });
+
+const RANK_JSON = {
+  objective: "lambdarank",
+  tree_info: [
+    {
+      tree_structure: {
+        split_feature: 0, threshold: 0.5, decision_type: "<=", default_left: true,
+        left_child: { leaf_value: -0.2 }, right_child: { leaf_value: 0.3 },
+      },
+    },
+  ],
+} as never;
+
+test("ranker evaluator: residual-v1 lambdarank model returns raw score and carries its hand scale", () => {
+  const model = buildRankerModel(8, RANK_JSON, ["f0"], 0, { composition: "residual-v1", handScale: 0.0065 });
+  assert.equal(model.kind, "lambdarank");
+  assert.equal(model.composition, "residual-v1");
+  assert.equal(model.handScale, 0.0065);
+  assert.ok(Math.abs(model.predict({ f0: 0.9 }) - 0.3) < 1e-12, "no sigmoid / exp on a ranking score");
+});
+
+test("ranker evaluator: a lambdarank model without a valid residual declaration is refused", () => {
+  assert.throws(() => buildRankerModel(9, RANK_JSON, ["f0"]), /residual-v1/);
+  assert.throws(() => buildRankerModel(9, RANK_JSON, ["f0"], 0, { composition: "residual-v1", handScale: 0 }), /residual-v1/);
+});
+
+test("ranker evaluator: older time-value models stay on the lift composition", () => {
+  const model = buildRankerModel(10, { ...(RANK_JSON as object), objective: "tweedie" } as never, ["f0"], 0.02,
+    { composition: "residual-v1", handScale: 0.0065 });
+  assert.equal(model.composition, "lift");
+  assert.equal(model.handScale, 0);
+});

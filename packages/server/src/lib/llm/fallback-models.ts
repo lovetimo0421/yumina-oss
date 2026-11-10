@@ -92,9 +92,10 @@ export const FREE_ROUTER_VISION_LAST_RESORT_MODEL = "mistralai/mistral-small-3.2
 /**
  * Generation-grade, CJK-aware, broadly available fallback when an official-key
  * user's chosen model is blocked for TOS reasons. (Was x-ai/grok-4.1-fast, now
- * deprecated → redirected to the ~20x-pricier x-ai/grok-4.20.)
+ * deprecated → redirected to the ~20x-pricier x-ai/grok-4.20; then
+ * gemini-2.5-flash until its 2026-10-20 retirement.)
  */
-export const OFFICIAL_PROVIDER_TOS_FALLBACK_MODEL = "google/gemini-2.5-flash";
+export const OFFICIAL_PROVIDER_TOS_FALLBACK_MODEL = "google/gemini-3.5-flash-lite";
 
 /**
  * BYOK keys never get a fallback: the retry would spend the user's own money on

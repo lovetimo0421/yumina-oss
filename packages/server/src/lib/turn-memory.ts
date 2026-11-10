@@ -7,16 +7,20 @@
 // src/extensions/session-memory/hooks.ts — adding another extension never
 // touches this file or routes/messages.ts.
 
+import { setImmediate } from "node:timers/promises";
 import { eq, and, lte, desc, sql } from "drizzle-orm";
-import { estimateTokens } from "@yumina/engine";
+import { estimateTokens, PromptBuilder } from "@yumina/engine";
+import type { WorldDefinition } from "@yumina/engine";
 import { db } from "../db/index.js";
 import { messages } from "../db/schema.js";
+import { buildTurnHistoryFilter } from "./turn-history-filter.js";
 import { countPromptTokensCooperatively } from "./cooperative-tokens.js";
 import {
   collectHistoryConditions,
   collectPromptBlocks,
   hasPromptOverflowHandlers,
   resolveTurnHooks,
+  transformWorldDefinition,
   runPromptOverflow,
   runTurnComplete,
   PromptBlockController,
@@ -46,6 +50,27 @@ export interface TurnMemory {
   historyConditions: ReturnType<typeof collectHistoryConditions>;
   /** True when this turn resets the story (send path: character-creation). */
   freshStart: boolean;
+  /** This prompt's raw history against its budget, set by the overflow pass
+   *  so post-turn work can fold before the next prompt overflows. */
+  rawHistory?: { budget: number; tokens: number };
+}
+
+/** Resolve every installed session-local world overlay before lore matching. */
+export function resolveTurnWorldDefinition(
+  turn: TurnMemory,
+  session: HookSessionRow,
+  worldDef: WorldDefinition,
+): Promise<WorldDefinition> {
+  return transformWorldDefinition(
+    turn.dispatch,
+    {
+      ownerUserId: turn.ownerUserId,
+      sessionId: turn.sessionId,
+      session,
+      freshStart: turn.freshStart,
+    },
+    worldDef,
+  );
 }
 
 /**
@@ -57,10 +82,12 @@ export async function loadTurnMemoryBlocks(args: {
   sessionId: string;
   session: HookSessionRow;
   suppressSummaryBlocks?: boolean;
+  /** The turn's world, for extensions that are on by default for some cards. */
+  world?: WorldDefinition;
 }): Promise<TurnMemory> {
   const freshStart = args.suppressSummaryBlocks === true;
   const baseCtx = { ownerUserId: args.ownerUserId, sessionId: args.sessionId, session: args.session };
-  const dispatch = await resolveTurnHooks(baseCtx);
+  const dispatch = await resolveTurnHooks({ ...baseCtx, world: args.world });
   const blockCtx = { ...baseCtx, freshStart };
   const blocks = await collectPromptBlocks(dispatch, blockCtx);
   const historyConditions = collectHistoryConditions(dispatch, blockCtx);
@@ -74,9 +101,13 @@ export async function loadTurnMemoryBlocks(args: {
   };
 }
 
-/** Raw-history WHERE: session scope + every extension-contributed condition. */
-export function buildRawHistoryWhere(sessionId: string, turn: Pick<TurnMemory, "historyConditions">) {
-  return and(eq(messages.sessionId, sessionId), ...turn.historyConditions);
+/** Raw-history WHERE: session scope, successful history and extension filters. */
+export function buildRawHistoryWhere(
+  sessionId: string,
+  turn: Pick<TurnMemory, "historyConditions">,
+  activeUserMessageId?: string,
+) {
+  return buildTurnHistoryFilter(sessionId, turn.historyConditions, activeUserMessageId);
 }
 
 /** Hard cap on raw-history rows loaded per generation. The prompt clamp keeps
@@ -97,11 +128,11 @@ export const RAW_HISTORY_MAX_ROWS = 2000;
 export async function loadBoundedRawHistory(
   sessionId: string,
   turn: Pick<TurnMemory, "historyConditions">,
-  opts?: { upTo?: Date },
+  opts?: { upTo?: Date; activeUserMessageId?: string },
 ): Promise<Array<{ id: string; role: string; content: string; imageTokens: number; createdAt: Date | null }>> {
   const where = opts?.upTo
-    ? and(buildRawHistoryWhere(sessionId, turn), lte(messages.createdAt, opts.upTo))
-    : buildRawHistoryWhere(sessionId, turn);
+    ? and(buildRawHistoryWhere(sessionId, turn, opts.activeUserMessageId), lte(messages.createdAt, opts.upTo))
+    : buildRawHistoryWhere(sessionId, turn, opts?.activeUserMessageId);
   const rows = await db
     .select({
       id: messages.id,
@@ -225,11 +256,28 @@ export async function compactTurnOverflowIfNeeded(args: {
   // actually exceeds its budget. Under budget, trimming needs no help and
   // the background path keeps the summary fresh.
   const suffixStart = suffixCount > 0 ? Math.max(args.historyStart, contextMessages.length - suffixCount) : contextMessages.length;
-  const promptRawHistoryOverflows =
+  const promptRawHistoryTokens =
     await countPromptTokensCooperatively(contextMessages.slice(args.historyStart, suffixStart), model, finalRawHistoryBudget + nonRawHistoryTokens)
-      - nonRawHistoryTokens
-    > finalRawHistoryBudget;
-  if (!promptRawHistoryOverflows) return args.historyStart;
+      - nonRawHistoryTokens;
+  turn.rawHistory = { budget: finalRawHistoryBudget, tokens: promptRawHistoryTokens };
+  if (promptRawHistoryTokens <= finalRawHistoryBudget) return args.historyStart;
+
+  // Trimming steps: an overflowing history starts at a step boundary, short
+  // of the budget (PromptBuilder.buildMessageHistoryAsync). Fold up to where
+  // the prompt actually starts, with the same step basis the send passes; a
+  // tail sized to the full budget would leave the messages in between in
+  // neither the prompt nor the summary until they aged out of both.
+  const kept = await new PromptBuilder().buildMessageHistoryAsync(
+    contextMessages.slice(args.historyStart, suffixStart),
+    () => setImmediate(),
+    undefined,
+    0,
+    0,
+    model,
+    finalRawHistoryBudget + nonRawHistoryTokens,
+    args.storyMemory ?? maxContext,
+  );
+  const keptRawTokens = await countPromptTokensCooperatively(kept, model) - nonRawHistoryTokens;
 
   const controller = new PromptBlockController({
     messages: contextMessages,
@@ -242,7 +290,7 @@ export async function compactTurnOverflowIfNeeded(args: {
     userId: args.userId,
     model,
     maxContext,
-    finalPromptRawTokenLimit: finalRawHistoryBudget,
+    finalPromptRawTokenLimit: Math.max(1, Math.min(finalRawHistoryBudget, keptRawTokens)),
     pathLabel: args.pathLabel,
     blocks: controller,
   });
@@ -271,5 +319,6 @@ export function scheduleTurnMemoryUpdates(args: {
     fallbackModel: args.fallbackModel,
     assistantMessageId: args.assistantMessageId,
     contextTokenLimit: args.contextTokenLimit,
+    rawHistory: args.turn.rawHistory,
   });
 }

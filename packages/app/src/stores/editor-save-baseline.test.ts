@@ -76,6 +76,47 @@ beforeEach((t) => {
 afterEach(() => { globalThis.fetch = originalFetch; store.getState().stopAutosave(); });
 after(async () => { await vite.close(); });
 
+test("an oversized save exposes its full measured error and keeps the unsaved draft", async (t) => {
+  const draft = world("large");
+  draft.rootComponent!.files["App.tsx"] = `/*${"x".repeat(Math.ceil(10.1 * 1024 * 1024))}*/\nexport default function App() { return null; }`;
+  reset(world("A"), draft);
+  const errors: Array<Parameters<typeof feedback.error>> = [];
+  let dismissed = 0;
+  t.mock.method(feedback, "error", (...args: Parameters<typeof feedback.error>) => {
+    errors.push(args);
+    return () => { dismissed++; };
+  });
+  globalThis.fetch = async () => { throw new Error("Oversized saves must not be sent"); };
+  assert.equal(await store.getState().saveDraft(), false);
+  assert.equal(errors.length, 1);
+  assert.match(errors[0]![0], /10\.1 MB.*10\.0 MB/);
+  assert.match(errors[0]![0], /Asset Library.*edits are still here/);
+  assert.deepEqual(errors[0]![2], { expanded: true, id: "world-save-error" });
+  assert.equal(store.getState().worldDraft, draft);
+  assert.equal(store.getState().isDirty, true);
+  store.getState().clearDraft();
+  assert.equal(dismissed, 1, "switching editor sessions retires the previous world's error");
+});
+
+test("an ordinary source edit and save retain on-demand asset loading", async () => {
+  const base = world("A");
+  base.rootComponent!.assetLoading = "on-demand";
+  reset(base, structuredClone(base));
+  store.getState().updateRootComponent({ files: { "App.tsx": source("Edited") } });
+  let patches = 0;
+  globalThis.fetch = async (_url, init) => {
+    assert.equal(init?.method, "PATCH");
+    const schema = requestBody(init).schema;
+    assert.equal(schema.rootComponent?.assetLoading, "on-demand");
+    assert.equal(rootSource(schema), source("Edited"));
+    patches++;
+    return Response.json({ data: serverData(schema, time(2)) });
+  };
+  assert.equal(await store.getState().saveDraft(), true);
+  assert.equal(patches, 1);
+  assert.equal(store.getState()._baseSchema?.rootComponent?.assetLoading, "on-demand");
+});
+
 test("a cover upload refreshes the save baseline without losing local edits or reporting agent changes", async () => {
   const base = { ...world("A"), avatar: "/old.jpg" };
   reset(base, { ...base, description: "Unsaved description" });
@@ -218,12 +259,13 @@ test("409 merging keeps its server ancestor and a successful retry advances it",
     assert.equal(requestBody(init).baseUpdatedAt, time(3));
     return Response.json({ data: serverData(requestBody(init).schema, time(4)) });
   };
-  assert.equal(await store.getState().saveDraft(), false);
+  // A clean merge retries the save itself (editor line, 2026-09-17): one call
+  // merges the server copy in and writes it back, so the ancestor and the
+  // concurrency token both advance without a second click.
+  assert.equal(await store.getState().saveDraft(), true);
+  assert.equal(patches, 2);
   assert.equal(rootSource(store.getState().worldDraft), source("C"));
   assert.equal(store.getState().worldDraft.description, "Local description");
-  assert.notEqual(store.getState()._baseSchema?.description, "Local description");
-  assert.equal(store.getState().isDirty, true);
-  assert.equal(await store.getState().saveDraft(), true);
   assert.equal(store.getState()._baseSchema?.description, "Local description");
   assert.equal(store.getState().baseUpdatedAt, time(4));
   assert.equal(store.getState().isDirty, false);

@@ -14,6 +14,15 @@
 //
 // Run after editing any zh/*.json:  pnpm --filter @yumina/app i18n:zh-hant
 //
+// STOP — the committed zh-Hant tree is no longer a pure product of this script.
+// As of 2026-09-13 about 200 of its strings differ from what a rerun produces,
+// and the committed form is the better one every time: OpenCC's cn→twp
+// over-converts (全域 → 全域性, 封存 → 歸檔, 背景 → 後臺, 打開 → 開啟, and it
+// rewrites ＝ as =). Rerunning to pick up a handful of new keys silently
+// replaces all 200 — the script prints a cheerful ✓ either way. Add new keys
+// to zh-Hant by hand instead. A rerun becomes safe only once those corrections
+// live in OVERRIDES below, which is a job nobody has done yet.
+//
 // Output is committed to git (reviewable, and the i18next fallback chain
 // zh-Hant → zh → en means a stale/missing key degrades to Simplified, never to
 // English). Only string VALUES are converted — JSON keys and {{interpolation}}

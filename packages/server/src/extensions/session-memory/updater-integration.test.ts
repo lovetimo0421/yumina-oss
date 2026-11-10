@@ -1,3 +1,6 @@
+// The complete application schema, before anything below queries it. Without
+// it the isolated runner starts on an empty PGlite and every query here fails
+// with `relation "..." does not exist`.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";

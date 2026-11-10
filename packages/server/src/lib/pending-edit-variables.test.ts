@@ -1,3 +1,4 @@
+import "../test/database-fixture.js";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { db } from "../db/index.js";

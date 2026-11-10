@@ -68,8 +68,13 @@
       "description": "Elimina permanentemente tu cuenta y los datos asociados.",
       "button": "Eliminar cuenta",
       "dialogTitle": "¿Eliminar tu cuenta permanentemente?",
-      "dialogDescription": "Tu cuenta seguirá activa hasta que confirmes la solicitud desde tu correo. Tras eliminarla, podrás registrarte de nuevo de inmediato, pero la cuenta nueva no podrá eliminarse hasta 3 días después de esta eliminación.",
+      "dialogDescription": "Te enviaremos un enlace por correo. Tu cuenta seguirá activa hasta que confirmes.",
       "warningTitle": "Esta acción no se puede deshacer",
+      "summaryWarnings": {
+        "data": "Tu cuenta, contenido, chats y archivos se eliminarán permanentemente.",
+        "billing": "Las suscripciones terminan de inmediato, sin reembolso de tiempo restante ni Mushies.",
+        "deletionCooldown": "Puedes registrarte de nuevo ya. Para volver a eliminarla deben pasar 3 días desde esta eliminación."
+      },
       "warnings": {
         "identity": "Se eliminarán tu perfil y todos los métodos de inicio de sesión vinculados.",
         "deletionCooldown": "El mismo correo puede registrarse de nuevo de inmediato, también mediante Google o Discord, pero la cuenta nueva no podrá eliminarse durante los 3 días posteriores a esta eliminación.",
@@ -80,10 +85,10 @@
         "antiAbuse": "Los registros de seguridad seudónimos y análisis limitados pueden conservarse durante los plazos necesarios para evitar abusos y operar el servicio.",
         "cache": "Los archivos almacenados se eliminan, pero las cachés existentes del navegador o de la red pueden seguir visibles hasta que caduque su duración anterior."
       },
-      "pendingEarnings": "Las cuentas con ingresos de creador aún retenidos no pueden eliminarse hasta que se liquiden. Contacta con soporte si es tu caso.",
+      "pendingEarnings": "Los ingresos de creador pendientes impiden la eliminación. Contacta con soporte.",
       "confirmLabel": "Escribe {{target}} para confirmar",
       "confirmPlaceholder": "Introduce {{target}}",
-      "acknowledge": "Entiendo que esto elimina permanentemente mi cuenta y mis datos. Podré registrarme de nuevo de inmediato, pero la cuenta nueva no podrá eliminarse durante los 3 días posteriores a esta eliminación.",
+      "acknowledge": "Entiendo que mi cuenta y mis datos se eliminarán permanentemente.",
       "sendEmail": "Enviar correo de confirmación",
       "sending": "Enviando...",
       "cancel": "Conservar mi cuenta",
@@ -100,16 +105,41 @@
       "errors": {
         "confirmationMismatch": "El texto de confirmación no coincide con tu cuenta.",
         "pendingEarnings": "Hay ingresos de creador pendientes de liquidación. Contacta con soporte antes de eliminar tu cuenta.",
-        "billing": "No pudimos cancelar tu facturación de forma segura. Inténtalo más tarde o contacta con soporte.",
+        "billing": "El servicio de pagos no pudo cancelar una suscripción y la eliminación se detuvo. Inténtalo más tarde; si persiste, contacta con soporte para revisar la suscripción.",
         "creatorAccount": "No se pudo cerrar tu cuenta de cobros de creador. Contacta con soporte antes de eliminarla.",
         "notReady": "La eliminación de cuentas se está preparando. Inténtalo de nuevo en unos minutos.",
         "cooldown": "La cuenta anterior asociada a este correo se eliminó hace menos de 3 días. Puedes seguir usando la cuenta actual, pero todavía no puedes eliminarla de nuevo.",
+        "cooldownUntil": "Este correo pertenecía a una cuenta eliminada hace menos de 3 días, así que esta cuenta no se puede eliminar hasta el {{time}}. No es un bloqueo: puedes seguir usando la cuenta con normalidad.",
         "lastAdmin": "La última cuenta de administrador no se puede eliminar. Primero asigna como administrador a otra persona de confianza.",
         "referral": "Las cuentas con historial de referidos requieren eliminación asistida por soporte para evitar recompensas duplicadas.",
         "protectedHistory": "Esta cuenta tiene una restricción de seguridad activa. Contacta con soporte para una eliminación asistida.",
         "email": "No pudimos enviar el correo de confirmación. Inténtalo más tarde.",
         "invalidLink": "Este enlace de eliminación no es válido o ha caducado. Solicita uno nuevo en la configuración de la cuenta.",
-        "generic": "No se pudo iniciar la eliminación de la cuenta. Inténtalo más tarde."
+        "generic": "No se pudo iniciar la eliminación de la cuenta. Inténtalo más tarde.",
+        "privileged": "Las cuentas privilegiadas deben transferir sus responsabilidades administrativas antes de eliminarse. Contacta con soporte.",
+        "billingUnavailable": "Tu cuenta tiene registros de pago vinculados, pero este servicio no tiene configurada su eliminación. Contacta con soporte antes de completar la eliminación. Esto no significa que tengas una suscripción activa ni que hayas completado la configuración de cobros.",
+        "subscriptionLookup": "El servicio de pagos no pudo verificar el estado de la suscripción. La eliminación se detuvo. Inténtalo más tarde o contacta con soporte.",
+        "paymentPending": "Hay un pago pendiente de liquidación. Inténtalo cuando se complete o falle; si sigue pendiente, contacta con soporte.",
+        "signIn": "Tu sesión ha caducado. Inicia sesión de nuevo e inténtalo otra vez.",
+        "origin": "La página no superó la comprobación de origen seguro. Abre de nuevo la eliminación desde los ajustes de este sitio.",
+        "request": "La solicitud de confirmación no es válida. Actualiza la página e inténtalo de nuevo."
+      },
+      "preflight": {
+        "title": "Problemas que resolver antes de eliminar la cuenta",
+        "loading": "Comprobando los requisitos…",
+        "failed": "No se pudieron comprobar los requisitos. Reintenta antes de continuar.",
+        "retry": "Comprobar de nuevo",
+        "emailAllowed": "Estos problemas impiden la eliminación definitiva, pero puedes recibir el correo de confirmación. Enviarlo no elimina la cuenta ni cancela suscripciones.",
+        "emailBlocked": "Resuelve los problemas anteriores antes de solicitar el correo de confirmación. Tu cuenta sigue disponible.",
+        "scope": "Estos son los problemas detectados hasta ahora. La confirmación final vuelve a comprobarlos, incluidas las suscripciones y los pagos en el servicio de pagos.",
+        "records": "Registros vinculados: {{records}}. Su existencia no implica una suscripción activa ni una configuración de cobros completada.",
+        "recordKinds": {
+          "customer": "cliente de pagos",
+          "subscription": "suscripción",
+          "connect": "cobros de creador",
+          "payment": "pago",
+          "checkout": "proceso de pago"
+        }
       }
     },
     "connectedAccounts": {
@@ -126,6 +156,25 @@
       "disconnected": "Desconectado",
       "connectError": "Error al conectar",
       "disconnectError": "Error al desconectar"
+    },
+    "connectedApps": {
+      "title": "Apps conectadas",
+      "description": "Mods de juegos, apps e IA en las que entraste con tu cuenta de Yumina. Si desconectas una, pierde el acceso al instante.",
+      "loading": "Cargando…",
+      "loadError": "No se pudo cargar. Recarga e inténtalo de nuevo.",
+      "empty": "Aún no hay apps conectadas.",
+      "verified": "Oficial",
+      "connectedOn": "Conectada el {{date}}",
+      "disconnect": "Desconectar",
+      "disconnecting": "Desconectando…",
+      "disconnectError": "No se pudo desconectar. Inténtalo de nuevo.",
+      "scope": {
+        "aiChat": "Chatear con tus mushies",
+        "walletRead": "Saldo",
+        "quests": "Misiones",
+        "cards": "Tus cartas",
+        "profile": "Nombre"
+      }
     },
     "validation": {
       "usernameMinLength": "El nombre de usuario debe tener al menos 3 caracteres",
@@ -149,7 +198,7 @@
     },
     "sensitive": {
       "label": "Sin límites",
-      "description": "Incluir contenido Sin límites"
+      "description": "Incluye contenido Sin límites. Si un modelo aún se contiene, instala un prompt Sin restricciones desde la Plaza de prompts."
     },
     "minorRestriction": "El modo Sin límites no está disponible para esta cuenta.",
     "audiencePreference": {
@@ -169,8 +218,8 @@
       }
     },
     "blurSensitive": {
-      "title": "Difuminar contenido Sin límites",
-      "description": "Difumina las miniaturas de contenido Sin límites en Descubrir."
+      "title": "Difuminar portadas sensibles",
+      "description": "Oculta las portadas sensibles tras un desenfoque hasta que decidas ver cada una. Desactiva esta opción para mostrarlas todas. Tu modo de contenido no cambia."
     }
   },
   "privacy": {
@@ -247,12 +296,13 @@
     }
   },
   "display": {
-    "experimental": {
-      "title": "Experimental",
-      "turnImages": {
-        "title": "Ilustraciones de la historia",
-        "description": "Experimental: dibuja una imagen para las respuestas. Las primeras 5 son gratis; después, 12 mushies cada una."
-      }
+    "turnImages": {
+      "title": "Ilustraciones de la historia",
+      "description": "Añade un botón “Dibujar esta escena” a las respuestas.",
+      "auto": "Ilustrar cada respuesta",
+      "free": "Te quedan {{count}} gratis, luego {{price}} mushies cada una",
+      "price": "{{price}} mushies por imagen",
+      "unlimited": "Incluido en tu plan"
     },
     "title": "Pantalla",
     "language": {
@@ -355,6 +405,10 @@
     "sendKey": {
       "title": "Pulsa Enter para enviar",
       "description": "Cuando está activado, Enter envía el mensaje y Shift+Enter inserta un salto de línea. Cuando está desactivado, Ctrl/⌘+Enter envía y Enter inserta un salto de línea. Se guarda en este dispositivo."
+    },
+    "sceneVideo": {
+      "title": "Vídeo de la escena (experimental)",
+      "description": "Muestra Vídeo de la escena en el menú de juego y en las tarjetas con pantalla de película. Dos formas de verlo: en directo siguiendo la historia (unos 5.800 hongos por minuto) o un corto con voces por cada respuesta, listo unos minutos después (unos 100–1.400 hongos por respuesta)."
     }
   },
   "wallpaper": {

@@ -209,7 +209,9 @@
     "export": "Export",
     "exported": "Bundle exported",
     "deleteBundle": "Delete Bundle",
-    "deleteConfirm": "Are you sure you want to delete <strong>{{name}}</strong>? This action cannot be undone."
+    "deleteConfirm": "Are you sure you want to permanently delete <strong>{{name}}</strong>?",
+    "importBundle": "Import Bundle",
+    "deleteConsequence": "The bundle and its editable contents will be permanently deleted."
   },
   "favorites": {
     "backToLibrary": "Back to Library",
@@ -327,7 +329,8 @@
       "viewInAssets": "View in assets",
       "shareInCommunity": "Share in community"
     },
-    "reviews": "Reviews"
+    "reviews": "Reviews",
+    "overviewSubtitle": "Key information, notes, and description in one place."
   },
   "bulk": {
     "select": "Select",
@@ -369,7 +372,11 @@
     "deleteAction": "Delete",
     "deletePermanently": "Delete Permanently",
     "deleteIrreversible": "This action cannot be undone.",
-    "authorDoesNotAllowEditing": "Author does not allow editing"
+    "authorDoesNotAllowEditing": "Author does not allow editing",
+    "deleteProjectConsequenceFiles": "The editable project and its local data will be permanently deleted.",
+    "deletePublishedConsequence": "Players who saved this published world will lose access.",
+    "removeGameConsequenceHistory": "Saved sessions and play history for this game will be deleted.",
+    "removeGameConsequenceHub": "The published game will remain available on Discover."
   },
   "card": {
     "play": "Play",
@@ -412,6 +419,10 @@
     "deleteBundleFailed": "Couldn't delete bundle",
     "downloadBundleFailed": "Couldn't download bundle",
     "deleteAssetFailed": "Couldn't delete asset",
+    "deleteAssetVersioned": "This asset is used by saved card history and can't be deleted while that history is retained.",
+
+    "deleteAssetInUse": "This image is still the cover of “{{name}}”. Change that cover first.",
+    "deleteAssetUsedByCard": "“{{name}}” still uses this file. Remove it from that card first.",
     "renameAssetFailed": "Couldn't rename asset",
     "moveAssetFailed": "Couldn't move asset",
     "createFolderFailed": "Couldn't create folder",
@@ -426,7 +437,7 @@
   },
   "create": {
     "title": "Create New",
-    "mobileTitle": "Create a New Story",
+    "mobileTitle": "Create Something New",
     "mobileInstructionTitle": "Choose how you want to create",
     "import": "Import",
     "back": "Back",
@@ -438,7 +449,8 @@
       "signInBody": "Sign in to generate images and music, save your work, and revisit your generation history.",
       "signInAction": "generate images and music",
       "signIn": "Sign in to create"
-    }
+    },
+    "mobileSubtitle": "Build a world, chat with a character, or bring an image to life."
   },
   "time": {
     "justNow": "Just now",
@@ -453,9 +465,9 @@
   },
   "templates": {
     "blank": "Blank Project",
-    "blankDesc": "An empty world — no presets.",
+    "blankDesc": "An empty world with only the default narration.",
     "importWorld": "Import World",
-    "importWorldDesc": "Import a world from a JSON file.",
+    "importWorldDesc": "Upload a Yumina card.",
     "characterChat": "Character Chat",
     "characterChatDesc": "Create a character for one-on-one chat.",
     "worldSimulation": "World Simulation",
@@ -695,35 +707,42 @@
       "surcharge": "+{{count}}",
       "anime": {
         "name": "Anime",
-        "desc": "Crisp anime illustration (Animagine XL). The default.",
-        "detail": "Danbooru-tag driven; strongest at character portraits and clean line art."
+        "variant": "Classic"
       },
       "nsfw-anime": {
-        "name": "NSFW Anime",
-        "desc": "Illustrious-based, uncensored anime — best for adult roleplay art.",
-        "detail": "Understands explicit Danbooru tags and natural anime bodies; pair with character LoRAs for specific looks."
+        "name": "Limitless Anime",
+        "variant": "Classic"
       },
       "realistic": {
-        "name": "Realistic",
-        "desc": "Photorealistic people and scenes (Juggernaut XL).",
-        "detail": "Write natural sentences, not tags — lighting and lens words (soft light, 85mm) help a lot."
+        "name": "Realistic"
       },
       "semireal": {
-        "name": "2.5D",
-        "desc": "Between anime and photo — painterly game-CG look.",
-        "detail": "Tags or sentences both work; great for atmospheric character scenes."
+        "name": "2.5D"
       },
       "guofeng": {
-        "name": "Guofeng",
-        "desc": "Chinese aesthetic — hanfu, ink-wash moods, classical scenes.",
-        "detail": "Describe costume and setting in sentences (hanfu, ink-wash pavilion) for stronger flavor."
+        "name": "Ink Wash"
       },
       "western": {
-        "name": "Western",
-        "desc": "Western fantasy/comic art (ZavyChroma XL).",
-        "detail": "Prose prompts; strong at dramatic lighting and painterly fantasy scenes."
+        "name": "Western"
       },
-      "surchargeChip": "+{{count}} mushies"
+      "surchargeChip": "+{{count}} mushies",
+      "version": "Version",
+      "anime-new": {
+        "name": "Anime · New",
+        "variant": "New"
+      },
+      "anime-story": {
+        "name": "Anime · Story",
+        "variant": "Story"
+      },
+      "anime-anima": {
+        "name": "Anime · Anima",
+        "variant": "Anima"
+      },
+      "nsfw-anima": {
+        "name": "Limitless Anime · Anima",
+        "variant": "Anima"
+      }
     },
     "videoStyleFromReference": "The video keeps the reference image’s art style.",
     "makeReference": "Generate one first",
@@ -770,7 +789,29 @@
       "PROVIDER_REJECTED": "The model declined this request. You were not charged. Try another model.",
       "CONTENT_FILTERED": "The model provider refused this one — not a Yumina restriction. You were not charged; try another model or reword the description.",
       "ENHANCE_REFUSED": "The AI couldn't polish this description. Your text is unchanged — reword it and try again, or generate with it as is.",
-      "ENHANCE_FAILED": "Prompt polish isn't available right now. Your text is unchanged — try again in a moment."
+      "ENHANCE_FAILED": "Prompt polish isn't available right now. Your text is unchanged — try again in a moment.",
+      "VIDEO_BAD_ASPECT": "This model doesn't support that aspect ratio.",
+      "VIDEO_BAD_RESOLUTION": "This model doesn't support that resolution.",
+      "VIDEO_BAD_DURATION": "This model doesn't support that length.",
+      "VIDEO_NO_FIRST_FRAME": "This model can't take a first frame.",
+      "VIDEO_NO_LAST_FRAME": "This model can't take a last frame.",
+      "VIDEO_ONE_FRAME_ONLY": "This model takes a first or a last frame, not both.",
+      "VIDEO_TOO_MANY_REFERENCES": "Too many character references for this model.",
+      "VIDEO_FRAMES_OR_REFERENCES": "This model takes either frames or character references, not both.",
+      "VIDEO_LAST_NEEDS_FIRST": "This model needs a first frame before a last frame.",
+      "VIDEO_NEEDS_FRAME": "This model needs a reference picture.",
+      "VIDEO_NO_SOUND": "This model can't make sound.",
+      "VIDEO_NO_TUNING": "This model doesn't expose these settings.",
+      "VIDEO_FAST_FIXED": "Steps and CFG are fixed while 4-step fast mode is on.",
+      "VIDEO_NO_LORAS": "This model can't take LoRAs.",
+      "MODEL_FAMILY": "That LoRA doesn't fit this model: video needs a Wan LoRA, images an SDXL LoRA.",
+      "VIDEO_STYLE_PROMPT": "This description couldn't be turned into a styled first frame. Try describing it in English, or pick “No style”. You weren't charged.",
+      "VIDEO_BAD_STYLE": "That style isn't available for this video. Pick another.",
+      "VIDEO_NO_STYLE": "That style isn't available for this video. Pick another.",
+      "VIDEO_STYLE_WITH_FRAME": "That style isn't available for this video. Pick another.",
+      "QUALITY_BATCH": "4K makes one picture at a time. Set the count to 1 and try again.",
+      "MODEL_UNAVAILABLE": "This model isn't available right now. Pick another model.",
+      "REFERENCE_UNSUPPORTED": "This model can't take a reference image. Remove the image or pick another model."
     },
     "queue": {
       "waiting": "Waiting in queue…",
@@ -803,12 +844,40 @@
       "fewer": "One fewer",
       "more": "One more",
       "tier": {
+        "seedreamFlash": "Cheapest",
         "seedreamLite": "Fast",
         "seedreamPro": "Balanced",
-        "nanoBanana2": "Strong edits",
+        "nanoBanana21": "Newest · strong edits",
+        "nanoBanana2": "Has 512",
         "nanoBananaPro": "High quality",
-        "gptImage2": "Best · slow"
-      }
+        "gptImage25Flare": "Polished · fast",
+        "gptImage25Sunburst": "Best · slow",
+        "gptImage2": "Previous · slow",
+        "flux2Pro": "Value",
+        "flux2Max": "More detail",
+        "flux3": "Newest · rich scenes",
+        "qwenImage3": "Cheap · slow",
+        "qwenImage3Pro": "More detail · slow",
+        "grokImagine": "Cheapest · fast",
+        "grokImagineQuality": "Fast",
+        "grokImagine2": "More detail · very slow",
+        "klingO1": "Clean anime",
+        "lumaUni1": "4 MP · slow",
+        "lumaUni1Max": "4 MP, more detail · slow",
+        "ideogram45": "Lettering",
+        "wan25": "Painterly · preview",
+        "recraft41": "Design · flat",
+        "krea2Turbo": "Cheapest",
+        "krea2Medium": "Stylized",
+        "krea2Large": "Stylized · slow",
+        "maiImage26": "Clean · fast",
+        "hunyuan35": "Cheap · 2K"
+      },
+      "version": "Version",
+      "noReference": "{{model}} can't take a reference image. Remove the image or pick another model.",
+      "fromPerImage": "from {{count}} / image",
+      "moreModels": "{{count}} more models",
+      "fewerModels": "Show fewer"
     },
     "loading": "Loading…",
     "loadTemplatesError": "Could not load image options. Your draft is safe.",
@@ -869,7 +938,10 @@
       "tabAudio": "Audio",
       "audioTitle": "AI music",
       "audioLead": "Music is saved to your asset library.",
-      "sectionOutput": "Output"
+      "sectionOutput": "Output",
+      "tabVideo": "Video",
+      "videoTitle": "AI video",
+      "videoLead": "Videos are saved to your asset library and can go into portraits, openings and the player screen."
     },
     "music": {
       "workshopTitle": "Generate a BGM",
@@ -921,6 +993,167 @@
       "generating": "Generating",
       "generatingSteps": "Generating · ~{{step}}/{{steps}} steps",
       "saving": "Saving"
+    },
+    "video": {
+      "modeLabel": "Video mode",
+      "mode": {
+        "partner": {
+          "name": "Describe & create",
+          "desc": "Seedance, Kling, Veo and more"
+        },
+        "custom": {
+          "name": "Custom generation",
+          "desc": "Our own GPUs · LoRAs and every setting"
+        }
+      },
+      "describe": "Describe the shot",
+      "enhance": "AI polish",
+      "enhanceHint": "Let AI rewrite the description for the video model before generating",
+      "promptPlaceholder": "What is in the frame, how it moves, how the camera moves. E.g. a moonlit shore, a girl with long black hair on the rocks, the wind lifts her hair, she slowly turns to the camera. Keep the camera still — the smaller the motion, the steadier the character.",
+      "reference": "Reference pictures",
+      "referenceOptional": "None = text only",
+      "slot": {
+        "first": "First frame",
+        "last": "Last frame",
+        "ref": "Character reference"
+      },
+      "slotHint": {
+        "first": "The video starts on this picture",
+        "last": "The video ends on this picture"
+      },
+      "slotRefHint": "Keeps the look, the scene can be new · up to {{count}}, +{{price}} each",
+      "slotRefHintFree": "Keeps the look, the scene can be new · up to {{count}}",
+      "notSupported": "{{model}} can't use this",
+      "oneFrameOnly": "{{model}} takes a first frame or a last frame, not both. Pick another model to set both.",
+      "aspectFromFrame": "With a frame, the clip takes the frame's shape.",
+      "framesOrReferences": "{{model}} can't take these pictures together: with character references, use at most a first frame. Remove some to continue.",
+      "lastNeedsFirst": "{{model}} needs a first frame to go with the last one.",
+      "needsFrame": "{{model}} animates a picture: add a first frame above.",
+      "remove": "Remove",
+      "closePicker": "Close",
+      "modelSpec": "Model and size",
+      "model": "Model",
+      "tag": {
+        "text": "Text",
+        "image": "Image",
+        "sound": "Sound",
+        "selfHosted": "Limitless",
+        "firstLast": "First & last frame",
+        "refs": "Up to {{count}} references",
+        "firstLastShort": "First+last",
+        "refsShort": "References",
+        "fast": "Fast",
+        "needsImage": "Needs a picture"
+      },
+      "priceFrom_one": "From {{count}} / {{seconds}}s",
+      "priceFrom": "From {{count}} / {{seconds}}s",
+      "priceFor": "{{count}} / {{seconds}}s",
+      "aspect": "Aspect ratio",
+      "resolution": "Resolution",
+      "duration": "Length",
+      "seconds_one": "{{count}}s",
+      "seconds": "{{count}}s",
+      "etaSeconds_one": "~{{count}}s",
+      "etaSeconds": "~{{count}}s",
+      "etaMinutes_one": "~{{count}} min",
+      "etaMinutes": "~{{count}} min",
+      "sound": "Generate ambience and dialogue with it",
+      "soundAlways": "This model always makes sound with the picture.",
+      "more": "More settings",
+      "fast": "4-step fast mode",
+      "fastHint": "Several times faster and much cheaper; turn off to set steps and CFG",
+      "fastOn": "4-step fast",
+      "stepsValue_one": "{{count}} step",
+      "stepsValue": "{{count}} steps",
+      "seedValue": "Seed {{seed}}",
+      "seedRandom": "Random",
+      "loraCount_one": "{{count}} LoRA",
+      "loraCount": "{{count}} LoRAs",
+      "watermarkOn": "Watermark on",
+      "watermarkOff": "No watermark",
+      "negative": "Negative prompt",
+      "negativePlaceholder": "What you don't want. E.g. deformed hands, extra fingers, flicker, text, watermark",
+      "steps": "Steps",
+      "stepsHint": "Higher is finer, slower and pricier",
+      "cfgHint": "Higher follows the description more closely; too high looks stiff",
+      "seed": "Seed",
+      "watermark": "Add an “AI generated” watermark",
+      "noTuning": "{{model}} doesn't expose seed, steps or a negative prompt. For fine control, use Wan 2.2.",
+      "loras": "LoRA",
+      "loraPrice": "+2 each",
+      "addLora": "Add a Wan LoRA",
+      "civitaiPlaceholder": "Paste a Civitai link to a Wan LoRA",
+      "civitaiImport": "Import",
+      "loraHint": "Only Wan 2.2 / Wan Video LoRAs work here; SDXL image LoRAs can't go into video.",
+      "howText": "Text only",
+      "howFrames": "From pictures",
+      "howReference": "From a character reference",
+      "unavailable": "This server can't make videos yet.",
+      "modelGone": "That model isn't available right now — try another.",
+      "emptyTitle": "No videos yet",
+      "emptyBody": "Your first one appears here.",
+      "place": "Put it in…",
+      "placePortrait": "Character's moving portrait",
+      "placeGreeting": "Top of the opening",
+      "placed": "Added to: {{where}}",
+      "unnamed": "Unnamed character",
+      "clip": {
+        "idle": "Idle",
+        "speaking": "Speaking"
+      },
+      "placeFailed": {
+        "noGreeting": "This card has no opening yet.",
+        "linkFailed": "Couldn't attach this video to the card. Try again.",
+        "noUi": "This card has no visual player screen yet — pick a template under Player screen first."
+      },
+      "style": "Art style",
+      "styleCost": "For text-only videos · first frame +{{count}} mushies",
+      "styleNone": "No style",
+      "styleFromFrame": "You've added a first or last frame, so the video keeps that picture's style.",
+      "howStyle": "{{style}} style",
+      "placeUi": "Player screen (new video frame)",
+      "styleHint": "The first frame is drawn in this style, then animated, so the whole clip keeps it.",
+      "styleNoneHint": "{{model}} draws straight from the text; it leans realistic."
+    },
+    "folderLoadFallback": "Couldn't load this card's folder; generating into All assets for now.",
+    "quality": {
+      "label": "Quality",
+      "included": "Included",
+      "standard": {
+        "name": "Standard"
+      },
+      "hd": {
+        "name": "HD"
+      },
+      "4k": {
+        "name": "4K"
+      },
+      "redo": "4K version · {{count}} mushies",
+      "redoNote": "Any finished picture on the right has a 4K version button that redoes it at 4K."
+    },
+    "badge": {
+      "limitless": "Limitless",
+      "textOnly": "Text only"
+    },
+    "trait": {
+      "style": {
+        "realistic": "Mostly realistic",
+        "anime": "Anime",
+        "2.5d": "2.5D",
+        "3d": "Anime turns 3D",
+        "versatile": "Strong anime"
+      },
+      "strength": {
+        "anime": "Great anime",
+        "photoreal": "Lifelike people",
+        "text": "Accurate text",
+        "design": "Posters & design",
+        "detail": "Fine detail",
+        "fast": "Fast",
+        "motion": "Big action",
+        "camera": "Camera moves",
+        "dialogue": "Lip-synced speech"
+      }
     }
   },
   "media": {

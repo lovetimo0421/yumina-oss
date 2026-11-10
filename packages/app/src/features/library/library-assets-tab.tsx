@@ -1,3 +1,6 @@
+import { isAssetArchiveFilename } from "@yumina/shared";
+import { fetchUploadConcurrency, runUploadBatch } from "@/lib/asset-upload-policy";
+import { useAssetImportStore as useArchiveImportStore } from "@/stores/asset-imports";
 import { useEffect, useState, useRef, useMemo, useCallback } from "react";
 import {
   FileText,
@@ -21,6 +24,7 @@ import {
   HardDrive,
   Loader2,
   Check,
+  ImagePlus,
 } from "lucide-react";
 import {
   useUserAssetStore,
@@ -59,11 +63,13 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { AssetPagination } from "./asset-pagination";
 import { assetImportStore, useAssetImportStore } from "@/stores/asset-import";
 import { LibraryEmptyState } from "./library-empty-state";
+// Through the edition seam: the local edition stubs this to null rather
+// than shipping the platform generator.
+import { GenerationPanel } from "@/edition/slots";
+import { MediaGuidelinesNote } from "@/components/media-guidelines-note";
 import { BulkActionsBar } from "./bulk-actions-bar";
 import { useAuthGuard } from "@/hooks/use-auth-guard";
-import { ImagePlus } from "lucide-react";
 import { useFeature } from "@/edition/edition";
-import { GenerationPanel } from "@/edition/slots";
 
 // ─── Helpers ────────────────────────────────────────────────────────
 
@@ -132,7 +138,7 @@ export function LibraryAssetsTab({
   showBindingHint?: boolean;
   resourceNav?: React.ReactNode;
 }) {
-  const { t } = useTranslation("library");
+  const { t } = useTranslation(["library", "asset-import"]);
   const { requireAuth, isAuthenticated, session } = useAuthGuard();
   const assets = useUserAssetStore(s => s.assets);
   const folders = useUserAssetStore(s => s.folders);
@@ -144,6 +150,10 @@ export function LibraryAssetsTab({
   const fetchAssetById = useUserAssetStore(s => s.fetchAssetById);
   const fetchFolders = useUserAssetStore(s => s.fetchFolders);
   const uploadAsset = useUserAssetStore(s => s.uploadAsset);
+  const enqueueArchives = useArchiveImportStore(s => s.enqueue);
+  const hasArchives = useArchiveImportStore(s => s.items.length > 0);
+  const archiveRevision = useArchiveImportStore(s => s.revision);
+  const showArchive = useArchiveImportStore(s => s.show);
   const deleteAsset = useUserAssetStore(s => s.deleteAsset);
   const renameAsset = useUserAssetStore(s => s.renameAsset);
   const moveAsset = useUserAssetStore(s => s.moveAsset);
@@ -171,11 +181,12 @@ export function LibraryAssetsTab({
   // Platform image generation is hosted-only; the local edition shows uploads only.
   const imageGeneration = useFeature("imageGeneration");
   const [generationOpen, setGenerationOpen] = useState(false);
-  const [generationReferenceId, setGenerationReferenceId] = useState<string | undefined>();
+  const [generationRefAssetId, setGenerationRefAssetId] = useState<string | null>(null);
+  const [generationRefTemplate, setGenerationRefTemplate] = useState<string>("image-smart");
   const [generationOwner, setGenerationOwner] = useState(session?.user.id);
   useEffect(() => {
     setGenerationOpen(false);
-    setGenerationReferenceId(undefined);
+    setGenerationRefAssetId(null);
     setGenerationOwner(session?.user.id);
     setCurrentFolderId(null);
     setBulkMoveOpen(false);
@@ -239,10 +250,10 @@ export function LibraryAssetsTab({
   }, [fetchCurrentPage, fetchFolders]);
 
   useEffect(() => {
-    if (!importRevision) return;
+    if (!importRevision && !archiveRevision) return;
     refreshCurrentPage.current();
     void fetchFolders();
-  }, [importRevision, fetchFolders]);
+  }, [importRevision, archiveRevision, fetchFolders]);
 
   useEffect(() => {
     if (!highlightedAssetId) return;
@@ -345,12 +356,17 @@ export function LibraryAssetsTab({
       setPendingUploadCount(files.length);
 
       try {
-        for (const [index, file] of files.entries()) {
-          if (!mounted.current || uploadOwner.current !== owner) break;
-          const { type } = getUploadMetadata(file);
-          await uploadAsset(file, type, folderId ?? undefined);
-          if (mounted.current && uploadOwner.current === owner) setPendingUploadCount(files.length - index - 1);
-        }
+        const concurrency = await fetchUploadConcurrency();
+        let remaining = files.length;
+        await runUploadBatch(files, concurrency, async (file) => {
+          if (isAssetArchiveFilename(file.name)) enqueueArchives([file], folderId);
+          else {
+            const { type } = getUploadMetadata(file);
+            await uploadAsset(file, type, folderId ?? undefined);
+          }
+          remaining--;
+          if (mounted.current && uploadOwner.current === owner) setPendingUploadCount(remaining);
+        }, () => !mounted.current || uploadOwner.current !== owner);
       } finally {
         uploadBatchLock.current = false;
         if (mounted.current && uploadOwner.current === owner) {
@@ -360,7 +376,7 @@ export function LibraryAssetsTab({
         }
       }
     },
-    [fetchFolders, uploadAsset]
+    [fetchFolders, uploadAsset, enqueueArchives]
   );
 
   const handleUpload = useCallback(
@@ -510,10 +526,16 @@ export function LibraryAssetsTab({
     setBulkDeleting(true);
     const ids = Array.from(selectedAssetIds);
     const results = await Promise.allSettled(ids.map((id) => deleteAsset(id)));
-    const failed = results.filter((r) => r.status === "rejected").length;
+    const failedIds = ids.filter((_, index) => {
+      const result = results[index]!;
+      return result.status === "rejected" || !result.value;
+    });
+    const failed = failedIds.length;
     const success = ids.length - failed;
     // T0 on a clean sweep — the tiles are gone. Speak only when some survived.
-    if (failed > 0) {
+    // The store explains expected failures (including protected history). Do not
+    // replace that reason with a generic summary; only catch unexpected throws.
+    if (results.some((r) => r.status === "rejected")) {
       feedback.error(
         success === 0
           ? t("bulk.deletedFailed")
@@ -522,8 +544,8 @@ export function LibraryAssetsTab({
     }
     setBulkDeleting(false);
     setConfirmBulkDelete(false);
-    setBulkMode(false);
-    setSelectedAssetIds(new Set());
+    setBulkMode(failed > 0);
+    setSelectedAssetIds(new Set(failedIds));
   }, [deleteAsset, selectedAssetIds, t]);
 
   const handleBulkMove = useCallback(async (folderId: string | null) => {
@@ -781,7 +803,7 @@ export function LibraryAssetsTab({
           <button
             onClick={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } handleCreateFolder(); }}
             title={t("assets.newFolder")}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-muted-foreground border border-border hover:bg-white/5 hover:text-foreground transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-foreground border border-primary/50 bg-primary/10 hover:border-primary hover:bg-primary/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary transition-colors"
           >
             <FolderPlus size={14} />
             {t("assets.newFolder")}
@@ -792,6 +814,7 @@ export function LibraryAssetsTab({
           selectedCount={selectedAssetIds.size}
           totalCount={childAssets.length}
           selectLabel={t("assets.multiSelect")}
+          selectClassName="border-primary/50 bg-primary/10 text-foreground hover:border-primary hover:bg-primary/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           onToggle={() => (bulkMode ? exitBulkMode() : setBulkMode(true))}
           onSelectAll={() => setSelectedAssetIds(new Set(childAssets.map((a) => a.id)))}
           onClear={() => setSelectedAssetIds(new Set())}
@@ -806,7 +829,7 @@ export function LibraryAssetsTab({
           {imageGeneration && (
             <button
               onClick={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } setGenerationOpen(true); }}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-white/5 hover:text-foreground"
+              className="flex items-center gap-1.5 rounded-lg border border-primary/50 bg-primary/10 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-primary hover:bg-primary/20 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               <ImagePlus size={14} />
               {t("generation.openButton")}
@@ -826,7 +849,7 @@ export function LibraryAssetsTab({
             className="hidden"
             onChange={handleFolderUpload}
           />
-          <DropdownMenu>
+          {hasArchives ? <button onClick={showArchive} className="flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold px-4 py-1.5 rounded-lg transition-colors"><Upload size={14} />{t("asset-import:viewProgress")}</button> : <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button disabled={uploading || pendingUploadCount > 0 || readingFolder || !!folderUpload} className="flex items-center gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold px-4 py-1.5 rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-60">
                 {uploading || pendingUploadCount > 0 || readingFolder ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
@@ -838,9 +861,11 @@ export function LibraryAssetsTab({
               <DropdownMenuItem onSelect={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } fileInputRef.current?.click(); }}><Upload size={14} />{t("assets.uploadFiles")}</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => { if (!isAuthenticated) { requireAuth("create worlds"); return; } folderInputRef.current?.click(); }}><FolderUp size={14} />{t("assets.uploadFolder")}</DropdownMenuItem>
             </DropdownMenuContent>
-          </DropdownMenu>
+          </DropdownMenu>}
         </>}
       </div>
+
+      <MediaGuidelinesNote usage="assets" />
 
       {/* ─── File Grid ─── */}
       <div
@@ -955,20 +980,29 @@ export function LibraryAssetsTab({
         <AssetPagination page={page} totalPages={totalPages} loading={loading} onPageChange={fetchCurrentPage} />
       )}
 
-
+      {/* ─── AI Generation Panel ─── hosted-only */}
       {imageGeneration && (
         <GenerationPanel
           key={session?.user.id ?? "guest"}
           open={generationOpen && generationOwner === session?.user.id}
           onOpenChange={(open) => {
             setGenerationOpen(open);
-            if (!open) { setGenerationReferenceId(undefined); void fetchCurrentPage(); void fetchFolders(); }
+            if (!open) {
+              setGenerationRefAssetId(null);
+              fetchCurrentPage();
+              fetchFolders();
+            }
           }}
           defaultFolderId={currentFolderId}
-          initialReferenceAssetId={generationReferenceId}
-          onGenerated={() => { void fetchCurrentPage(); void fetchFolders(); }}
+          initialTemplateId={generationRefAssetId ? generationRefTemplate : undefined}
+          initialReferenceAssetId={generationRefAssetId ?? undefined}
+          onGenerated={() => {
+            fetchCurrentPage();
+            fetchFolders();
+          }}
         />
       )}
+
       {/* ─── Preview Dialog ─── */}
       <Dialog
         open={!!previewAsset}
@@ -993,7 +1027,12 @@ export function LibraryAssetsTab({
               </span>
               {imageGeneration && (
                 <button
-                  onClick={() => { setGenerationReferenceId(previewAsset.id); setPreviewAsset(null); setGenerationOpen(true); }}
+                  onClick={() => {
+                    setGenerationRefAssetId(previewAsset.id);
+                    setGenerationRefTemplate("image-anime");
+                    setPreviewAsset(null);
+                    setGenerationOpen(true);
+                  }}
                   className="flex shrink-0 items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1 text-xs text-foreground/70 transition-colors hover:bg-white/20 hover:text-foreground"
                 >
                   <ImagePlus size={12} />
@@ -1556,6 +1595,14 @@ function AssetCard({
                 className="h-full w-full object-cover"
                 loading="lazy"
                 onError={fallbackToOriginalOnError}
+              />
+            ) : asset.type === "video" ? (
+              <video
+                src={asset.url}
+                className="h-full w-full object-cover"
+                muted
+                playsInline
+                preload="metadata"
               />
             ) : (
               <div className="flex flex-col items-center gap-2 text-muted-foreground/30">

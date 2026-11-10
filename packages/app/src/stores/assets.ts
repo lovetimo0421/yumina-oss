@@ -37,8 +37,8 @@ interface AssetState {
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
-const tr = (key: string, fallback: string) =>
-  (i18n.t as (k: string, o?: Record<string, unknown>) => string)(key, { defaultValue: fallback });
+const tr = (key: string, fallback: string, vars?: Record<string, unknown>) =>
+  (i18n.t as (k: string, o?: Record<string, unknown>) => string)(key, { defaultValue: fallback, ...vars });
 
 export const useAssetStore = create<AssetState>((set) => ({
   assets: [],
@@ -122,6 +122,11 @@ export const useAssetStore = create<AssetState>((set) => ({
         credentials: "include",
       });
       if (!res.ok) {
+        const body = res.status === 409 ? ((await res.json().catch(() => null)) as { code?: string; worlds?: Array<{ name?: string }> } | null) : null;
+        if (body?.code === "ASSET_IN_USE") {
+          feedback.error(tr("library:toast.deleteAssetInUse", "This image is still the cover of “{{name}}”. Change that cover first.", { name: body.worlds?.[0]?.name || "" }));
+          return;
+        }
         failed();
         return;
       }

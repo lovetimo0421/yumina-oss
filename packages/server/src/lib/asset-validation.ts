@@ -31,8 +31,12 @@ export function hasInlineDataUri(text: string): boolean {
   return INLINE_DATA_URI_RE.test(text);
 }
 
-/** Count + size inline data URIs in one string. Returns null if none found. */
-export function scanTextForInlineDataUris(text: string): { count: number; totalBytes: number } | null {
+/** Count + size inline data URIs in one string. Returns null if none found.
+ *  Takes unknown because the schema walk below reads unvalidated JSON: an
+ *  imported file had an entry whose `content` was an array, and `.match` on it
+ *  500'd every save of that world (2026-10-15). Non-strings carry no data URI. */
+export function scanTextForInlineDataUris(text: unknown): { count: number; totalBytes: number } | null {
+  if (typeof text !== "string") return null;
   const matches = text.match(INLINE_DATA_URI_RE);
   if (!matches || matches.length === 0) return null;
   return { count: matches.length, totalBytes: matches.reduce((sum, m) => sum + m.length, 0) };
@@ -61,17 +65,18 @@ export function scanWorldSchemaForInlineAssets(schema: unknown): InlineAssetMatc
   const found: InlineAssetMatch[] = [];
   if (!schema || typeof schema !== "object") return found;
   const s = schema as Record<string, unknown>;
+  const list = <T>(value: unknown): T[] => (Array.isArray(value) ? value : []) as T[];
 
   // customUI[*].tsxCode
-  const customUI = (s.customUI as Array<{ id?: string; tsxCode?: string }> | undefined) ?? [];
+  const customUI = list<{ id?: string; tsxCode?: string }>(s.customUI);
   for (const ui of customUI) {
-    const match = scanTextForInlineDataUris(ui.tsxCode ?? "");
-    if (match) found.push({ location: `customUI "${ui.id ?? "?"}" tsxCode`, ...match });
+    const match = scanTextForInlineDataUris(ui?.tsxCode);
+    if (match) found.push({ location: `customUI "${ui?.id ?? "?"}" tsxCode`, ...match });
   }
 
   // rootComponent.files[*]
-  const rc = s.rootComponent as { files?: Record<string, string> } | undefined;
-  if (rc?.files) {
+  const rc = s.rootComponent as { files?: Record<string, unknown> } | undefined;
+  if (rc?.files && typeof rc.files === "object") {
     for (const [filename, code] of Object.entries(rc.files)) {
       const match = scanTextForInlineDataUris(code);
       if (match) found.push({ location: `rootComponent file "${filename}"`, ...match });
@@ -79,24 +84,24 @@ export function scanWorldSchemaForInlineAssets(schema: unknown): InlineAssetMatc
   }
 
   // entries[*].content (markdown images)
-  const entries = (s.entries as Array<{ id?: string; content?: string }> | undefined) ?? [];
+  const entries = list<{ id?: string; content?: string }>(s.entries);
   for (const e of entries) {
-    const match = scanTextForInlineDataUris(e.content ?? "");
-    if (match) found.push({ location: `entry "${e.id ?? "?"}" content`, ...match });
+    const match = scanTextForInlineDataUris(e?.content);
+    if (match) found.push({ location: `entry "${e?.id ?? "?"}" content`, ...match });
   }
 
   // audioTracks[*].url (starts with data:)
-  const audio = (s.audioTracks as Array<{ id?: string; url?: string }> | undefined) ?? [];
+  const audio = list<{ id?: string; url?: string }>(s.audioTracks);
   for (const a of audio) {
-    if (typeof a.url === "string" && a.url.startsWith("data:")) {
+    if (typeof a?.url === "string" && a.url.startsWith("data:")) {
       found.push({ location: `audioTracks "${a.id ?? "?"}" url`, count: 1, totalBytes: a.url.length });
     }
   }
 
   // sceneImages[*].url (starts with data:)
-  const sceneImages = (s.sceneImages as Array<{ id?: string; url?: string }> | undefined) ?? [];
+  const sceneImages = list<{ id?: string; url?: string }>(s.sceneImages);
   for (const img of sceneImages) {
-    if (typeof img.url === "string" && img.url.startsWith("data:")) {
+    if (typeof img?.url === "string" && img.url.startsWith("data:")) {
       found.push({ location: `sceneImages "${img.id ?? "?"}" url`, count: 1, totalBytes: img.url.length });
     }
   }

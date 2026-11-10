@@ -1,3 +1,4 @@
+import { DeletionPreflightNotice, useDeletionPreflight, deletionErrorMessage, type DeleteAccountResponse } from "./account-deletion-preflight";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Loader2, TriangleAlert } from "lucide-react";
@@ -7,12 +8,7 @@ import { clearLocalAuthStateAfterDeletion, useSession } from "@/lib/auth-client"
 
 const apiBase = import.meta.env.VITE_API_URL || "";
 
-type DeleteAccountResponse = {
-  success?: boolean;
-  message?: string;
-  error?: string;
-  code?: string;
-};
+
 
 export function AccountDeletionConfirmPage({ token }: { token: string }) {
   const { t } = useTranslation("settings");
@@ -25,11 +21,14 @@ export function AccountDeletionConfirmPage({ token }: { token: string }) {
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState("");
 
+  const preflight = useDeletionPreflight(!!session?.user?.id && !!token);
   const canDelete = !!token
     && !!confirmationTarget
     && confirmation.trim() === confirmationTarget
     && acknowledged
-    && !deleting;
+    && !deleting
+    && !canceling
+    && preflight.report?.canDelete === true;
 
   useEffect(() => {
     if (!session?.user?.id) {
@@ -64,37 +63,7 @@ export function AccountDeletionConfirmPage({ token }: { token: string }) {
     };
   }, [session?.user?.id]);
 
-  const getErrorMessage = (code?: string) => {
-    switch (code) {
-      case "CONFIRMATION_MISMATCH":
-        return t("account.deleteAccount.errors.confirmationMismatch");
-      case "PENDING_CREATOR_EARNINGS":
-        return t("account.deleteAccount.errors.pendingEarnings");
-      case "BILLING_CLEANUP_UNAVAILABLE":
-      case "SUBSCRIPTION_CANCELLATION_FAILED":
-        return t("account.deleteAccount.errors.billing");
-      case "CREATOR_ACCOUNT_CLOSURE_FAILED":
-        return t("account.deleteAccount.errors.creatorAccount");
-      case "ACCOUNT_DELETION_NOT_READY":
-        return t("account.deleteAccount.errors.notReady");
-      case "ACCOUNT_DELETION_COOLDOWN":
-        return t("account.deleteAccount.errors.cooldown");
-      case "LAST_ADMIN_ACCOUNT":
-        return t("account.deleteAccount.errors.lastAdmin");
-      case "REFERRAL_HISTORY_REQUIRES_SUPPORT":
-        return t("account.deleteAccount.errors.referral");
-      case "ACCOUNT_RESTRICTION_REQUIRES_SUPPORT":
-        return t("account.deleteAccount.errors.protectedHistory");
-      case "DELETE_CONFIRMATION_EMAIL_FAILED":
-        return t("account.deleteAccount.errors.email");
-      case "INVALID_TOKEN":
-      case "INVALID_DELETE_TOKEN":
-      case "FAILED_TO_GET_USER_INFO":
-        return t("account.deleteAccount.errors.invalidLink");
-      default:
-        return t("account.deleteAccount.errors.generic");
-    }
-  };
+  const getErrorMessage = (code?: string, blockedUntil?: string) => deletionErrorMessage(t, code, blockedUntil);
 
   const handleDelete = async () => {
     if (!canDelete) return;
@@ -113,10 +82,11 @@ export function AccountDeletionConfirmPage({ token }: { token: string }) {
       const payload = await response.json().catch(() => ({})) as DeleteAccountResponse;
 
       if (!response.ok || !payload.success) {
+        if (payload.issues?.length) preflight.setReport({ issues: payload.issues, canSendEmail: !payload.issues.some(issue => issue.blocksEmail), canDelete: false });
         if (payload.code === "INVALID_TOKEN" || payload.code === "INVALID_DELETE_TOKEN" || payload.code === "FAILED_TO_GET_USER_INFO") {
           clearDeletionToken();
         }
-        setError(getErrorMessage(payload.code));
+        setError(getErrorMessage(payload.code, payload.blockedUntil));
         return;
       }
 
@@ -239,6 +209,8 @@ export function AccountDeletionConfirmPage({ token }: { token: string }) {
             <li>{t("account.deleteAccount.warnings.cache")}</li>
           </ul>
         </div>
+
+        <div className="mt-5"><DeletionPreflightNotice {...preflight} /></div>
 
         <div className="mt-5 space-y-2">
           <label htmlFor="final-delete-confirmation" className="text-xs font-semibold text-main">

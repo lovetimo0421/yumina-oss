@@ -7,6 +7,10 @@ a change in.
 
 You need Node.js 22 or newer and pnpm 10 (`corepack enable` gives you pnpm).
 
+Cover encoding tests also need Python 3 with Pillow (`>=9.4,<13`) and FFmpeg,
+including `ffprobe`, on PATH. The tests use `python` on Windows and `python3`
+elsewhere. Install Pillow into that interpreter before running `pnpm test`.
+
 ```
 pnpm install       # install everything
 pnpm dev           # run server and app in watch mode

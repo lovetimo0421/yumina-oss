@@ -15,6 +15,7 @@
  */
 import {
   displayCharacterName,
+  isPlaceholderCharacterName,
   NARRATOR_SPEAKER,
   parseLeadingSpeakerTag,
   isPartialLeadingSpeakerTag,
@@ -26,7 +27,9 @@ export interface SpeakerEntry {
   name: string;
   role?: string;
   enabled?: boolean;
+  worldbookId?: string | null;
   portrait?: string | null;
+  portraitVideo?: { idle: string | null; speaking: string | null } | null;
   /** The voice the author gave this character (fish.audio reference id). */
   voice?: string | null;
 }
@@ -36,6 +39,8 @@ export interface Speaker {
   /** null when the tagged character exists but has no portrait — the name
    *  still beats a generic "Narrator" label. */
   portrait: string | null;
+  /** Moving portrait clips, when the author made them. */
+  video: { idle: string | null; speaking: string | null } | null;
   /** The character's own voice, or null: the readout falls to the narrator's. */
   voice: string | null;
 }
@@ -53,8 +58,16 @@ function toSpeaker(e: SpeakerEntry): Speaker {
   return {
     name: displayCharacterName(e.name),
     portrait: typeof e.portrait === "string" && e.portrait.length > 0 ? e.portrait : null,
+    video: e.portraitVideo && (e.portraitVideo.idle || e.portraitVideo.speaking) ? e.portraitVideo : null,
     voice: typeof e.voice === "string" && e.voice.length > 0 ? e.voice : null,
   };
+}
+
+/** Frames with an AI of their own. Their characters belong to that AI: on
+ *  such a card the model names who is talking (engine `speakerRoster`), and
+ *  no untagged line is ever theirs by default. */
+export function aiFrameIds(worldbooks: ReadonlyArray<{ id: string; station?: unknown }> | null | undefined): ReadonlySet<string> {
+  return new Set((worldbooks ?? []).filter((b) => !!b.station).map((b) => b.id));
 }
 
 function firstSentence(text: string): string {
@@ -63,18 +76,38 @@ function firstSentence(text: string): string {
   return m ? t.slice(0, m.index) : t;
 }
 
+/** An AI of a group chat, as the bubble needs it: one that lives on the card
+ *  or in a situation answers under its own name. */
+export interface SpeakerVoice {
+  id: string;
+  name: string;
+  host?: string;
+  station?: unknown;
+}
+
 export function resolveSpeaker(
   entries: ReadonlyArray<SpeakerEntry> | null | undefined,
   rawContent: string,
+  aiFrames?: ReadonlySet<string>,
+  voices?: ReadonlyArray<SpeakerVoice>,
 ): Speaker | null {
-  if (!entries || entries.length === 0) return null;
-  const characters = entries.filter(
+  const characters = (entries ?? []).filter(
     (e) => e.role === "character" && e.enabled !== false && displayCharacterName(e.name).length > 0,
   );
+  const tag = parseLeadingSpeakerTag(rawContent);
+  // 0. One of the room's AIs: its own name, and the face of a character that
+  // lives in it when it has one.
+  if (tag.speaker && tag.speaker !== NARRATOR_SPEAKER) {
+    const wanted = tag.speaker.trim().toLowerCase();
+    const ai = voices?.find((v) => v.host !== undefined && !!v.station && v.name.trim().toLowerCase() === wanted);
+    if (ai) {
+      const face = characters.find((c) => c.worldbookId === ai.id);
+      return face ? toSpeaker(face) : { name: ai.name.trim(), portrait: null, video: null, voice: null };
+    }
+  }
   if (characters.length === 0) return null;
 
   // 1. The tag.
-  const tag = parseLeadingSpeakerTag(rawContent);
   if (tag.speaker === NARRATOR_SPEAKER) return null;
   if (tag.speaker) {
     const wanted = tag.speaker.toLowerCase();
@@ -85,10 +118,22 @@ export function resolveSpeaker(
     // Unknown name: fall through and let the text decide.
   }
 
-  // 2. Heuristics on the prose.
-  const candidates = characters.filter((c) => typeof c.portrait === "string" && c.portrait.length > 0);
+  // 2. Heuristics on the prose, over the card's own characters: one that
+  // lives in an AI's frame speaks only through its tag, so adding an AI to a
+  // one-character card leaves that character the voice of every other line.
+  const own = aiFrames?.size
+    ? characters.filter((c) => !c.worldbookId || !aiFrames.has(c.worldbookId))
+    : characters;
+  if (own.length === 0) return null;
+  // One character is the voice of every line, face or no face — once the
+  // author has named them: a card whose only character had no portrait
+  // labelled all of its replies 「旁白」, and the template's own 「角色」 is no
+  // name to show either.
+  if (own.length === 1) {
+    return isPlaceholderCharacterName(own[0]!.name) ? null : toSpeaker(own[0]!);
+  }
+  const candidates = own.filter((c) => (typeof c.portrait === "string" && c.portrait.length > 0) || !!c.portraitVideo?.idle);
   if (candidates.length === 0) return null;
-  if (characters.length === 1) return toSpeaker(characters[0]!);
 
   const text = tag.text;
   const firstLine = (text.trimStart().split("\n")[0] ?? "").trim();

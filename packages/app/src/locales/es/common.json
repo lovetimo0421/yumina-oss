@@ -1,4 +1,19 @@
 {
+  "mediaGuidelines": {
+    "effectiveNotice": "Las nuevas reglas entran en vigor el 24 oct. 2026 a las 23:59 (hora del Pacífico).",
+    "publicTitle": "Reglas de portadas y vistas previas",
+    "assetsTitle": "Antes de usar estos recursos",
+    "profileTitle": "Reglas de imágenes del perfil público",
+    "limited": "Limitado:",
+    "limitless": "Sin límites:",
+    "limitedRule": "Todos los recursos deben ser aptos para el trabajo y sin insinuaciones sexuales, también dentro del juego.",
+    "limitlessPublicRule": "Portadas y vistas previas: sin desnudez, actos sexuales ni violencia gráfica. Cubre las partes íntimas con ropa opaca.",
+    "limitlessAssetsRule": "Los medios adultos permitidos se reservan para juegos con restricción de edad. Las portadas y vistas previas públicas no deben ser explícitas.",
+    "profileSafe": "Los avatares y banners deben ser aptos para el trabajo y sin insinuaciones sexuales.",
+    "profileExplicit": "Sin desnudez, actos sexuales ni violencia gráfica, aunque tus mundos sean Sin límites.",
+    "blurRule": "El desenfoque y las barras de censura no son excepciones.",
+    "fullRules": "Reglas completas de imágenes"
+  },
   "imageViewer": {
     "zoomOut": "Alejar",
     "resetZoom": "Restablecer zoom",
@@ -22,13 +37,14 @@
     "partner": "Analíticas de promoción",
     "messages": "Mensajes",
     "installApp": "Instalar app",
-    "prompts": "Prompts"
+    "prompts": "Prompts",
+    "updates": "Novedades"
   },
   "tabTitle": {
     "home": "Yumina",
     "discover": "Descubrir",
     "community": "Comunidad",
-    "bundles": "Paquetes",
+    "bundles": "Módulos y prompts",
     "create": "Crear",
     "library": "Biblioteca",
     "quests": "Misiones",
@@ -39,7 +55,8 @@
     "creator": "Creador",
     "signIn": "Iniciar sesión",
     "createAccount": "Crear cuenta",
-    "krew": "Krew.io"
+    "krew": "Krew.io",
+    "updates": "Novedades"
   },
   "mobile": {
     "menu": "Menú",
@@ -53,13 +70,17 @@
   },
   "search": {
     "hub": "Buscar mundos, personajes, historias...",
-    "library": "Buscar en la biblioteca..."
+    "library": "Buscar en la biblioteca...",
+    "bundles": "Buscar módulos de tarjeta, creadores o funciones..."
   },
   "aria": {
     "showSidebar": "Mostrar barra lateral",
     "hideSidebar": "Ocultar barra lateral",
     "closeNav": "Cerrar menú de navegación",
-    "openNav": "Abrir menú de navegación"
+    "openNav": "Abrir menú de navegación",
+    "pagination": "Paginación",
+    "prevPage": "Página anterior",
+    "nextPage": "Página siguiente"
   },
   "auth": {
     "signInToContinue": "Inicia sesión para continuar",
@@ -83,7 +104,10 @@
       "sendMessages": "enviar mensajes",
       "viewSensitiveContent": "ver contenido Limitless",
       "writeReviews": "escribir reseñas"
-    }
+    },
+    "signUpToContinue": "Regístrate para continuar",
+    "signUpFree": "Regístrate gratis",
+    "haveAccountSignIn": "Ya tengo cuenta — iniciar sesión"
   },
   "hint": {
     "sidebarCollapse": "Pasa el cursor por el borde izquierdo para mostrar el menú"
@@ -288,7 +312,8 @@
     },
     "giftBonusExpires": "{{amount}} de bonificación caducan el {{date}}",
     "promptPackApproved": "Tu prompt «{{packTitle}}» fue aprobado y ya está en la Plaza de prompts",
-    "promptPackRejected": "Tu prompt «{{packTitle}}» no fue aprobado. Mira el motivo en Biblioteca › Prompts"
+    "promptPackRejected": "Tu prompt «{{packTitle}}» no fue aprobado. Mira el motivo en Biblioteca › Prompts",
+    "planGiftReceived": "Has recibido un regalo de {{days}} días del plan {{plan}}."
   },
   "time": {
     "justNow": "ahora mismo",
@@ -481,7 +506,7 @@
   "languageLabel": "Idioma",
   "creatorHub": "Centro de creadores",
   "openingStandalone": "Abriendo el sitio independiente para creadores...",
-  "loadingStudio": "Cargando Studio...",
+  "loadingStudio": "Abriendo el editor…",
   "friends": {
     "title": "Friends",
     "subtitle": "People you follow who follow you back",
@@ -521,5 +546,126 @@
       "popupFailed": "El inicio de sesión no se completó. Cierra esta ventana e inténtalo de nuevo.",
       "backToGame": "Volver a Krew.io"
     }
+  },
+  "planAlert": {
+    "cancelsOn": "Tu suscripción se cancela el {{date}}. Mantendrás tus ventajas hasta entonces.",
+    "downgradesOn": "Tu plan baja de nivel el {{date}}.",
+    "giftExpiresOn": "Tu plan de regalo vence el {{date}}.",
+    "dismiss": "Cerrar"
+  },
+  "studioNotYours": "Este mundo no es tuyo — solo puedes abrir las cartas que creaste.",
+  "studioLoadFailed": "No se pudo cargar este mundo. Revisa tu conexión e inténtalo otra vez.",
+  "backToMyWorlds": "Mis mundos",
+  "userMute": {
+    "until": "Silenciado hasta {{date}}",
+    "permanent": "Silenciado permanentemente",
+    "help": "No puedes publicar, comentar, publicar novedades ni enviar mensajes privados mientras estés silenciado. Puedes seguir explorando y jugando historias."
+  },
+  "communityMutedPermanent": "Ya no puedes publicar en la comunidad ni en los comentarios.",
+  "notFound": {
+    "title": "Página no encontrada",
+    "description": "Puede que el enlace esté mal escrito o que la página se haya movido.",
+    "back": "Volver",
+    "home": "Volver a Descubrir",
+    "library": "Volver a la biblioteca"
+  },
+  "macroYou": "tú",
+  "sensitiveCover": {
+    "hidden": "Portada oculta",
+    "description": "Esta portada puede ser sensible.",
+    "show": "Mostrar portada",
+    "settings": "Ajustes de imágenes",
+    "hide": "Ocultar portada"
+  },
+  "updates": {
+    "title": "Novedades",
+    "intro": "Lo que ha cambiado en Yumina.",
+    "filterLabel": "Filtrar por área",
+    "all": "Todo",
+    "empty": "Aún no hay novedades.",
+    "emptyArea": "Todavía no hay nada en esta área.",
+    "error": "No se pudieron cargar las novedades.",
+    "retry": "Reintentar",
+    "unrestrictedOnly": "Sin restricciones",
+    "internal": "Interno",
+    "internalNote": "Eres admin, así que también ves las entradas del equipo marcadas como Interno. Nadie más las ve.",
+    "copyLink": "Copiar enlace",
+    "copied": "Enlace copiado",
+    "admin": {
+      "new": "Nueva novedad",
+      "edit": "Editar",
+      "hide": "Ocultar",
+      "unhide": "Mostrar",
+      "delete": "Eliminar",
+      "restore": "Restaurar versión del repositorio",
+      "history": "Historial",
+      "badgeHidden": "Oculto",
+      "badgeEdited": "Editado en la web",
+      "badgeWebOnly": "Añadido en la web",
+      "confirmDelete": "¿Eliminar esta novedad para siempre? Su historial se conserva.",
+      "confirmRestore": "¿Descartar los cambios de la web y volver a la versión del repositorio?",
+      "actionFailed": "No se pudo completar. Inténtalo de nuevo.",
+      "editorNew": "Nueva novedad",
+      "editorEdit": "Editar novedad",
+      "fromFileNote": "Esta entrada viene del repositorio. Al guardar, la versión web la reemplaza; puedes restaurar la del repositorio cuando quieras.",
+      "date": "Fecha",
+      "slug": "Nombre corto (va en el enlace)",
+      "slugHint": "Minúsculas, números y guiones, p. ej. new-editor",
+      "link": "Enlace",
+      "audience": "Quién puede verla",
+      "audiencePublic": "Todos",
+      "audienceInternal": "Solo el equipo (interno)",
+      "audienceUnrestricted": "Jugadores sin restricciones",
+      "areas": "Áreas",
+      "entryTitle": "Título",
+      "body": "Texto (Markdown, una viñeta · por línea)",
+      "preview": "Vista previa",
+      "previewEmpty": "La vista previa aparece aquí mientras escribes.",
+      "required": "obligatorio",
+      "translate": "Traducir automáticamente zh-Hant, es, ja",
+      "translating": "Traduciendo…",
+      "translateNeeds": "Primero completa el título y el texto en chino e inglés.",
+      "translated": "Traducciones listas. Revísalas antes de guardar.",
+      "translateOverwrite": "Esto reemplaza lo que ya hay en zh-Hant, es y ja. ¿Continuar?",
+      "translateFailed": "La traducción falló: {{message}}",
+      "save": "Guardar",
+      "saving": "Guardando…",
+      "cancel": "Cancelar",
+      "loadingEntry": "Cargando…",
+      "errDate": "Elige una fecha válida.",
+      "errAudience": "Elige quién puede verla.",
+      "errAreas": "Elige al menos un área.",
+      "errTitle": "El título en {{lang}} es obligatorio.",
+      "errBody": "El texto en {{lang}} es obligatorio.",
+      "errId": "Ese nombre corto no es válido o ya existe (minúsculas, números y guiones).",
+      "errConflict": "Alguien acaba de cambiar esta entrada. Ciérrala y vuelve a abrirla.",
+      "errGeneric": "No se pudo guardar. Inténtalo de nuevo.",
+      "historyTitle": "Historial de cambios",
+      "historyEmpty": "Esta entrada aún no tiene cambios en la web.",
+      "actCreate": "Creada",
+      "actEdit": "Editada",
+      "actHide": "Ocultada",
+      "actUnhide": "Mostrada",
+      "actRestore": "Versión del repositorio restaurada",
+      "actDelete": "Eliminada",
+      "more": "Más acciones",
+      "style": "Estilo",
+      "highlightToggle": "Destacado: título algo más grande y aviso único en Descubrir",
+      "kindStandard": "Normal",
+      "kindRoundup": "Resumen de mejoras (compacto, se pliega tras 4)",
+      "copyLink": "Copiar enlace"
+    },
+    "new": "Nuevo",
+    "expandAll": "Ver las {{count}}",
+    "collapse": "Ver menos",
+    "footer": "El registro empieza en septiembre de 2026",
+    "bannerNew": "Nuevo",
+    "bannerView": "Ver",
+    "bannerDismiss": "Descartar",
+    "unseen": "Hay novedades",
+    "showEarlier": "Ver novedades anteriores · {{count}}",
+    "subtitle": "Cada cambio, anotado aquí.",
+    "statLatest": "Última novedad",
+    "statCount": "<b>{{count}}</b> novedades desde {{month}}"
   }
 }

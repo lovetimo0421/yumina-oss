@@ -1,4 +1,18 @@
 {
+  "importedWorldSummary": "已导入「{{name}}」（{{summary}}）",
+  "worldImportCounts": {
+    "entries": "{{count}} 个词条",
+    "variables": "{{count}} 个变量",
+    "modules": "{{count}} 个模块",
+    "behaviors": "{{count}} 个行为",
+    "rules": "{{count}} 条旧版规则",
+    "components": "{{count}} 个类型组件",
+    "interfacePages": "{{count}} 个界面页面",
+    "interfaceFiles": "{{count}} 个界面文件",
+    "legacyInterfaces": "{{count}} 个旧版界面",
+    "audio": "{{count}} 个音频",
+    "empty": "空白作品"
+  },
   "rateLimited": "请求太频繁了，请等大约 {{minutes}} 分钟后再试。",
   "inviteCodeLength": "邀请码或推荐码必须为 5 至 8 个字符",
   "failedRedeemCode": "兑换邀请码失败",

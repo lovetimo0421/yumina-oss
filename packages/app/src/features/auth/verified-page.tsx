@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { isGameReturnTo, readSafeAuthReturnTo } from "@/lib/auth-return";
+import { isCardReturnTo, isGameReturnTo, markAuthReturn, readSafeAuthReturnTo } from "@/lib/auth-return";
 import { useNavigate } from "@tanstack/react-router";
 import { getLandingRoute } from "@/edition/routes";
 import { useTranslation } from "react-i18next";
@@ -9,12 +9,13 @@ export function VerifiedPage() {
   const { t } = useTranslation("auth");
   const navigate = useNavigate();
   // The PvZ invite flow: a refused joiner registered mid-join, and the room is still waiting.
-  const gameReturnTo = typeof window !== "undefined"
-    ? (() => { const v = readSafeAuthReturnTo(window.location.search);
-               return v && isGameReturnTo(v) ? v : undefined; })()
-    : undefined;
+  const returnTo = typeof window !== "undefined" ? readSafeAuthReturnTo(window.location.search) : undefined;
+  const gameReturnTo = returnTo && isGameReturnTo(returnTo) ? returnTo : undefined;
+  // A guest who signed up from a card goes back to that card.
+  const cardReturnTo = returnTo && isCardReturnTo(returnTo) ? returnTo : undefined;
   const continueOn = () => {
     if (gameReturnTo) window.location.replace(gameReturnTo);
+    else if (cardReturnTo) { markAuthReturn(); navigate({ href: cardReturnTo, replace: true }); }
     else navigate({ to: getLandingRoute() });
   };
   const [countdown, setCountdown] = useState(4);

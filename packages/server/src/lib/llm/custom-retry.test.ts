@@ -290,3 +290,26 @@ test("ordinary DeepSeek chat keeps the account's configured thinking mode", asyn
     mock.restore();
   }
 });
+
+test("DeepSeek tool steps always carry reasoning_content; other endpoints never get an empty one", async () => {
+  const history = [
+    { role: "user" as const, content: "add a variable" },
+    { role: "assistant" as const, content: "", tool_calls: [{ id: "c1", type: "function" as const, function: { name: "write_variable", arguments: "{}" } }] },
+    { role: "tool" as const, tool_call_id: "c1", content: "{\"ok\":true}" },
+  ];
+  const done = () => sseResponse([{ choices: [{ delta: { content: "ok" }, finish_reason: "stop" }] }, "[DONE]"]);
+  for (const [model, baseUrl, expected] of [
+    ["deepseek-flash", "https://api.example.com/v1", ""],
+    ["anything", "https://api.deepseek.com/v1", ""],
+    ["mistral-medium-2508", "https://api.mistral.ai/v1", undefined],
+  ] as const) {
+    const mock = withMockedFetch([done]);
+    try {
+      await collect(new CustomProvider("sk-test", baseUrl).generateStream({ model, messages: history }));
+      const sent = (mock.bodies()[0]!.messages as Array<Record<string, unknown>>)[1]!;
+      assert.equal(sent.reasoning_content, expected, `${model} @ ${baseUrl}`);
+    } finally {
+      mock.restore();
+    }
+  }
+});

@@ -267,6 +267,8 @@ Call inside any component body. Same API everywhere — no per-surface restricti
 |---|---|
 | **Core** | |
 | `sendMessage(text, attachments?)` | Send a player message, optionally with image uploads. Each attachment is `{ type: "image", mimeType, name, data }`, where `data` is bare base64 from FileReader (remove the `data:...;base64,` prefix). Empty text is allowed with an image. Up to 4 PNG/JPEG/WebP/GIF images, 8 MB each and 16 MB total. |
+| `setScene(scene, { events? })` | **现场 — what the game shows right now.** Call it whenever the screen changes (the player moved, hid, drew something). The next AI call — a reply, a regenerate, a quiet station's turn — reads it as its own block, and only that: anything not in the scene the AI does not know. `scene` is a short string or a small object (`{ room: "kitchen", onCamera: false, holding: "diary" }`, under ~4000 chars). `events` (`[{ name, when }]`, up to 12) are what this game lets the AI set off; the AI writes `[event: name]` and `onStoryEvent` hears it. Not stored — call again after a reload. |
+| `onStoryEvent(cb)` | An event the AI set off (`{ id, name }`). Play it out in the UI — the cutscene, the knock at the door. Returns an unsubscribe; call it from a `useEffect`. |
 | `setVariable(id, value, options?)` | Update a game variable. options: `{ scope?, targetUserId? }` for multiplayer scoping. |
 | `executeAction(actionId)` | Trigger a named action |
 | `variables` | Current variable values, keyed by variable ID (not display name). |
@@ -352,7 +354,8 @@ Call inside any component body. Same API everywhere — no per-surface restricti
 | **Markdown** | |
 | `renderMarkdown(text)` | Convert markdown string to safe HTML string. |
 | **AI Completions** (raw LLM calls, no chat pipeline) | |
-| `ai.complete({ messages, onDelta?, model?, maxTokens?, temperature?, includeLorebook? })` | Make a side LLM call. Returns full text (Promise). `messages`: array of `{role, content, attachments?}`. User messages accept the same image attachments as `sendMessage`, or `content: [{type:"text",text:"Look"},{type:"image_url",image_url:{url:dataUrl}}]`. Image URLs must be data URLs or Yumina `/cdn/key/` URLs. Preserve text/image ordering. Rendering `<img>` or putting its URL in plain text does not send its pixels. The selected model must support image input; `getModels()` exposes `supportsImages` when verified. Catch failures and retain the draft; never switch paid models automatically. `onDelta`: callback for streaming chunks. `model` defaults to the player's currently selected chat model (so phones/NPCs honor the player's model + BYOK choice) — only pass `model` to override. `includeLorebook` (see below) auto-injects world lore as a system message. Does NOT create a chat message or trigger state effects. Use for NPC dialogue, translations, descriptions, etc. |
+| `ai.complete({ messages, onDelta?, model?, maxTokens?, temperature?, context?, includeLorebook?, responseFormat? })` | Make a side LLM call. Returns full text (Promise). `messages`: array of `{role, content, attachments?}`. User messages accept the same image attachments as `sendMessage`, or `content: [{type:"text",text:"Look"},{type:"image_url",image_url:{url:dataUrl}}]`. Image URLs must be data URLs or Yumina `/cdn/key/` URLs. Preserve text/image ordering. Rendering `<img>` or putting its URL in plain text does not send its pixels. The selected model must support image input; `getModels()` exposes `supportsImages` when verified. Catch failures and retain the draft; never switch paid models automatically. `onDelta`: callback for streaming chunks. `model` defaults to the player's currently selected chat model (so phones/NPCs honor the player's model + BYOK choice) — only pass `model` when the creator asks, and only an exact id from Yumina's model catalog; a player whose plan cannot run it falls back rather than failing. `temperature` / `maxTokens` likewise default to the player's own settings: omit them unless the call's job needs a fixed value (e.g. `temperature: 0.2` for a JSON judge or scorer); set values are clamped to safe ranges (temperature 0–1.5). `includeLorebook` (see below) auto-injects world lore. Does NOT create a chat message or trigger state effects. Use for NPC dialogue, translations, descriptions, etc. |
+| `ai.complete({ ..., context: "session" })` | Opt into current/locked/no-persona selection (never private notes), applicable enabled user prompts, player generation preferences and native state-aware lore. Omitted lore mode becomes `"matched"`, scanning all supplied user messages so repairs retain scene cues. `false` excludes world lore; `"all"` bypasses keywords while retaining activation and condition gates. Native sections, examples and depth use the caller's history; saved chat/summaries are not imported. Caller system instructions follow narrative presets; `responseFormat: {type:"json_object"}` adds a final JSON-only protocol instruction. Validate the returned schema yourself. Explicit maxTokens/temperature (clamped to safe ranges) win over player settings, then world settings, then defaults; max output is 8192 tokens. The host supplies preferences, never a card `overrides` object. Omit context to retain raw behavior. |
 | `ai.complete({ ..., includeLorebook: true \| "matched" })` | **Recommended for in-character side calls (phones, NPCs, support characters).** `true` / `"all"` injects every enabled non-greeting entry as a system message before your `messages`. `"matched"` runs the same keyword matcher the main chat uses against the LAST user message in `messages` and injects only triggered entries (lower token cost). Without this flag, side calls bypass the lorebook entirely — the AI plays roles "from the name alone" and drifts away from main-chat persona. |
 | **Lorebook** (read-only, for cards that need to inspect or hand-pick entries) | |
 | `entries` | Array of enabled lorebook entries (sorted by position). Shape: `{ id, name, content, keywords, position, section, enabled, role, tags? }`. Use this when you want surgical control — pick specific entries to inline. For most cases prefer `ai.complete({ includeLorebook: ... })` instead. |
@@ -798,11 +801,15 @@ export default function MyWorld() {
 
 **`renderBubble` props**: identical to the table under "Customizing Message Bubbles" above — `contentHtml`/`content`/`rawContent`/`role`/`messageIndex`/`variables`/`stateSnapshot`/`isStreaming`/`renderMarkdown` (see there for the `variables` vs `stateSnapshot` distinction).
 
+## Pattern: Implementing a custom AI slot (自定义 AI)
+
+A module whose station is `{ kind: "custom" }` is an AI the creator declared on the canvas for code to implement; its sticky note says what it should do. Implement it with a side call that reads that module's lore: `api.ai.complete({ messages, context: "session", includeLorebook: "matched", worldbookIds: ["<module id>"], responseFormat: { type: "json_object" } })`. The canvas then shows the call as that AI's implementation. Keep the station as it is.
+
 ## Pattern: Separate AI Conversation (Phone, NPC Dialogue)
 
 Use `api.ai.complete()` for any AI conversation that should NOT appear in the main chat. The component manages its own message history in React state.
 
-**Always pass `includeLorebook: "matched"` when the side call is in-character** — without it the AI plays the role from the name alone and drifts away from the canon persona stored in the world's lorebook.
+For in-character calls, use `context: "session"` to share the player's persona, prompts and generation preferences with native matched lore. Use raw `includeLorebook: "matched"` when only lore is wanted. Both use only the side history you supply; include the physical scene explicitly.
 
 ```tsx
 export default function PhoneApp() {
@@ -821,6 +828,7 @@ export default function PhoneApp() {
     setReply("");
     api.ai.complete({
       messages: updated,
+      context: "session",
       includeLorebook: "matched",  // ← pulls relevant world lore for this turn
       onDelta: function(chunk) { setReply(function(r) { return r + chunk; }); },
     }).then(function(fullText) {
@@ -851,7 +859,7 @@ export default function PhoneApp() {
 
 ### Loading lorebook context into a side call
 
-Side LLM calls bypass the main PromptBuilder, so the model has zero knowledge of the world unless you include it. **For 90% of cases, just pass `includeLorebook: "matched"`** — the server does the same keyword-driven assembly the main chat uses, against the last user message in your payload:
+Raw side calls bypass the main PromptBuilder. `includeLorebook: "matched"` alone injects lore matched against the last user message. Add `context: "session"` for native saved-state activation/macros, shared persona and prompts, and matching across all supplied user observations. Its `maxContext` setting budgets optional lore; required lore, presets and output protocol are not truncated to fit the provider window.
 
 ```tsx
 function askCharacter(charName, userText) {

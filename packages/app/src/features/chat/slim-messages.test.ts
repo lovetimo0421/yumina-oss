@@ -97,3 +97,15 @@ test("message-only audit enrichment cannot take an active swipe's unrelated orig
   assert.deepEqual((out.stateValidation as StateValidationAudit).variableNames, { health: "Health" });
   assert.equal(Object.hasOwn(audit, "variableNames"), false);
 });
+
+test("slimMessages hides a reply's short film from the card, keeping other videos", () => {
+  const key = (path: string) => Buffer.from(path).toString("base64url");
+  const film = `[video:/cdn/key/${key("users/u1/turn-videos/f1-0.mp4")}|sound]\n[video:/cdn/key/${key("users/u1/turn-videos/f1-1.mp4")}|sound]`;
+  const creator = `[video:/cdn/key/${key("worlds/w1/intro.mp4")}]`;
+  const text = `她回头看了你一眼。\n\n${creator}\n\n${film}`;
+  const [out] = slimMessages([msg({ content: text, activeSwipeIndex: 0, swipes: [{ content: text, rawContent: text }] })]);
+  assert.equal(out.content, `她回头看了你一眼。\n\n${creator}`);
+  const swipes = out.swipes as Array<Record<string, unknown>>;
+  assert.equal(swipes[0]!.content, `她回头看了你一眼。\n\n${creator}`);
+  assert.equal(swipes[0]!.rawContent, `她回头看了你一眼。\n\n${creator}`);
+});

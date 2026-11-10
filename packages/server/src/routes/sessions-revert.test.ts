@@ -5,7 +5,8 @@ import { db } from "../db/index.js";
 import { playSessions, messages, worlds, user, userPersonas, userWorldPersonas } from "../db/schema.js";
 import { eq, asc, sql } from "drizzle-orm";
 import { revertSession } from "./sessions.js";
-import { pruneSessionSnapshots } from "../lib/snapshot.js";
+import { pruneSessionSnapshots, pruneSessionSnapshotsNow } from "../lib/snapshot.js";
+after(async () => { const client = (db as unknown as { $client: { closed?: boolean; close(): Promise<void> } }).$client; if (!client.closed) await client.close(); });
 
 // Mirrors sessions-branch.test.ts: call revertSession() directly as a plain
 // async function, bypassing Hono + auth. The fixtures model REAL play data —
@@ -109,6 +110,7 @@ describe("revertSession", () => {
     });
     assert.strictEqual(result.status, 200);
     assert.strictEqual((result.body.data!.state as any).variables.hp, 9);
+    assert.strictEqual(result.body.data!.variablesRestored, true);
 
     // Persisted session state must also be hp: 9, not the default 10.
     const [s] = await db.select().from(playSessions).where(eq(playSessions.id, testSessionId));
@@ -228,28 +230,32 @@ describe("revertSession", () => {
   });
 
   it("pruneSessionSnapshots keeps only the most recent N snapshots, nulling older ones + their swipe snapshots", async () => {
-    // Give the oldest snapshot-bearing message (greeting) a swipe carrying its
-    // own stateSnapshot, so we can prove pruning strips swipe state too while
+    // Give the two older snapshot-bearing messages swipes carrying their own
+    // stateSnapshot, so we can prove pruning strips swipe state too while
     // keeping swipe content.
-    await db.update(messages)
-      .set({ swipes: [{ content: "greeting", stateSnapshot: { variables: { hp: 10 } }, generationState: { variables: { hp: 11 } }, createdAt: new Date().toISOString() }] })
-      .where(eq(messages.id, messageIds[0]!));
+    for (const [index, content] of [[0, "greeting"], [2, "reply 1"]] as const) {
+      await db.update(messages)
+        .set({ swipes: [{ content, stateSnapshot: { variables: { hp: 10 } }, generationState: { variables: { hp: 11 } }, createdAt: new Date().toISOString() }] })
+        .where(eq(messages.id, messageIds[index]!));
+    }
 
-    // Fixture has 3 assistant snapshots (greeting, reply 1, reply 2); user
-    // messages carry none. Keep the 2 newest snapshots → greeting's is nulled.
-    await pruneSessionSnapshots(testSessionId, 2);
+    // Fixture has 3 assistant snapshots (greeting = turn 0, reply 1, reply 2);
+    // user messages carry none. Keep the newest one: reply 1 is nulled, the
+    // greeting is the turn-0 checkpoint and keeps its own snapshot.
+    await pruneSessionSnapshots(testSessionId, 1);
 
     const rows = await db.select().from(messages).where(eq(messages.sessionId, testSessionId)).orderBy(asc(messages.createdAt));
     const row = (content: string) => rows.find((r) => r.content === content)!;
-    assert.strictEqual(row("greeting").stateSnapshot, null, "oldest snapshot should be pruned");
-    assert.notStrictEqual(row("reply 1").stateSnapshot, null, "recent snapshot should survive");
+    assert.strictEqual(row("reply 1").stateSnapshot, null, "older off-grid snapshot should be pruned");
+    assert.deepStrictEqual(row("greeting").stateSnapshot, { variables: { hp: 10 } }, "turn-0 checkpoint survives");
     assert.notStrictEqual(row("reply 2").stateSnapshot, null, "recent snapshot should survive");
-    // Pruned message keeps its swipe CONTENT but loses the swipe's stateSnapshot.
-    const greetingSwipes = (row("greeting").swipes ?? []) as Array<Record<string, unknown>>;
-    const firstSwipe = greetingSwipes[0] ?? {};
-    assert.strictEqual(firstSwipe.content, "greeting", "swipe content kept");
-    assert.ok(!("stateSnapshot" in firstSwipe), "swipe stateSnapshot stripped on pruned message");
-    assert.ok(!("generationState" in firstSwipe), "generation baseline stripped on pruned message");
+    // Pruned message AND checkpoint keep their swipe CONTENT but lose the swipe's state.
+    for (const content of ["greeting", "reply 1"]) {
+      const firstSwipe = ((row(content).swipes ?? []) as Array<Record<string, unknown>>)[0] ?? {};
+      assert.strictEqual(firstSwipe.content, content, "swipe content kept");
+      assert.ok(!("stateSnapshot" in firstSwipe), "swipe stateSnapshot stripped");
+      assert.ok(!("generationState" in firstSwipe), "generation baseline stripped");
+    }
     // Message rows themselves are untouched — only the snapshot is dropped.
     assert.strictEqual(rows.length, 5);
   });
@@ -329,12 +335,158 @@ describe("revertSession", () => {
       messageId: messageIds[0]!,
     });
     assert.strictEqual(result.status, 200);
-    // Must be the live session value (42), NOT the world default (10).
+    // Must be the live session value (42), NOT the world default (10), and
+    // the client is told the variables did not move.
     assert.strictEqual((result.body.data!.state as any).variables.hp, 42);
+    assert.strictEqual(result.body.data!.variablesRestored, false);
 
     const [s] = await db.select().from(playSessions).where(eq(playSessions.id, testSessionId));
     assert.strictEqual((s!.state as any).variables.hp, 42);
   });
 });
 
-after(async () => { await (db as unknown as { $client: { close(): Promise<void> } }).$client.close(); });
+// Long sessions past the retention window keep a sparse checkpoint every
+// `every` assistant turns. Turn n's reply sets hp to n, so a rewound state can
+// be checked against the turn it should describe.
+describe("snapshot checkpoints", () => {
+  const KEEP = 5;
+  const EVERY = 10;
+  let userId: string;
+  let sessionId: string;
+  // Assistant turn n → its message id; userBefore[n] → the user message before it.
+  let assistantIds: string[];
+  let userBefore: string[];
+
+  const turnState = (n: number) => ({ turnCount: n, variables: { hp: n }, ruleState: { disabledRules: [`r${n}`] }, metadata: { personaName: "P" } });
+
+  async function appendTurns(from: number, to: number) {
+    for (let n = from; n <= to; n++) {
+      const at = Date.UTC(2026, 0, 1) + n * 10_000;
+      if (n > 0) {
+        const [u] = await db.insert(messages).values({ sessionId, role: "user", content: `move ${n}`, createdAt: new Date(at - 5_000) }).returning();
+        userBefore[n] = u!.id;
+      }
+      const changes = [{ variableId: "hp", oldValue: n - 1, newValue: n }] as unknown as Record<string, unknown>;
+      const [a] = await db.insert(messages).values({
+        sessionId, role: "assistant", content: `turn ${n}`, createdAt: new Date(at),
+        stateSnapshot: turnState(n), stateChanges: changes,
+        swipes: [{ content: `turn ${n}`, createdAt: "now", stateSnapshot: turnState(n), generationState: turnState(n - 1), stateChanges: changes }],
+      }).returning();
+      assistantIds[n] = a!.id;
+    }
+    await db.update(playSessions).set({ state: turnState(to) }).where(eq(playSessions.id, sessionId));
+  }
+
+  async function snapshotTurns(): Promise<number[]> {
+    const rows = await db.select().from(messages)
+      .where(eq(messages.sessionId, sessionId)).orderBy(asc(messages.createdAt));
+    return rows.filter((r) => r.stateSnapshot).map((r) => (r.stateSnapshot!.variables as { hp: number }).hp);
+  }
+
+  async function row(n: number) {
+    const [r] = await db.select().from(messages).where(eq(messages.id, assistantIds[n]!));
+    return r!;
+  }
+
+  beforeEach(async () => {
+    const [u] = await db.insert(user).values({
+      id: `test-user-${crypto.randomUUID()}`, name: "Checkpoint User", email: `${crypto.randomUUID()}@test.local`, emailVerified: true,
+    }).returning();
+    userId = u!.id;
+    const [w] = await db.insert(worlds).values({
+      creatorId: userId, name: "Checkpoint World", status: "draft",
+      schema: { name: "Checkpoint World", entries: [], variables: [{ id: "hp", name: "HP", type: "number", defaultValue: 0 }] },
+    }).returning();
+    const [s] = await db.insert(playSessions).values({ userId, worldId: w!.id, state: turnState(0), name: "main" }).returning();
+    sessionId = s!.id;
+    assistantIds = [];
+    userBefore = [];
+  });
+
+  afterEach(async () => {
+    await db.delete(user).where(eq(user.id, userId));
+  });
+
+  it("keeps every 10th turn past the window, stable across prunes as turns are appended", async () => {
+    await appendTurns(0, 30);
+    await pruneSessionSnapshotsNow(sessionId, KEEP, EVERY);
+    assert.deepStrictEqual(await snapshotTurns(), [0, 10, 20, 26, 27, 28, 29, 30]);
+
+    // A checkpoint keeps the active swipe's state on the row; its per-swipe
+    // copies go, like every pruned row's.
+    const checkpoint = await row(20);
+    assert.deepStrictEqual(checkpoint.stateSnapshot, turnState(20));
+    assert.ok(!("stateSnapshot" in checkpoint.swipes![0]!) && !("generationState" in checkpoint.swipes![0]!));
+    assert.strictEqual(checkpoint.swipes![0]!.content, "turn 20");
+    const pruned = await row(21);
+    assert.strictEqual(pruned.stateSnapshot, null);
+    assert.ok(!("stateSnapshot" in pruned.swipes![0]!));
+
+    // Checkpoints are written once: later prunes neither drop nor rewrite them.
+    const versions = async () => (await db.execute(sql`SELECT id, xmin::text AS v FROM messages
+      WHERE id IN (${assistantIds[0]!}, ${assistantIds[10]!}, ${assistantIds[20]!}) ORDER BY id`)).rows;
+    const before = await versions();
+    await appendTurns(31, 47);
+    await pruneSessionSnapshotsNow(sessionId, KEEP, EVERY);
+    assert.deepStrictEqual(await snapshotTurns(), [0, 10, 20, 30, 40, 43, 44, 45, 46, 47]);
+    await pruneSessionSnapshotsNow(sessionId, KEEP, EVERY);
+    assert.deepStrictEqual(await snapshotTurns(), [0, 10, 20, 30, 40, 43, 44, 45, 46, 47]);
+    assert.deepStrictEqual(await versions(), before);
+  });
+
+  it("never drops an existing checkpoint when a deleted message shifts the turn count", async () => {
+    await appendTurns(0, 30);
+    await pruneSessionSnapshotsNow(sessionId, KEEP, EVERY);
+    assert.deepStrictEqual(await snapshotTurns(), [0, 10, 20, 26, 27, 28, 29, 30]);
+
+    // Deleting reply 5 renumbers every later turn by one: the rows kept at
+    // turns 10 and 20 now count as turns 9 and 19, yet keep their snapshots.
+    await db.delete(messages).where(eq(messages.id, assistantIds[5]!));
+    await appendTurns(31, 45);
+    await pruneSessionSnapshotsNow(sessionId, KEEP, EVERY);
+    // Turn 31 is now the 30th reply after the opening, so it is the next checkpoint.
+    assert.deepStrictEqual(await snapshotTurns(), [0, 10, 20, 31, 41, 42, 43, 44, 45]);
+  });
+
+  it("reverts between checkpoints by replaying the active swipe's changes forward", async () => {
+    await appendTurns(0, 30);
+    // Turn 22 was re-rolled: the active swipe set hp to 100, not 22.
+    const r22 = await row(22);
+    const reroll = [{ variableId: "hp", oldValue: 21, newValue: 100 }] as unknown as Record<string, unknown>;
+    await db.update(messages).set({
+      activeSwipeIndex: 1,
+      swipes: [...r22.swipes!, { content: "turn 22b", createdAt: "now", stateSnapshot: turnState(100), stateChanges: reroll }],
+    }).where(eq(messages.id, assistantIds[22]!));
+    await pruneSessionSnapshotsNow(sessionId, KEEP, EVERY);
+
+    // Onto the user message before turn 25: checkpoint 20, then turns 21-24.
+    const result = await revertSession({ userId, sessionId, messageId: userBefore[25]! });
+    assert.strictEqual(result.status, 200);
+    const state = result.body.data!.state as any;
+    assert.strictEqual(state.variables.hp, 24);
+    assert.strictEqual(state.turnCount, 24);
+    assert.deepStrictEqual(state.ruleState.disabledRules, ["r20"]);
+    assert.strictEqual(result.body.data!.variablesRestored, true);
+
+    // Onto turn 22 itself: the re-rolled swipe's value, not the first draft's.
+    const again = await revertSession({ userId, sessionId, messageId: assistantIds[22]! });
+    assert.strictEqual((again.body.data!.state as any).variables.hp, 100);
+    const [saved] = await db.select().from(playSessions).where(eq(playSessions.id, sessionId));
+    assert.strictEqual((saved!.state.variables as any).hp, 100);
+  });
+
+  it("keeps the live variables and says so when no snapshot is left before the target", async () => {
+    await appendTurns(0, 30);
+    // History pruned before checkpoints existed: everything past the window is gone.
+    await pruneSessionSnapshotsNow(sessionId, KEEP, 1_000);
+    assert.deepStrictEqual(await snapshotTurns(), [0, 26, 27, 28, 29, 30]);
+    await db.update(messages).set({ stateSnapshot: null }).where(eq(messages.id, assistantIds[0]!));
+
+    const result = await revertSession({ userId, sessionId, messageId: assistantIds[12]! });
+    assert.strictEqual(result.status, 200);
+    assert.strictEqual((result.body.data!.state as any).variables.hp, 30);
+    assert.strictEqual(result.body.data!.variablesRestored, false);
+  });
+});
+
+after(async () => { const client = (db as unknown as { $client: { closed?: boolean; close(): Promise<void> } }).$client; if (!client.closed) await client.close(); });

@@ -30,8 +30,11 @@ export function hasTranslatableProse(content: string, title?: string): boolean {
     .replace(/\b(?=[A-Z0-9]*\d)[A-Z0-9]{6,12}\b/g, " ")
     .replace(/\b(?![A-Z]*(?:[AEIOU][A-Z]*){3})[A-Z]{8}\b/g, " ");
   // A run of two letters, not two letters anywhere: a kaomoji row like
-  // "\ o / \ o / \ o /" has five letters and nothing to translate.
-  return /\p{L}{2}/u.test(stripped);
+  // "\ o / \ o / \ o /" has five letters and nothing to translate. One han or
+  // hangul character is already a word, though: 赞, 好！, 用3.8 and 强👍 were
+  // all closed out as no_prose and never translated (prod, 2026-10-15). Kana
+  // still needs a run, since a lone ヮ or ﾉ is usually a kaomoji's face.
+  return /\p{L}{2}|[\p{Script=Han}\p{Script=Hangul}]/u.test(stripped);
 }
 
 /**

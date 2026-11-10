@@ -2,15 +2,13 @@
 
 # Writing Great Entries
 
-Entries are the single most important thing you'll create. Every world on the platform uses them, and a lot of popular ones run entirely on well-crafted entries with no rules at all.
-
-This guide teaches the craft of writing entries that make worlds come alive. For the basics of entries and sections, see [Get Started: Entries](/creator/entries).
+Every world on the platform uses entries (lore), and a lot of popular ones run on entries alone, with no behaviors at all. For the basics of openings, lore and the four lore blocks, see [Openings and Lore](/creator/entries).
 
 ---
 
 ## Writing characters that feel alive
 
-The best worlds on the platform invest more in character entries than anything else. Here's what works.
+The best worlds on the platform invest more in character entries than anything else.
 
 ### Personality as behavior, not labels
 
@@ -30,9 +28,9 @@ The AI can't act out "shy" in a consistent way. But it can keep acting out "fetc
 
 ### Relationship stages
 
-The most immersive worlds change how characters behave based on how well the player knows them. Sakura Season does this brilliantly: each of its three heroines has behavioral descriptions at four affinity levels (0-25, 26-50, 51-75, 76-100).
+The most immersive worlds change how characters behave based on how well the player knows them. Sakura Season does this: each of its three heroines has behavioral descriptions at four affinity levels (0-25, 26-50, 51-75, 76-100).
 
-You can achieve this with one entry per relationship stage that only activates when a variable reaches a threshold:
+You can do this with one entry per relationship stage, each sent only while a variable is in that stage's range:
 
 - **Early stage** (affinity 0-25): Formal, guarded, surface-level conversation
 - **Growing trust** (affinity 26-50): Starts sharing opinions, occasional vulnerability
@@ -42,24 +40,22 @@ You can achieve this with one entry per relationship stage that only activates w
 As the relationship variable changes, the AI's guidance shifts automatically.
 
 ::: details How to set this up
-The entry editor itself only exposes **keywords** as a trigger — it does *not* have a UI for variable-based conditions. To gate entries by a variable like affinity, you use the [**Behaviors**](/creator/advanced/rules-deep) (Rules) system with the `toggle-entry` action:
+On the canvas, this is **Conditional lore**:
 
-1. Create one entry per stage in **Chat History** ("Rin — Early Stage", "Rin — Growing Trust", etc.). Mark them all **disabled** by default.
-2. For each stage, add a Behavior:
-   - **When**: variable changes (or every turn)
-   - **If**: e.g. `rin_affinity >= 26 AND rin_affinity < 51`
-   - **Then**: `toggle-entry` enable "Rin — Growing Trust", `toggle-entry` disable the others
+1. Write one entry per stage ("Rin — Early Stage", "Rin — Growing Trust", etc.).
+2. Drag the `rin_affinity` variable onto an entry. A line connects them and the entry moves into the **Conditional lore** block. Click the line and set the condition, e.g. `≥ 26`.
+3. For a range, drag the variable onto the same entry again and set the second condition (`< 51`). With two or more conditions, the entry's **When the AI sees this** lets you choose whether all of them or any one must hold. For a stage range, use all.
 
-The engine flips entries on/off every turn based on your conditions, and only the matching stage's content reaches the AI.
+The engine checks the conditions every turn, and only the matching stage's content reaches the AI.
 
-> Advanced creators driving worlds from JSON (Studio AI, Claude Code, etc. via the World Spec) can also set `conditions: [...]` directly on a `WorldEntry` — the engine evaluates them in the lorebook matcher. The editor UI just doesn't surface that field today, so the Behaviors route is the in-product path.
+The other way is **Standby lore** plus behaviors: turn **Always Send** off on the stage entries and give them no keywords or conditions, then add behaviors that use **Enable lore entry** / **Disable lore entry** as affinity crosses each threshold. That's more work, and it's mostly useful when something other than a variable's value should open the entry (a button, a keyword, a one-off event). See [Behaviors](/creator/advanced/rules-deep).
 
-Full schema reference → [World Spec: Entries](/world-spec/entries)
+In the card's data, the conditions are stored as `conditions: [...]` on the entry. Full schema reference → [World Spec: Entries](/world-spec/entries)
 :::
 
 ### The character sheet formula
 
-After studying dozens of successful worlds, here's the pattern that works:
+A pattern that shows up across many successful worlds:
 
 1. **Identity** (1-2 sentences): Name, role, core trait
 2. **Appearance** (2-3 sentences): What the player sees. Specific details, not generic descriptions
@@ -67,13 +63,13 @@ After studying dozens of successful worlds, here's the pattern that works:
 4. **Relationship to the player**: How they see the player initially, what changes their opinion
 5. **Secrets**: Things the AI knows but the character doesn't reveal easily
 
-The behavioral patterns section is where most creators under-invest. It's also where the magic happens.
+The behavioral patterns section is where most creators under-invest.
 
 ---
 
 ## The lorebook: context on demand
 
-The lorebook is the keyword-triggered entry system. It's the reason you can build a world with 50,000 words of lore and still have a fast, focused AI.
+Keyword lore lets a world hold 50,000 words of lore while the AI only reads the few entries that matter this turn.
 
 ### Designing good keyword lists
 
@@ -85,11 +81,11 @@ For an entry about a tavern:
 For an entry about a character named Sakurai Kimika:
 - `Kimika`, `Sakurai`, `class rep`, `class representative`
 
-**Whole word matching**: Turn this on when short keywords would cause false triggers. Without it, the keyword "art" would match "start", "heart", and "apart."
+**Whole Word**: Turn this on when short keywords would cause false triggers. Without it, the keyword "art" would match "start", "heart", and "apart."
 
 ### Secondary keywords for precision
 
-Sometimes one keyword isn't enough to know if an entry is relevant. Secondary keywords let you add a second filter:
+Sometimes one keyword isn't enough to know if an entry is relevant. **Secondary Keywords** let you add a second filter:
 
 | Mode | Meaning | Example use case |
 |------|---------|-----------------|
@@ -100,9 +96,11 @@ Sometimes one keyword isn't enough to know if an entry is relevant. Secondary ke
 
 **The most common use**: `AND_ANY` for topic intersection. You want the "dark forest lore" entry to trigger when the player mentions both forests AND something ominous, not just any mention of trees.
 
+Whole Word, Secondary Keywords and the settings below are under **When the AI sees this** → **Advanced** in an opened entry.
+
 ### Depth injection: where the entry appears in chat
 
-Keyword-triggered entries don't go at the top of the prompt with System Presets. They're injected into the chat history at a specific position. The **depth** setting controls where.
+Entries whose **Inject into** is set to **Sent when mentioned** don't go at the top of the prompt with the always-sent entries. They're injected into the chat history at a specific position. The **Depth (messages from end)** setting controls where.
 
 **depth: 4** means the entry appears 4 messages from the end of chat. This makes it feel like a natural part of the recent conversation rather than a system instruction from above.
 
@@ -130,7 +128,7 @@ An entry with depth 2 inserts before message [4]:
 [5] User: Alright, let's go
 ```
 
-depth 0 places the entry at the very end (similar to Post Instructions).
+depth 0 places the entry at the very end (similar to **At the end** entries).
 
 Full reference → [World Spec: Entries](/world-spec/entries)
 :::
@@ -139,39 +137,37 @@ Full reference → [World Spec: Entries](/world-spec/entries)
 
 ## State-driven entries
 
-The most powerful entries don't wait for keywords. They activate based on the actual state of the world.
+Some entries shouldn't wait for keywords. They should go to the AI based on the actual state of the world. On the canvas, these are the **Conditional lore** block: drag a variable onto an entry, then click the line to set the condition. Setting it up is shown under [Relationship stages](#relationship-stages) above.
 
-One thing to clear up first: **the entry editor doesn't expose a built-in "switch on variable value" feature**. "State-driven" is a *pattern*, not a button. You build it by combining ordinary entries with the [Behaviors system](/creator/advanced/rules-deep) — using the `toggle-entry` action to enable/disable entries as variables cross thresholds, exactly as shown in the `::: details How to set this up` block under [Relationship stages](#relationship-stages) above. If you're driving the world from JSON (Studio AI, the World Spec), you can also set `conditions: [...]` directly on a `WorldEntry` and the engine will evaluate them during lorebook matching — but that field isn't surfaced in the editor UI.
-
-The payoff is the same either way: the entry switches on the **actual value of a variable**, not on whether the player happened to type a keyword.
+The entry then switches on the **actual value of a variable**, not on whether the player happened to type a keyword.
 
 ### Real-world example: companion attitudes
 
-Wandering Diary uses this pattern to change how companions behave toward the player. Each companion has three entries — one for low affinity (cautious and distant), one for mid (warming up), one for high (deep loyalty) — plus a small set of Behaviors that toggle the right one on as the affinity variable crosses each threshold.
+Wandering Diary uses this pattern to change how companions behave toward the player. Each companion has three entries — one for low affinity (cautious and distant), one for mid (warming up), one for high (deep loyalty) — and the right one goes to the AI as the affinity variable crosses each threshold.
 
 The player never sees this machinery. They just experience a companion who gradually opens up.
 
 ### Conditions + keywords together
 
-The same combination works for narrower context. Give an entry both a keyword **and** a behavior-driven enable/disable, and it only fires when both are true:
+An entry can have both keywords **and** conditions. It's then sent only when a keyword comes up **and** its conditions hold:
 
-- Keyword: `Kimika`, `class rep`
-- Behavior gate: enabled when `day_count > 3`, disabled otherwise
+- Keywords: `Kimika`, `class rep`
+- Condition: `day_count > 3`
 - Effect: NPC backstory only appears after Day 3, and only when the player mentions her
 
 This keeps information from showing up too early in the story.
 
 ### Seven comparison operators
 
-| Operator | Meaning | Best for |
-|----------|---------|----------|
-| `eq` | Equals | Exact state checks ("location equals cave") |
-| `neq` | Not equal | Exclusions ("not in the tutorial zone") |
-| `gt` | Greater than | Thresholds ("affinity above 50") |
-| `gte` | Greater or equal | Inclusive thresholds |
-| `lt` | Less than | Low-state triggers ("health below 20") |
-| `lte` | Less or equal | Inclusive low-state |
-| `contains` | String contains | Partial text matching |
+| Operator | On the canvas | Meaning | Best for |
+|----------|---------------|---------|----------|
+| `eq` | is | Equals | Exact state checks ("location equals cave") |
+| `neq` | is not | Not equal | Exclusions ("not in the tutorial zone") |
+| `gt` | > | Greater than | Thresholds ("affinity above 50") |
+| `gte` | ≥ | Greater or equal | Inclusive thresholds |
+| `lt` | < | Less than | Low-state triggers ("health below 20") |
+| `lte` | ≤ | Less or equal | Inclusive low-state |
+| `contains` | contains | String contains | Partial text matching |
 
 Multiple conditions combine with **All** (every condition must pass) or **Any** (one is enough).
 
@@ -181,25 +177,25 @@ Multiple conditions combine with **All** (every condition must pass) or **Any** 
 
 ### Recursion: chained context
 
-When entry A triggers and its content mentions a keyword from entry B, should B also trigger? That's recursion. It's off by default (recursion depth = 0 in settings) but can be turned on for worlds with interconnected lore.
+When entry A triggers and its content mentions a keyword from entry B, should B also trigger? That's recursion. It's off by default (**Cascading triggers** = 0, under **Context** → **Advanced**) but can be turned on for worlds with interconnected lore.
 
 **Use carefully.** Deep recursion chains can consume a lot of context. Most worlds keep it at 0 or 1.
 
-Two safety controls:
+Two safety controls on each entry:
 - **Prevent Recursion**: This entry can trigger, but its content won't scan for other entries. "I can be woken up, but I won't wake anyone else."
-- **Exclude Recursion**: Only the player's actual words can trigger this entry. Invisible to recursive scans entirely.
+- **Exclude from Recursion**: Only the player's actual words can trigger this entry. Invisible to recursive scans entirely.
 
 ### API role override
 
-By default, all entries are sent as system messages. But you can change how the AI interprets them:
+By default, all entries are sent as system messages. **Send as** changes how the AI interprets them:
 
 - **Instruction** (system): The default. The AI treats it as a rule to follow.
 - **User**: The AI thinks a player said this. Some models weigh user messages more heavily.
-- **Assistant**: The AI thinks it said this itself. Useful for "pre-filling" a response style.
+- **AI** (assistant): The AI thinks it said this itself. Useful for "pre-filling" a response style.
 
 ### Example dialogue
 
-Entries tagged as examples get special treatment. The engine parses them into user/assistant message pairs, so the AI sees actual conversation samples rather than a block of text.
+Entries whose **Inject into** is **Example dialogue** get special treatment. The engine parses them into user/assistant message pairs, so the AI sees actual conversation samples rather than a block of text.
 
 Format:
 
@@ -224,27 +220,27 @@ Keywords also support regular expressions. Write your keyword in `/pattern/flags
 
 ### Scan depth and token budget
 
-The engine doesn't scan all of chat history for keywords — that would be wasteful. The world setting `lorebookScanDepth` (default 2) controls how many recent messages to check. You can change this in the editor under **Entry Settings** in the Lorebook section. Higher values catch more references but cost more processing.
+The engine doesn't scan all of chat history for keywords. **Keyword scan depth** (default 2, up to 50) controls how many recent messages to check. On the canvas it's under **Context** → **Advanced**; **Panels → Lorebook** has the same setting under **Entry Settings**. Higher values catch more references but cost more processing.
 
-There's also a token budget: `lorebookBudgetPercent` (default 100%) and `lorebookBudgetCap` (default unlimited) limit how many total tokens triggered entries can consume. When the budget is exceeded, entries with higher match scores take priority.
+There's also a token budget for triggered entries: the world settings `lorebookBudgetPercent` (default 100%) and `lorebookBudgetCap` (default 0, meaning no cap). The editor has no control for these; they're set in the card's data. When triggered entries exceed the budget, they're kept in **position** order (match score only breaks ties) and the rest are dropped.
 
 ### Folder organization
 
-When your world has dozens or hundreds of entries, the sidebar list gets unwieldy. The editor supports folders — drag entries into logical groupings (all NPCs in one folder, all location lore in another). Folders are purely organizational; they have no effect on runtime behavior, matching, or injection order.
+When your world has dozens or hundreds of entries, use folders: **Panels → Lorebook** has **Add Folder**, and you can drag entries into logical groupings (all NPCs in one folder, all location lore in another). Folders are purely organizational; they have no effect on runtime behavior, matching, or injection order.
 
 ### Position ordering
 
-Within each section, entries are ordered by their **position** number (lower = earlier). Supports decimals, so you can slot an entry between positions 2 and 3 by giving it position 2.5.
+Within each section, entries are ordered by their **Position** number (lower = earlier), set in **Panels → Lorebook**. Supports decimals, so you can slot an entry between positions 2 and 3 by giving it position 2.5.
 
-Earlier entries in System Presets get cached more efficiently, so put your most stable content (character descriptions, world rules) at lower positions, and content that might change (dynamic instructions) at higher positions.
+Earlier always-sent entries get cached more efficiently, so put your most stable content (character descriptions, world rules) at lower positions, and content that might change (dynamic instructions) at higher positions.
 
 ---
 
 ## Common mistakes
 
-**Keyword entries with no keywords.** If you put an entry in Chat History but forget to add keywords (and aren't toggling it from a Behavior), it will never trigger. Always-on entries belong in System Presets.
+**Entries that never go out.** An entry with **Always Send** off and no keywords or conditions is never sent on its own. That's **Standby lore**, which is what you want when a behavior opens it. If you didn't mean that, give it keywords or a condition, or tick Always Send.
 
-**Overlapping stage ranges in your Behaviors.** If your "Rin — Early Stage" toggle fires when affinity < 30 and "Rin — Growing Trust" fires when affinity > 25, both entries end up enabled between 26-29. Use non-overlapping ranges: `< 26` and `>= 26 AND < 51`.
+**Overlapping stage ranges.** If "Rin — Early Stage" is sent when affinity < 30 and "Rin — Growing Trust" when affinity > 25, both reach the AI between 26-29. Use non-overlapping ranges: `< 26` and `≥ 26` with `< 51`. The same goes for behaviors that enable and disable stage entries.
 
 **Too-specific keywords that never match.** If your entry about the "Crystalline Sanctum" only triggers on `crystalline sanctum`, players who type "crystal place" or "that temple" will never see it. Think about how players actually refer to things, not just the canonical name.
 
@@ -256,7 +252,7 @@ Earlier entries in System Presets get cached more efficiently, so put your most 
 
 - [Designing Game State](/creator/advanced/variables-deep) — choosing and structuring the variables your entries react to
 - [AI Directives & Macros](/creator/advanced/directives-macros) — the `{{macro}}` syntax and directive format used inside entries
-- [Behaviors & Automation](/creator/advanced/rules-deep) — how to use `toggle-entry` actions to enable/disable entries based on game state
+- [Behaviors & Automation](/creator/advanced/rules-deep) — using **Enable lore entry** / **Disable lore entry** to open and close entries from behaviors
 
 Full schema reference → [World Spec: Entries & Sections](/world-spec/entries)
 

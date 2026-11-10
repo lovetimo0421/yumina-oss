@@ -1,3 +1,4 @@
+import { DeletionPreflightNotice, useDeletionPreflight, deletionErrorMessage, type DeleteAccountResponse } from "./account-deletion-preflight";
 import {
   useState,
   useEffect,
@@ -19,7 +20,6 @@ import {
   Bell,
   Info,
   Globe,
-  FlaskConical,
   Lock,
   LogOut,
   ArrowLeft,
@@ -33,6 +33,7 @@ import {
   Mail,
   MessageSquare,
   Link2,
+  Plug,
   MonitorSmartphone,
   ShieldOff,
   X,
@@ -191,8 +192,12 @@ interface ProfileSettings {
   voiceInputMode: "" | "confirm" | "auto";
   /** KeyboardEvent.code of the hold-to-talk key. */
   voiceInputKey: string;
-  /** Experimental: per-turn pictures (preferences.experimentalTurnImages). Off unless turned on. */
+  /** Story illustrations (preferences.experimentalTurnImages, old key name). On unless turned off. */
   experimentalTurnImages: boolean;
+  /** "Illustrate every reply". Honoured only next to an explicit experimentalTurnImages:true. */
+  autoTurnImages: boolean;
+  /** Scene video, the realtime film (experimental, paid). Off unless turned on. */
+  experimentalFilm: boolean;
   discoverWallpaper: WallpaperChoice;
   profileWallpaper: WallpaperChoice;
   settingsWallpaper: WallpaperChoice;
@@ -222,7 +227,9 @@ const DEFAULTS: ProfileSettings = {
   voiceInputEnabled: true,
   voiceInputMode: "",
   voiceInputKey: "Space",
-  experimentalTurnImages: false,
+  experimentalTurnImages: true,
+  autoTurnImages: false,
+  experimentalFilm: false,
   discoverWallpaper: "starry-night",
   profileWallpaper: "starry-night",
   settingsWallpaper: "starry-night",
@@ -328,7 +335,9 @@ function loadSettings(preferences?: Record<string, unknown>): ProfileSettings {
     base.worldAudioEnabled = preferences.worldAudioEnabled !== false;
     base.ttsEnabled = isTtsOptedIn(preferences);
     base.ttsAutoPlay = preferences.ttsAutoPlay === true;
-    base.experimentalTurnImages = preferences.experimentalTurnImages === true;
+    base.experimentalTurnImages = preferences.experimentalTurnImages !== false;
+    base.autoTurnImages = preferences.experimentalTurnImages === true && preferences.autoTurnImages === true;
+    base.experimentalFilm = preferences.experimentalFilm === true;
     base.ttsMode = preferences.ttsMode === "dialogue" ? "dialogue" : "full";
     base.ttsVoice =
       typeof preferences.ttsVoice === "string" && /^[a-f0-9]{32}$/.test(preferences.ttsVoice)
@@ -450,11 +459,12 @@ const SINGLE_USER_HIDDEN_ACCOUNT_ITEMS: ReadonlySet<string> = new Set([
   "account-password",
   "account-sign-out",
   "account-devices",
+  "account-apps",
   "account-delete",
 ]);
 
 function parseSectionHash(hash: string): SectionId | null {
-  const normalized = hash.replace(/^#/, "");
+  const normalized = hash.replace(/^#/, "").split("/")[0];
   if (!normalized) return null;
   return SECTIONS.some((section) => section.id === normalized)
     ? (normalized as SectionId)
@@ -482,6 +492,7 @@ function createSettingsSearchItems(
     { id: "account-username", sectionId: "account", targetId: "settings-target-account-username", title: t("account.usernameLabel"), description: t("account.usernameHint"), category: category.account },
     { id: "account-password", sectionId: "account", targetId: "settings-target-account-password", title: t("account.changePassword.title"), description: t("account.changePassword.description"), category: category.account },
     { id: "account-connections", sectionId: "account", targetId: "settings-target-account-connections", title: t("account.connectedAccounts.title"), description: t("account.connectedAccounts.description"), category: category.account },
+    { id: "account-apps", sectionId: "account", targetId: "settings-target-account-apps", title: t("account.connectedApps.title"), description: t("account.connectedApps.description"), category: category.account, keywords: ["OAuth", "mod"] },
     { id: "account-devices", sectionId: "account", targetId: "settings-target-account-devices", title: t("account.loginDevices.title"), description: t("account.loginDevices.description"), category: category.account },
     { id: "account-sign-out", sectionId: "account", targetId: "settings-target-account-sign-out", title: t("account.signOut.title"), description: t("account.signOut.description"), category: category.account },
     { id: "account-delete", sectionId: "account", targetId: "settings-target-account-delete", title: t("account.deleteAccount.title"), description: t("account.deleteAccount.description"), category: category.account },
@@ -517,6 +528,8 @@ function createSettingsSearchItems(
     { id: "world-audio", sectionId: "display", targetId: "settings-target-world-audio", title: t("display.worldAudio.title"), description: t("display.worldAudio.description"), category: category.display },
     { id: "tts", sectionId: "display", targetId: "settings-target-tts", title: t("display.tts.title"), description: t("display.tts.offDescription"), category: category.display },
     { id: "voice-input", sectionId: "display", targetId: "settings-target-voice-input", title: t("display.voiceInput.title"), description: t("display.voiceInput.description"), category: category.display },
+    { id: "turn-images", sectionId: "display", targetId: "settings-target-turn-images", title: t("display.turnImages.title"), description: t("display.turnImages.description"), category: category.display },
+    { id: "scene-video", sectionId: "display", targetId: "settings-target-scene-video", title: t("display.sceneVideo.title"), description: t("display.sceneVideo.description"), category: category.display },
     { id: "language", sectionId: "display", targetId: "settings-target-language", title: t("display.language.title"), category: category.display, keywords: LANGUAGE_OPTIONS.flatMap((language) => [language.label, language.native]) },
 
     { id: "wallpaper", sectionId: "wallpaper", targetId: "settings-target-wallpaper", title: category.wallpaper, description: t("wallpaper.description"), category: category.wallpaper },
@@ -590,6 +603,8 @@ export function SettingsPage() {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const searchResultRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const normalizedSearchQuery = searchQuery.trim();
+  const turnImagesOffered = useUserProfileStore((s) => s.profile?.turnImagesOffered === true);
+  const filmOffered = useUserProfileStore((s) => s.profile?.filmOffered === true);
   const searchItems = useMemo(() => {
     const localizedItems = mergeSettingsSearchAliases(
       createSettingsSearchItems(t, i18n.language),
@@ -602,8 +617,10 @@ export function SettingsPage() {
     return localizedItems.filter((item) =>
       visibleSectionIds.has(item.sectionId)
       && (!isTouchDevice || item.id !== "send-key")
+      && (turnImagesOffered || item.id !== "turn-images")
+      && (filmOffered || item.id !== "scene-video")
       && (!isSingleUser || !SINGLE_USER_HIDDEN_ACCOUNT_ITEMS.has(item.id)));
-  }, [isTouchDevice, t, i18n.language, visibleSections, isSingleUser]);
+  }, [isTouchDevice, t, i18n.language, visibleSections, isSingleUser, turnImagesOffered, filmOffered]);
   const searchResults = useMemo(
     () => searchSettingsItems(searchItems, normalizedSearchQuery),
     [normalizedSearchQuery, searchItems]
@@ -631,6 +648,9 @@ export function SettingsPage() {
       if (hashSection) {
         setActiveSection(hashSection);
         setMobileShowNav(false);
+        if (window.location.hash === "#content-safety/blur-sensitive") {
+          setPendingTargetId("settings-target-blur-sensitive");
+        }
       }
     };
 
@@ -1496,6 +1516,123 @@ function ConnectedAccountsCard() {
   );
 }
 
+/** Short labels for what a connected app may do (OAuth scopes). */
+const CONNECTED_APP_SCOPE_LABELS = [
+  ["ai:chat", "aiChat"],
+  ["wallet:read", "walletRead"],
+  ["quests", "quests"],
+  ["cards", "cards"],
+] as const;
+
+interface ConnectedApp {
+  clientId: string; name: string; connectedAt: string | null; scopes: string[]; firstParty: boolean;
+}
+
+/**
+ * Game mods, apps and outside AIs signed in to this account through Yumina's
+ * OAuth server. Disconnecting revokes the app's refresh tokens and consent, and
+ * the gateway / card MCP check the consent on every call, so it stops at once.
+ */
+function ConnectedAppsCard() {
+  const { t, i18n } = useTranslation("settings");
+  const [apps, setApps] = useState<ConnectedApp[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiBase}/api/connected-apps`, { credentials: "include" });
+      if (!res.ok) throw new Error(String(res.status));
+      const body = (await res.json()) as { data?: ConnectedApp[] };
+      setApps(body.data ?? []);
+      setFailed(false);
+    } catch {
+      setFailed(true);
+      setApps([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const handleDisconnect = useCallback(async (clientId: string) => {
+    setBusyId(clientId);
+    setActionError(null);
+    try {
+      const res = await fetch(`${apiBase}/api/connected-apps/${encodeURIComponent(clientId)}`, { method: "DELETE", credentials: "include" });
+      if (!res.ok) setActionError(t("account.connectedApps.disconnectError"));
+      else await refresh();
+    } catch {
+      setActionError(t("account.connectedApps.disconnectError"));
+    } finally {
+      setBusyId(null);
+    }
+  }, [refresh, t]);
+
+  return (
+    <Card id="settings-target-account-apps">
+      <CardIcon icon={Plug} />
+      <div className="min-w-0 flex-1 space-y-4">
+        <div>
+          <div className="font-semibold text-main">{t("account.connectedApps.title")}</div>
+          <div className="mt-0.5 text-xs text-sub">{t("account.connectedApps.description")}</div>
+        </div>
+
+        {apps === null ? (
+          <div className="flex items-center gap-2 text-xs text-sub">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {t("account.connectedApps.loading")}
+          </div>
+        ) : failed ? (
+          <div className="text-xs text-sub">{t("account.connectedApps.loadError")}</div>
+        ) : apps.length === 0 ? (
+          <div className="text-xs text-sub/60">{t("account.connectedApps.empty")}</div>
+        ) : (
+          <div className="space-y-2">
+            {apps.map((app) => {
+              const can = CONNECTED_APP_SCOPE_LABELS.filter(([scope]) => app.scopes.includes(scope))
+                .map(([, key]) => t(`account.connectedApps.scope.${key}`));
+              return (
+                <div
+                  key={app.clientId}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.02] px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="truncate text-sm font-semibold text-main">{app.name}</span>
+                      {app.firstParty && (
+                        <span className="shrink-0 rounded-full border border-gold/30 bg-gold/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gold">
+                          {t("account.connectedApps.verified")}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-0.5 text-xs text-sub/60">
+                      {[
+                        app.connectedAt ? t("account.connectedApps.connectedOn", { date: formatSessionTime(app.connectedAt, i18n.language) }) : null,
+                        can.length ? can.join(" · ") : null,
+                      ].filter(Boolean).join(" · ")}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => void handleDisconnect(app.clientId)}
+                    disabled={busyId !== null}
+                    className="shrink-0 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-xs font-bold text-red-400 transition-colors hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {busyId === app.clientId ? t("account.connectedApps.disconnecting") : t("account.connectedApps.disconnect")}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <FieldError message={actionError} />
+      </div>
+    </Card>
+  );
+}
+
 function AccountSection({
   session, profile, editUsername, setEditUsername, savingUsername, handleSaveUsername,
   usernameError, usernameSavedAt,
@@ -1601,6 +1738,7 @@ function AccountSection({
       {auth.mode === "multi-user" && (
         <>
           <ConnectedAccountsCard />
+          <ConnectedAppsCard />
           <LoginDevicesCard currentToken={session?.session?.token ?? null} />
         </>
       )}
@@ -1644,12 +1782,7 @@ function AccountSection({
   );
 }
 
-type DeleteAccountResponse = {
-  success?: boolean;
-  message?: string;
-  error?: string;
-  code?: string;
-};
+
 
 function DeleteAccountCard({ email, username }: { email: string; username: string }) {
   const { t, i18n } = useTranslation("settings");
@@ -1660,11 +1793,13 @@ function DeleteAccountCard({ email, username }: { email: string; username: strin
   const [emailSent, setEmailSent] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
 
+  const preflight = useDeletionPreflight(open);
   const confirmationTarget = username.trim() || email.trim();
   const canRequest = !!confirmationTarget
     && confirmation.trim() === confirmationTarget
     && acknowledged
-    && !requesting;
+    && !requesting
+    && preflight.report?.canSendEmail === true;
 
   const resetDialog = () => {
     setConfirmation("");
@@ -1679,33 +1814,7 @@ function DeleteAccountCard({ email, username }: { email: string; username: strin
     if (!nextOpen) resetDialog();
   };
 
-  const getErrorMessage = (code?: string) => {
-    switch (code) {
-      case "CONFIRMATION_MISMATCH":
-        return t("account.deleteAccount.errors.confirmationMismatch");
-      case "PENDING_CREATOR_EARNINGS":
-        return t("account.deleteAccount.errors.pendingEarnings");
-      case "BILLING_CLEANUP_UNAVAILABLE":
-      case "SUBSCRIPTION_CANCELLATION_FAILED":
-        return t("account.deleteAccount.errors.billing");
-      case "CREATOR_ACCOUNT_CLOSURE_FAILED":
-        return t("account.deleteAccount.errors.creatorAccount");
-      case "ACCOUNT_DELETION_NOT_READY":
-        return t("account.deleteAccount.errors.notReady");
-      case "ACCOUNT_DELETION_COOLDOWN":
-        return t("account.deleteAccount.errors.cooldown");
-      case "LAST_ADMIN_ACCOUNT":
-        return t("account.deleteAccount.errors.lastAdmin");
-      case "REFERRAL_HISTORY_REQUIRES_SUPPORT":
-        return t("account.deleteAccount.errors.referral");
-      case "ACCOUNT_RESTRICTION_REQUIRES_SUPPORT":
-        return t("account.deleteAccount.errors.protectedHistory");
-      case "DELETE_CONFIRMATION_EMAIL_FAILED":
-        return t("account.deleteAccount.errors.email");
-      default:
-        return t("account.deleteAccount.errors.generic");
-    }
-  };
+  const getErrorMessage = (code?: string, blockedUntil?: string) => deletionErrorMessage(t, code, blockedUntil);
 
   const handleRequestDeletion = async () => {
     if (!canRequest) return;
@@ -1723,9 +1832,11 @@ function DeleteAccountCard({ email, username }: { email: string; username: strin
       });
       const payload = await response.json().catch(() => ({})) as DeleteAccountResponse;
 
+      if (payload.preflight) preflight.setReport(payload.preflight);
       if (!response.ok || !payload.success) {
+        if (payload.issues?.length) preflight.setReport({ issues: payload.issues, canSendEmail: !payload.issues.some(issue => issue.blocksEmail), canDelete: false });
         // R4: the dialog stays open, so the reason belongs inside it.
-        setRequestError(getErrorMessage(payload.code));
+        setRequestError(getErrorMessage(payload.code, payload.blockedUntil));
         return;
       }
 
@@ -1768,7 +1879,7 @@ function DeleteAccountCard({ email, username }: { email: string; username: strin
       </div>
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto border-red-500/20 bg-[#18181b] text-main sm:max-w-lg">
+        <DialogContent className="max-h-[90dvh] gap-3 overflow-y-auto border-red-500/20 bg-[#18181b] text-main sm:max-w-lg">
           {emailSent ? (
             <div className="py-4 text-center">
               <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-400">
@@ -1782,6 +1893,7 @@ function DeleteAccountCard({ email, username }: { email: string; username: strin
                   {t("account.deleteAccount.emailSentDescription", { email })}
                 </DialogDescription>
               </DialogHeader>
+              <div className="mt-4"><DeletionPreflightNotice {...preflight} /></div>
               <button
                 type="button"
                 onClick={() => handleOpenChange(false)}
@@ -1792,8 +1904,8 @@ function DeleteAccountCard({ email, username }: { email: string; username: strin
             </div>
           ) : (
             <>
-              <DialogHeader>
-                <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-xl bg-red-500/15 text-red-400">
+              <DialogHeader className="relative pr-8 sm:min-h-11 sm:pl-15">
+                <div className="mb-2 flex h-11 w-11 items-center justify-center rounded-xl bg-red-500/15 text-red-400 sm:absolute sm:left-0 sm:top-0 sm:mb-0">
                   <TriangleAlert className="h-6 w-6" />
                 </div>
                 <DialogTitle className="text-red-200">
@@ -1804,25 +1916,18 @@ function DeleteAccountCard({ email, username }: { email: string; username: strin
                 </DialogDescription>
               </DialogHeader>
 
-              <div className="rounded-xl border border-red-500/25 bg-red-950/25 p-4">
+              <div className="min-w-0 rounded-xl border border-red-500/25 bg-red-950/25 p-4">
                 <div className="text-sm font-bold text-red-200">
                   {t("account.deleteAccount.warningTitle")}
                 </div>
                 <ul className="mt-3 list-disc space-y-2 pl-5 text-xs leading-relaxed text-red-100/70">
-                  <li>{t("account.deleteAccount.warnings.identity")}</li>
-                  <li>{t("account.deleteAccount.warnings.deletionCooldown")}</li>
-                  <li>{t("account.deleteAccount.warnings.content")}</li>
-                  <li>{t("account.deleteAccount.warnings.community")}</li>
-                  <li>{t("account.deleteAccount.warnings.billing")}</li>
-                  <li>{t("account.deleteAccount.warnings.records")}</li>
-                  <li>{t("account.deleteAccount.warnings.antiAbuse")}</li>
-                  <li>{t("account.deleteAccount.warnings.cache")}</li>
+                  <li>{t("account.deleteAccount.summaryWarnings.data")}</li>
+                  <li>{t("account.deleteAccount.summaryWarnings.billing")}</li>
+                  <li>{t("account.deleteAccount.summaryWarnings.deletionCooldown")}</li>
                 </ul>
               </div>
 
-              <p className="text-xs leading-relaxed text-amber-200/70">
-                {t("account.deleteAccount.pendingEarnings")}
-              </p>
+              <DeletionPreflightNotice {...preflight} />
 
               <div className="space-y-2">
                 <label htmlFor="delete-account-confirmation" className="text-xs font-semibold text-main">
@@ -2216,7 +2321,7 @@ function BlacklistManager() {
 
       {open && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm animate-in fade-in duration-150"
+          className="fixed inset-0 z-[60] flex items-center justify-center modal-backdrop px-4 animate-in fade-in duration-150"
           onClick={() => setOpen(false)}
         >
           <div
@@ -2374,6 +2479,7 @@ function DisplaySection({
   const setComposerSendKey = useUiStore((s) => s.setComposerSendKey);
   const forceFetchProfile = useUserProfileStore((s) => s.forceFetchProfile);
   const turnImagesOffered = useUserProfileStore((s) => s.profile?.turnImagesOffered === true);
+  const filmOffered = useUserProfileStore((s) => s.profile?.filmOffered === true);
   const languageTitle = t("display.language.title", { defaultValue: "Language" });
   const languageCurrent = t("display.language.current", { defaultValue: "Current" });
 
@@ -2408,6 +2514,37 @@ function DisplaySection({
   return (
     <div className="max-w-2xl space-y-8">
       <SectionHeader id="settings-target-display" title={t("display.title")} />
+
+      <Card id="settings-target-language">
+        <div className="flex-1 space-y-4">
+          <DisplaySubsectionHeader icon={Globe} title={languageTitle} />
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {LANGUAGE_OPTIONS.map((lang) => {
+              const isActive = lang.code === i18n.language;
+              return (
+                <button
+                  key={lang.code}
+                  type="button"
+                  onClick={() => void handleLanguageChange(lang.code)}
+                  className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all ${
+                    isActive
+                      ? "border-gold/40 bg-gold/10"
+                      : "border-white/8 bg-white/[0.02] hover:border-white/15"
+                  }`}
+                >
+                  <div>
+                    <div className="text-sm font-semibold text-main">{lang.native}</div>
+                    <div className="mt-0.5 text-xs text-sub">{lang.label}</div>
+                  </div>
+                  <span className={`text-xs font-semibold ${isActive ? "text-gold" : "text-sub/50"}`}>
+                    {isActive ? languageCurrent : ""}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </Card>
 
       <Card id="settings-target-font-size">
         <div className="flex-1 space-y-4">
@@ -2472,60 +2609,96 @@ function DisplaySection({
 
       <VoiceInputSettingsCard settings={settings} updateSetting={updateSetting} />
 
-      <Card id="settings-target-language">
-        <div className="flex-1 space-y-4">
-          <DisplaySubsectionHeader icon={Globe} title={languageTitle} />
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {LANGUAGE_OPTIONS.map((lang) => {
-              const isActive = lang.code === i18n.language;
-              return (
-                <button
-                  key={lang.code}
-                  type="button"
-                  onClick={() => void handleLanguageChange(lang.code)}
-                  className={`flex items-center justify-between rounded-xl border px-4 py-3 text-left transition-all ${
-                    isActive
-                      ? "border-gold/40 bg-gold/10"
-                      : "border-white/8 bg-white/[0.02] hover:border-white/15"
-                  }`}
-                >
-                  <div>
-                    <div className="text-sm font-semibold text-main">{lang.native}</div>
-                    <div className="mt-0.5 text-xs text-sub">{lang.label}</div>
-                  </div>
-                  <span className={`text-xs font-semibold ${isActive ? "text-gold" : "text-sub/50"}`}>
-                    {isActive ? languageCurrent : ""}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </Card>
+      {turnImagesOffered && <TurnImagesSettingsCard settings={settings} updateSetting={updateSetting} />}
 
-      {turnImagesOffered && (
-        <Card id="settings-target-experimental">
-          <div className="flex-1 space-y-4">
-            <DisplaySubsectionHeader icon={FlaskConical} title={t("display.experimental.title")} />
+      {filmOffered && (
+        <ToggleRow
+          id="settings-target-scene-video"
+          title={t("display.sceneVideo.title")}
+          description={t("display.sceneVideo.description")}
+          checked={settings.experimentalFilm}
+          onChange={(value) => updateSetting("experimentalFilm", value)}
+        />
+      )}
+
+    </div>
+  );
+}
+
+/** Story illustrations: the on/off switch, "illustrate every reply", and
+ *  what the next picture costs. */
+function TurnImagesSettingsCard({
+  settings,
+  updateSetting,
+}: {
+  settings: ProfileSettings;
+  updateSetting: <K extends keyof ProfileSettings>(key: K, value: ProfileSettings[K]) => void | Promise<void>;
+}) {
+  const { t } = useTranslation("settings");
+  const on = settings.experimentalTurnImages;
+  const [cost, setCost] = useState<{ freeLeft: number; price: number; unlimited: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!on) return;
+    let live = true;
+    fetch(`${apiBase}/api/messages/turn-images/settings`, { credentials: "include" })
+      .then(async (r) => (r.ok ? ((await r.json()) as { data: { freeLeft?: number; price?: number; unlimited?: boolean } }).data : null))
+      .then((d) => {
+        if (live && d && typeof d.price === "number") {
+          setCost({ freeLeft: d.freeLeft ?? 0, price: d.price, unlimited: d.unlimited === true });
+        }
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [on]);
+
+  const forgetChatCopy = () =>
+    void import("@/features/chat/turn-image-drawing").then((m) => m.forgetTurnImageSettings());
+
+  return (
+    <Card id="settings-target-turn-images">
+      <div className="flex-1 space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <DisplaySubsectionHeader icon={ImageIcon} title={t("display.turnImages.title")} className="min-w-0 flex-1" />
+          <ToggleSwitch
+            checked={on}
+            label={t("display.turnImages.title")}
+            onChange={(v) => {
+              void updateSetting("experimentalTurnImages", v);
+              forgetChatCopy();
+            }}
+          />
+        </div>
+        <p className="text-xs text-sub">{t("display.turnImages.description")}</p>
+
+        {on && (
+          <>
             <div className="flex items-center justify-between gap-4 rounded-xl border border-white/8 bg-white/[0.02] px-4 py-3">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-main">{t("display.experimental.turnImages.title")}</div>
-                <div className="mt-0.5 text-xs text-sub">{t("display.experimental.turnImages.description")}</div>
-              </div>
+              <div className="min-w-0 text-sm font-semibold text-main">{t("display.turnImages.auto")}</div>
               <ToggleSwitch
-                checked={settings.experimentalTurnImages}
-                label={t("display.experimental.turnImages.title")}
-                onChange={(v) => {
-                  void updateSetting("experimentalTurnImages", v);
-                  // The chat reads this once per visit; make the next turn read it fresh.
-                  void import("@/features/chat/turn-image-drawing").then((m) => m.forgetTurnImageSettings());
+                checked={settings.autoTurnImages}
+                label={t("display.turnImages.auto")}
+                onChange={async (v) => {
+                  // The server honours auto only next to an explicit opt-in.
+                  if (v) await updateSetting("experimentalTurnImages", true);
+                  await updateSetting("autoTurnImages", v);
+                  forgetChatCopy();
                 }}
               />
             </div>
-          </div>
-        </Card>
-      )}
-    </div>
+            {cost && (
+              <p className="text-[11px] text-sub/50">
+                {cost.unlimited
+                  ? t("display.turnImages.unlimited")
+                  : cost.freeLeft > 0
+                    ? t("display.turnImages.free", { count: cost.freeLeft, price: cost.price })
+                    : t("display.turnImages.price", { price: cost.price })}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </Card>
   );
 }
 
@@ -2729,7 +2902,7 @@ function TtsSettingsCard({
       // First-ever preview of a voice is a paid synth — keep the header's
       // mushie count honest. Cache hits report credits: 0 and skip this.
       if (typeof body.credits === "number" && body.credits > 0) {
-        void import("@/stores/credits")
+        void import("@/edition/slots.state")
           .then((m) => m.useCreditStore.getState().fetchCredits())
           .catch(() => {});
       }
@@ -3574,7 +3747,7 @@ function ToggleRow({
         <div className="font-semibold text-main">{title}</div>
         <div className="mt-1 text-xs text-sub">{description}</div>
       </div>
-      <ToggleSwitch checked={checked} onChange={onChange} />
+      <ToggleSwitch checked={checked} onChange={onChange} label={title} />
     </div>
   );
 }

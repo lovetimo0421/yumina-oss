@@ -10,8 +10,8 @@ import {
   createUploadTimeout,
 } from "@/lib/asset-upload";
 
-const tr = (key: string, fallback: string) =>
-  (i18n.t as (k: string, o?: Record<string, unknown>) => string)(key, { defaultValue: fallback });
+const tr = (key: string, fallback: string, vars?: Record<string, unknown>) =>
+  (i18n.t as (k: string, o?: Record<string, unknown>) => string)(key, { defaultValue: fallback, ...vars });
 
 export interface UserAsset {
   id: string;
@@ -61,7 +61,7 @@ interface UserAssetState {
   setPage: (page: number) => void;
   fetchFolders: () => Promise<void>;
   uploadAsset: (file: File, type: UploadAssetType, folderId?: string, options?: { requestId?: string; silent?: boolean; addToList?: boolean; signal?: AbortSignal; onProgress?: (progress: UploadProgress) => void; onStage?: (stage: AssetUploadStage) => void }) => Promise<UserAsset | null>;
-  deleteAsset: (assetId: string) => Promise<void>;
+  deleteAsset: (assetId: string) => Promise<boolean>;
   renameAsset: (assetId: string, filename: string) => Promise<void>;
   moveAsset: (assetId: string, folderId: string | null) => Promise<void>;
   /** Moves each asset in turn without per-asset toasts; resolves to the ids that failed. */
@@ -160,6 +160,7 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
 
   uploadAsset: async (file, type, folderId, options) => {
     const epoch = accountEpoch;
+    const requestId = options?.requestId ?? crypto.randomUUID();
     let reconciled = false;
     if (options?.signal?.aborted) return null;
     set((s) => ({
@@ -174,12 +175,13 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
         preferredType: type,
         prepareUrl: `${apiBase}/api/user-assets/upload-url`,
         registerUrl: `${apiBase}/api/user-assets`,
-        prepareBody: { requestId: options?.requestId, sizeBytes: file.size },
+        releaseUrl: `${apiBase}/api/user-assets/release-upload`,
+        prepareBody: { requestId, sizeBytes: file.size },
         onReconciled: () => { reconciled = true; },
         signal: options?.signal,
         onStage: options?.onStage,
         registerBody: ({ key, resolvedType, contentType }) => ({
-          requestId: options?.requestId,
+          requestId,
           key,
           filename: file.name,
           type: resolvedType,
@@ -204,7 +206,7 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
     } catch (error) {
       if (!options?.silent) feedback.error(getAssetUploadErrorMessage(error), {
         label: tr("common:action.retry", "Retry"),
-        onClick: () => void useUserAssetStore.getState().uploadAsset(file, type, folderId),
+        onClick: () => void useUserAssetStore.getState().uploadAsset(file, type, folderId, { ...options, requestId }),
       });
       return null;
     } finally {
@@ -230,27 +232,46 @@ export const useUserAssetStore = create<UserAssetState>((set, get) => ({
         credentials: "include",
       });
       if (!res.ok) {
+        // A card still uses it (as its cover or in its content): retrying can't
+        // help, say which card to change first.
+        const body = res.status === 409 ? ((await res.json().catch(() => null)) as { code?: string; reason?: string; worlds?: Array<{ name?: string }> } | null) : null;
+        if (body?.code === "ASSET_IN_USE") {
+          const name = body.worlds?.[0]?.name || "";
+          if (body.reason === "content") {
+            feedback.error(tr("library:toast.deleteAssetUsedByCard", "“{{name}}” still uses this file. Remove it from that card first.", { name }));
+          } else {
+            feedback.error(tr("library:toast.deleteAssetInUse", "This image is still the cover of “{{name}}”. Change that cover first.", { name }));
+          }
+          return false;
+        }
+        if (body?.code === "ASSET_VERSIONED") {
+          feedback.error(tr("library:toast.deleteAssetVersioned", "This asset is used by saved card history and can't be deleted while that history is retained."));
+          return false;
+        }
         feedback.error(tr("library:toast.deleteAssetFailed", "Couldn't delete asset"), {
           label: tr("common:action.retry", "Retry"),
           onClick: () => void useUserAssetStore.getState().deleteAsset(assetId),
         });
-        return;
+        return false;
       }
       set((s) => {
         const deleted = s.assets.find((a) => a.id === assetId);
         return {
           assets: s.assets.filter((a) => a.id !== assetId),
+          total: Math.max(0, s.total - (deleted ? 1 : 0)),
           storage: {
             ...s.storage,
             used: Math.max(0, s.storage.used - (deleted?.sizeBytes ?? 0)),
           },
         };
       });
+      return true;
     } catch {
       feedback.error(tr("library:toast.deleteAssetFailed", "Couldn't delete asset"), {
         label: tr("common:action.retry", "Retry"),
         onClick: () => void useUserAssetStore.getState().deleteAsset(assetId),
       });
+      return false;
     }
   },
 

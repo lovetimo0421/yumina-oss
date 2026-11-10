@@ -1,6 +1,10 @@
+import { worldAudienceCondition } from "../lib/world-publication-access.js";
+import { requireUnmuted } from "../middleware/user-mute.js";
+import { isUserMuted } from "@yumina/shared";
 import { Hono } from "hono";
 import { env } from "../lib/env.js";
 import { profileStoryMemoryDefault } from "../lib/profile-story-memory.js";
+import { realtimeFilmEnabled } from "../lib/realtime-video/film-billing.js";
 import { eq, and, ne, sql, desc, ilike, or, inArray, notInArray, type SQL } from "drizzle-orm";
 import { db, readDb, readOwn, flagWrite } from "../db/index.js";
 import { posthog } from "../lib/posthog.js";
@@ -10,10 +14,10 @@ import { optionalAccountBinding } from "../middleware/account-binding.js";
 import { invalidateSessionUser } from "../lib/session-user-cache.js";
 import { rateLimitMiddleware } from "../middleware/rate-limit.js";
 import { isReservedUsername } from "@yumina/shared";
-import { updateProfileSchema, getAgeFromBirthYear, aiConfigSchema, MAX_PROFILE_POST_LENGTH, PROFILE_POSTS_PAGE_SIZE, normalizeProfileWorldSort, sanitizeTtsVoicePool, sanitizeTtsCustomVoices } from "@yumina/shared";
+import { updateProfileSchema, getAgeFromBirthYear, aiConfigSchema, MAX_PROFILE_POST_LENGTH, PROFILE_POSTS_PAGE_SIZE, normalizeProfileWorldSort, normalizeProfileWorldOrder, sanitizeTtsVoicePool, sanitizeTtsCustomVoices } from "@yumina/shared";
 import { resolveImageCdn } from "../lib/cdn-url.js";
 import { sanitizeDisplayName } from "../lib/sanitize.js";
-import { aggregatedCounters } from "../lib/world-aggregates.js";
+import { aggregatedCounters, displayDownloadColumn } from "../lib/world-aggregates.js";
 import { getBlockStatus, listBlockedUsersForHiding } from "../lib/blocks.js";
 import {
   canViewRestrictedProfile,
@@ -80,6 +84,11 @@ const coverCropCols = {
 
 const users = new Hono<AppEnv>();
 
+users.get("/me/mute", authMiddleware, (c) => {
+  const u = c.get("user");
+  return c.json({ data: { isMuted: isUserMuted(u), mutedUntil: u.mutedUntil ?? null } });
+});
+
 // GET /api/users/me (auth required)
 users.get("/me", authMiddleware, async (c) => {
   const currentUser = c.get("user");
@@ -103,10 +112,14 @@ users.get("/me", authMiddleware, async (c) => {
   return c.json({ data: {
     ...row,
     showcasedAchievement,
-    defaultStoryMemory: profileStoryMemoryDefault(row.createdAt, env.STORY_MEMORY_DEFAULT_AT),
+    defaultStoryMemory: profileStoryMemoryDefault(row.createdAt, env.STORY_MEMORY_DEFAULT_AT, env.STORY_MEMORY_CARRIED_OVER_DEFAULT),
     // Whether this server offers per-turn pictures at all: Settings shows the
     // experimental opt-in only then.
     turnImagesOffered: perTurnImagesEnabled(),
+    // Scene video (the realtime film) is on for this server: the player and its switch show.
+    filmOffered: realtimeFilmEnabled(),
+    // The fal live stream is an engine choice only where this server holds a fal key.
+    filmFalOffered: realtimeFilmEnabled() && !!process.env.FAL_KEY,
   } });
 });
 
@@ -131,7 +144,7 @@ users.get("/me/playtime", authMiddleware, async (c) => {
       .from(worlds)
       .where(eq(worlds.creatorId, currentUser.id)),
     rd
-      .select({ total: sql<number>`coalesce(sum(${worlds.downloadCount}), 0)::int` })
+      .select({ total: sql<number>`coalesce(sum(${displayDownloadColumn}), 0)::int` })
       .from(worlds)
       .where(eq(worlds.creatorId, currentUser.id)),
     rd
@@ -334,6 +347,7 @@ users.get("/search", optionalAuthMiddleware, async (c) => {
           .from(worlds)
           .where(and(
             inArray(worlds.creatorId, userIds),
+            worldAudienceCondition(worlds.creatorId),
             eq(worlds.isPublished, true),
             eq(worlds.status, "published"),
             eq(worlds.visibility, "public"),
@@ -481,11 +495,11 @@ users.get("/:id", optionalAuthMiddleware, async (c) => {
       rd
         .select({ count: sql<number>`count(*)::int` })
         .from(worlds)
-        .where(and(eq(worlds.creatorId, userId), eq(worlds.isPublished, true))),
+        .where(and(eq(worlds.creatorId, userId), eq(worlds.isPublished, true), worldAudienceCondition(worlds.creatorId))),
       rd
         .select({ total: sql<number>`coalesce(sum(${worlds.messageCount}), 0)::int` })
         .from(worlds)
-        .where(eq(worlds.creatorId, userId)),
+        .where(and(eq(worlds.creatorId, userId), worldAudienceCondition(worlds.creatorId))),
       rd
         .select({
           lifetimePlaytimeSeconds: user.lifetimePlaytimeSeconds,
@@ -493,9 +507,9 @@ users.get("/:id", optionalAuthMiddleware, async (c) => {
         .from(user)
         .where(eq(user.id, userId)),
       rd
-        .select({ total: sql<number>`coalesce(sum(${worlds.downloadCount}), 0)::int` })
+        .select({ total: sql<number>`coalesce(sum(${displayDownloadColumn}), 0)::int` })
         .from(worlds)
-        .where(eq(worlds.creatorId, userId)),
+        .where(and(eq(worlds.creatorId, userId), worldAudienceCondition(worlds.creatorId))),
       rd
         .select({ total: sql<number>`coalesce(sum(${bundles.downloadCount}), 0)::int` })
         .from(bundles)
@@ -503,7 +517,7 @@ users.get("/:id", optionalAuthMiddleware, async (c) => {
       rd
         .select({ total: sql<number>`coalesce(sum(${worlds.favoriteCount}), 0)::int` })
         .from(worlds)
-        .where(eq(worlds.creatorId, userId)),
+        .where(and(eq(worlds.creatorId, userId), worldAudienceCondition(worlds.creatorId))),
     ]);
 
   const totalPlaytimeSeconds = Math.max(0, playtimeResult[0]?.lifetimePlaytimeSeconds ?? 0);
@@ -591,6 +605,8 @@ users.get("/:id/recent-played", optionalAuthMiddleware, async (c) => {
       thumbnailUrl: worlds.thumbnailUrl,
       coverCrop: coverCropCols.coverCrop,
       galleryCoverCrop: coverCropCols.galleryCoverCrop,
+      landscapeCoverUrl: worlds.landscapeCoverUrl,
+      landscapeCoverCrop: worlds.landscapeCoverCrop,
       ageRating: worlds.ageRating,
       isNsfw: worlds.isNsfw,
       blurCover: worlds.blurCover,
@@ -600,6 +616,7 @@ users.get("/:id/recent-played", optionalAuthMiddleware, async (c) => {
     .innerJoin(worlds, eq(userLibrary.worldId, worlds.id))
     .where(and(
       eq(userLibrary.userId, userId),
+      worldAudienceCondition(worlds.creatorId),
       eq(worlds.isPublished, true),
       ...(contentLevel === "safe" ? [eq(worlds.ageRating, "all")] : []),
     ))
@@ -612,6 +629,8 @@ users.get("/:id/recent-played", optionalAuthMiddleware, async (c) => {
     thumbnailUrl: resolveImageCdn(r.thumbnailUrl),
     coverCrop: r.coverCrop,
     galleryCoverCrop: r.galleryCoverCrop,
+    landscapeCoverUrl: resolveImageCdn(r.landscapeCoverUrl),
+    landscapeCoverCrop: r.landscapeCoverCrop,
     ageRating: r.ageRating,
     isNsfw: r.isNsfw,
     lastPlayedAt: r.lastPlayedAt,
@@ -657,11 +676,13 @@ users.get("/:id/library", optionalAuthMiddleware, async (c) => {
       worldThumbnailUrl: worlds.thumbnailUrl,
       worldCoverCrop: coverCropCols.coverCrop,
       worldGalleryCoverCrop: coverCropCols.galleryCoverCrop,
+      worldLandscapeCoverUrl: worlds.landscapeCoverUrl,
+      worldLandscapeCoverCrop: worlds.landscapeCoverCrop,
       worldTags: worlds.tags,
       worldAgeRating: worlds.ageRating,
       worldIsNsfw: worlds.isNsfw,
       worldBlurCover: worlds.blurCover,
-      worldDownloadCount: aggregatedCounters.downloadCount,
+      worldDownloadCount: aggregatedCounters.displayDownloadCount,
       worldMessageCount: aggregatedCounters.messageCount,
       creatorId: worlds.creatorId,
       creatorName: user.name,
@@ -673,6 +694,7 @@ users.get("/:id/library", optionalAuthMiddleware, async (c) => {
     .innerJoin(user, eq(worlds.creatorId, user.id))
     .where(and(
       eq(favorites.userId, userId),
+      worldAudienceCondition(worlds.creatorId),
       eq(worlds.isPublished, true),
       ...(contentLevel === "safe" ? [eq(worlds.ageRating, "all")] : []),
     ))
@@ -686,6 +708,7 @@ users.get("/:id/library", optionalAuthMiddleware, async (c) => {
     .innerJoin(worlds, eq(favorites.worldId, worlds.id))
     .where(and(
       eq(favorites.userId, userId),
+      worldAudienceCondition(worlds.creatorId),
       eq(worlds.isPublished, true),
       ...(contentLevel === "safe" ? [eq(worlds.ageRating, "all")] : []),
     ));
@@ -694,6 +717,7 @@ users.get("/:id/library", optionalAuthMiddleware, async (c) => {
   const resolved = items.map((item) => ({
     ...item,
     worldThumbnailUrl: resolveImageCdn(item.worldThumbnailUrl),
+    worldLandscapeCoverUrl: resolveImageCdn(item.worldLandscapeCoverUrl),
   }));
 
   return c.json({ data: resolved, total, limit, offset });
@@ -747,7 +771,7 @@ users.get("/:id/wall", optionalAuthMiddleware, async (c) => {
 });
 
 // POST /api/users/me/wall (auth — create a post on your own wall)
-users.post("/me/wall", authMiddleware, rateLimitMiddleware("content-creation"), async (c) => {
+users.post("/me/wall", authMiddleware, requireUnmuted, rateLimitMiddleware("content-creation"), async (c) => {
   const currentUser = c.get("user");
   const body = await c.req.json().catch(() => null);
   const content = typeof body?.content === "string" ? body.content.trim() : "";
@@ -764,7 +788,7 @@ users.post("/me/wall", authMiddleware, rateLimitMiddleware("content-creation"), 
 });
 
 // PATCH /api/users/me/wall/:postId (auth — edit / pin your own post)
-users.on(["POST", "PATCH"], "/me/wall/:postId", authMiddleware, rateLimitMiddleware("content-creation"), async (c) => {
+users.on(["POST", "PATCH"], "/me/wall/:postId", authMiddleware, requireUnmuted, rateLimitMiddleware("content-creation"), async (c) => {
   const currentUser = c.get("user");
   const postId = c.req.param("postId");
   const body = await c.req.json().catch(() => null);
@@ -836,6 +860,10 @@ users.on(["POST", "PATCH"], "/me", authMiddleware, rateLimitMiddleware("profile-
     }
     if ("ttsCustomVoices" in clientPreferences) {
       clientPreferences.ttsCustomVoices = sanitizeTtsCustomVoices(clientPreferences.ttsCustomVoices);
+    }
+    // The profile's own order is read into a query: store only a bounded list of ids.
+    if ("profileWorldOrder" in clientPreferences) {
+      clientPreferences.profileWorldOrder = normalizeProfileWorldOrder(clientPreferences.profileWorldOrder);
     }
     parsed.data.preferences = clientPreferences;
   }
@@ -945,7 +973,7 @@ users.on(["POST", "PATCH"], "/me", authMiddleware, rateLimitMiddleware("profile-
 
   return c.json({ data: {
     ...updated,
-    defaultStoryMemory: profileStoryMemoryDefault(updated.createdAt, env.STORY_MEMORY_DEFAULT_AT),
+    defaultStoryMemory: profileStoryMemoryDefault(updated.createdAt, env.STORY_MEMORY_DEFAULT_AT, env.STORY_MEMORY_CARRIED_OVER_DEFAULT),
   } });
   } catch (err) {
     console.error("[USERS] Error updating profile:", err);

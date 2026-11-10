@@ -56,7 +56,7 @@ for (const path of paths) {
           } });
           assert.equal(dispatch.activeExtensions.has(key), false);
           assert.equal(dispatch.outputModels?.has(key) ?? false, false);
-          assert.deepEqual(guardPrompt(dispatch), { content: "", reserve: 0 });
+          assert.deepEqual(guardPrompt(dispatch, { world: baseWorld, state: new GameStateManager(baseWorld).getSnapshot() }), { content: "", reserve: 0 });
           const beforeBilling = await billingSnapshot();
           const state = new GameStateManager(baseWorld).getSnapshot();
           const signal = new AbortController().signal;
@@ -123,6 +123,7 @@ for (const path of paths) {
         const world = { ...baseWorld, variables: card.variables };
         const state = new GameStateManager(world).getSnapshot();
         if (card.runtimeDisabled) state.ruleState = { ...state.ruleState!, toggledVariables: { hp: false } };
+        assert.deepEqual(guardPrompt(dispatch, { world, state }), { content: "", reserve: 0 });
         const before = structuredClone(state);
         const beforeBilling = await billingSnapshot();
         for (const raw of ["The stranger waits.", '{"narrative":"The stranger waits.","stateChanges":[]}']) {

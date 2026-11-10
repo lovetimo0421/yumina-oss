@@ -76,6 +76,14 @@ export function mergeGameStatePatch(
       | undefined;
   }
 
+  // A regular UI patch is not a history restore: explicit permanent facts
+  // obey the same contract as engine effects. Rewind uses separate paths.
+  for (const variable of worldDef.variables) {
+    if (variable.type === "boolean" && variable.onceTrue === true &&
+        normalizedCurrentState.variables[variable.id] === true) {
+      mergedState.variables[variable.id] = true;
+    }
+  }
   return normalizeGameState(worldDef, mergedState);
 }
 

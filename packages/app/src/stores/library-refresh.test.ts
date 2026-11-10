@@ -80,3 +80,35 @@ test("background library refresh keeps the rendered list and loading state stabl
     globalThis.fetch = originalFetch;
   }
 });
+
+test("seeing an update clears the dot on the collapsed card and tells the server once", async () => {
+  const originalFetch = globalThis.fetch;
+  const calls: Array<{ url: string; method?: string }> = [];
+  globalThis.fetch = (async (url: string, init?: RequestInit) => {
+    calls.push({ url: String(url), method: init?.method });
+    return new Response(JSON.stringify({ data: { ok: true } }), { status: 200 });
+  }) as typeof fetch;
+  try {
+    useLibraryStore.setState({
+      items: [
+        { ...existingItem, hasUpdate: true, siblingWorldIds: ["world-1", "world-1-deep"] },
+        { ...existingItem, libraryId: "library-2", worldId: "world-2", hasUpdate: true },
+      ],
+    });
+
+    // Opening a sibling variant clears the group's card, not unrelated cards.
+    await useLibraryStore.getState().markUpdateSeen("world-1-deep");
+    assert.deepEqual(calls, [{ url: "/api/library/world-1-deep/seen", method: "PATCH" }]);
+    assert.deepEqual(useLibraryStore.getState().items.map((i) => i.hasUpdate), [false, true]);
+
+    // Playing counts as seeing the update (the server baselines on last_played_at).
+    useLibraryStore.getState().markPlayed("world-2");
+    assert.deepEqual(useLibraryStore.getState().items.map((i) => i.hasUpdate), [false, false]);
+
+    // A network failure must not reject: callers fire this without awaiting.
+    globalThis.fetch = (async () => { throw new TypeError("offline"); }) as typeof fetch;
+    await useLibraryStore.getState().markUpdateSeen("world-2");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

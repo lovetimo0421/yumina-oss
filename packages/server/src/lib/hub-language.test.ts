@@ -39,6 +39,10 @@ test("resolveHubLanguageScope only removes the language limit when explicitly en
   assert.equal(resolveHubLanguageScope("zh-Hant", false), "zh");
   assert.equal(resolveHubLanguageScope("en", true), null);
   assert.equal(resolveHubLanguageScope("ja", true), null);
+  assert.equal(resolveHubLanguageScope("ko"), "en");
+  assert.equal(resolveHubLanguageScope("ko", true), null);
+  assert.equal(resolveHubLanguageScope(null), null);
+  assert.equal(resolveHubLanguageScope(""), null);
 });
 
 test("normalizeWorldLanguage stores every Traditional form as zh", () => {

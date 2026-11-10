@@ -208,7 +208,9 @@
     "noDescription": "Sin descripción",
     "get": "Obtener",
     "deleteBundle": "Eliminar paquete",
-    "deleteConfirm": "¿Seguro que quieres eliminar <strong>{{name}}</strong>? Esta acción no se puede deshacer."
+    "deleteConfirm": "¿Quieres eliminar permanentemente <strong>{{name}}</strong>?",
+    "importBundle": "Importar paquete",
+    "deleteConsequence": "El paquete y su contenido editable se eliminarán permanentemente."
   },
   "favorites": {
     "backToLibrary": "Volver a la biblioteca",
@@ -326,7 +328,8 @@
       "viewInAssets": "Ver en recursos",
       "shareInCommunity": "Compartir en comunidad"
     },
-    "reviews": "Reseñas"
+    "reviews": "Reseñas",
+    "overviewSubtitle": "Información clave, notas y descripción en un solo lugar."
   },
   "bulk": {
     "select": "Seleccionar",
@@ -369,7 +372,11 @@
     "deleteAction": "Eliminar",
     "deletePermanently": "Eliminar permanentemente",
     "deleteIrreversible": "Esta acción no se puede deshacer.",
-    "authorDoesNotAllowEditing": "El autor no permite la edición"
+    "authorDoesNotAllowEditing": "El autor no permite la edición",
+    "deleteProjectConsequenceFiles": "El proyecto editable y sus datos locales se eliminarán permanentemente.",
+    "deletePublishedConsequence": "Los jugadores que guardaron este mundo publicado perderán el acceso.",
+    "removeGameConsequenceHistory": "Se eliminarán las sesiones guardadas y el historial de juego.",
+    "removeGameConsequenceHub": "El juego publicado seguirá disponible en Descubrir."
   },
   "card": {
     "play": "Jugar",
@@ -412,6 +419,10 @@
     "deleteBundleFailed": "No se pudo eliminar el paquete",
     "downloadBundleFailed": "No se pudo descargar el paquete",
     "deleteAssetFailed": "No se pudo eliminar el archivo",
+    "deleteAssetVersioned": "Este archivo se usa en el historial guardado de una tarjeta y no se puede eliminar mientras se conserve ese historial.",
+
+    "deleteAssetInUse": "Esta imagen sigue siendo la portada de «{{name}}». Cambia esa portada primero.",
+    "deleteAssetUsedByCard": "«{{name}}» todavía usa este archivo. Quítalo primero de esa tarjeta.",
     "renameAssetFailed": "No se pudo renombrar el archivo",
     "moveAssetFailed": "No se pudo mover el archivo",
     "createFolderFailed": "No se pudo crear la carpeta",
@@ -426,7 +437,7 @@
   },
   "create": {
     "title": "Crear nuevo",
-    "mobileTitle": "Crea una nueva historia",
+    "mobileTitle": "Crea algo nuevo",
     "mobileInstructionTitle": "Elige cómo quieres crear",
     "import": "Importar",
     "back": "Atrás",
@@ -438,7 +449,8 @@
       "signInBody": "Inicia sesión para generar imágenes y música, guardar tus obras y consultar tu historial.",
       "signInAction": "generar imágenes y música",
       "signIn": "Iniciar sesión para crear"
-    }
+    },
+    "mobileSubtitle": "Construye un mundo, diseña un personaje o convierte tus ideas en imágenes."
   },
   "time": {
     "justNow": "Ahora mismo",
@@ -453,9 +465,9 @@
   },
   "templates": {
     "blank": "Proyecto en blanco",
-    "blankDesc": "Un mundo vacío — sin preajustes.",
+    "blankDesc": "Un mundo vacío, solo con la narración por defecto.",
     "importWorld": "Importar mundo",
-    "importWorldDesc": "Importa un mundo desde un archivo JSON.",
+    "importWorldDesc": "Sube una tarjeta de Yumina.",
     "characterChat": "Chat con personaje",
     "characterChatDesc": "Diseña un personaje y conversa en un diálogo inmersivo uno a uno.",
     "worldSimulation": "Simulación de mundo",
@@ -696,35 +708,42 @@
       "surcharge": "+{{count}}",
       "anime": {
         "name": "Anime",
-        "desc": "Ilustración anime nítida (Animagine XL). Por defecto.",
-        "detail": "Basado en etiquetas Danbooru; ideal para retratos de personajes y líneas limpias."
+        "variant": "Clásica"
       },
       "nsfw-anime": {
-        "name": "Anime NSFW",
-        "desc": "Anime sin censura basado en Illustrious — ideal para arte adulto de rol.",
-        "detail": "Entiende etiquetas Danbooru explícitas; combínalo con LoRAs de personaje."
+        "name": "Anime sin límites",
+        "variant": "Clásica"
       },
       "realistic": {
-        "name": "Realista",
-        "desc": "Personas y escenas fotorrealistas (Juggernaut XL).",
-        "detail": "Escribe frases naturales, no etiquetas — palabras de luz y lente (luz suave, 85mm) ayudan mucho."
+        "name": "Realista"
       },
       "semireal": {
-        "name": "2.5D",
-        "desc": "Entre anime y foto — acabado pictórico tipo CG de juego.",
-        "detail": "Funcionan etiquetas o frases; ideal para escenas atmosféricas de personajes."
+        "name": "2.5D"
       },
       "guofeng": {
-        "name": "Guofeng",
-        "desc": "Estética china — hanfu, tinta china, escenas clásicas.",
-        "detail": "Describe vestuario y escenario en frases (hanfu, pabellón de tinta) para más sabor."
+        "name": "Tinta china"
       },
       "western": {
-        "name": "Occidental",
-        "desc": "Arte fantástico/cómic occidental (ZavyChroma XL).",
-        "detail": "Prompts en prosa; fuerte en iluminación dramática y fantasía pictórica."
+        "name": "Occidental"
       },
-      "surchargeChip": "+{{count}} mushies"
+      "surchargeChip": "+{{count}} mushies",
+      "version": "Versión",
+      "anime-new": {
+        "name": "Anime · Nueva",
+        "variant": "Nueva"
+      },
+      "anime-story": {
+        "name": "Anime · Historia",
+        "variant": "Historia"
+      },
+      "anime-anima": {
+        "name": "Anime · Anima",
+        "variant": "Anima"
+      },
+      "nsfw-anima": {
+        "name": "Anime sin límites · Anima",
+        "variant": "Anima"
+      }
     },
     "videoStyleFromReference": "El vídeo conserva el estilo artístico de la imagen de referencia.",
     "makeReference": "Generar una primero",
@@ -769,9 +788,31 @@
       "PROVIDER_REQUEST": "El modelo no aceptó estos ajustes. Cambia el modelo o los ajustes de imagen.",
       "PROVIDER_TIMEOUT": "El modelo tardó demasiado y se agotó el tiempo. No se te cobró. Prueba un modelo más rápido o una resolución menor.",
       "PROVIDER_REJECTED": "El modelo rechazó esta solicitud. No se te cobró. Prueba con otro modelo.",
-      "CONTENT_FILTERED": "El proveedor del modelo rechazó esta imagen, no es una restricción de Yumina. No se te cobró; prueba con otro modelo o reformula la descripción.",
+      "CONTENT_FILTERED": "El proveedor del modelo rechazó este contenido, no es una restricción de Yumina. No se te cobró; prueba con otro modelo o reformula la descripción.",
       "ENHANCE_REFUSED": "La IA no pudo pulir esta descripción. Tu texto no ha cambiado: reformúlalo e inténtalo de nuevo, o genera con él tal cual.",
-      "ENHANCE_FAILED": "El pulido de prompt no está disponible ahora mismo. Tu texto no ha cambiado; inténtalo de nuevo en un momento."
+      "ENHANCE_FAILED": "El pulido de prompt no está disponible ahora mismo. Tu texto no ha cambiado; inténtalo de nuevo en un momento.",
+      "VIDEO_BAD_ASPECT": "Este modelo no admite esa proporción.",
+      "VIDEO_BAD_RESOLUTION": "Este modelo no admite esa resolución.",
+      "VIDEO_BAD_DURATION": "Este modelo no admite esa duración.",
+      "VIDEO_NO_FIRST_FRAME": "Este modelo no admite primer fotograma.",
+      "VIDEO_NO_LAST_FRAME": "Este modelo no admite último fotograma.",
+      "VIDEO_ONE_FRAME_ONLY": "Este modelo admite el primer o el último fotograma, no los dos.",
+      "VIDEO_TOO_MANY_REFERENCES": "Demasiadas referencias de personaje para este modelo.",
+      "VIDEO_FRAMES_OR_REFERENCES": "Este modelo admite fotogramas o referencias de personaje, no ambos.",
+      "VIDEO_LAST_NEEDS_FIRST": "Este modelo necesita un primer fotograma antes del último.",
+      "VIDEO_NEEDS_FRAME": "Este modelo necesita una imagen de referencia.",
+      "VIDEO_NO_SOUND": "Este modelo no genera sonido.",
+      "VIDEO_NO_TUNING": "Este modelo no ofrece estos ajustes.",
+      "VIDEO_FAST_FIXED": "Con el modo rápido de 4 pasos, los pasos y el CFG son fijos.",
+      "VIDEO_NO_LORAS": "Este modelo no admite LoRA.",
+      "MODEL_FAMILY": "Esa LoRA no encaja con el modelo: el vídeo necesita una LoRA de Wan; las imágenes, una SDXL.",
+      "VIDEO_STYLE_PROMPT": "No se pudo convertir esta descripción en un primer fotograma con estilo. Prueba a describirlo en inglés o elige “Sin estilo”. No se te cobró.",
+      "VIDEO_BAD_STYLE": "Ese estilo no está disponible para este vídeo. Elige otro.",
+      "VIDEO_NO_STYLE": "Ese estilo no está disponible para este vídeo. Elige otro.",
+      "VIDEO_STYLE_WITH_FRAME": "Ese estilo no está disponible para este vídeo. Elige otro.",
+      "QUALITY_BATCH": "4K genera una imagen cada vez. Pon la cantidad en 1 y vuelve a intentarlo.",
+      "MODEL_UNAVAILABLE": "Este modelo no está disponible ahora. Elige otro modelo.",
+      "REFERENCE_UNSUPPORTED": "Este modelo no admite imagen de referencia. Quita la imagen o elige otro modelo."
     },
     "queue": {
       "waiting": "Esperando en la cola…",
@@ -804,12 +845,40 @@
       "fewer": "Una menos",
       "more": "Una más",
       "tier": {
+        "seedreamFlash": "La más barata",
         "seedreamLite": "Rápido",
         "seedreamPro": "Equilibrado",
-        "nanoBanana2": "Buen editor",
+        "nanoBanana21": "La más nueva · buena editando",
+        "nanoBanana2": "Tiene 512",
         "nanoBananaPro": "Alta calidad",
-        "gptImage2": "El mejor · lento"
-      }
+        "gptImage25Flare": "Pulido · rápido",
+        "gptImage25Sunburst": "El mejor · lento",
+        "gptImage2": "Anterior · lento",
+        "flux2Pro": "Buen precio",
+        "flux2Max": "Más detalle",
+        "flux3": "El más nuevo · escenas ricas",
+        "qwenImage3": "Barato · lento",
+        "qwenImage3Pro": "Más detalle · lento",
+        "grokImagine": "El más barato · rápido",
+        "grokImagineQuality": "Rápido",
+        "grokImagine2": "Más detalle · muy lento",
+        "klingO1": "Anime limpio",
+        "lumaUni1": "4 MP · lento",
+        "lumaUni1Max": "4 MP, más detalle · lento",
+        "ideogram45": "Texto y letras",
+        "wan25": "Pictórico · preview",
+        "recraft41": "Diseño · plano",
+        "krea2Turbo": "El más barato",
+        "krea2Medium": "Estilizado",
+        "krea2Large": "Estilizado · lento",
+        "maiImage26": "Limpio · rápido",
+        "hunyuan35": "Barato · 2K"
+      },
+      "version": "Versión",
+      "noReference": "{{model}} no admite imagen de referencia. Quita la imagen o elige otro modelo.",
+      "fromPerImage": "desde {{count}} / imagen",
+      "moreModels": "{{count}} modelos más",
+      "fewerModels": "Ver menos"
     },
     "loading": "Cargando…",
     "loadTemplatesError": "No se pudieron cargar las opciones. Tu borrador sigue guardado.",
@@ -870,7 +939,10 @@
       "tabAudio": "Audio",
       "audioTitle": "Música con IA",
       "audioLead": "La música se guarda en tu biblioteca de recursos.",
-      "sectionOutput": "Formato"
+      "sectionOutput": "Formato",
+      "tabVideo": "Vídeo",
+      "videoTitle": "Vídeo con IA",
+      "videoLead": "Los vídeos se guardan en tu biblioteca y puedes usarlos en retratos, aperturas y la pantalla del jugador."
     },
     "music": {
       "workshopTitle": "Generar un BGM",
@@ -922,6 +994,167 @@
       "generating": "Generando",
       "generatingSteps": "Generando · ~{{step}}/{{steps}} pasos",
       "saving": "Guardando"
+    },
+    "video": {
+      "modeLabel": "Modo de vídeo",
+      "mode": {
+        "partner": {
+          "name": "Describe y crea",
+          "desc": "Seedance, Kling, Veo y más"
+        },
+        "custom": {
+          "name": "Generación personalizada",
+          "desc": "Nuestras GPU · LoRA y todos los ajustes"
+        }
+      },
+      "describe": "Describe la escena",
+      "enhance": "Pulir con IA",
+      "enhanceHint": "La IA reescribe la descripción para el modelo de vídeo antes de generar",
+      "promptPlaceholder": "Qué hay en el plano, cómo se mueve y cómo se mueve la cámara. Ej.: una orilla bajo la luna, una chica de pelo negro largo sobre las rocas, el viento le levanta el pelo y se gira despacio hacia la cámara. Cámara fija: cuanto menor el movimiento, más estable el personaje.",
+      "reference": "Imágenes de referencia",
+      "referenceOptional": "Ninguna = solo texto",
+      "slot": {
+        "first": "Primer fotograma",
+        "last": "Último fotograma",
+        "ref": "Referencia de personaje"
+      },
+      "slotHint": {
+        "first": "El vídeo empieza en esta imagen",
+        "last": "El vídeo termina en esta imagen"
+      },
+      "slotRefHint": "Mantiene el aspecto, la escena puede ser nueva · hasta {{count}}, +{{price}} cada una",
+      "slotRefHintFree": "Mantiene el aspecto, la escena puede ser nueva · hasta {{count}}",
+      "notSupported": "{{model}} no lo admite",
+      "oneFrameOnly": "{{model}} admite el primer o el último fotograma, no los dos. Elige otro modelo para usar ambos.",
+      "aspectFromFrame": "Con un fotograma, el clip toma su forma.",
+      "framesOrReferences": "{{model}} no admite estas imágenes juntas: con referencias de personaje, como mucho un primer fotograma. Quita alguna para continuar.",
+      "lastNeedsFirst": "{{model}} necesita un primer fotograma junto al último.",
+      "needsFrame": "{{model}} anima una imagen: añade un primer fotograma arriba.",
+      "remove": "Quitar",
+      "closePicker": "Cerrar",
+      "modelSpec": "Modelo y tamaño",
+      "model": "Modelo",
+      "tag": {
+        "text": "Texto",
+        "image": "Imagen",
+        "sound": "Sonido",
+        "selfHosted": "Sin límites",
+        "firstLast": "Primer y último fotograma",
+        "refs": "Hasta {{count}} referencias",
+        "firstLastShort": "Inicio+fin",
+        "refsShort": "Referencias",
+        "fast": "Rápido",
+        "needsImage": "Necesita imagen"
+      },
+      "priceFrom_one": "Desde {{count}} / {{seconds}} s",
+      "priceFrom": "Desde {{count}} / {{seconds}} s",
+      "priceFor": "{{count}} / {{seconds}} s",
+      "aspect": "Proporción",
+      "resolution": "Resolución",
+      "duration": "Duración",
+      "seconds_one": "{{count}} s",
+      "seconds": "{{count}} s",
+      "etaSeconds_one": "~{{count}} s",
+      "etaSeconds": "~{{count}} s",
+      "etaMinutes_one": "~{{count}} min",
+      "etaMinutes": "~{{count}} min",
+      "sound": "Generar ambiente y diálogo a la vez",
+      "soundAlways": "Este modelo siempre genera sonido con la imagen.",
+      "more": "Más ajustes",
+      "fast": "Modo rápido de 4 pasos",
+      "fastHint": "Varias veces más rápido y mucho más barato; desactívalo para ajustar pasos y CFG",
+      "fastOn": "Rápido 4 pasos",
+      "stepsValue_one": "{{count}} paso",
+      "stepsValue": "{{count}} pasos",
+      "seedValue": "Semilla {{seed}}",
+      "seedRandom": "Aleatoria",
+      "loraCount_one": "{{count}} LoRA",
+      "loraCount": "{{count}} LoRA",
+      "watermarkOn": "Con marca de agua",
+      "watermarkOff": "Sin marca de agua",
+      "negative": "Prompt negativo",
+      "negativePlaceholder": "Lo que no quieres. Ej.: manos deformes, dedos de más, parpadeo, texto, marca de agua",
+      "steps": "Pasos",
+      "stepsHint": "Más pasos: más detalle, más lento y más caro",
+      "cfgHint": "Más alto sigue más la descripción; demasiado alto se ve rígido",
+      "seed": "Semilla",
+      "watermark": "Añadir una marca “generado con IA”",
+      "noTuning": "{{model}} no ofrece semilla, pasos ni prompt negativo. Para ajustar a fondo, usa Wan 2.2.",
+      "loras": "LoRA",
+      "loraPrice": "+2 cada una",
+      "addLora": "Añadir una LoRA de Wan",
+      "civitaiPlaceholder": "Pega el enlace de Civitai de una LoRA de Wan",
+      "civitaiImport": "Importar",
+      "loraHint": "Solo sirven LoRA de Wan 2.2 / Wan Video; las LoRA SDXL de imagen no van en vídeo.",
+      "howText": "Solo texto",
+      "howFrames": "Desde imágenes",
+      "howReference": "Desde una referencia de personaje",
+      "unavailable": "Este servidor todavía no puede generar vídeos.",
+      "modelGone": "Ese modelo no está disponible ahora; prueba otro.",
+      "emptyTitle": "Aún no hay vídeos",
+      "emptyBody": "El primero aparecerá aquí.",
+      "place": "Poner en…",
+      "placePortrait": "Retrato animado del personaje",
+      "placeGreeting": "Inicio de la apertura",
+      "placed": "Añadido a: {{where}}",
+      "unnamed": "Personaje sin nombre",
+      "clip": {
+        "idle": "En reposo",
+        "speaking": "Hablando"
+      },
+      "placeFailed": {
+        "noGreeting": "Esta tarjeta todavía no tiene apertura.",
+        "linkFailed": "No se pudo vincular el vídeo a la tarjeta. Inténtalo de nuevo.",
+        "noUi": "Esta tarjeta aún no tiene pantalla de jugador visual: elige primero una plantilla en Pantalla del jugador."
+      },
+      "style": "Estilo",
+      "styleCost": "Para vídeos solo con texto · primer fotograma +{{count}} mushies",
+      "styleNone": "Sin estilo",
+      "styleFromFrame": "Has puesto un primer o último fotograma, así que el vídeo conserva el estilo de esa imagen.",
+      "howStyle": "Estilo {{style}}",
+      "placeUi": "Pantalla del jugador (nuevo marco de vídeo)",
+      "styleHint": "El primer fotograma se dibuja en este estilo y luego se anima, así todo el clip lo conserva.",
+      "styleNoneHint": "{{model}} genera directamente desde el texto; tiende a lo realista."
+    },
+    "folderLoadFallback": "No se pudo cargar la carpeta de esta carta; por ahora se genera en Todos los recursos.",
+    "quality": {
+      "label": "Calidad",
+      "included": "Incluido",
+      "standard": {
+        "name": "Estándar"
+      },
+      "hd": {
+        "name": "HD"
+      },
+      "4k": {
+        "name": "4K"
+      },
+      "redo": "Versión 4K · {{count}} mushies",
+      "redoNote": "Cada imagen terminada a la derecha tiene un botón para rehacerla en 4K."
+    },
+    "badge": {
+      "limitless": "Sin límites",
+      "textOnly": "Solo texto"
+    },
+    "trait": {
+      "style": {
+        "realistic": "Sobre todo realista",
+        "anime": "Anime",
+        "2.5d": "2.5D",
+        "3d": "Anime en 3D",
+        "versatile": "Anime fuerte"
+      },
+      "strength": {
+        "anime": "Anime de calidad",
+        "photoreal": "Personas realistas",
+        "text": "Texto preciso",
+        "design": "Carteles y diseño",
+        "detail": "Mucho detalle",
+        "fast": "Rápido",
+        "motion": "Acción grande",
+        "camera": "Movimientos de cámara",
+        "dialogue": "Diálogo con labios"
+      }
     }
   },
   "media": {

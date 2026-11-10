@@ -49,16 +49,41 @@ export interface Metric {
  *  later signed in counts once, as the account), guests playing on yumina.io
  *  without an account, and players who never opened yumina.io — the CrazyGames
  *  embed or a direct visit to a game host. `outsideCrazyGames` ⊆ `outside`
- *  (players signed in to CrazyGames; the rest are anonymous devices). */
+ *  (players signed in to CrazyGames; the rest are anonymous devices).
+ *  All-time overview accounts can also include the disclosed legacyAccountPeople
+ *  registration estimate; activity dates are unavailable for those accounts. */
 export interface PlayerChannels {
   accounts: number;
   guests: number;
   outside: number;
   outsideCrazyGames: number;
 }
+/** Completed account deletions, from the main database's identity-free ledger
+ *  (served alongside the warehouse snapshot, not computed by the worker). */
+export interface DeletedAccounts {
+  /** Deletions within the report period (everything recorded for "all"). */
+  value: number;
+  total: number;
+  last1d: number;
+  last7d: number;
+  last30d: number;
+  /** Lifetime game time carried over from deleted accounts. */
+  retainedPlaytimeSeconds: number;
+  /** Earliest recorded deletion. */
+  since: string | null;
+  /** Deletions before the ledger existed, reconstructed from anti-abuse
+   *  markers: a lower bound (repeat deletions of one email may collapse). */
+  backfilled: number;
+}
 export interface OverviewReport {
   accounts: Metric;
+  deletedAccounts?: DeletedAccounts;
+  /** What `gameSeconds` sums: per-account lifetime counters (all-time) or
+   *  recorded foreground intervals. */
+  gameSecondsBasis?: "lifetime-counters" | "intervals";
   active: Metric;
+  /** Unmatched Krew registrations included in the all-time people estimate. */
+  legacyAccountPeople?: number;
   players: Metric;
   gameSeconds: Metric;
   playtimeCapturedFrom?: string | null;
@@ -275,6 +300,53 @@ export interface TokenReport {
   }[];
   flowCoverage: string;
 }
+export type TimePerPlayerDimensionKey =
+  | "genre"
+  | "audience"
+  | "content"
+  | "language"
+  | "plan"
+  | "tenure";
+export interface TimePerPlayerPoint {
+  /** Chart bucket: UTC day, or hour for the 1D period. */
+  day: string;
+  players: number;
+  seconds: number;
+  /** Null for client-side folded groups ("Other"). */
+  medianSeconds: number | null;
+}
+export interface TimePerPlayerWorld {
+  id: string;
+  title: string;
+  cover: string | null;
+  players: number;
+  seconds: number;
+  medianSeconds: number | null;
+}
+/** Players grouped by the world they spent the most time in (or by an account
+ *  fact). Every player is in exactly one group per dimension. */
+export interface TimePerPlayerGroup {
+  label: string;
+  players: number;
+  seconds: number;
+  medianSeconds: number | null;
+  /** Sum over players of distinct chart buckets with play; ÷ players = days played. */
+  activeBuckets: number;
+  over1Hour: number;
+  days: TimePerPlayerPoint[];
+  worlds: TimePerPlayerWorld[];
+}
+export interface TimePerPlayerReport {
+  everyone: TimePerPlayerGroup;
+  dimensions: {
+    key: TimePerPlayerDimensionKey;
+    label: string;
+    rule: string;
+    groups: TimePerPlayerGroup[];
+  }[];
+  /** First recorded interval; nothing before it can be allocated to dates. */
+  from: string | null;
+}
 export interface AtlasWorld {
   id: string;
   familyId: string;
@@ -310,6 +382,8 @@ export interface WorldReport {
   totalWorlds: number;
   displayedWorlds: number;
   tags: { tag: string; players: number; worlds: number }[];
+  /** Signed-in play-screen time per player, grouped; absent until intervals and accounts are known. */
+  timePerPlayer?: TimePerPlayerReport;
   mapBasis: "shared_players";
 }
 export interface RetentionCurve {

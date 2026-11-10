@@ -1,5 +1,4 @@
 import { sql } from "drizzle-orm";
-import type { PgDatabase } from "drizzle-orm/pg-core";
 import { db, executeSqlScript } from "./index.js";
 import { env, IS_LOCAL_EDITION } from "../lib/env.js";
 
@@ -44,7 +43,7 @@ export async function bootstrapPgliteSchema(): Promise<void> {
   ]);
   const { apply, warnings, statementsToExecute } = await pushSchema(
     schema as unknown as Record<string, unknown>,
-    db as unknown as PgDatabase<any>,
+    db as unknown as Parameters<typeof pushSchema>[1],
   );
   for (const w of warnings) console.warn("[DEV] schema push warning:", w);
   await apply();

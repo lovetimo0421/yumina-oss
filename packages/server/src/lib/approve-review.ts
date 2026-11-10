@@ -144,7 +144,10 @@ export async function approveGroup(
 
     // Snapshot exactly what this transaction made public, including edits
     // saved after the earlier variants read. Only this path grants live provenance.
-    for (const world of updated) await captureAutomaticVersion(tx, world, "live", world);
+    const liveVersionIds = new Map<string, string>();
+    for (const world of updated) {
+      liveVersionIds.set(world.id, await captureAutomaticVersion(tx, world, "live", world));
+    }
 
     await tx
       .update(worldReviewSubmissions)
@@ -163,6 +166,15 @@ export async function approveGroup(
         // marked decided while its world row stays pending_review.
         scopeIds ? inArray(worldReviewSubmissions.worldId, scopeIds) : undefined,
       ));
+    // The author may keep saving during review; the submission records what
+    // actually went live, so its diff matches what players got.
+    for (const [worldId, versionId] of liveVersionIds) {
+      await tx.update(worldReviewSubmissions).set({ versionId }).where(and(
+        eq(worldReviewSubmissions.worldId, worldId),
+        eq(worldReviewSubmissions.submissionType, "initial"),
+        eq(worldReviewSubmissions.decidedAt, now),
+      ));
+    }
 
     await tx.insert(adminActions).values({
       adminId: opts.reviewerId, // schema allows NULL for system actions

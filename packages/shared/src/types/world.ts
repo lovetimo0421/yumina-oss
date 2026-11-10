@@ -178,11 +178,15 @@ export interface WorldVersion {
   createdBy: string;
   name: string;
   note: string | null;
-  createdAt: Date;
-  publishedAt?: Date | null;
-  source?: "manual" | "publish" | "live" | "backup" | "incoming";
+  // Untyped on purpose: recovery versions write "save" / "restore" /
+  // "restore_backup"; publish versions write "manual" / "publish" / "live" /
+  // "backup" / "incoming". Each reader narrows at its own boundary.
+  source?: string;
+  publishedAt?: Date | string | null;
   isLive?: boolean;
   canMakeLive?: boolean;
+  hasMetadata?: boolean;
+  createdAt: Date;
 }
 
 export interface WorldVersionWithSchema extends WorldVersion {

@@ -37,7 +37,10 @@
       html, body { overflow: hidden; overscroll-behavior: none; }
       #sandbox-root { overflow-x: hidden; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
       /* Sandbox has no sidebar — zero out the offset that some worlds reference */
-      :root { --desktop-sidebar-offset: 0px; --mobile-safe-bottom: env(safe-area-inset-bottom, 0px); }
+      :root {
+        --desktop-sidebar-offset: 0px;
+        --mobile-safe-bottom: env(safe-area-inset-bottom, 0px);
+      }
     </style>
   </head>
   <body>

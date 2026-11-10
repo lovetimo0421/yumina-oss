@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { db, isNotificationActorSchemaReady } from "../db/index.js";
-import { notifications, user } from "../db/schema.js";
+import { notifications, user, worlds } from "../db/schema.js";
+import { hiddenWorldIds, isWorldAudienceRestricted } from "./world-publication-access.js";
 import { publishRoomEvent } from "./room-manager.js";
 import {
   isNotificationSubjectMuted,
@@ -55,6 +56,7 @@ export type NotificationType =
   | "social_event_settled"
   | "tip_received"
   | "mushie_gift_received"
+  | "plan_gift_received"
   | "world_submitted_for_review"
   | "world_review_approved"
   | "world_review_rejected"
@@ -142,11 +144,29 @@ export async function notify(
   }
 }
 
+async function restrictedNotificationCreator(payload: Record<string, unknown>): Promise<string | null> {
+  const hidden = hiddenWorldIds("", false);
+  if (typeof payload.worldId !== "string" || !hidden.includes(payload.worldId)) return null;
+  const [world] = await db.select({ creatorId: worlds.creatorId }).from(worlds)
+    .where(eq(worlds.id, payload.worldId)).limit(1);
+  return world && isWorldAudienceRestricted(payload.worldId, world.creatorId) ? world.creatorId : null;
+}
+
+async function filterWorldNotificationRecipients(userIds: string[], payload: Record<string, unknown>): Promise<string[]> {
+  const creator = await restrictedNotificationCreator(payload);
+  if (!creator || !userIds.length) return userIds;
+  const recipients = await db.select({ id: user.id }).from(user)
+    .where(and(inArray(user.id, userIds), sql`(${user.id} = ${creator} OR (${user.role} = 'admin' AND ${user.isBanned} = false AND ${user.isSuspended} = false))`));
+  return recipients.map(row => row.id);
+}
+
 async function notificationAllowed(
   userId: string,
   type: NotificationType,
   payload: Record<string, unknown>,
 ): Promise<boolean> {
+  const creator = await restrictedNotificationCreator(payload);
+  if (creator && !(await filterWorldNotificationRecipients([userId], payload)).includes(userId)) return false;
   const group = TYPE_TO_GROUP[type];
   const subject = notificationSubjectFor(type, payload);
   if (!group && !subject) return true;
@@ -354,6 +374,7 @@ export async function notifyMany(
   payload: Record<string, unknown>,
   options?: { actorUserId?: string | null; dedupeKey?: string | null },
 ): Promise<void> {
+  userIds = await filterWorldNotificationRecipients(userIds, payload);
   if (userIds.length === 0) return;
 
   let allowedIds = userIds;
@@ -415,6 +436,7 @@ export async function notifyAllUsers(
   payload: Record<string, unknown>,
   options?: { actorUserId?: string | null; excludeUserId?: string },
 ): Promise<void> {
+  const audienceCreator = await restrictedNotificationCreator(payload);
   const actorUserId = options?.actorUserId ?? inferActorUserId(payload);
   const actorColumn = isNotificationActorSchemaReady()
     ? sql`, actor_user_id`
@@ -432,6 +454,7 @@ export async function notifyAllUsers(
     FROM "user" u
     WHERE u.is_banned = false
       AND u.is_suspended = false
+      ${audienceCreator ? sql`AND (u.id = ${audienceCreator} OR u.role = 'admin')` : sql``}
       ${excludePredicate}
   `);
 }
@@ -465,6 +488,7 @@ export async function notifyCoalescedByGroup(
   payload: Record<string, unknown>,
   options?: { actorUserId?: string | null },
 ): Promise<void> {
+  userIds = await filterWorldNotificationRecipients(userIds, payload);
   if (userIds.length === 0) return;
 
   const actorUserId = options?.actorUserId ?? inferActorUserId(payload);

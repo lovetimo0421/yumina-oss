@@ -1,6 +1,6 @@
 {
-  "name": "Unrestrict",
-  "switchLabel": "Unrestrict on/off",
+  "name": "Unrestricted",
+  "switchLabel": "Unrestricted on/off",
   "loading": "Loading…",
   "cancel": "Cancel",
   "tokensApprox": "~{{n}} tokens",
@@ -35,10 +35,10 @@
     "placeholder": "Birth year, e.g. 1998",
     "confirm": "Confirm",
     "invalid": "Enter a four-digit year.",
-    "under18": "You need to be 18 or older to use Unrestrict."
+    "under18": "You need to be 18 or older to use Unrestricted prompts."
   },
   "errors": {
-    "notEligible": "This account can't use Unrestrict right now",
+    "notEligible": "This account can't use Unrestricted prompts right now",
     "saveFailed": "Couldn't save — try again",
     "copyFailed": "Couldn't make a copy — try again"
   },
@@ -52,16 +52,33 @@
     "none": "No prompts yet.",
     "hubRow": "Find more in the Prompt Plaza",
     "manageInSettings": "Manage in Settings › Prompts",
-    "pos": "pos {{n}}",
+    "pos": "order {{n}}",
     "section": {
-      "system": "System",
-      "inChat": "In-Chat",
-      "final": "Final"
+      "system": "Start",
+      "inChat": "In chat",
+      "final": "Last"
     },
     "sectionFull": {
-      "system": "System Prompt",
-      "inChat": "In-Chat",
-      "final": "Final"
+      "system": "Start",
+      "inChat": "In chat",
+      "final": "Last"
+    },
+    "compose": {
+      "title": "Write your own prompt",
+      "explain": "Whatever you write here is sent to the AI with every message you send, on every card. To stop it, switch it off in Prompts.",
+      "name": "Name",
+      "namePlaceholder": "Name (optional)",
+      "content": "Prompt",
+      "contentPlaceholder": "e.g. Describe the surroundings and sounds a bit more in every reply.",
+      "save": "Save",
+      "saved": "Saved. It applies from your next message.",
+      "failed": "Couldn't save. Try again.",
+      "more": "More settings"
+    },
+    "sectionHint": {
+      "system": "The AI reads it first, along with the character setup. Good for rules that always apply, like style or point of view.",
+      "inChat": "Placed inside the chat history. The number below counts back from the newest message.",
+      "final": "The last thing the AI reads before it replies, so it has the most effect. Good for rules it must follow."
     }
   },
   "conflict": {

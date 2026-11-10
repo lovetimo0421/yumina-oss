@@ -34,6 +34,7 @@ const navItems: {
   { to: HOSTED_ROUTES.hub, labelKey: "nav.discover", icon: Compass, gate: "hub" },
   { to: HOSTED_ROUTES.community, labelKey: "nav.community", icon: MessageSquare, gate: "community" },
   { to: "/app/library", labelKey: "nav.library", icon: Library, gate: null },
+  // 提示词 lives inside the 资源包 tab (Discover), not as its own nav item.
   // Hosted: the social profile. Local: the identity page (avatar, personas, shortcuts).
   { to: "/app/profile", labelKey: "nav.profile", icon: UserCircle, gate: "profile" },
 ];
@@ -46,6 +47,7 @@ export function Sidebar() {
   const closeMobileNav = useUiStore((s) => s.closeMobileNav);
   const recentPlayedWorlds = useUiStore((s) => s.recentPlayedWorlds);
   const removeRecentPlayedWorld = useUiStore((s) => s.removeRecentPlayedWorld);
+  const recentPlayedSeeded = useUiStore((s) => s.recentPlayedSeeded);
   const worlds = useWorldsStore((s) => s.worlds);
   const profile = useUserProfileStore((s) => s.profile);
   const plan = useCreditStore((s) => s.plan);
@@ -99,6 +101,23 @@ export function Sidebar() {
 
     return liveWorld?.thumbnailUrl ?? schemaAvatar ?? world.thumbnailUrl ?? null;
   }
+
+  // The list is kept in this browser only; on a new device or after the
+  // browser cleared site data, fill it from the player's sessions once.
+  useEffect(() => {
+    if (!mobileNavOpen || !isAuthenticated || recentPlayedSeeded) return;
+    let cancelled = false;
+    void fetch(`${import.meta.env.VITE_API_URL || ""}/api/sessions/recent-worlds`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body: { data?: { id: string; name: string; thumbnailUrl: string | null; lastPlayedAt: string }[] } | null) => {
+        if (cancelled || !Array.isArray(body?.data)) return;
+        useUiStore.getState().seedRecentPlayedWorlds(
+          body.data.map((world) => ({ id: world.id, name: world.name, thumbnailUrl: world.thumbnailUrl, playedAt: world.lastPlayedAt })),
+        );
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [mobileNavOpen, isAuthenticated, recentPlayedSeeded]);
 
   useEffect(() => {
     if (!mobileNavOpen) return;
@@ -343,7 +362,7 @@ export function Sidebar() {
             tabIndex={-1}
             onClick={closeMobileNav}
             className={cn(
-              "mobile-nav-backdrop md:hidden",
+              "mobile-nav-backdrop modal-backdrop md:hidden",
               mobileNavOpen ? "mobile-nav-backdrop--open" : "mobile-nav-backdrop--closed"
             )}
           />
@@ -484,6 +503,7 @@ export function Sidebar() {
                 </span>
                 <ChevronRight className="mobile-nav-drawer__item-arrow" />
               </button>
+
 
               {showsProfile && (
               <button

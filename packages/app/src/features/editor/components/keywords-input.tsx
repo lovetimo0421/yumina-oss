@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
+import { getEditorDocumentEpoch } from "@/stores/editor";
+import { FLUSH_PENDING_EDITS_EVENT } from "./debounced-field";
 
 const SEPARATOR_RE = /[,，、]/;
 
@@ -57,15 +59,38 @@ export function KeywordsInput({
   // immediately on blur, Enter, and IME composition end so nothing is lost.
   const composingRef = useRef(false);
   const emitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // What the timer will emit, bound to the emit (and so the onChange) of the
+  // render it was typed in and to the open card — see the unmount flush below.
+  const pendingRef = useRef<{ text: string; emit: (text: string) => void; epoch: number } | null>(null);
+  const flushPending = () => {
+    if (emitTimerRef.current) { clearTimeout(emitTimerRef.current); emitTimerRef.current = null; }
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    if (pending && pending.epoch === getEditorDocumentEpoch()) pending.emit(pending.text);
+  };
 
   useEffect(() => {
     if (arraysEqual(lastEmittedRef.current, value)) return;
+    // Text still on the timer belongs to what was being edited before this
+    // value arrived (another entry, usually): send it there first, while
+    // lastEmittedRef still describes that entry.
+    flushPending();
     lastEmittedRef.current = value;
     setRaw(value.join(", "));
   }, [value]);
 
-  // Cancel any pending emit on unmount (blur flushes the common case).
-  useEffect(() => () => { if (emitTimerRef.current) clearTimeout(emitTimerRef.current); }, []);
+  // Unmounting inside the pause emits what was typed instead of dropping it
+  // (blur covers the common case, but closing the panel does not blur first).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => () => flushPending(), []);
+
+  // Save paths ask every debounced field to commit before reading the store.
+  useEffect(() => {
+    const onFlush = () => flushPending();
+    window.addEventListener(FLUSH_PENDING_EDITS_EVENT, onFlush);
+    return () => window.removeEventListener(FLUSH_PENDING_EDITS_EVENT, onFlush);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const emit = (text: string) => {
     const parsed = parseKeywords(text);
@@ -76,10 +101,12 @@ export function KeywordsInput({
   };
   const scheduleEmit = (text: string) => {
     if (emitTimerRef.current) clearTimeout(emitTimerRef.current);
-    emitTimerRef.current = setTimeout(() => { emitTimerRef.current = null; emit(text); }, 300);
+    pendingRef.current = { text, emit, epoch: getEditorDocumentEpoch() };
+    emitTimerRef.current = setTimeout(flushPending, 300);
   };
   const flushEmit = (text: string) => {
     if (emitTimerRef.current) { clearTimeout(emitTimerRef.current); emitTimerRef.current = null; }
+    pendingRef.current = null;
     emit(text);
   };
   // Update the visible text now; defer the store commit (unless mid-IME).

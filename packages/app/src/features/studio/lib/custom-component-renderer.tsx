@@ -1,18 +1,33 @@
-import React, {
+import {
   useMemo,
   useContext,
   createContext,
-  Component,
   useEffect,
   useRef,
 } from "react";
-import { compileTSX } from "./tsx-compiler";
+import { compileTSX } from "@/lib/tsx/tsx-compiler";
 import { useAssetFont } from "@/lib/asset-font";
 import { resolveAssetRefs, resolveAssetUrl } from "@/lib/asset-url";
-import { CopyErrorButton } from "@/components/copy-error-button";
+import { codeRevision, createCodeDiagnostic } from "@/lib/tsx/diagnostics";
+import { StudioCodeDiagnostic, StudioCodeBoundary } from "./code-diagnostic";
 
 /** API exposed to custom components via the useYumina() hook */
+/** One of the card's entries as a card's interface sees it. */
+export interface PreviewEntry {
+  id: string;
+  name: string;
+  content: string;
+  role: string;
+  enabled?: boolean;
+  folderId?: string;
+  audience?: "ai" | "player" | "both";
+  portrait?: string | null;
+}
+
 export interface YuminaAPI {
+  /** Preview implementations reject asynchronously so cards can use their
+   *  normal AI-failure fallback without a real request or credit charge. */
+  ai?: { complete: (options: unknown) => Promise<string> };
   mode?: "session" | "guest-preview";
   capabilities?: {
     canSendMessage: boolean;
@@ -23,6 +38,7 @@ export interface YuminaAPI {
   sendMessage: (text: string, attachments?: import("@yumina/shared").ChatImageInput[]) => void;
   setVariable: (id: string, value: number | string | boolean | Record<string, unknown> | unknown[], options?: { scope?: string; targetUserId?: string }) => void;
   executeAction: (actionId: string) => void;
+  executeActionAndWait?: (actionId: string) => Promise<{ applied: true; variables: Record<string, unknown>; firedIds: string[] }>;
   navigateTo?: (path: string) => void;
   variables: Record<string, number | string | boolean | Record<string, unknown> | unknown[]>;
   globalVariables: Record<string, number | string | boolean | Record<string, unknown> | unknown[]>;
@@ -47,6 +63,9 @@ export interface YuminaAPI {
   streamingContent?: string;
   /** Resolve an @asset:{id} reference to a CDN URL */
   resolveAssetUrl?: (ref: string) => string;
+  /** The card's entries, for a part that lists them (a cast page): the same
+   *  slim shape the play sandbox gets. */
+  entries?: PreviewEntry[];
   /** Play an audio track by ID (must be defined in world audioTracks) */
   playAudio?: (trackId: string, opts?: { volume?: number; fadeDuration?: number; chainTo?: string; maxDuration?: number; duckBgm?: boolean }) => void;
   /** Stop a specific track, or all tracks if no ID given */
@@ -62,11 +81,16 @@ export interface YuminaAPI {
   /** Get current volume for a category (bgm, sfx, or master) */
   getAudioVolume?: (type: "bgm" | "sfx" | "master") => number;
   /** Switch the greeting message to a different pre-written opening (by swipe index, 0-based) */
-  switchGreeting?: (index: number) => void;
+  switchGreeting?: (index: number) => void | Promise<void>;
+  /** 现场 (see sandbox-context). Previews have no AI call to send it with. */
+  setScene?: (scene: Record<string, unknown> | string | null, options?: { events?: Array<{ name: string; when?: string }> }) => void;
+  onStoryEvent?: (cb: (event: { id: string; name: string }) => void) => () => void;
 }
 
 const defaultAPI: YuminaAPI = {
   sendMessage: () => {},
+  setScene: () => {},
+  onStoryEvent: () => () => {},
   setVariable: () => {},
   executeAction: () => {},
   variables: {},
@@ -111,34 +135,6 @@ interface CustomComponentRendererProps {
   api?: YuminaAPI;
   /** Extra props spread onto the compiled component (e.g., content + role for message renderers) */
   extraProps?: Record<string, unknown>;
-}
-
-class ErrorBoundary extends Component<
-  { children: React.ReactNode; fallback: (error: string) => React.ReactNode },
-  { error: string | null }
-> {
-  state = { error: null as string | null };
-
-  static getDerivedStateFromError(error: Error) {
-    return { error: error.message };
-  }
-
-  render() {
-    if (this.state.error) {
-      return this.props.fallback(this.state.error);
-    }
-    return this.props.children;
-  }
-}
-
-function ErrorCard({ message }: { message: string }) {
-  return (
-    <div className="relative rounded-lg border border-destructive/30 bg-destructive/5 p-3 pr-9">
-      <p className="text-xs font-medium text-destructive">Component Error</p>
-      <p className="mt-1 text-xs text-destructive/70 font-mono whitespace-pre-wrap break-all">{message}</p>
-      <CopyErrorButton text={`Component Error:\n${message}`} />
-    </div>
-  );
 }
 
 function parseArbitraryColorToken(token: string, prefix: string): string | null {
@@ -387,6 +383,8 @@ export function CustomComponentRenderer({
       executeAction: api?.executeAction ?? defaultAPI.executeAction,
       navigateTo: api?.navigateTo,
       switchGreeting: api?.switchGreeting,
+      setScene: api?.setScene ?? defaultAPI.setScene,
+      onStoryEvent: api?.onStoryEvent ?? defaultAPI.onStoryEvent,
       variables: api?.variables ?? variables,
       globalVariables: api?.globalVariables ?? api?.variables ?? variables,
       worldName,
@@ -413,17 +411,17 @@ export function CustomComponentRenderer({
 
   // Compile once per code change. The useYumina hook reads from context,
   // so it always gets the latest effectiveAPI via the Provider below.
-  const { Component: CompiledComponent, error } = useMemo(
+  const { Component: CompiledComponent, error, diagnostic } = useMemo(
     () => compileTSX(code, useYumina, { useAssetFont }),
     [code]
   );
 
   if (error) {
-    return <ErrorCard message={error} />;
+    return <StudioCodeDiagnostic diagnostic={diagnostic ?? createCodeDiagnostic(error, { phase: "compile" })} />;
   }
 
   if (!CompiledComponent) {
-    return <ErrorCard message="No component exported" />;
+    return <StudioCodeDiagnostic diagnostic={createCodeDiagnostic("No component exported", { phase: "load" })} />;
   }
 
   useEffect(() => {
@@ -492,7 +490,7 @@ export function CustomComponentRenderer({
 
   return (
     <YuminaContext.Provider value={effectiveAPI}>
-      <ErrorBoundary fallback={(err) => <ErrorCard message={err} />}>
+      <StudioCodeBoundary key={codeRevision({ "<component>": code })} files={{ "<component>": code }}>
         <div ref={hostRef} className={hostClassName}>
           <CompiledComponent
             variables={variables}
@@ -501,7 +499,7 @@ export function CustomComponentRenderer({
             {...(extraProps ?? {})}
           />
         </div>
-      </ErrorBoundary>
+      </StudioCodeBoundary>
     </YuminaContext.Provider>
   );
 }

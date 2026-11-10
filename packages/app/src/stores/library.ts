@@ -232,16 +232,25 @@ export const useLibraryStore = create<LibraryStore>()(
     ),
 
   markUpdateSeen: async (worldId) => {
-    // Optimistic update
+    // Optimistic update. The dot on a collapsed card aggregates every sibling
+    // variant, and the server marks the whole group seen, so match siblings too.
     set((s) => ({
       items: s.items.map((i) =>
-        i.worldId === worldId ? { ...i, hasUpdate: false } : i,
+        i.worldId === worldId || (i.siblingWorldIds?.includes(worldId) ?? false)
+          ? { ...i, hasUpdate: false }
+          : i,
       ),
     }));
-    await fetch(`${apiBase}/api/library/${worldId}/seen`, {
-      method: "PATCH",
-      credentials: "include",
-    });
+    // Best effort: callers fire this on open/play and must never surface a
+    // rejection. A failed PATCH only means the dot can return on next load.
+    try {
+      await fetch(`${apiBase}/api/library/${worldId}/seen`, {
+        method: "PATCH",
+        credentials: "include",
+      });
+    } catch {
+      /* dot reappears on the next library fetch; nothing to undo */
+    }
   },
 
   markPlayed: (worldId, playedAt = new Date().toISOString()) => {
@@ -253,7 +262,9 @@ export const useLibraryStore = create<LibraryStore>()(
         // collapsed card's lastPlayedAt to bump.
         const matches =
           i.worldId === worldId || (i.siblingWorldIds?.includes(worldId) ?? false);
-        return matches ? { ...i, lastPlayedAt: playedAt } : i;
+        // Playing runs the live version, and the server counts last_played_at
+        // as "update seen", so the dot goes dark here too.
+        return matches ? { ...i, lastPlayedAt: playedAt, hasUpdate: false } : i;
       }),
     }));
   },

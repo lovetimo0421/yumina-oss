@@ -23,6 +23,9 @@ import type { ContinuityInput, ContinuityPlan, JevQuestion, PlanVariable } from 
 
 export const KEEP = "__keep";
 export const NONE = "__none";
+/** String answer: the variable's empty option (`""`). The empty string cannot
+ *  be a choice label, so it travels under this name and maps back on apply. */
+export const EMPTY = "__empty";
 /** BGM answer: none of the cued tracks fit any more — hand the music back to
  *  the card's default playlist. Offered only when the world has one. */
 export const PLAYLIST = "__playlist";
@@ -56,6 +59,7 @@ function wording(zh: boolean) {
         string: (name: string, rules: string) =>
           `在 \`reply\` 结束时，变量「${name}」应该是什么？如果这一回合没有让它变化，就选"保持当前值"（当前值 \`variables.${name}\`）。${rules ? `作者规则：${rules}` : ""}`,
         keepValue: "保持当前值，这回合没有变化",
+        emptyValue: "清空（空值，这回合结束时它不再成立）",
         bgm: "`reply` 这段剧情接下来该配哪首曲子？选整段的主导氛围，不是最响的一瞬间。没有更合适的就保持当前曲目。",
         keepTrack: (note: string) => `保持当前曲目${note ? `（${note}）` : ""}`,
         playlist: "这些曲子都不对味了，交回默认播放列表",
@@ -80,6 +84,7 @@ function wording(zh: boolean) {
         string: (name: string, rules: string) =>
           `At the END of \`reply\`, what should the variable "${name}" be? If nothing this turn changes it, pick "keep current value" (current value \`variables.${name}\`).${rules ? ` Author's rule: ${rules}` : ""}`,
         keepValue: "keep current value, nothing changed this turn",
+        emptyValue: "empty (cleared: by the end of this turn it no longer holds)",
         bgm: "Which track should play under `reply`? Judge the passage's dominant mood, not its loudest moment. Keep the current track unless another fits clearly better.",
         keepTrack: (note: string) => `keep the current track${note ? ` (${note})` : ""}`,
         playlist: "none of these fit any more; hand the music back to the default playlist",
@@ -132,7 +137,7 @@ export function buildContinuityPlan(world: WorldDefinition, state: GameState, in
 
   for (const v of world.variables) {
     if (!isContinuityOwned(world, v)) continue;
-    if (!isVariableActive(v, state)) continue;
+    if (!isVariableActive(v, state, world.worldbooks)) continue;
     const key = `var__${v.id}`;
     const rules = ruleText(v);
     const raw = state.variables[v.id] ?? v.defaultValue;
@@ -165,10 +170,14 @@ export function buildContinuityPlan(world: WorldDefinition, state: GameState, in
       const current = typeof raw === "string" ? raw : String(raw ?? "");
       const criteria: Record<string, string> = {};
       for (const o of options) criteria[o] = o;
+      // Without this a variable that can be cleared (`scene` back to "") could
+      // only ever move between its named values: once in the tavern, always in it.
+      const clearable = (v.options ?? []).some((o) => o.trim() === "");
+      if (clearable) criteria[EMPTY] = w.emptyValue;
       criteria[KEEP] = w.keepValue;
       questions[key] = { type: "choice", instructions: w.string(v.name, rules), criteria };
       variables[v.name] = current;
-      vars.push({ key, id: v.id, kind: "string", current, options });
+      vars.push({ key, id: v.id, kind: "string", current, options: clearable ? [...options, ""] : options });
     }
   }
 

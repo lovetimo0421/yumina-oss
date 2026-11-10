@@ -13,6 +13,7 @@ describe("selectWorldCopyMaterial", () => {
     rootComponent: {
       id: "world-schema:root",
       name: "Root",
+      assetLoading: "automatic",
       entryFile: "index.tsx",
       files: { "index.tsx": "export default function App() { return <Panel />; }" },
       updatedAt: "2026-08-01T00:00:00.000Z",
@@ -23,6 +24,7 @@ describe("selectWorldCopyMaterial", () => {
     ...liveSchema,
     rootComponent: {
       ...liveSchema.rootComponent,
+      assetLoading: "on-demand",
       files: {
         "index.tsx":
           "export default function App() { return <><Panel /><Chat /></>; }",
@@ -47,6 +49,7 @@ describe("selectWorldCopyMaterial", () => {
     const root = material.schema["rootComponent"] as typeof workingSchema.rootComponent;
 
     assert.match(root.files["index.tsx"], /<Chat\s*\/>/);
+    assert.equal(root.assetLoading, "on-demand");
     assert.equal(material.thumbnailUrl, "working-cover.webp");
     assert.equal(material.ageRating, "adult");
     assert.equal(material.isNsfw, true);

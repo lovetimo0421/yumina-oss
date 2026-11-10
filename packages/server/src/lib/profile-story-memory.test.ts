@@ -14,3 +14,10 @@ test("unconfigured/local editions and unknown account dates preserve inherited m
   for (const flag of [undefined, "", "invalid"]) assert.equal(profileStoryMemoryDefault(created, flag), null);
   assert.equal(profileStoryMemoryDefault(null, "2026-09-22T11:34:00Z"), null);
 });
+
+test("carried-over default moves older accounts that never chose, and only them", () => {
+  const rollout = "2026-09-22T11:34:00Z";
+  assert.equal(profileStoryMemoryDefault(new Date("2026-09-04T00:00:00Z"), rollout, 32000), 32000);
+  assert.equal(profileStoryMemoryDefault(new Date("2026-09-25T00:00:00Z"), rollout, 32000), 16000);
+  assert.equal(profileStoryMemoryDefault(new Date("2026-09-04T00:00:00Z"), rollout, undefined), null);
+});

@@ -72,6 +72,7 @@ class HttpDecisionError extends DecisionError {
 }
 
 export async function decide(req: DecisionRequest): Promise<DecisionResponse> {
+  if (req.signal?.aborted) throw new DecisionError("cancelled", "continuity: turn cancelled");
   const platformKey = env.CONTINUITY_JEV_KEY || env.YUMINA_OPENROUTER_KEY;
   const url = env.CONTINUITY_JEV_URL || DEFAULT_DECISION_URL;
   const model = env.CONTINUITY_JEV_MODEL || DEFAULT_DECISION_MODEL;

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isStaleDraftSave } from "./world-save-guard.js";
+import { isStaleDraftSave, nextWorldSaveTime } from "./world-save-guard.js";
 
 const T0 = new Date("2026-06-01T10:00:00.000Z");
 const T1 = new Date("2026-06-01T10:05:00.000Z");
@@ -54,14 +54,14 @@ test("no token sent → guard off (back-compat: old clients, imports, new worlds
   );
 });
 
-test("published world → guard off even if it moved (held-edit path owns concurrency)", () => {
+test("published world: held draft moved since opening → reject a stale save", () => {
   assert.equal(
     isStaleDraftSave({
       clientBaseUpdatedAt: T0.toISOString(),
       liveStatus: "published",
       liveUpdatedAt: T1,
     }),
-    false,
+    true,
   );
 });
 
@@ -85,8 +85,6 @@ test("no live row / no timestamp → not stale (route's 404 handling takes over)
 });
 
 test("unpublished (non-published, non-draft) world is also guarded", () => {
-  // Anything that isn't "published" routes through the direct worlds.schema
-  // write, so the guard applies — only "published" defers to the held-edit path.
   assert.equal(
     isStaleDraftSave({
       clientBaseUpdatedAt: T0.toISOString(),
@@ -95,4 +93,12 @@ test("unpublished (non-published, non-draft) world is also guarded", () => {
     }),
     true,
   );
+});
+
+test("consecutive writes always advance the save token, including clock drift", () => {
+  const future = new Date(Date.now() + 10_000);
+  const first = nextWorldSaveTime(future);
+  const second = nextWorldSaveTime(first);
+  assert.equal(first.getTime(), future.getTime() + 1);
+  assert.equal(second.getTime(), first.getTime() + 1);
 });

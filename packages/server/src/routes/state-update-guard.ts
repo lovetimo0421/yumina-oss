@@ -1,11 +1,13 @@
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { playSessions, worlds } from "../db/schema.js";
 import { authMiddleware } from "../middleware/auth.js";
 import type { AppEnv } from "../lib/types.js";
-import { isExtensionInstalled } from "../lib/extensions.js";
+import { getUninstalledExtensions, isExtensionInstalled } from "../lib/extensions.js";
+import { loadSessionWorldDef } from "../lib/world-def-cache.js";
+import { STATE_GUARD_KEY, stateGuardDefaultApplies } from "../extensions/state-update-guard/activation.js";
 import { MODEL_ID_PATTERN, applyModelRedirect } from "../lib/llm/model-redirects.js";
 import { resolveGuardModel } from "../extensions/state-update-guard/model.js";
 import { parseStateGuardModel, stateGuardModelSelection } from "@yumina/shared";
@@ -23,29 +25,50 @@ export const stateGuardSettingsSchema = z.object({
   }).nullable().optional(),
 }).strict().refine((value) => value.enabled !== undefined || value.model !== undefined);
 
-export function createStateGuardRoutes(deps: {
+type GuardRouteDeps = {
   authenticate: MiddlewareHandler<AppEnv>;
   installed: typeof isExtensionInstalled;
   resolveModel: typeof resolveGuardModel;
-} = { authenticate: authMiddleware, installed: isExtensionInstalled, resolveModel: resolveGuardModel }) {
+  /** Explicit uninstalls: the default's opt-out. */
+  uninstalled?: typeof getUninstalledExtensions;
+  loadWorld?: typeof loadSessionWorldDef;
+};
+
+export function createStateGuardRoutes(deps: GuardRouteDeps = { authenticate: authMiddleware, installed: isExtensionInstalled, resolveModel: resolveGuardModel }) {
   const stateGuardRoutes = new Hono<AppEnv>();
+  const uninstalled = deps.uninstalled ?? getUninstalledExtensions;
+  const loadWorld = deps.loadWorld ?? loadSessionWorldDef;
   const capabilities = () => edition.info().features.officialModels ? {} : { officialModels: false };
   const path = "/:sessionId/state-update-guard";
+  const forbidden = (c: Context<AppEnv>) => c.json({ error: "Extension not installed" }, 403);
+  /** Installed players manage everything. Never-installed players of a card
+   * the guard is on by default for may only switch it off/on per chat. */
+  const access = async (c: Context<AppEnv>): Promise<"installed" | "default" | null> => {
+    const userId = c.get("user").id;
+    if (await deps.installed(userId, STATE_GUARD_KEY)) return "installed";
+    if ((await uninstalled(userId)).has(STATE_GUARD_KEY)) return null;
+    const [session] = await db.select({ worldId: playSessions.worldId }).from(playSessions)
+      .where(and(eq(playSessions.id, c.req.param("sessionId")!), eq(playSessions.userId, userId)));
+    if (!session?.worldId) return null;
+    // An unreadable card simply has no default; never a 500 on the settings panel.
+    const world = await loadWorld(session.worldId, userId).catch(() => null);
+    return stateGuardDefaultApplies(world ?? undefined) ? "default" : null;
+  };
   stateGuardRoutes.use(path, deps.authenticate);
-  stateGuardRoutes.use(path, async (c, next) => {
-    if (!await deps.installed(c.get("user").id, "state-update-guard")) {
-      return c.json({ error: "Extension not installed" }, 403);
-    }
-    return next();
-  });
   stateGuardRoutes.get(path, async (c) => {
+    const mode = await access(c);
+    if (!mode) return forbidden(c);
     const [row] = await db.select({ enabled: playSessions.stateGuardEnabled, model: playSessions.stateGuardModel })
       .from(playSessions).where(and(eq(playSessions.id, c.req.param("sessionId")), eq(playSessions.userId, c.get("user").id)));
-    return row ? c.json({ data: { ...row, ...capabilities() } }) : c.json({ error: "Session not found" }, 404);
+    return row ? c.json({ data: { ...row, ...capabilities(), ...(mode === "default" ? { byDefault: true } : {}) } }) : c.json({ error: "Session not found" }, 404);
   });
   stateGuardRoutes.patch(path, async (c) => {
+    const mode = await access(c);
+    if (!mode) return forbidden(c);
     const body = stateGuardSettingsSchema.safeParse(await c.req.json().catch(() => null));
     if (!body.success) return c.json({ error: "Invalid state update settings" }, 400);
+    // The correction model (and its billing) is an installed-extension setting.
+    if (mode === "default" && body.data.model !== undefined) return forbidden(c);
     const userId = c.get("user").id;
     const scope = and(eq(playSessions.id, c.req.param("sessionId")), eq(playSessions.userId, userId));
     const [row] = await db.select({ creatorId: worlds.creatorId, allowCustomApi: worlds.allowCustomApi })
@@ -61,7 +84,7 @@ export function createStateGuardRoutes(deps: {
       ...(body.data.enabled !== undefined ? { stateGuardEnabled: body.data.enabled } : {}),
       ...(body.data.model !== undefined ? { stateGuardModel: body.data.model } : {}),
     }).where(scope).returning();
-    return updated ? c.json({ data: { enabled: updated.stateGuardEnabled, model: updated.stateGuardModel, ...capabilities() } }) : c.json({ error: "Session not found" }, 404);
+    return updated ? c.json({ data: { enabled: updated.stateGuardEnabled, model: updated.stateGuardModel, ...capabilities(), ...(mode === "default" ? { byDefault: true } : {}) } }) : c.json({ error: "Session not found" }, 404);
   });
   return stateGuardRoutes;
 }

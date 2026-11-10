@@ -40,6 +40,44 @@ export const AI_GENERATION_DEFAULTS: AiGenerationDefaults = {
   topK: 0, minP: 0, reasoningEffort: 'low', streaming: true,
 };
 
+/**
+ * The range a player may actually generate with. The schema above stays wide
+ * (-2..2) on purpose: accounts already store values out there, and rejecting
+ * them would 400 every send instead of just tightening it. Instead the story
+ * call clamps to these at request time, and the settings sliders stop here.
+ *
+ * Why these numbers: high presence/frequency penalties make the model avoid
+ * every token it has already used, so a few hundred tokens into a reply it
+ * runs out of plausible words and switches languages mid-sentence — the
+ * "multilingual word salad" reports (temp 1.45 + presence 1.71). Above ~1 the
+ * penalty only buys that failure, and below 0 it rewards repetition, which is
+ * the opposite of what roleplay ever needs (Kimi's loop fix is the separate
+ * repetitionPenalty, untouched here). Temperature stops at 1.5, the slider's
+ * existing ceiling and the card-author cap; models with a lower documented
+ * ceiling (Claude, LongCat 2.0: 1.0) are narrowed further at the provider.
+ */
+export const PLAYER_SAMPLING_BOUNDS = {
+  temperature: { min: 0, max: 1.5 },
+  frequencyPenalty: { min: 0, max: 1 },
+  presencePenalty: { min: 0, max: 1 },
+} as const;
+
+type BoundedKey = keyof typeof PLAYER_SAMPLING_BOUNDS;
+
+/** Clamp the bounded keys into PLAYER_SAMPLING_BOUNDS; every other key, and any
+ * non-numeric or missing value, passes through untouched. Returns a copy. */
+export function clampPlayerSampling<T extends Partial<Record<BoundedKey, number | undefined>> | undefined>(values: T): T {
+  if (!values) return values;
+  const out: Partial<Record<BoundedKey, number | undefined>> = { ...values };
+  for (const key of Object.keys(PLAYER_SAMPLING_BOUNDS) as BoundedKey[]) {
+    const v = out[key];
+    if (typeof v !== 'number' || !Number.isFinite(v)) continue;
+    const { min, max } = PLAYER_SAMPLING_BOUNDS[key];
+    out[key] = Math.min(max, Math.max(min, v));
+  }
+  return out as T;
+}
+
 /** Preferences may contain legacy or unrelated fields. Validate independently
  * so one old field cannot discard the user's other saved settings. */
 export function resolveAiGenerationConfig(input: unknown): AiGenerationDefaults {
@@ -49,5 +87,5 @@ export function resolveAiGenerationConfig(input: unknown): AiGenerationDefaults 
     const value = aiGenerationConfigSchema.shape[key].safeParse((input as Record<string, unknown>)[key]);
     if (value.success && value.data !== undefined) Object.assign(resolved, { [key]: value.data });
   }
-  return resolved;
+  return clampPlayerSampling(resolved);
 }

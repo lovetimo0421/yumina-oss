@@ -136,7 +136,7 @@ export function nearestRegion(haystack: string, needle: string, contextLines = 4
 type Replacer = (content: string, find: string) => Generator<string>;
 
 /** Levenshtein edit distance (iterative two-row DP). */
-function levenshtein(a: string, b: string): number {
+export function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
   const m = a.length;
   const n = b.length;

@@ -27,3 +27,13 @@ test("account deletion link discards APP_URL paths and keeps tokens out of the q
     "token with symbols + / =",
   );
 });
+
+test("testing email links stay on the configured testing origin", () => {
+  const url = new URL(buildAccountDeletionConfirmationUrl(
+    "https://testing.example.test", "fixture-token",
+  ));
+  assert.equal(url.origin, "https://testing.example.test");
+  assert.equal(url.pathname, "/delete-account");
+  assert.equal(url.search, "");
+  assert.equal(new URLSearchParams(url.hash.slice(1)).get("token"), "fixture-token");
+});

@@ -39,6 +39,20 @@ export function bonusRewardGroup(at: Date): { month: string; expiresAt: Date } {
   };
 }
 export interface WalletBonusGroup { id: string; amount: number; expiresAt: string; origin: string }
+/** Display-only provenance. Amounts are historical ledger credits, never a balance. */
+export interface MembershipCreditSummary {
+  source: "invite_race" | "referral" | "event" | "admin" | "gift";
+  plan: string;
+  days: number;
+  endsAt: string;
+  grant: { amount: number; at: string } | null;
+  extraGrant: { amount: number; at: string } | null;
+  allowance: {
+    plan: string;
+    amount: number;
+    latestGrant: { amount: number; at: string } | null;
+  };
+}
 export interface WalletBreakdown {
   version: 1;
   /** Billing lineup the wallet lives under: 1 = legacy, 2 = 2026-09 (drops, quests, no refill). */

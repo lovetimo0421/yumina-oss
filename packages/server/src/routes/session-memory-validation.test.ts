@@ -43,7 +43,13 @@ test("deprecated model ids redirect; current ids pass through", () => {
     applyModelRedirect("google/gemini-3.1-flash-lite-preview"),
     "google/gemini-3.1-flash-lite",
   );
-  assert.equal(applyModelRedirect("google/gemini-2.5-flash-lite"), "google/gemini-2.5-flash-lite");
+  // Retired upstream 2026-10-20/21: every target stays on the old model's plan.
+  assert.equal(applyModelRedirect("google/gemini-2.5-flash-lite"), "google/gemini-3.1-flash-lite");
+  assert.equal(applyModelRedirect("google/gemini-2.5-flash"), "google/gemini-3.5-flash-lite");
+  assert.equal(applyModelRedirect("google/gemini-2.5-pro"), "google/gemini-3.5-flash");
+  assert.equal(applyModelRedirect("xiaomi/mimo-v2.5-pro"), "xiaomi/mimo-v2.6-pro");
+  assert.equal(applyModelRedirect("xiaomi/mimo-v2.5"), "xiaomi/mimo-v2.6-flash");
+  assert.equal(applyModelRedirect("google/gemini-3.1-flash-lite"), "google/gemini-3.1-flash-lite");
 });
 
 const here = dirname(fileURLToPath(import.meta.url));

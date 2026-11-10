@@ -33,7 +33,7 @@ async function fetchWorldPayload(worldId: string): Promise<WorldDownloadPayload 
   try {
     // forEdit=1: the owner of a published card downloads what their editor
     // shows (the held working copy), not the last-approved live version.
-    // Ignored for anyone else.
+    // Anyone else gets the live card, and only if its creator allows remixing.
     const res = await fetch(`${apiBase}/api/worlds/${worldId}?forEdit=1`, { credentials: "include" });
     if (!res.ok) return null;
     const { data } = await res.json();
@@ -141,6 +141,8 @@ async function fetchCoverAsPng(thumbnailUrl: string | null | undefined, fallback
 }
 
 function sanitizeFilename(name: string): string {
+  // File-system control characters are invalid in download names.
+  // eslint-disable-next-line no-control-regex
   return name.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_") || "world";
 }
 

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { SandboxedYuminaAPI } from "../sandbox-context";
 import type { SandboxMessage } from "./types";
 import type { makeChatT } from "./i18n";
@@ -10,6 +11,39 @@ const REASON_KEY: Record<string, Key> = {
   timeout: "turnImageTimeout",
   unavailable: "turnImageUnavailable",
 };
+
+// Most pictures land in 5-15s. One that lands on a drawing machine that is
+// still loading its model takes 70-95s, so past this the player is told why.
+const SLOW_AFTER_MS = 20_000;
+
+/** "Drawing this scene…", and past SLOW_AFTER_MS a line saying the wait is longer than usual. */
+export function TurnImageDrawingLabel({ t, message, api }: { t: T; message: SandboxMessage; api: SandboxedYuminaAPI }) {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setSlow(true), SLOW_AFTER_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  const state = message.turnImage;
+  const cancelling = state?.status === "drawing" && state.cancelling;
+  const cancelFailed = state?.status === "drawing" && state.cancelFailed;
+  return (
+    <div className="flex max-w-[16rem] flex-col items-center gap-1.5 px-3 text-center">
+      <span className="flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin" aria-hidden="true">
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+        {t(cancelling ? "turnImageCancelling" : "turnImageDrawing")}
+      </span>
+      {slow && !cancelling && <span className="text-[11px] leading-snug opacity-80">{t("turnImageSlow")}</span>}
+      <span className="text-[11px] leading-snug opacity-80">{t(cancelFailed ? "turnImageCancelFailed" : "turnImageCancelRefund")}</span>
+      <button type="button" disabled={!!cancelling} onClick={(e) => { e.stopPropagation(); void api.cancelTurnImage(message.id); }}
+        className="hover-surface mt-2 min-h-9 rounded-md border border-border bg-background/80 px-3 py-1.5 font-medium text-foreground disabled:cursor-wait disabled:opacity-60">
+        {t(cancelling ? "turnImageCancelling" : "turnImageCancel")}
+      </button>
+    </div>
+  );
+}
 
 /**
  * The per-turn picture while it draws (a placeholder the size of the picture,
@@ -25,17 +59,21 @@ export function TurnImageState({ message, api, t }: { message: SandboxMessage; a
     return (
       <div className="my-3 flex justify-center" role="status" aria-live="polite">
         <div className="w-full rounded-lg border border-border/60 bg-background/60 p-2" style={{ maxWidth: "24rem" }}>
-          <div className="flex aspect-[832/1216] w-full items-center justify-center gap-2 rounded-md bg-muted/40 text-xs text-muted-foreground">
-            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin" aria-hidden="true">
-              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-            </svg>
-            {t("turnImageDrawing")}
+          <div className="flex aspect-[832/1216] w-full items-center justify-center rounded-md bg-muted/40 text-xs text-muted-foreground">
+            <TurnImageDrawingLabel t={t} message={message} api={api} />
           </div>
         </div>
       </div>
     );
   }
+
+  if (state.status === "cancelled") return (
+    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite">
+      <span>{t("turnImageCancelled")}</span>
+      <button type="button" onClick={() => { void api.illustrateMessage(message.id); }}
+        className="hover-surface min-h-8 rounded px-1.5 py-0.5 font-medium text-primary">{t("turnImageRetry")}</button>
+    </div>
+  );
 
   return (
     <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground" role="status">

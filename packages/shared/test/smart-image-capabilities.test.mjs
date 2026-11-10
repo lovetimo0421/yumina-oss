@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   SMART_IMAGE_ASPECTS,
   SMART_IMAGE_MODELS,
+  SMART_IMAGE_FAMILIES,
   SMART_IMAGE_MODEL,
   SMART_IMAGE_RESOLUTIONS,
   getSmartImageCapabilities,
@@ -79,13 +80,17 @@ test("the default model is one the picker can actually show", () => {
     "SMART_IMAGE_MODEL must name a model in the registry");
 });
 
-test("the picker lists models cheapest first", () => {
-  // Position is not how the picker decides what is selected — it renders the
-  // resolved model's id — so the order is free to be the one that helps a
-  // creator: ascending price, with the default sitting wherever it belongs.
-  const prices = SMART_IMAGE_MODELS.map(model => model.estimatedCostUsd);
-  assert.deepEqual(prices, [...prices].sort((a, b) => a - b),
-    "a model was added out of price order");
+test("each family lists its versions cheapest first, together", () => {
+  // The picker shows one card per family and the versions inside it in table
+  // order. Position is not how it decides what is selected (it renders the
+  // resolved model's id), so the order is free to help a creator: a family's
+  // versions sit together, cheapest first.
+  for (const family of SMART_IMAGE_FAMILIES) {
+    const indexes = SMART_IMAGE_MODELS.flatMap((model, index) => model.family === family ? [index] : []);
+    assert.equal(indexes.at(-1) - indexes[0], indexes.length - 1, `${family} versions are split up in the table`);
+    const prices = indexes.map(index => SMART_IMAGE_MODELS[index].estimatedCostUsd);
+    assert.deepEqual(prices, [...prices].sort((a, b) => a - b), `a ${family} version was added out of price order`);
+  }
 });
 
 test("a tier no model can render would be a dead option everywhere", () => {
@@ -106,7 +111,8 @@ test("capabilities still match OpenRouter (opt-in: CHECK_OPENROUTER_CAPS=1)", { 
   const { data } = await response.json();
   const live = new Map(data.map(entry => [entry.id, entry.supported_parameters ?? {}]));
 
-  for (const model of SMART_IMAGE_MODELS) {
+  // Comfy Router's own models (kling/, luma_2/, ideogram/, wan/, xai/) are not on OpenRouter.
+  for (const model of SMART_IMAGE_MODELS.filter(model => !/^(kling|luma_2|ideogram|wan|xai)\//.test(model.id))) {
     const params = live.get(model.id);
     assert.ok(params, `${model.id} is no longer listed by OpenRouter`);
     const liveRatios = params.aspect_ratio?.values ?? [];
