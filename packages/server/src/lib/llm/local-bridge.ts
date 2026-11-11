@@ -205,6 +205,20 @@ export class LocalBridgeProvider implements LLMProvider {
     }));
   }
 
+  /**
+   * The window the player's runtime actually runs this model at, when it told
+   * us. LM Studio loads a model at whatever context the player chose — 8K is
+   * its default — and packing a 32K prompt into that fails the turn, so the
+   * budget has to come down to it. Unknown means DEFAULT_LOCAL_CONTEXT, which
+   * getModelContextWindow already applies to every local model.
+   */
+  async getContextWindow(modelId?: string): Promise<number | undefined> {
+    if (!modelId) return undefined;
+    const id = toRuntimeModelId(modelId);
+    const advertised = await getAdvertisedModels(this.userId);
+    return advertised.find((m) => m.id === id)?.contextLength;
+  }
+
   async verify(): Promise<boolean> {
     return hasLocalConnection(this.userId);
   }

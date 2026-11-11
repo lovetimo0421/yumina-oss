@@ -10,20 +10,37 @@ import { create } from "zustand";
 import { toast } from "sonner";
 import i18n from "@/lib/i18n";
 import { useModelsStore, type ModelInfo } from "@/stores/models";
-import { detectLocalRuntime, type DetectionResult, type RuntimeCandidate } from "./detect";
+import {
+  detectLocalRuntime,
+  LOCAL_CONTEXT,
+  readyResult,
+  runtimeNames,
+  type DetectedModel,
+  type DetectionResult,
+  type RuntimeCandidate,
+  type RuntimeModels,
+} from "./detect";
 import { LocalBridge, type BridgeStatus } from "./bridge";
 import { isLocalModelArmed, setLocalModelArmed } from "./enabled-flag";
 
 /** Pickers key everything off `local/`; the runtime knows the bare id. */
-function toModelInfo(runtime: RuntimeCandidate, id: string): ModelInfo {
+function toModelInfo(runtime: RuntimeCandidate, model: DetectedModel): ModelInfo {
   return {
-    id: `local/${id}`,
-    name: id,
+    id: `local/${model.id}`,
+    name: model.name ?? model.id,
     provider: `${runtime.label} (this device)`,
-    contextLength: 32_768,
+    // The server never packs more than LOCAL_CONTEXT, however big the window.
+    contextLength: Math.min(model.contextLength ?? LOCAL_CONTEXT, LOCAL_CONTEXT),
     pricing: { prompt: 0, completion: 0 },
     isCurated: true,
   };
+}
+
+/** Every runtime's models into the pickers; an id two runtimes share goes to the first. */
+function publishModels(runtimes: RuntimeModels[]): void {
+  const seen = new Set<string>();
+  const infos = runtimes.flatMap((r) => r.models.map((m) => toModelInfo(r.runtime, m)));
+  useModelsStore.getState().setLocalModels(infos.filter((m) => !seen.has(m.id) && Boolean(seen.add(m.id))));
 }
 
 interface LocalModelState {
@@ -42,8 +59,12 @@ interface LocalModelState {
   detect: () => Promise<DetectionResult>;
   enable: () => Promise<void>;
   disable: () => void;
-  /** Reconnect on load when the player already turned this on. */
-  resume: () => Promise<void>;
+  /**
+   * Reconnect on load when the player already turned this on. With `auto`
+   * (see shouldAutoDetectLocalModel) also connect a player who never did,
+   * to whatever runtime is running — or as soon as one starts.
+   */
+  resume: (opts?: { auto?: boolean }) => Promise<void>;
 
   /** Polling for the runtime after the player copied a setup command. */
   watching: boolean;
@@ -100,14 +121,15 @@ export const useLocalModelStore = create<LocalModelState>((set, get) => ({
 
     bridge?.stop();
     bridge = new LocalBridge({
-      runtime: detection.runtime,
-      models: detection.models,
+      runtimes: detection.runtimes,
       onStatus: (status, detail) => set({ status, error: detail ?? null }),
+      onRuntimes: (runtimes) => {
+        publishModels(runtimes);
+        set({ detection: readyResult(runtimes) });
+      },
     });
 
-    useModelsStore
-      .getState()
-      .setLocalModels(detection.models.map((m) => toModelInfo(detection.runtime, m.id)));
+    publishModels(detection.runtimes);
 
     await bridge.start();
     set({ enabled: true, armed: true });
@@ -124,9 +146,18 @@ export const useLocalModelStore = create<LocalModelState>((set, get) => ({
     setLocalModelArmed(false);
   },
 
-  resume: async () => {
-    if (!get().armed || get().enabled) return;
-    await get().enable();
+  resume: async (opts) => {
+    if (get().enabled) return;
+    if (get().armed) {
+      await get().enable();
+      return;
+    }
+    if (!opts?.auto) return;
+    const detection = await get().detect();
+    if (detection.status === "ready" && detection.models.length > 0) await get().enable();
+    // Not running, not allowing us yet, or no model downloaded: connect the
+    // moment that changes. Only a browser-level denial can't fix itself.
+    else if (detection.status !== "denied") get().watchForRuntime();
   },
 
   watching: false,
@@ -144,7 +175,7 @@ export const useLocalModelStore = create<LocalModelState>((set, get) => ({
       if (found?.status === "ready" && found.models.length > 0) {
         set({ detection: found, watching: false });
         await get().enable();
-        if (get().enabled) toast.success(i18n.t("profile:localModel.connectedToast", { runtime: found.runtime.label }));
+        if (get().enabled) toast.success(i18n.t("profile:localModel.connectedToast", { runtime: runtimeNames(found) }));
         return;
       }
       // A blocked local-network permission never resolves by waiting: stop
