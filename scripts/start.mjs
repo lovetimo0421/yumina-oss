@@ -84,7 +84,9 @@ syncPublic();
 
 const host = env.HOST || "127.0.0.1";
 const port = env.PORT || "3000";
-console.log(`[start] Yumina is starting at http://${host === "0.0.0.0" ? "localhost" : host}:${port}`);
+const publicUrl = env.PUBLIC_ORIGIN || env.BETTER_AUTH_URL || `http://${env.YUMINA_PUBLIC_HOST || "localhost"}:${port}`;
+console.log(`[start] Listen: ${host}:${port}`);
+console.log(`[start] Open: ${publicUrl}`);
 
 const child = spawn("node", ["dist/index.js"], {
   cwd: SERVER_DIR,

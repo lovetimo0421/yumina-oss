@@ -77,16 +77,20 @@ Import: Yumina `.png` or `.json` cards, plus character cards and worldbooks in t
 |---|---|---|
 | `PORT` | `3000` | Port to listen on |
 | `HOST` | `127.0.0.1` | Bind address. Single-user mode has no login, so only bind `0.0.0.0` on a network you trust, or switch to multi-user mode. |
+| `YUMINA_PUBLIC_HOST` | `localhost` | Browser-facing hostname/IP, without scheme or port. With `PORT`, derives the HTTP public and auth addresses. |
 | `YUMINA_DATA_DIR` | `./data` (under `packages/server`) | Database and uploaded assets |
 | `YUMINA_STORAGE_DIR` | `<data dir>/assets` | Uploaded files, when no S3 bucket is configured |
 | `YUMINA_AUTH_MODE` | `single-user` | `multi-user` turns on email and password accounts |
-| `PUBLIC_ORIGIN` | derived from `BETTER_AUTH_URL` | The origin browsers use to reach this server |
+| `PUBLIC_ORIGIN` | derived from `BETTER_AUTH_URL`, otherwise public host + port | Explicit browser-facing origin, e.g. an HTTPS reverse proxy |
+| `BETTER_AUTH_URL` | public origin, otherwise public host + port | Optional explicit auth origin |
 | `BETTER_AUTH_SECRET` | generated | Signs sessions and encrypts stored API keys. Keep it. |
 | `DATABASE_URL` | unset | Set to use a real PostgreSQL instead of the embedded one. An empty database is provisioned on first start. |
 | `AWS_S3_BUCKET_NAME`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL` | unset | Store uploads in any S3-compatible bucket instead of on disk |
 | `COVER_UPLOAD_PYTHON` | `python` on Windows, `python3` elsewhere | Python executable with Pillow for animated cover uploads |
 
 ### Docker
+
+For Windows/mobile-hotspot configuration and changing ports, see [本地部署配置说明](docs/local-deployment-zh.md).
 
 ```
 docker build -t yumina .

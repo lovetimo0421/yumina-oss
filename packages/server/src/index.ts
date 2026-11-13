@@ -95,7 +95,7 @@ import { voiceInputRoutes } from "./routes/voice-input.js";
 import { realtimeVideoRoutes } from "./routes/realtime-video.js";
 import { socialSimulatorRoutes } from "./routes/social-simulator.js";
 import { combatRoutes } from "./routes/combat.js";
-import { BIND_HOST, IS_DEV } from "./lib/env.js";
+import { BIND_HOST, IS_DEV, SANDBOX_HTTP_SOURCE } from "./lib/env.js";
 import { isTestingRequest } from "./lib/testing-origin.js";
 import { connectRedis, disconnectRedis } from "./lib/redis.js";
 import { posthog, captureServerError } from "./lib/posthog.js";
@@ -387,15 +387,17 @@ if (process.env.NODE_ENV === "production") {
   // *.pages.dev). These hosts all require account creation + have abuse
   // detection, so they're higher-trust than arbitrary https:. Expand this list
   // only when a specific card needs a new platform.
+  // Self-hosted HTTP installs must load their own runtime and assets too.
+  // Use the configured origin (never the request Host), not a blanket http:.
   const SANDBOX_CSP = [
-    "default-src https: 'unsafe-inline' 'unsafe-eval'",
-    "img-src https: data: blob:",
-    "font-src https: data:",
+    `default-src https:${SANDBOX_HTTP_SOURCE} 'unsafe-inline' 'unsafe-eval'`,
+    `img-src https:${SANDBOX_HTTP_SOURCE} data: blob:`,
+    `font-src https:${SANDBOX_HTTP_SOURCE} data:`,
     // Audio and video: card BGM and voice come from https: (and blob: once a
     // card builds a clip itself), and the iOS audio unlock in the sandbox
     // plays a silent data: WAV. Without this they fell back to default-src,
     // which has no data: or blob:, and the unlock silently failed.
-    "media-src https: data: blob:",
+    `media-src https:${SANDBOX_HTTP_SOURCE} data: blob:`,
     "connect-src 'none'",
     "frame-src https://*.pages.dev https://*.vercel.app https://*.netlify.app https://*.github.io",
     // Only the app itself may embed the sandbox document. If the sandbox

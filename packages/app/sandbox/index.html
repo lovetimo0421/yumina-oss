@@ -1,6 +1,19 @@
 <!doctype html>
 <html lang="en" class="dark">
   <head>
+    <script>
+      // The sandbox also runs on an insecure origin during LAN HTTP play.
+      if (globalThis.crypto && !globalThis.crypto.randomUUID) {
+        globalThis.crypto.randomUUID = function () {
+          var bytes = new Uint8Array(16);
+          globalThis.crypto.getRandomValues(bytes);
+          bytes[6] = (bytes[6] & 15) | 64;
+          bytes[8] = (bytes[8] & 63) | 128;
+          var hex = Array.from(bytes, function (b) { return b.toString(16).padStart(2, "0"); }).join("");
+          return hex.slice(0, 8) + "-" + hex.slice(8, 12) + "-" + hex.slice(12, 16) + "-" + hex.slice(16, 20) + "-" + hex.slice(20);
+        };
+      }
+    </script>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>Yumina Sandbox</title>

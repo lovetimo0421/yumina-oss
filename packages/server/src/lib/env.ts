@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { config } from "dotenv";
+import { resolveNetworkConfig } from "./network-config.js";
 
 config({ path: "../../.env" });
 
@@ -38,6 +39,8 @@ const envSchema = z.object({
   // Public origin of this deployment (cookies, CORS, links in emails, SEO).
   // Unset = derive from BETTER_AUTH_URL.
   PUBLIC_ORIGIN: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  // Browser-facing host only (no scheme/port/path); PORT supplies the port.
+  YUMINA_PUBLIC_HOST: z.preprocess(emptyToUndefined, z.string().default("localhost")),
   // Bind address. Unset = Node's default (all interfaces, IPv6 included, which
   // Railway's networking needs). The local edition defaults to loopback below:
   // single-user mode has no login, so exposing it on a LAN makes everyone "you".
@@ -97,7 +100,7 @@ const envSchema = z.object({
   // new key first and retain old keys while rotating. Falls back to the auth
   // secret for existing deployments, but production should set this explicitly.
   DELETED_IDENTITY_HMAC_SECRETS: z.string().default(""),
-  BETTER_AUTH_URL: z.string().url().default("http://localhost:3000"),
+  BETTER_AUTH_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
   GOOGLE_CLIENT_ID: z.string().default(""),
   GOOGLE_CLIENT_SECRET: z.string().default(""),
   GITHUB_CLIENT_ID: z.string().default(""),
@@ -121,7 +124,7 @@ const envSchema = z.object({
   // `aud` claim krew checks on the identity token.
   KREW_TOKEN_AUDIENCE: z.string().default("krew.io"),
   APP_URL: z.string().url().default("http://localhost:5173"),
-  PORT: z.coerce.number().default(3000),
+  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   // S3-compatible storage (Railway Storage Buckets)
   AWS_S3_BUCKET_NAME: z.string().default(""),
   AWS_ACCESS_KEY_ID: z.string().default(""),
@@ -326,7 +329,14 @@ if (!parsed.success) {
   process.exit(1);
 }
 
-export const env = parsed.data;
+const network = resolveNetworkConfig({
+  port: parsed.data.PORT,
+  publicHost: parsed.data.YUMINA_PUBLIC_HOST,
+  publicOrigin: parsed.data.PUBLIC_ORIGIN,
+  authUrl: parsed.data.BETTER_AUTH_URL,
+  localEdition: parsed.data.YUMINA_EDITION === "local",
+});
+export const env = { ...parsed.data, BETTER_AUTH_URL: network.authUrl };
 export const IS_DEV = process.env.NODE_ENV !== "production";
 
 /** "hosted" (yumina.io) or "local" (open-source self-hosted build). */
@@ -340,4 +350,6 @@ export const STORAGE_DIR = env.YUMINA_STORAGE_DIR ?? `${env.YUMINA_DATA_DIR.repl
 /** Bind address for the HTTP server; undefined keeps Node's dual-stack default. */
 export const BIND_HOST: string | undefined = env.HOST ?? (IS_LOCAL_EDITION ? "127.0.0.1" : undefined);
 /** Canonical public origin (no trailing slash). */
-export const PUBLIC_ORIGIN = (env.PUBLIC_ORIGIN ?? env.BETTER_AUTH_URL).replace(/\/+$/, "");
+export const PUBLIC_ORIGIN = network.publicOrigin;
+export const SECURE_COOKIES = network.secureCookies;
+export const SANDBOX_HTTP_SOURCE = network.sandboxHttpSource;

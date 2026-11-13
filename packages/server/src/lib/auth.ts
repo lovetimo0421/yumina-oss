@@ -9,7 +9,7 @@ import {
   ALL_OAUTH_SCOPES, APP_ACCESS_TOKEN_LIFETIME, DYNAMIC_CLIENT_SCOPES, FIRST_PARTY_APP_SCOPES, aiGatewayResourceUrl,
 } from "./app-oauth.js";
 import { and, eq, like } from "drizzle-orm";
-import { env, IS_LOCAL_EDITION, PUBLIC_ORIGIN } from "./env.js";
+import { env, IS_LOCAL_EDITION, PUBLIC_ORIGIN, SECURE_COOKIES } from "./env.js";
 import * as schema from "../db/schema.js";
 import { isReservedUsername } from "@yumina/shared";
 import { db } from "../db/index.js";
@@ -257,9 +257,10 @@ export const auth = betterAuth({
   //     to the actual hostname is more robust.
   advanced: {
     cookiePrefix: COOKIE_PREFIX,
+    useSecureCookies: SECURE_COOKIES,
     defaultCookieAttributes: {
       sameSite: "lax",
-      secure: true,
+      secure: SECURE_COOKIES,
     },
     // Better Auth defaults to `x-forwarded-for[0]`, which behind Cloudflare →
     // Railway is the Cloudflare EDGE ip, not the visitor. Every one of the
